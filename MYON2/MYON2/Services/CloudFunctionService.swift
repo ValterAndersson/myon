@@ -2,6 +2,24 @@ import Foundation
 import FirebaseFunctions
 // Import your models if needed
 
+struct WeeklyStatsRecalculationResult: Codable {
+    let success: Bool
+    let message: String
+    let results: WeeklyStatsResults
+}
+
+struct WeeklyStatsResults: Codable {
+    let currentWeek: WeekStatsResult
+    let lastWeek: WeekStatsResult
+}
+
+struct WeekStatsResult: Codable {
+    let weekId: String
+    let success: Bool
+    let workoutCount: Int
+    let error: String?
+}
+
 protocol CloudFunctionServiceProtocol {
     // Exercise operations
     func getExercises() async throws -> [Exercise]
@@ -38,6 +56,9 @@ protocol CloudFunctionServiceProtocol {
     func listStrengthOSSessions(userId: String) async throws -> [String]
     func deleteStrengthOSSession(userId: String, sessionId: String) async throws
     func queryStrengthOS(message: String, userId: String, sessionId: String?) async throws -> (response: String, sessionId: String)
+    
+    // Analytics operations
+    func manualWeeklyStatsRecalculation() async throws -> WeeklyStatsRecalculationResult
 }
 
 class CloudFunctionService: CloudFunctionServiceProtocol {
@@ -249,6 +270,13 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
             return sessions
         }
         return []
+    }
+    
+    // MARK: - Analytics Operations
+    
+    func manualWeeklyStatsRecalculation() async throws -> WeeklyStatsRecalculationResult {
+        let data = try await callFunction(name: "manualWeeklyStatsRecalculation", data: [:])
+        return try JSONDecoder().decode(WeeklyStatsRecalculationResult.self, from: data)
     }
     
     // MARK: - Private Helpers

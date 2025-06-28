@@ -22,8 +22,11 @@ struct MoreView: View {
     @State private var weightFormat = "kilograms"
     private let heightFormats = ["centimeter", "feet"]
     private let weightFormats = ["kilograms", "pounds"]
+    @State private var recalculationResult: String?
+    @State private var showingRecalculationAlert = false
     
     private let userRepository = UserRepository()
+    private let cloudFunctionService = CloudFunctionService()
     
     // Options arrays (same as onboarding)
     private let fitnessGoals = ["Lose Weight", "Build Muscle", "Improve Fitness", "Maintain Health"]
@@ -121,9 +124,9 @@ struct MoreView: View {
                     }
                     .foregroundColor(.blue)
                     
-                    Button("Test Direct Streaming") {
+                    Button("Recalculate Weekly Stats") {
                         Task {
-                            await DirectStreamingTest.shared.runTests()
+                            await recalculateWeeklyStats()
                         }
                     }
                     .foregroundColor(.green)
@@ -152,6 +155,11 @@ struct MoreView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text("Your changes have been saved successfully.")
+            }
+            .alert("Weekly Stats Recalculation", isPresented: $showingRecalculationAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(recalculationResult ?? "")
             }
             .overlay {
                 if isLoading {
@@ -277,6 +285,39 @@ struct MoreView: View {
                 DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func recalculateWeeklyStats() {
+        isLoading = true
+        Task {
+            do {
+                let result = try await cloudFunctionService.manualWeeklyStatsRecalculation()
+                
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    
+                    if result.success {
+                        let currentWeek = result.results.currentWeek
+                        let lastWeek = result.results.lastWeek
+                        
+                        self.recalculationResult = "Recalculation completed successfully!\n\n" +
+                            "Current Week (\(currentWeek.weekId)): \(currentWeek.workoutCount) workouts\n" +
+                            "Last Week (\(lastWeek.weekId)): \(lastWeek.workoutCount) workouts\n\n" +
+                            "Status: \(currentWeek.success && lastWeek.success ? "✅ All successful" : "⚠️ Some issues occurred")"
+                    } else {
+                        self.recalculationResult = "Recalculation failed: \(result.message)"
+                    }
+                    
+                    self.showingRecalculationAlert = true
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.recalculationResult = "Error: \(error.localizedDescription)"
+                    self.showingRecalculationAlert = true
                 }
             }
         }

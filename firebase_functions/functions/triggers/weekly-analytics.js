@@ -1,4 +1,6 @@
 const { onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onCall } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -10,14 +12,18 @@ const db = admin.firestore();
 function getWeekStart(dateString) {
   const date = new Date(dateString);
   const day = date.getUTCDay();
-  const diff = (day + 6) % 7;
+  // Sunday = 0, so no adjustment needed for Sunday start
+  const diff = day;
   date.setUTCDate(date.getUTCDate() - diff);
   date.setUTCHours(0, 0, 0, 0);
   return date.toISOString().split('T')[0];
 }
 
 function mergeMetrics(target = {}, source = {}, increment = 1) {
+  if (!source || typeof source !== 'object') return;
+  
   for (const [key, value] of Object.entries(source)) {
+    if (typeof value !== 'number') continue;
     const current = target[key] || 0;
     const updated = current + value * increment;
     if (updated === 0) {
@@ -28,7 +34,28 @@ function mergeMetrics(target = {}, source = {}, increment = 1) {
   }
 }
 
-async function updateWeeklyStats(userId, weekId, analytics, increment = 1) {
+function validateAnalytics(analytics) {
+  if (!analytics || typeof analytics !== 'object') {
+    return { isValid: false, error: 'Analytics object is missing or invalid' };
+  }
+
+  const requiredNumericFields = ['total_sets', 'total_reps', 'total_weight'];
+  for (const field of requiredNumericFields) {
+    if (typeof analytics[field] !== 'number') {
+      return { isValid: false, error: `Analytics missing or invalid field: ${field}` };
+    }
+  }
+
+  return { isValid: true };
+}
+
+async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retries = 3) {
+  const validation = validateAnalytics(analytics);
+  if (!validation.isValid) {
+    console.warn(`Invalid analytics for user ${userId}, week ${weekId}: ${validation.error}`);
+    return { success: false, error: validation.error };
+  }
+
   const ref = db
     .collection('users')
     .doc(userId)
@@ -36,92 +63,319 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1) {
     .collection('weekly_stats')
     .doc(weekId);
 
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const data = snap.exists
-      ? snap.data()
-      : {
-          workouts: 0,
-          total_sets: 0,
-          total_reps: 0,
-          total_weight: 0,
-          weight_per_muscle_group: {},
-          weight_per_muscle: {},
-          reps_per_muscle_group: {},
-          reps_per_muscle: {},
-          sets_per_muscle_group: {},
-          sets_per_muscle: {},
-        };
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const data = snap.exists
+          ? snap.data()
+          : {
+              workouts: 0,
+              total_sets: 0,
+              total_reps: 0,
+              total_weight: 0,
+              weight_per_muscle_group: {},
+              weight_per_muscle: {},
+              reps_per_muscle_group: {},
+              reps_per_muscle: {},
+              sets_per_muscle_group: {},
+              sets_per_muscle: {},
+            };
 
-    data.workouts += increment;
-    data.total_sets +=
-      (analytics.total_sets || analytics.totalSets || 0) * increment;
-    data.total_reps +=
-      (analytics.total_reps || analytics.totalReps || 0) * increment;
-    data.total_weight +=
-      (analytics.total_weight || analytics.totalWeight || 0) * increment;
+        data.workouts += increment;
+        data.total_sets += analytics.total_sets * increment;
+        data.total_reps += analytics.total_reps * increment;
+        data.total_weight += analytics.total_weight * increment;
 
-    mergeMetrics(
-      data.weight_per_muscle_group,
-      analytics.weight_per_muscle_group || analytics.weightPerMuscleGroup || {},
-      increment
-    );
-    mergeMetrics(
-      data.weight_per_muscle,
-      analytics.weight_per_muscle || analytics.weightPerMuscle || {},
-      increment
-    );
-    mergeMetrics(
-      data.reps_per_muscle_group,
-      analytics.reps_per_muscle_group || analytics.repsPerMuscleGroup || {},
-      increment
-    );
-    mergeMetrics(
-      data.reps_per_muscle,
-      analytics.reps_per_muscle || analytics.repsPerMuscle || {},
-      increment
-    );
-    mergeMetrics(
-      data.sets_per_muscle_group,
-      analytics.sets_per_muscle_group || analytics.setsPerMuscleGroup || {},
-      increment
-    );
-    mergeMetrics(
-      data.sets_per_muscle,
-      analytics.sets_per_muscle || analytics.setsPerMuscle || {},
-      increment
-    );
+        mergeMetrics(data.weight_per_muscle_group, analytics.weight_per_muscle_group, increment);
+        mergeMetrics(data.weight_per_muscle, analytics.weight_per_muscle, increment);
+        mergeMetrics(data.reps_per_muscle_group, analytics.reps_per_muscle_group, increment);
+        mergeMetrics(data.reps_per_muscle, analytics.reps_per_muscle, increment);
+        mergeMetrics(data.sets_per_muscle_group, analytics.sets_per_muscle_group, increment);
+        mergeMetrics(data.sets_per_muscle, analytics.sets_per_muscle, increment);
 
-    data.updated_at = admin.firestore.FieldValue.serverTimestamp();
-    tx.set(ref, data, { merge: true });
-  });
+        data.updated_at = admin.firestore.FieldValue.serverTimestamp();
+        tx.set(ref, data, { merge: true });
+      });
+
+      return { success: true, weekId, attempt };
+    } catch (error) {
+      console.warn(`Transaction attempt ${attempt} failed for user ${userId}, week ${weekId}:`, error.message);
+      
+      if (attempt === retries) {
+        console.error(`All ${retries} attempts failed for user ${userId}, week ${weekId}:`, error);
+        return { success: false, error: error.message, finalAttempt: true };
+      }
+      
+      // Exponential backoff: wait 2^attempt * 100ms
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+    }
+  }
 }
+
+/**
+ * Periodic function to recalculate weekly stats for data consistency
+ * Runs daily to catch any missed updates or resolve inconsistencies
+ */
+async function recalculateWeeklyStats(userId, weekId) {
+  console.log(`Recalculating weekly stats for user ${userId}, week ${weekId}`);
+  
+  try {
+    // Get all completed workouts for this week
+    const weekStart = new Date(weekId + 'T00:00:00.000Z');
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    
+    const workoutsSnap = await db
+      .collection('users')
+      .doc(userId)
+      .collection('workouts')
+      .where('completedAt', '>=', weekStart.toISOString())
+      .where('completedAt', '<', weekEnd.toISOString())
+      .get();
+
+    // Calculate fresh weekly stats
+    const freshStats = {
+      workouts: 0,
+      total_sets: 0,
+      total_reps: 0,
+      total_weight: 0,
+      weight_per_muscle_group: {},
+      weight_per_muscle: {},
+      reps_per_muscle_group: {},
+      reps_per_muscle: {},
+      sets_per_muscle_group: {},
+      sets_per_muscle: {},
+    };
+
+    workoutsSnap.docs.forEach(doc => {
+      const workout = doc.data();
+      if (!workout.analytics) {
+        console.warn(`Workout ${doc.id} missing analytics during recalculation`);
+        return;
+      }
+
+      const validation = validateAnalytics(workout.analytics);
+      if (!validation.isValid) {
+        console.warn(`Invalid analytics for workout ${doc.id}: ${validation.error}`);
+        return;
+      }
+
+      freshStats.workouts += 1;
+      freshStats.total_sets += workout.analytics.total_sets;
+      freshStats.total_reps += workout.analytics.total_reps;
+      freshStats.total_weight += workout.analytics.total_weight;
+
+      mergeMetrics(freshStats.weight_per_muscle_group, workout.analytics.weight_per_muscle_group, 1);
+      mergeMetrics(freshStats.weight_per_muscle, workout.analytics.weight_per_muscle, 1);
+      mergeMetrics(freshStats.reps_per_muscle_group, workout.analytics.reps_per_muscle_group, 1);
+      mergeMetrics(freshStats.reps_per_muscle, workout.analytics.reps_per_muscle, 1);
+      mergeMetrics(freshStats.sets_per_muscle_group, workout.analytics.sets_per_muscle_group, 1);
+      mergeMetrics(freshStats.sets_per_muscle, workout.analytics.sets_per_muscle, 1);
+    });
+
+    // Update the weekly stats document
+    const ref = db
+      .collection('users')
+      .doc(userId)
+      .collection('analytics')
+      .collection('weekly_stats')
+      .doc(weekId);
+
+    freshStats.updated_at = admin.firestore.FieldValue.serverTimestamp();
+    freshStats.recalculated_at = admin.firestore.FieldValue.serverTimestamp();
+    
+    await ref.set(freshStats, { merge: true });
+    
+    return { success: true, userId, weekId, workoutCount: freshStats.workouts };
+  } catch (error) {
+    console.error(`Error recalculating weekly stats for user ${userId}, week ${weekId}:`, error);
+    return { success: false, error: error.message, userId, weekId };
+  }
+}
+
+/**
+ * Cloud Scheduler function to run periodic recalculations
+ * Runs daily at 2 AM UTC to recalculate stats for active users
+ */
+exports.weeklyStatsRecalculation = onSchedule({
+  schedule: '0 2 * * *', // Daily at 2 AM UTC
+  timeZone: 'UTC',
+  retryConfig: {
+    retryCount: 3,
+    maxRetryDuration: '600s'
+  }
+}, async (event) => {
+  console.log('Starting weekly stats recalculation job');
+  
+  try {
+    // Get current week and last week IDs
+    const now = new Date();
+    const currentWeekId = getWeekStart(now.toISOString());
+    const lastWeek = new Date(now);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const lastWeekId = getWeekStart(lastWeek.toISOString());
+    
+    // Find users who have completed workouts in the last 2 weeks
+    const twoWeeksAgo = new Date(now);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    
+    const usersSnap = await db.collectionGroup('workouts')
+      .where('completedAt', '>=', twoWeeksAgo.toISOString())
+      .select('completedAt') // Only get minimal data
+      .get();
+
+    const activeUserIds = [...new Set(usersSnap.docs.map(doc => doc.ref.parent.parent.id))];
+    console.log(`Found ${activeUserIds.length} active users to recalculate`);
+
+    const results = [];
+    
+    // Process users in batches to avoid overwhelming the system
+    const batchSize = 10;
+    for (let i = 0; i < activeUserIds.length; i += batchSize) {
+      const batch = activeUserIds.slice(i, i + batchSize);
+      const batchPromises = batch.flatMap(userId => [
+        recalculateWeeklyStats(userId, currentWeekId),
+        recalculateWeeklyStats(userId, lastWeekId)
+      ]);
+      
+      const batchResults = await Promise.allSettled(batchPromises);
+      results.push(...batchResults);
+      
+      // Small delay between batch to avoid rate limits
+      if (i + batchSize < activeUserIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+    const failed = results.length - successful;
+    
+    console.log(`Weekly stats recalculation completed: ${successful} successful, ${failed} failed`);
+    
+    return {
+      success: true,
+      processed: results.length,
+      successful,
+      failed,
+      activeUsers: activeUserIds.length
+    };
+  } catch (error) {
+    console.error('Error in weekly stats recalculation job:', error);
+    return { success: false, error: error.message };
+  }
+});
 
 exports.onWorkoutCompleted = onDocumentUpdated(
   'users/{userId}/workouts/{workoutId}',
   async (event) => {
-    const before = event.data.before.data();
-    const after = event.data.after.data();
-    if (!after || !after.completedAt) return null;
-    if (before && before.completedAt === after.completedAt) return null;
+    try {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      
+      // Only process if workout was just completed
+      if (!after || !after.completedAt) return null;
+      if (before && before.completedAt === after.completedAt) return null;
 
-    const analytics = after.analytics;
-    if (!analytics) return null;
+      const analytics = after.analytics;
+      if (!analytics) {
+        console.warn(`Workout ${event.params.workoutId} for user ${event.params.userId} missing analytics`);
+        return null;
+      }
 
-    const weekId = getWeekStart(after.completedAt);
-    await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
-    return { success: true, weekId };
+      const weekId = getWeekStart(after.completedAt);
+      const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
+      
+      if (!result.success) {
+        console.error(`Failed to update weekly stats:`, result);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in onWorkoutCompleted:', error);
+      return { success: false, error: error.message };
+    }
   }
 );
 
 exports.onWorkoutDeleted = onDocumentDeleted(
   'users/{userId}/workouts/{workoutId}',
   async (event) => {
-    const workout = event.data.data();
-    if (!workout || !workout.completedAt || !workout.analytics) return null;
-    const weekId = getWeekStart(workout.completedAt);
-    await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
-    return { success: true, weekId };
+    try {
+      const workout = event.data.data();
+      if (!workout || !workout.completedAt || !workout.analytics) {
+        console.warn(`Deleted workout ${event.params.workoutId} missing required data`);
+        return null;
+      }
+      
+      const weekId = getWeekStart(workout.completedAt);
+      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
+      
+      if (!result.success) {
+        console.error(`Failed to update weekly stats for deleted workout:`, result);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in onWorkoutDeleted:', error);
+      return { success: false, error: error.message };
+    }
   }
 );
+
+/**
+ * Callable function to manually trigger weekly stats recalculation for a user
+ * Can be called from the iOS app for testing or manual refresh
+ */
+exports.manualWeeklyStatsRecalculation = onCall(async (request) => {
+  try {
+    // Verify authentication
+    if (!request.auth) {
+      throw new Error('User must be authenticated');
+    }
+    
+    const userId = request.auth.uid;
+    console.log(`Manual weekly stats recalculation requested for user: ${userId}`);
+    
+    // Get current and last week IDs
+    const now = new Date();
+    const currentWeekId = getWeekStart(now.toISOString());
+    const lastWeek = new Date(now);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const lastWeekId = getWeekStart(lastWeek.toISOString());
+    
+    // Recalculate both current and last week
+    const [currentWeekResult, lastWeekResult] = await Promise.allSettled([
+      recalculateWeeklyStats(userId, currentWeekId),
+      recalculateWeeklyStats(userId, lastWeekId)
+    ]);
+    
+    const results = {
+      currentWeek: {
+        weekId: currentWeekId,
+        success: currentWeekResult.status === 'fulfilled' && currentWeekResult.value.success,
+        workoutCount: currentWeekResult.status === 'fulfilled' ? currentWeekResult.value.workoutCount : 0,
+        error: currentWeekResult.status === 'rejected' ? currentWeekResult.reason.message : null
+      },
+      lastWeek: {
+        weekId: lastWeekId,
+        success: lastWeekResult.status === 'fulfilled' && lastWeekResult.value.success,
+        workoutCount: lastWeekResult.status === 'fulfilled' ? lastWeekResult.value.workoutCount : 0,
+        error: lastWeekResult.status === 'rejected' ? lastWeekResult.reason.message : null
+      }
+    };
+    
+    console.log(`Manual recalculation completed for user ${userId}:`, results);
+    
+    return {
+      success: true,
+      message: 'Weekly stats recalculation completed',
+      results
+    };
+    
+  } catch (error) {
+    console.error('Error in manual weekly stats recalculation:', error);
+    throw new Error(`Failed to recalculate weekly stats: ${error.message}`);
+  }
+});
 

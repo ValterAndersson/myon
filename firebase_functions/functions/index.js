@@ -60,7 +60,9 @@ const {
 } = require('./triggers/muscle-volume-calculations');
 const {
   onWorkoutCompleted,
-  onWorkoutDeleted
+  onWorkoutDeleted,
+  weeklyStatsRecalculation,
+  manualWeeklyStatsRecalculation
 } = require('./triggers/weekly-analytics');
 
 // Export all functions as Firebase HTTPS functions
@@ -114,3 +116,9 @@ exports.onTemplateUpdated = onTemplateUpdated;
 exports.onWorkoutCreated = onWorkoutCreated;
 exports.onWorkoutCompleted = onWorkoutCompleted;
 exports.onWorkoutDeleted = onWorkoutDeleted;
+
+// Scheduled Functions
+exports.weeklyStatsRecalculation = weeklyStatsRecalculation;
+
+// Callable Functions
+exports.manualWeeklyStatsRecalculation = manualWeeklyStatsRecalculation;

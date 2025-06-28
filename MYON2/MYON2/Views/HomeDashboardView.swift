@@ -9,7 +9,22 @@ struct HomeDashboardView: View {
                 .font(.largeTitle).bold()
 
             if viewModel.isLoading {
-                ProgressView()
+                ProgressView("Loading weekly stats...")
+            } else if viewModel.hasError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(.orange)
+                        .font(.title2)
+                    Text(viewModel.errorMessage ?? "An error occurred")
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Retry") {
+                        Task {
+                            await viewModel.retry()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else if let stats = viewModel.stats {
                 VStack(spacing: 12) {
                     StatRow(title: "Workouts", value: "\(stats.workouts)")
