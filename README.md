@@ -443,6 +443,51 @@ firebase_functions/functions/
   updated_at: timestamp,               // Last update time
   recalculated_at: timestamp           // Last recalculation time (for periodic jobs)
 }
+
+// Real Example: 3 workouts completed in a week
+{
+  "workouts": 3,
+  "total_sets": 54,
+  "total_reps": 679,
+  "total_weight": 31115,               // kg (total volume across all exercises)
+  
+  "weight_per_muscle_group": {
+    "arms": 6234.67,                   // Combined biceps, triceps, forearms volume
+    "back": 5571.00,                   // Lats, rhomboids, traps, etc.
+    "chest": 9354.67,                  // Pectoralis major and minor
+    "legs": 8520.00,                   // Quads, hamstrings, glutes, calves
+    "shoulders": 1434.67               // All deltoid heads
+  },
+  
+  "weight_per_muscle": {
+    "pectoralis major": 8116.60,       // Specific muscle volume
+    "latissimus dorsi": 3254.40,
+    "gluteus maximus": 3096.00,
+    "quadriceps": 3696.00,
+    "biceps brachii": 2111.10,
+    "triceps brachii": 2639.10,
+    // ... 15+ other muscles tracked
+  },
+  
+  "reps_per_muscle_group": {
+    "arms": 239.67,                    // Total reps for arm muscles
+    "back": 120.00,
+    "chest": 192.67,
+    "legs": 66.00,
+    "shoulders": 60.67
+  },
+  
+  "sets_per_muscle_group": {
+    "arms": 26,                        // Total sets targeting arms
+    "back": 17,
+    "chest": 21,
+    "legs": 8,
+    "shoulders": 13
+  },
+  
+  "updated_at": "2025-06-28T21:40:44Z",
+  "recalculated_at": "2025-06-28T21:40:44Z"
+}
 ```
 
 ### 3. StrengthOS Agent (`adk_agent/`)
