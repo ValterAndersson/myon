@@ -59,6 +59,7 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
   const ref = db
     .collection('users')
     .doc(userId)
+    .collection('analytics')
     .collection('weekly_stats')
     .doc(weekId);
 
@@ -125,6 +126,8 @@ async function recalculateWeeklyStats(userId, weekId) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
     
+    console.log(`Looking for workouts between ${weekStart.toISOString()} and ${weekEnd.toISOString()}`);
+    
     const workoutsSnap = await db
       .collection('users')
       .doc(userId)
@@ -132,6 +135,8 @@ async function recalculateWeeklyStats(userId, weekId) {
       .where('completedAt', '>=', weekStart.toISOString())
       .where('completedAt', '<', weekEnd.toISOString())
       .get();
+
+    console.log(`Found ${workoutsSnap.docs.length} workouts for user ${userId} in week ${weekId}`);
 
     // Calculate fresh weekly stats
     const freshStats = {
@@ -149,6 +154,12 @@ async function recalculateWeeklyStats(userId, weekId) {
 
     workoutsSnap.docs.forEach(doc => {
       const workout = doc.data();
+      console.log(`Processing workout ${doc.id}:`, {
+        completedAt: workout.completedAt,
+        hasAnalytics: !!workout.analytics,
+        analyticsKeys: workout.analytics ? Object.keys(workout.analytics) : []
+      });
+      
       if (!workout.analytics) {
         console.warn(`Workout ${doc.id} missing analytics during recalculation`);
         return;
@@ -157,6 +168,7 @@ async function recalculateWeeklyStats(userId, weekId) {
       const validation = validateAnalytics(workout.analytics);
       if (!validation.isValid) {
         console.warn(`Invalid analytics for workout ${doc.id}: ${validation.error}`);
+        console.log(`Analytics data:`, workout.analytics);
         return;
       }
 
@@ -173,10 +185,13 @@ async function recalculateWeeklyStats(userId, weekId) {
       mergeMetrics(freshStats.sets_per_muscle, workout.analytics.sets_per_muscle, 1);
     });
 
+    console.log(`Final calculated stats for user ${userId}, week ${weekId}:`, freshStats);
+
     // Update the weekly stats document
     const ref = db
       .collection('users')
       .doc(userId)
+      .collection('analytics')
       .collection('weekly_stats')
       .doc(weekId);
 

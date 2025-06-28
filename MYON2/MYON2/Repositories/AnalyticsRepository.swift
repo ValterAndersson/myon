@@ -34,6 +34,7 @@ class AnalyticsRepository {
         
         do {
             let doc = try await db.collection("users").document(userId)
+                .collection("analytics")
                 .collection("weekly_stats")
                 .document(weekId).getDocument()
             
@@ -67,6 +68,7 @@ class AnalyticsRepository {
         
         do {
             let query = db.collection("users").document(userId)
+                .collection("analytics")
                 .collection("weekly_stats")
                 .whereField(FieldPath.documentID(), isGreaterThanOrEqualTo: startWeekId)
                 .whereField(FieldPath.documentID(), isLessThanOrEqualTo: endWeekId)
