@@ -34,6 +34,7 @@ graph TB
     E --> L[Routines Collection]
     E --> M[Workouts Collection]
     E --> N[Exercises Collection]
+    E --> O[Weekly Stats Collection]
     end
 ```
 
@@ -53,113 +54,6 @@ graph TB
 - **Database**: Firestore with 1300+ exercises
 - **Authentication**: Firebase Auth + Google Cloud IAM
 - **Model**: Gemini 2.5 Flash for AI responses
-
-## 📊 Real-time Fitness Analytics System
-
-MYON includes a comprehensive real-time analytics system that automatically tracks and aggregates fitness metrics across all user workouts. The system provides detailed insights into training volume, muscle targeting, and progress over time.
-
-### Key Features
-
-#### 🔄 Automatic Data Aggregation
-- **Real-time Processing**: Analytics update automatically when workouts are completed or deleted
-- **Weekly Aggregation**: Data organized by week for easy progress tracking
-- **Muscle-specific Metrics**: Tracks volume, sets, and reps by individual muscles and muscle groups
-- **User-configurable Week Start**: Users can choose Monday or Sunday as their week start day
-
-#### 📈 Comprehensive Metrics
-- **Total Volume**: Weight × reps across all exercises
-- **Set/Rep Tracking**: Detailed count of training stimuli
-- **Muscle Distribution**: Volume and stimuli breakdown by muscle groups and individual muscles
-- **Progress Trends**: Week-over-week comparison and analysis
-
-#### ⚙️ System Architecture
-
-```mermaid
-graph LR
-    A[User Completes Workout] --> B[Firebase Trigger: onWorkoutCompleted]
-    B --> C[Check User Week Preference]
-    C --> D[Calculate Week ID]
-    D --> E[Update Weekly Stats]
-    E --> F[Real-time Dashboard Update]
-    
-    G[User Deletes Workout] --> H[Firebase Trigger: onWorkoutDeleted]
-    H --> I[Subtract from Weekly Stats]
-    
-    J[Daily 2AM UTC] --> K[Scheduled Recalculation]
-    K --> L[Ensure Data Consistency]
-```
-
-#### 🎛️ User Configuration
-- **Week Start Preference**: Configurable in Settings (Monday/Sunday)
-- **Manual Recalculation**: "Recalculate Weekly Stats" button in More settings
-- **Automatic Consistency**: Daily background recalculation job
-
-### Technical Implementation
-
-#### Firebase Functions (Analytics Engine)
-```javascript
-// Core functions for analytics processing
-exports.onWorkoutCompleted      // Real-time workout completion processing
-exports.onWorkoutDeleted        // Real-time workout deletion processing  
-exports.weeklyStatsRecalculation // Daily consistency job (2 AM UTC)
-exports.manualWeeklyStatsRecalculation // User-triggered recalculation
-
-// User preference-aware week calculation
-async function getWeekStartForUser(userId, dateString) {
-  // Respects user's Monday/Sunday preference
-  // Defaults to Monday for new users
-}
-```
-
-#### iOS Analytics Components
-```swift
-// Analytics data models
-struct WeeklyStats: Codable {
-    let workouts: Int
-    let totalSets: Int
-    let totalReps: Int
-    let totalWeight: Double
-    let weightPerMuscleGroup: [String: Double]?
-    // ... other metrics
-}
-
-// Analytics repository with user preference support
-class AnalyticsRepository {
-    func getCurrentWeekStats(userId: String) async throws -> WeeklyStats?
-    func getWeeklyStatsRange(userId: String, startWeekId: String, endWeekId: String) async throws -> [WeeklyStats]
-}
-
-// Dashboard view model
-class WeeklyStatsViewModel: ObservableObject {
-    @Published var stats: WeeklyStats?
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-}
-```
-
-#### Dashboard Integration
-- **Home Dashboard**: Real-time display of current week metrics
-- **User Settings**: Week preference toggle (Monday/Sunday)
-- **Error Handling**: Graceful fallback and retry mechanisms
-- **Performance**: Optimized queries with proper data pagination
-
-### Data Consistency Features
-
-#### Automatic Triggers
-- **Workout Completion**: Immediately updates weekly stats when workout ends
-- **Workout Deletion**: Automatically subtracts metrics when workouts are removed
-- **User Preference Changes**: Recalculates data when week start preference changes
-
-#### Reliability Mechanisms
-- **Transaction Safety**: All updates use Firestore transactions with retry logic
-- **Daily Recalculation**: Scheduled job ensures data consistency across all users
-- **Manual Recovery**: Users can manually trigger recalculation via settings
-- **Floating-point Precision**: Handles JavaScript/Swift precision issues automatically
-
-#### Error Recovery
-- **Exponential Backoff**: Retry failed operations with increasing delays
-- **Graceful Degradation**: App continues functioning if analytics temporarily unavailable
-- **Comprehensive Logging**: Detailed error tracking for debugging and monitoring
 
 ### Quick Start Summary
 
@@ -206,11 +100,13 @@ MYON2/MYON2/
 │   └── WeeklyStats.swift       # Analytics data model
 ├── Views/                      # SwiftUI views
 │   ├── RootView.swift          # Root navigation container
+│   ├── HomeDashboardView.swift # Home screen with analytics
 │   ├── StrengthOSView.swift    # AI chat interface (UIKit)
 │   ├── ChatViewController.swift # Chat view controller
 │   ├── Components/             # Reusable UI components
 │   │   ├── SharedComponents.swift
 │   │   ├── TemplateComponents.swift
+│   │   ├── DashboardComponents.swift
 │   │   ├── ChatMessageCell.swift
 │   │   └── MessageComposerView.swift
 │   └── [Other views...]
@@ -401,7 +297,6 @@ firebase_functions/functions/
   created_at: timestamp,
   updated_at: timestamp
 }
-```
 
 // Collection: users/{userId}/weekly_stats/{weekId}
 // Real-time fitness analytics aggregated by week
@@ -700,6 +595,127 @@ sequenceDiagram
 │ StrengthOS Agent│◀────────────────────────│ Firebase Funcs  │
 └─────────────────┘                         └─────────────────┘
 ```
+
+## 🌟 Core Features
+
+### AI-Powered Personal Training
+- **Conversational Interface**: Natural language interaction with StrengthOS AI
+- **Personalized Programming**: Custom routines based on user goals and equipment
+- **Exercise Knowledge**: Access to 1300+ exercises with detailed instructions
+- **Progressive Overload**: Intelligent weight and rep recommendations
+
+### Workout Management
+- **Templates**: Save and reuse favorite workout structures
+- **Routines**: Weekly programming with scheduled workouts
+- **Active Tracking**: Real-time workout logging with rest timers
+- **History**: Complete workout history with detailed analytics
+
+### Real-time Fitness Analytics
+
+MYON includes a comprehensive real-time analytics system that automatically tracks and aggregates fitness metrics across all user workouts. The system provides detailed insights into training volume, muscle targeting, and progress over time.
+
+#### Key Features
+
+##### 🔄 Automatic Data Aggregation
+- **Real-time Processing**: Analytics update automatically when workouts are completed or deleted
+- **Weekly Aggregation**: Data organized by week for easy progress tracking
+- **Muscle-specific Metrics**: Tracks volume, sets, and reps by individual muscles and muscle groups
+- **User-configurable Week Start**: Users can choose Monday or Sunday as their week start day
+
+##### 📈 Comprehensive Metrics
+- **Total Volume**: Weight × reps across all exercises
+- **Set/Rep Tracking**: Detailed count of training stimuli
+- **Muscle Distribution**: Volume and stimuli breakdown by muscle groups and individual muscles
+- **Progress Trends**: Week-over-week comparison and analysis
+
+##### ⚙️ System Architecture
+
+```mermaid
+graph LR
+    A[User Completes Workout] --> B[Firebase Trigger: onWorkoutCompleted]
+    B --> C[Check User Week Preference]
+    C --> D[Calculate Week ID]
+    D --> E[Update Weekly Stats]
+    E --> F[Real-time Dashboard Update]
+    
+    G[User Deletes Workout] --> H[Firebase Trigger: onWorkoutDeleted]
+    H --> I[Subtract from Weekly Stats]
+    
+    J[Daily 2AM UTC] --> K[Scheduled Recalculation]
+    K --> L[Ensure Data Consistency]
+```
+
+##### 🎛️ User Configuration
+- **Week Start Preference**: Configurable in Settings (Monday/Sunday)
+- **Manual Recalculation**: "Recalculate Weekly Stats" button in More settings
+- **Automatic Consistency**: Daily background recalculation job
+
+#### Technical Implementation
+
+##### Firebase Functions (Analytics Engine)
+```javascript
+// Core functions for analytics processing
+exports.onWorkoutCompleted      // Real-time workout completion processing
+exports.onWorkoutDeleted        // Real-time workout deletion processing  
+exports.weeklyStatsRecalculation // Daily consistency job (2 AM UTC)
+exports.manualWeeklyStatsRecalculation // User-triggered recalculation
+
+// User preference-aware week calculation
+async function getWeekStartForUser(userId, dateString) {
+  // Respects user's Monday/Sunday preference
+  // Defaults to Monday for new users
+}
+```
+
+##### iOS Analytics Components
+```swift
+// Analytics data models
+struct WeeklyStats: Codable {
+    let workouts: Int
+    let totalSets: Int
+    let totalReps: Int
+    let totalWeight: Double
+    let weightPerMuscleGroup: [String: Double]?
+    // ... other metrics
+}
+
+// Analytics repository with user preference support
+class AnalyticsRepository {
+    func getCurrentWeekStats(userId: String) async throws -> WeeklyStats?
+    func getWeeklyStatsRange(userId: String, startWeekId: String, endWeekId: String) async throws -> [WeeklyStats]
+}
+
+// Dashboard view model
+class WeeklyStatsViewModel: ObservableObject {
+    @Published var stats: WeeklyStats?
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+}
+```
+
+##### Dashboard Integration
+- **Home Dashboard**: Real-time display of current week metrics
+- **User Settings**: Week preference toggle (Monday/Sunday)
+- **Error Handling**: Graceful fallback and retry mechanisms
+- **Performance**: Optimized queries with proper data pagination
+
+#### Data Consistency Features
+
+##### Automatic Triggers
+- **Workout Completion**: Immediately updates weekly stats when workout ends
+- **Workout Deletion**: Automatically subtracts metrics when workouts are removed
+- **User Preference Changes**: Recalculates data when week start preference changes
+
+##### Reliability Mechanisms
+- **Transaction Safety**: All updates use Firestore transactions with retry logic
+- **Daily Recalculation**: Scheduled job ensures data consistency across all users
+- **Manual Recovery**: Users can manually trigger recalculation via settings
+- **Floating-point Precision**: Handles JavaScript/Swift precision issues automatically
+
+##### Error Recovery
+- **Exponential Backoff**: Retry failed operations with increasing delays
+- **Graceful Degradation**: App continues functioning if analytics temporarily unavailable
+- **Comprehensive Logging**: Detailed error tracking for debugging and monitoring
 
 ### AI Agent Tool Categories & Functions
 
