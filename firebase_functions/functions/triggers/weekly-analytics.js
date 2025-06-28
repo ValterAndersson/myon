@@ -59,7 +59,6 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
   const ref = db
     .collection('users')
     .doc(userId)
-    .collection('analytics')
     .collection('weekly_stats')
     .doc(weekId);
 
@@ -128,12 +127,39 @@ async function recalculateWeeklyStats(userId, weekId) {
     
     console.log(`Looking for workouts between ${weekStart.toISOString()} and ${weekEnd.toISOString()}`);
     
+    // Convert to Firestore Timestamps for the query
+    const weekStartTimestamp = admin.firestore.Timestamp.fromDate(weekStart);
+    const weekEndTimestamp = admin.firestore.Timestamp.fromDate(weekEnd);
+    
+    // First, let's see ALL workouts for this user to understand the structure
+    const allWorkoutsSnap = await db
+      .collection('users')
+      .doc(userId)
+      .collection('workouts')
+      .limit(10)
+      .get();
+    
+    console.log(`Found ${allWorkoutsSnap.docs.length} total workouts for user ${userId}`);
+    allWorkoutsSnap.docs.forEach(doc => {
+      const workout = doc.data();
+      console.log(`Workout ${doc.id} structure:`, {
+        hasCompletedAt: !!workout.completedAt,
+        hasEndTime: !!workout.end_time,
+        end_time: workout.end_time,
+        endTimeType: typeof workout.end_time,
+        hasAnalytics: !!workout.analytics,
+        allFields: Object.keys(workout),
+        start_time: workout.start_time,
+        created_at: workout.created_at
+      });
+    });
+    
     const workoutsSnap = await db
       .collection('users')
       .doc(userId)
       .collection('workouts')
-      .where('completedAt', '>=', weekStart.toISOString())
-      .where('completedAt', '<', weekEnd.toISOString())
+      .where('end_time', '>=', weekStartTimestamp)
+      .where('end_time', '<', weekEndTimestamp)
       .get();
 
     console.log(`Found ${workoutsSnap.docs.length} workouts for user ${userId} in week ${weekId}`);
@@ -155,7 +181,7 @@ async function recalculateWeeklyStats(userId, weekId) {
     workoutsSnap.docs.forEach(doc => {
       const workout = doc.data();
       console.log(`Processing workout ${doc.id}:`, {
-        completedAt: workout.completedAt,
+        end_time: workout.end_time,
         hasAnalytics: !!workout.analytics,
         analyticsKeys: workout.analytics ? Object.keys(workout.analytics) : []
       });
@@ -191,7 +217,6 @@ async function recalculateWeeklyStats(userId, weekId) {
     const ref = db
       .collection('users')
       .doc(userId)
-      .collection('analytics')
       .collection('weekly_stats')
       .doc(weekId);
 
@@ -232,10 +257,11 @@ exports.weeklyStatsRecalculation = onSchedule({
     // Find users who have completed workouts in the last 2 weeks
     const twoWeeksAgo = new Date(now);
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const twoWeeksAgoTimestamp = admin.firestore.Timestamp.fromDate(twoWeeksAgo);
     
     const usersSnap = await db.collectionGroup('workouts')
-      .where('completedAt', '>=', twoWeeksAgo.toISOString())
-      .select('completedAt') // Only get minimal data
+      .where('end_time', '>=', twoWeeksAgoTimestamp)
+      .select('end_time') // Only get minimal data
       .get();
 
     const activeUserIds = [...new Set(usersSnap.docs.map(doc => doc.ref.parent.parent.id))];
@@ -286,9 +312,9 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       const before = event.data.before.data();
       const after = event.data.after.data();
       
-      // Only process if workout was just completed
-      if (!after || !after.completedAt) return null;
-      if (before && before.completedAt === after.completedAt) return null;
+      // Only process if workout was just completed (end_time was added)
+      if (!after || !after.end_time) return null;
+      if (before && before.end_time === after.end_time) return null;
 
       const analytics = after.analytics;
       if (!analytics) {
@@ -296,7 +322,9 @@ exports.onWorkoutCompleted = onDocumentUpdated(
         return null;
       }
 
-      const weekId = getWeekStart(after.completedAt);
+      // Convert Firestore timestamp to ISO string for week calculation
+      const endTime = after.end_time.toDate ? after.end_time.toDate().toISOString() : after.end_time;
+      const weekId = getWeekStart(endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
       
       if (!result.success) {
@@ -316,12 +344,14 @@ exports.onWorkoutDeleted = onDocumentDeleted(
   async (event) => {
     try {
       const workout = event.data.data();
-      if (!workout || !workout.completedAt || !workout.analytics) {
+      if (!workout || !workout.end_time || !workout.analytics) {
         console.warn(`Deleted workout ${event.params.workoutId} missing required data`);
         return null;
       }
       
-      const weekId = getWeekStart(workout.completedAt);
+      // Convert Firestore timestamp to ISO string for week calculation
+      const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
+      const weekId = getWeekStart(endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
       
       if (!result.success) {
