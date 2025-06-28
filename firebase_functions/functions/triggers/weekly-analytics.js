@@ -147,42 +147,15 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
  * Runs daily to catch any missed updates or resolve inconsistencies
  */
 async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null) {
-  console.log(`Recalculating weekly stats for user ${userId}, week ${weekId}`);
-  
   try {
     // Get all completed workouts for this week
     const weekStart = new Date(weekId + 'T00:00:00.000Z');
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
     
-    console.log(`Looking for workouts between ${weekStart.toISOString()} and ${weekEnd.toISOString()}`);
-    
     // Convert to Firestore Timestamps for the query
     const weekStartTimestamp = admin.firestore.Timestamp.fromDate(weekStart);
     const weekEndTimestamp = admin.firestore.Timestamp.fromDate(weekEnd);
-    
-    // First, let's see ALL workouts for this user to understand the structure
-    const allWorkoutsSnap = await db
-      .collection('users')
-      .doc(userId)
-      .collection('workouts')
-      .limit(10)
-      .get();
-    
-    console.log(`Found ${allWorkoutsSnap.docs.length} total workouts for user ${userId}`);
-    allWorkoutsSnap.docs.forEach(doc => {
-      const workout = doc.data();
-      console.log(`Workout ${doc.id} structure:`, {
-        hasCompletedAt: !!workout.completedAt,
-        hasEndTime: !!workout.end_time,
-        end_time: workout.end_time,
-        endTimeType: typeof workout.end_time,
-        hasAnalytics: !!workout.analytics,
-        allFields: Object.keys(workout),
-        start_time: workout.start_time,
-        created_at: workout.created_at
-      });
-    });
     
     const workoutsSnap = await db
       .collection('users')
@@ -191,8 +164,6 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
       .where('end_time', '>=', weekStartTimestamp)
       .where('end_time', '<', weekEndTimestamp)
       .get();
-
-    console.log(`Found ${workoutsSnap.docs.length} workouts for user ${userId} in week ${weekId}`);
 
     // Calculate fresh weekly stats
     const freshStats = {
@@ -210,11 +181,6 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
 
     workoutsSnap.docs.forEach(doc => {
       const workout = doc.data();
-      console.log(`Processing workout ${doc.id}:`, {
-        end_time: workout.end_time,
-        hasAnalytics: !!workout.analytics,
-        analyticsKeys: workout.analytics ? Object.keys(workout.analytics) : []
-      });
       
       if (!workout.analytics) {
         console.warn(`Workout ${doc.id} missing analytics during recalculation`);
@@ -224,7 +190,6 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
       const validation = validateAnalytics(workout.analytics);
       if (!validation.isValid) {
         console.warn(`Invalid analytics for workout ${doc.id}: ${validation.error}`);
-        console.log(`Analytics data:`, workout.analytics);
         return;
       }
 
@@ -240,8 +205,6 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
       mergeMetrics(freshStats.sets_per_muscle_group, workout.analytics.sets_per_muscle_group, 1);
       mergeMetrics(freshStats.sets_per_muscle, workout.analytics.sets_per_muscle, 1);
     });
-
-    console.log(`Final calculated stats for user ${userId}, week ${weekId}:`, freshStats);
 
     // Update the weekly stats document
     const ref = db
@@ -274,8 +237,6 @@ exports.weeklyStatsRecalculation = onSchedule({
     maxRetryDuration: '600s'
   }
 }, async (event) => {
-  console.log('Starting weekly stats recalculation job');
-  
   try {
     // Get current week and last week IDs
     const now = new Date();
@@ -295,7 +256,6 @@ exports.weeklyStatsRecalculation = onSchedule({
       .get();
 
     const activeUserIds = [...new Set(usersSnap.docs.map(doc => doc.ref.parent.parent.id))];
-    console.log(`Found ${activeUserIds.length} active users to recalculate`);
 
     const results = [];
     
@@ -329,8 +289,6 @@ exports.weeklyStatsRecalculation = onSchedule({
 
     const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
     const failed = results.length - successful;
-    
-    console.log(`Weekly stats recalculation completed: ${successful} successful, ${failed} failed`);
     
     return {
       success: true,
@@ -418,7 +376,6 @@ exports.manualWeeklyStatsRecalculation = onCall(async (request) => {
     }
     
     const userId = request.auth.uid;
-    console.log(`Manual weekly stats recalculation requested for user: ${userId}`);
     
     // Get current and last week IDs
     const now = new Date();
@@ -447,8 +404,6 @@ exports.manualWeeklyStatsRecalculation = onCall(async (request) => {
         error: lastWeekResult.status === 'rejected' ? lastWeekResult.reason.message : null
       }
     };
-    
-    console.log(`Manual recalculation completed for user ${userId}:`, results);
     
     return {
       success: true,
