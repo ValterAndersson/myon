@@ -59,7 +59,6 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
   const ref = db
     .collection('users')
     .doc(userId)
-    .collection('analytics')
     .collection('weekly_stats')
     .doc(weekId);
 
@@ -178,7 +177,6 @@ async function recalculateWeeklyStats(userId, weekId) {
     const ref = db
       .collection('users')
       .doc(userId)
-      .collection('analytics')
       .collection('weekly_stats')
       .doc(weekId);
 
