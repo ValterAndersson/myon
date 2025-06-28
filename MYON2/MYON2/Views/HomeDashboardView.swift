@@ -1,13 +1,28 @@
 import SwiftUI
 
 struct HomeDashboardView: View {
+    @StateObject private var viewModel = WeeklyStatsViewModel()
+
     var body: some View {
         VStack(spacing: 24) {
             Text("Dashboard")
                 .font(.largeTitle).bold()
-            Text("Welcome! Your stats and quick actions will appear here.")
-                .foregroundColor(.secondary)
+
+            if viewModel.isLoading {
+                ProgressView()
+            } else if let stats = viewModel.stats {
+                VStack(spacing: 12) {
+                    StatRow(title: "Workouts", value: "\(stats.workouts)")
+                    StatRow(title: "Total Sets", value: "\(stats.totalSets)")
+                    StatRow(title: "Total Reps", value: "\(stats.totalReps)")
+                    StatRow(title: "Volume", value: String(format: "%.0f kg", stats.totalWeight))
+                }
+            } else {
+                Text("No stats available for this week")
+                    .foregroundColor(.secondary)
+            }
         }
         .padding()
+        .task { await viewModel.loadCurrentWeek() }
     }
-} 
+}

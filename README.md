@@ -213,8 +213,9 @@ firebase_functions/functions/
 │   ├── query-strengthos-v2.js # New Agent Engine integration
 │   ├── query-strengthos.js    # Legacy API integration
 │   └── delete-session.js      # Session cleanup
-├── triggers/                   # Firestore triggers (1 function)
-│   └── muscle-volume-calculations.js # Auto-calculate analytics
+├── triggers/                   # Firestore triggers (2 files)
+│   ├── muscle-volume-calculations.js # Auto-calculate analytics
+│   └── weekly-analytics.js    # Maintain weekly stats
 ├── auth/                       # Authentication middleware
 │   ├── middleware.js          # Dual auth (Firebase + API keys)
 │   └── exchange-token.js      # Token exchange for GCP
@@ -286,6 +287,22 @@ firebase_functions/functions/
     weightFormat: "kg" | "lbs"
   },
   created_at: timestamp,
+  updated_at: timestamp
+}
+```
+
+// Collection: users/{userId}/analytics/weekly_stats/{weekId}
+{
+  workouts: number,
+  total_sets: number,
+  total_reps: number,
+  total_weight: number,
+  weight_per_muscle_group: object,
+  weight_per_muscle: object,
+  reps_per_muscle_group: object,
+  reps_per_muscle: object,
+  sets_per_muscle_group: object,
+  sets_per_muscle: object,
   updated_at: timestamp
 }
 ```

@@ -53,11 +53,15 @@ const { queryStrengthOS } = require('./strengthos/query-strengthos');
 const { queryStrengthOSv2 } = require('./strengthos/query-strengthos-v2');
 
 // Firestore Triggers
-const { 
-  onTemplateCreated, 
-  onTemplateUpdated, 
-  onWorkoutCreated 
+const {
+  onTemplateCreated,
+  onTemplateUpdated,
+  onWorkoutCreated
 } = require('./triggers/muscle-volume-calculations');
+const {
+  onWorkoutCompleted,
+  onWorkoutDeleted
+} = require('./triggers/weekly-analytics');
 
 // Export all functions as Firebase HTTPS functions
 exports.health = functions.https.onRequest(health);
@@ -108,3 +112,5 @@ exports.getServiceToken = getServiceToken;
 exports.onTemplateCreated = onTemplateCreated;
 exports.onTemplateUpdated = onTemplateUpdated;
 exports.onWorkoutCreated = onWorkoutCreated;
+exports.onWorkoutCompleted = onWorkoutCompleted;
+exports.onWorkoutDeleted = onWorkoutDeleted;
