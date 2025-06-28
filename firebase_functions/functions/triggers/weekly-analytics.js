@@ -9,7 +9,8 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-function getWeekStart(dateString) {
+// Helper function to get week start for a date with Sunday as default
+function getWeekStartSunday(dateString) {
   const date = new Date(dateString);
   const day = date.getUTCDay();
   // Sunday = 0, so no adjustment needed for Sunday start
@@ -17,6 +18,35 @@ function getWeekStart(dateString) {
   date.setUTCDate(date.getUTCDate() - diff);
   date.setUTCHours(0, 0, 0, 0);
   return date.toISOString().split('T')[0];
+}
+
+// Helper function to get week start for a date with Monday as start
+function getWeekStartMonday(dateString) {
+  const date = new Date(dateString);
+  const day = date.getUTCDay();
+  // Monday = 1, Sunday = 0, so we need to adjust
+  const diff = day === 0 ? 6 : day - 1; // If Sunday, go back 6 days, otherwise go back (day-1) days
+  date.setUTCDate(date.getUTCDate() - diff);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString().split('T')[0];
+}
+
+// Get week start based on user preference
+async function getWeekStartForUser(userId, dateString) {
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const weekStartsOnMonday = userData.week_starts_on_monday !== undefined ? userData.week_starts_on_monday : true;
+      
+      return weekStartsOnMonday ? getWeekStartMonday(dateString) : getWeekStartSunday(dateString);
+    }
+  } catch (error) {
+    console.warn(`Error fetching user preferences for ${userId}, defaulting to Monday start:`, error);
+  }
+  
+  // Default to Monday if user preferences can't be fetched
+  return getWeekStartMonday(dateString);
 }
 
 function mergeMetrics(target = {}, source = {}, increment = 1) {
@@ -116,7 +146,7 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
  * Periodic function to recalculate weekly stats for data consistency
  * Runs daily to catch any missed updates or resolve inconsistencies
  */
-async function recalculateWeeklyStats(userId, weekId) {
+async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null) {
   console.log(`Recalculating weekly stats for user ${userId}, week ${weekId}`);
   
   try {
@@ -249,10 +279,10 @@ exports.weeklyStatsRecalculation = onSchedule({
   try {
     // Get current week and last week IDs
     const now = new Date();
-    const currentWeekId = getWeekStart(now.toISOString());
+    const currentWeekId = await getWeekStartForUser(null, now.toISOString());
     const lastWeek = new Date(now);
     lastWeek.setDate(lastWeek.getDate() - 7);
-    const lastWeekId = getWeekStart(lastWeek.toISOString());
+    const lastWeekId = await getWeekStartForUser(null, lastWeek.toISOString());
     
     // Find users who have completed workouts in the last 2 weeks
     const twoWeeksAgo = new Date(now);
@@ -273,10 +303,20 @@ exports.weeklyStatsRecalculation = onSchedule({
     const batchSize = 10;
     for (let i = 0; i < activeUserIds.length; i += batchSize) {
       const batch = activeUserIds.slice(i, i + batchSize);
-      const batchPromises = batch.flatMap(userId => [
-        recalculateWeeklyStats(userId, currentWeekId),
-        recalculateWeeklyStats(userId, lastWeekId)
-      ]);
+      const batchPromises = [];
+      
+      for (const userId of batch) {
+        // Get user-specific week IDs based on their preference
+        const userCurrentWeekId = await getWeekStartForUser(userId, now.toISOString());
+        const userLastWeek = new Date(now);
+        userLastWeek.setDate(userLastWeek.getDate() - 7);
+        const userLastWeekId = await getWeekStartForUser(userId, userLastWeek.toISOString());
+        
+        batchPromises.push(
+          recalculateWeeklyStats(userId, userCurrentWeekId),
+          recalculateWeeklyStats(userId, userLastWeekId)
+        );
+      }
       
       const batchResults = await Promise.allSettled(batchPromises);
       results.push(...batchResults);
@@ -324,7 +364,7 @@ exports.onWorkoutCompleted = onDocumentUpdated(
 
       // Convert Firestore timestamp to ISO string for week calculation
       const endTime = after.end_time.toDate ? after.end_time.toDate().toISOString() : after.end_time;
-      const weekId = getWeekStart(endTime);
+      const weekId = await getWeekStartForUser(event.params.userId, endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
       
       if (!result.success) {
@@ -351,7 +391,7 @@ exports.onWorkoutDeleted = onDocumentDeleted(
       
       // Convert Firestore timestamp to ISO string for week calculation
       const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
-      const weekId = getWeekStart(endTime);
+      const weekId = await getWeekStartForUser(event.params.userId, endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
       
       if (!result.success) {
@@ -382,10 +422,10 @@ exports.manualWeeklyStatsRecalculation = onCall(async (request) => {
     
     // Get current and last week IDs
     const now = new Date();
-    const currentWeekId = getWeekStart(now.toISOString());
+    const currentWeekId = await getWeekStartForUser(userId, now.toISOString());
     const lastWeek = new Date(now);
     lastWeek.setDate(lastWeek.getDate() - 7);
-    const lastWeekId = getWeekStart(lastWeek.toISOString());
+    const lastWeekId = await getWeekStartForUser(userId, lastWeek.toISOString());
     
     // Recalculate both current and last week
     const [currentWeekResult, lastWeekResult] = await Promise.allSettled([

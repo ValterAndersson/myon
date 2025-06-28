@@ -24,6 +24,7 @@ struct MoreView: View {
     private let weightFormats = ["kilograms", "pounds"]
     @State private var recalculationResult: String?
     @State private var showingRecalculationAlert = false
+    @State private var weekStartsOnMonday = true
     
     private let userRepository = UserRepository()
     private let cloudFunctionService = CloudFunctionService()
@@ -49,6 +50,16 @@ struct MoreView: View {
                         TextField("Name", text: $name)
                             .multilineTextAlignment(.trailing)
                             .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("Week starts on")
+                        Spacer()
+                        Picker("Week starts on", selection: $weekStartsOnMonday) {
+                            Text("Monday").tag(true)
+                            Text("Sunday").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
                     }
                 }
                 
@@ -192,6 +203,7 @@ struct MoreView: View {
                     DispatchQueue.main.async {
                         self.name = user.name ?? ""
                         self.email = user.email
+                        self.weekStartsOnMonday = user.weekStartsOnMonday
                     }
                 }
                 
@@ -231,7 +243,7 @@ struct MoreView: View {
         Task {
             do {
                 // Update user profile
-                try await userRepository.updateUserProfile(userId: userId, name: name, email: email)
+                try await userRepository.updateUserProfile(userId: userId, name: name, email: email, weekStartsOnMonday: weekStartsOnMonday)
                 
                 // Update user attributes
                 let attributes = UserAttributes(

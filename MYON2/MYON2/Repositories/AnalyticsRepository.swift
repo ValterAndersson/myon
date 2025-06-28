@@ -41,7 +41,29 @@ class AnalyticsRepository {
                 return nil
             }
             
-            return try doc.data(as: WeeklyStats.self)
+            // Get document data
+            let data = doc.data() ?? [:]
+            
+            if data.isEmpty {
+                return nil
+            }
+            
+            // Manually create WeeklyStats to avoid JSON precision issues
+            let stats = WeeklyStats(
+                id: doc.documentID,
+                workouts: (data["workouts"] as? Int) ?? 0,
+                totalSets: (data["total_sets"] as? Int) ?? 0,
+                totalReps: (data["total_reps"] as? Int) ?? 0,
+                totalWeight: roundToTwoDecimals(data["total_weight"]),
+                weightPerMuscleGroup: convertToDoubleDict(data["weight_per_muscle_group"]),
+                weightPerMuscle: convertToDoubleDict(data["weight_per_muscle"]),
+                repsPerMuscleGroup: convertToIntDict(data["reps_per_muscle_group"]),
+                repsPerMuscle: convertToIntDict(data["reps_per_muscle"]),
+                setsPerMuscleGroup: convertToIntDict(data["sets_per_muscle_group"]),
+                setsPerMuscle: convertToIntDict(data["sets_per_muscle"]),
+                updatedAt: (data["updated_at"] as? Timestamp)?.dateValue()
+            )
+            return stats
         } catch {
             throw AnalyticsError.firestoreError(error)
         }
@@ -49,13 +71,13 @@ class AnalyticsRepository {
     
     /// Get current week's stats for a user
     func getCurrentWeekStats(userId: String) async throws -> WeeklyStats? {
-        let currentWeekId = getCurrentWeekId()
+        let currentWeekId = await getCurrentWeekId(for: userId)
         return try await getWeeklyStats(userId: userId, weekId: currentWeekId)
     }
     
     /// Get last week's stats for a user
     func getLastWeekStats(userId: String) async throws -> WeeklyStats? {
-        let lastWeekId = getLastWeekId()
+        let lastWeekId = await getLastWeekId(for: userId)
         return try await getWeeklyStats(userId: userId, weekId: lastWeekId)
     }
     
@@ -73,8 +95,28 @@ class AnalyticsRepository {
                 .order(by: FieldPath.documentID(), descending: true)
             
             let snapshot = try await query.getDocuments()
-            return try snapshot.documents.compactMap { doc in
-                try doc.data(as: WeeklyStats.self)
+            return snapshot.documents.compactMap { doc in
+                let data = doc.data()
+                
+                if data.isEmpty {
+                    return nil
+                }
+                
+                // Manually create WeeklyStats to avoid JSON precision issues
+                return WeeklyStats(
+                    id: doc.documentID,
+                    workouts: (data["workouts"] as? Int) ?? 0,
+                    totalSets: (data["total_sets"] as? Int) ?? 0,
+                    totalReps: (data["total_reps"] as? Int) ?? 0,
+                    totalWeight: roundToTwoDecimals(data["total_weight"]),
+                    weightPerMuscleGroup: convertToDoubleDict(data["weight_per_muscle_group"]),
+                    weightPerMuscle: convertToDoubleDict(data["weight_per_muscle"]),
+                    repsPerMuscleGroup: convertToIntDict(data["reps_per_muscle_group"]),
+                    repsPerMuscle: convertToIntDict(data["reps_per_muscle"]),
+                    setsPerMuscleGroup: convertToIntDict(data["sets_per_muscle_group"]),
+                    setsPerMuscle: convertToIntDict(data["sets_per_muscle"]),
+                    updatedAt: (data["updated_at"] as? Timestamp)?.dateValue()
+                )
             }
         } catch {
             throw AnalyticsError.firestoreError(error)
@@ -83,8 +125,8 @@ class AnalyticsRepository {
     
     /// Get the last N weeks of stats for a user
     func getRecentWeeklyStats(userId: String, weekCount: Int = 4) async throws -> [WeeklyStats] {
-        let endWeekId = getCurrentWeekId()
-        let startWeekId = getWeekId(weeksAgo: weekCount - 1)
+        let endWeekId = await getCurrentWeekId(for: userId)
+        let startWeekId = await getWeekId(for: userId, weeksAgo: weekCount - 1)
         
         return try await getWeeklyStatsRange(userId: userId, startWeekId: startWeekId, endWeekId: endWeekId)
     }
@@ -97,24 +139,21 @@ class AnalyticsRepository {
     
     // MARK: - Helper Methods
     
-    /// Get current week ID in YYYY-MM-DD format (Sunday start)
-    private func getCurrentWeekId() -> String {
-        return getWeekId(weeksAgo: 0)
-    }
-    
-    /// Get last week ID in YYYY-MM-DD format (Sunday start)
-    private func getLastWeekId() -> String {
-        return getWeekId(weeksAgo: 1)
-    }
-    
-    /// Get week ID for N weeks ago (Sunday start to match Firebase function)
-    private func getWeekId(weeksAgo: Int) -> String {
+    /// Get week ID for N weeks ago based on user preference
+    func getWeekId(for userId: String, weeksAgo: Int) async -> String {
         let now = Date()
         let calendar = Calendar.current
         
-        // Ensure Sunday start (matching Firebase function)
+        // Try to get user preference
+        var weekStartsOnMonday = true // Default to Monday
+        
+        if let user = try? await db.collection("users").document(userId).getDocument().data(as: User.self) {
+            weekStartsOnMonday = user.weekStartsOnMonday
+        }
+        
+        // Create calendar with appropriate first weekday
         var adjustedCalendar = calendar
-        adjustedCalendar.firstWeekday = 1 // Sunday = 1
+        adjustedCalendar.firstWeekday = weekStartsOnMonday ? 2 : 1 // Monday = 2, Sunday = 1
         
         let weekDate = adjustedCalendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: now) ?? now
         let startOfWeek = adjustedCalendar.startOfWeek(for: weekDate)
@@ -126,12 +165,56 @@ class AnalyticsRepository {
         return formatter.string(from: startOfWeek)
     }
     
+    /// Get current week ID based on user preference
+    func getCurrentWeekId(for userId: String) async -> String {
+        return await getWeekId(for: userId, weeksAgo: 0)
+    }
+    
+    /// Get last week ID based on user preference
+    func getLastWeekId(for userId: String) async -> String {
+        return await getWeekId(for: userId, weeksAgo: 1)
+    }
+    
     /// Validate week ID format (YYYY-MM-DD)
     private func isValidWeekId(_ weekId: String) -> Bool {
         let pattern = #"^\d{4}-\d{2}-\d{2}$"#
         let regex = try? NSRegularExpression(pattern: pattern)
         let range = NSRange(location: 0, length: weekId.utf16.count)
         return regex?.firstMatch(in: weekId, options: [], range: range) != nil
+    }
+    
+    /// Round a value to 2 decimal places
+    private func roundToTwoDecimals(_ value: Any?) -> Double {
+        if let number = value as? NSNumber {
+            return (number.doubleValue * 100).rounded() / 100
+        } else if let double = value as? Double {
+            return (double * 100).rounded() / 100
+        }
+        return 0
+    }
+    
+    /// Convert dictionary values to Double with rounding
+    private func convertToDoubleDict(_ value: Any?) -> [String: Double]? {
+        guard let dict = value as? [String: Any] else { return nil }
+        var result: [String: Double] = [:]
+        for (key, val) in dict {
+            result[key] = roundToTwoDecimals(val)
+        }
+        return result.isEmpty ? nil : result
+    }
+    
+    /// Convert dictionary values to Int
+    private func convertToIntDict(_ value: Any?) -> [String: Int]? {
+        guard let dict = value as? [String: Any] else { return nil }
+        var result: [String: Int] = [:]
+        for (key, val) in dict {
+            if let number = val as? NSNumber {
+                result[key] = number.intValue
+            } else if let int = val as? Int {
+                result[key] = int
+            }
+        }
+        return result.isEmpty ? nil : result
     }
 }
 

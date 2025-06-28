@@ -31,13 +31,17 @@ class UserRepository {
     
     // MARK: - User Profile
     
-    func updateUserProfile(userId: String, name: String, email: String) async throws {
+    func updateUserProfile(userId: String, name: String, email: String, weekStartsOnMonday: Bool? = nil) async throws {
         let userRef = db.collection(collection).document(userId)
-        try await userRef.updateData([
+        var updates: [String: Any] = [
             "name": name,
             "email": email,
             "updated_at": FieldValue.serverTimestamp()
-        ])
+        ]
+        if let weekStartsOnMonday = weekStartsOnMonday {
+            updates["week_starts_on_monday"] = weekStartsOnMonday
+        }
+        try await userRef.updateData(updates)
     }
     
     func deleteUser(userId: String) async throws {
