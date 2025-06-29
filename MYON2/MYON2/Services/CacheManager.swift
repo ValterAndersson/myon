@@ -175,7 +175,7 @@ actor CacheManager: CacheManagerProtocol {
     
     // MARK: - Cache Statistics
     
-    func getStatistics() -> CacheStatistics {
+    func getStatistics() async -> CacheStatistics {
         let hitRate = hitCount + missCount > 0 
             ? Double(hitCount) / Double(hitCount + missCount) 
             : 0
