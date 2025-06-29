@@ -3,31 +3,11 @@ import Charts
 
 struct WeeklyLoadProgressionChart: View {
     let stats: [WeeklyStats]
+    @State private var showSetsRepsDetail = false
     
-    // Data series for each metric
-    private var chartData: [(week: String, metric: String, value: Double)] {
-        let limitedStats = Array(stats.suffix(8))
-        var data: [(String, String, Double)] = []
-        
-        for stat in limitedStats {
-            let weekLabel = DashboardDataTransformer.formatWeekLabel(stat.id)
-            
-            // Weight (normalize if needed)
-            let weight = stat.totalWeight > 10000 ? stat.totalWeight / 1000 : stat.totalWeight
-            data.append((weekLabel, "Load", weight))
-            
-            // Sets
-            data.append((weekLabel, "Sets", Double(stat.totalSets)))
-            
-            // Reps (scale down for visibility)
-            data.append((weekLabel, "Reps", Double(stat.totalReps) / 10))
-        }
-        
-        return data
-    }
-    
-    private var isWeightNormalized: Bool {
-        stats.contains { $0.totalWeight > 10000 }
+    // Use last 4 weeks
+    private var chartData: [WeeklyStats] {
+        Array(stats.suffix(4))
     }
     
     var body: some View {
@@ -35,41 +15,34 @@ struct WeeklyLoadProgressionChart: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Weekly Load Progression")
                     .font(.headline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.primary)
                 
-                if isWeightNormalized {
-                    Text("Load values shown in tons (×1000 kg)")
+                Text("Total weight lifted (last 4 weeks)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Chart(chartData) { stat in
+                LineMark(
+                    x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                    y: .value("Load", stat.totalWeight)
+                )
+                .foregroundStyle(Color.blue)
+                .symbol(.circle)
+                .symbolSize(100)
+                
+                PointMark(
+                    x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                    y: .value("Load", stat.totalWeight)
+                )
+                .foregroundStyle(Color.blue)
+                .annotation(position: .top) {
+                    Text(formatWeight(stat.totalWeight))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
             }
-            
-            Chart(chartData, id: \.0) { dataPoint in
-                LineMark(
-                    x: .value("Week", dataPoint.week),
-                    y: .value("Value", dataPoint.value)
-                )
-                .foregroundStyle(by: .value("Metric", dataPoint.metric))
-                .symbol(by: .value("Metric", dataPoint.metric))
-                .symbolSize(80)
-                
-                PointMark(
-                    x: .value("Week", dataPoint.week),
-                    y: .value("Value", dataPoint.value)
-                )
-                .foregroundStyle(by: .value("Metric", dataPoint.metric))
-            }
-            .frame(height: 250)
-            .chartForegroundStyleScale([
-                "Load": Color.blue,
-                "Sets": Color.green,
-                "Reps": Color.orange
-            ])
-            .chartSymbolScale([
-                "Load": Circle(),
-                "Sets": Square(),
-                "Reps": Diamond()
-            ])
+            .frame(height: 200)
             .chartXAxis {
                 AxisMarks(values: .automatic) { _ in
                     AxisValueLabel()
@@ -81,64 +54,119 @@ struct WeeklyLoadProgressionChart: View {
                 AxisMarks(position: .leading) { value in
                     AxisValueLabel {
                         if let val = value.as(Double.self) {
-                            Text(formatAxisValue(val))
+                            Text(formatWeight(val))
                                 .font(.caption)
                         }
                     }
                     AxisGridLine()
                 }
             }
-            .chartLegend(position: .bottom, alignment: .center) {
-                HStack(spacing: 16) {
-                    ForEach(["Load", "Sets", "Reps"], id: \.self) { metric in
-                        HStack(spacing: 4) {
-                            Image(systemName: symbolForMetric(metric))
-                                .foregroundColor(colorForMetric(metric))
-                                .font(.caption)
-                            Text(legendLabelForMetric(metric))
-                                .font(.caption)
-                                .foregroundColor(.primary)
-                        }
-                    }
-                }
+            
+            // Action button
+            Button(action: { showSetsRepsDetail = true }) {
+                Label("View sets & reps", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
+        .navigationDestination(isPresented: $showSetsRepsDetail) {
+            SetsRepsDetailView(weekIds: chartData.map(\.id))
+        }
     }
     
-    private func formatAxisValue(_ value: Double) -> String {
+    private func formatWeight(_ value: Double) -> String {
         if value >= 1000 {
-            return String(format: "%.0fk", value / 1000)
+            return String(format: "%.1fk kg", value / 1000)
         }
-        return String(format: "%.0f", value)
+        return String(format: "%.0f kg", value)
+    }
+}
+
+// MARK: - Sets & Reps Detail View
+struct SetsRepsDetailView: View {
+    let weekIds: [String]
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var viewModel = WeeklyStatsViewModel()
+    
+    private var chartData: [WeeklyStats] {
+        viewModel.recentStats.filter { weekIds.contains($0.id) }
     }
     
-    private func symbolForMetric(_ metric: String) -> String {
-        switch metric {
-        case "Load": return "circle.fill"
-        case "Sets": return "square.fill"
-        case "Reps": return "diamond.fill"
-        default: return "circle.fill"
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Sets Chart
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weekly Sets")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Chart(chartData) { stat in
+                            LineMark(
+                                x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                                y: .value("Sets", stat.totalSets)
+                            )
+                            .foregroundStyle(Color.green)
+                            .symbol(.square)
+                            .symbolSize(100)
+                            
+                            PointMark(
+                                x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                                y: .value("Sets", stat.totalSets)
+                            )
+                            .foregroundStyle(Color.green)
+                        }
+                        .frame(height: 180)
+                    }
+                    .padding()
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .cornerRadius(12)
+                    
+                    // Reps Chart
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Weekly Reps")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        
+                        Chart(chartData) { stat in
+                            LineMark(
+                                x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                                y: .value("Reps", stat.totalReps)
+                            )
+                            .foregroundStyle(Color.orange)
+                            .symbol(.diamond)
+                            .symbolSize(100)
+                            
+                            PointMark(
+                                x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                                y: .value("Reps", stat.totalReps)
+                            )
+                            .foregroundStyle(Color.orange)
+                        }
+                        .frame(height: 180)
+                    }
+                    .padding()
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+                .padding()
+            }
+            .navigationTitle("Sets & Reps Breakdown")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") { dismiss() }
+                }
+            }
         }
-    }
-    
-    private func colorForMetric(_ metric: String) -> Color {
-        switch metric {
-        case "Load": return .blue
-        case "Sets": return .green
-        case "Reps": return .orange
-        default: return .gray
-        }
-    }
-    
-    private func legendLabelForMetric(_ metric: String) -> String {
-        switch metric {
-        case "Load": return isWeightNormalized ? "Load (tons)" : "Load (kg)"
-        case "Sets": return "Sets"
-        case "Reps": return "Reps (÷10)"
-        default: return metric
+        .task {
+            await viewModel.loadDashboard(weekCount: 12) // Load enough data
         }
     }
 } 

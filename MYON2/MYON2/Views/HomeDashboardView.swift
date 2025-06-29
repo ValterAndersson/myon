@@ -2,11 +2,11 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     @StateObject private var viewModel = WeeklyStatsViewModel()
-    @State private var selectedWeekCount = 8
     @State private var selectedWeekId: String?
+    private let weekCount = 4 // Fixed 4-week window
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     // Header
@@ -15,20 +15,6 @@ struct HomeDashboardView: View {
                             .font(.largeTitle).bold()
                         
                         Spacer()
-                        
-                        // Week selector
-                        Picker("Weeks", selection: $selectedWeekCount) {
-                            Text("6w").tag(6)
-                            Text("8w").tag(8)
-                            Text("12w").tag(12)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 120)
-                        .onChange(of: selectedWeekCount) { _, newValue in
-                            Task {
-                                await viewModel.loadDashboard(weekCount: newValue)
-                            }
-                        }
                     }
                     .padding(.horizontal)
                     
@@ -67,7 +53,6 @@ struct HomeDashboardView: View {
                                 goal: viewModel.frequencyGoal,
                                 onWeekTapped: { weekId in
                                     selectedWeekId = weekId
-                                    // TODO: Navigate to workout history for selected week
                                 }
                             )
                             .padding(.horizontal)
@@ -85,11 +70,11 @@ struct HomeDashboardView: View {
                                 .padding(.horizontal)
                             
                             // 5. Top 5 Muscles by Volume
-                            TopMusclesChart(currentWeekStats: viewModel.stats)
+                            TopMusclesChart(stats: viewModel.recentStats)
                                 .padding(.horizontal)
                             
-                            // 6. Undertrained Muscles
-                            UndertrainedMusclesView(currentWeekStats: viewModel.stats)
+                            // 6. Training Balance
+                            UndertrainedMusclesView(stats: viewModel.recentStats)
                                 .padding(.horizontal)
                             
                             // Debug section
@@ -104,19 +89,19 @@ struct HomeDashboardView: View {
                                 .foregroundColor(.orange)
                                 
                                 HStack(spacing: 12) {
-                                    Button("Clear Cache") {
-                                        Task {
-                                            await viewModel.clearCache()
-                                            await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
-                                        }
+                                                                    Button("Clear Cache") {
+                                    Task {
+                                        await viewModel.clearCache()
+                                        await viewModel.loadDashboard(weekCount: weekCount, forceRefresh: true)
                                     }
-                                    .buttonStyle(.bordered)
-                                    
-                                    Button("Force Refresh") {
-                                        Task {
-                                            await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
-                                        }
+                                }
+                                .buttonStyle(.bordered)
+                                
+                                Button("Force Refresh") {
+                                    Task {
+                                        await viewModel.loadDashboard(weekCount: weekCount, forceRefresh: true)
                                     }
+                                }
                                     .buttonStyle(.bordered)
                                 }
                             }
@@ -153,11 +138,16 @@ struct HomeDashboardView: View {
             .navigationBarHidden(true)
             .background(Color(UIColor.systemBackground))
         }
+        .navigationDestination(isPresented: .constant(selectedWeekId != nil)) {
+            if let weekId = selectedWeekId {
+                WorkoutHistoryView(weekId: weekId)
+            }
+        }
         .task { 
-            await viewModel.loadDashboard(weekCount: selectedWeekCount)
+            await viewModel.loadDashboard(weekCount: weekCount)
         }
         .refreshable {
-            await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+            await viewModel.loadDashboard(weekCount: weekCount, forceRefresh: true)
         }
     }
 }

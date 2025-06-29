@@ -8,33 +8,45 @@ struct TrainingConsistencyChart: View {
     
     @State private var selectedWeekId: String?
     
-    // Limit to last 6-8 weeks
+    // Limit to last 4 weeks
     private var chartData: [WeeklyStats] {
-        Array(stats.suffix(8))
+        Array(stats.suffix(4))
     }
     
     private var yAxisDomain: ClosedRange<Int> {
         let maxWorkouts = chartData.map(\.workouts).max() ?? 0
-        return 0...max(7, maxWorkouts + 1)
+        let goalValue = goal ?? 3
+        return 0...max(5, max(maxWorkouts, goalValue) + 1)
     }
     
     @ViewBuilder
     private var chartContent: some View {
         Chart {
             ForEach(chartData, id: \.id) { stat in
-                LineMark(
-                    x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
-                    y: .value("Workouts", stat.workouts)
-                )
-                .foregroundStyle(Color.accentColor)
-                .symbol(.circle)
-                .symbolSize(100)
+                // Create stacked segments for each workout
+                ForEach(0..<stat.workouts, id: \.self) { index in
+                    BarMark(
+                        x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
+                        y: .value("Start", index),
+                        height: .value("Height", 1)
+                    )
+                    .foregroundStyle(Color.accentColor.opacity(0.9))
+                    .cornerRadius(2)
+                }
                 
-                PointMark(
+                // Invisible bar for tap target
+                BarMark(
                     x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
-                    y: .value("Workouts", stat.workouts)
+                    y: .value("Total", stat.workouts)
                 )
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.clear)
+                .annotation(position: .top) {
+                    if stat.workouts > 0 {
+                        Text("\(stat.workouts)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
             
             // Goal line
@@ -42,36 +54,27 @@ struct TrainingConsistencyChart: View {
                 RuleMark(y: .value("Goal", goal))
                     .foregroundStyle(Color.red.opacity(0.5))
                     .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
-                    .annotation(position: .top, alignment: .leading) {
+                    .annotation(position: .top, alignment: .trailing) {
                         Text("Goal: \(goal)")
                             .font(.caption)
                             .foregroundColor(.red)
+                            .padding(.trailing, 4)
                     }
             }
         }
     }
     
-    @ViewBuilder
-    private var legend: some View {
-        HStack(spacing: 16) {
-            Label("Workouts", systemImage: "circle.fill")
-                .font(.caption)
-                .foregroundColor(.accentColor)
-            
-            if goal != nil {
-                Label("Goal", systemImage: "minus")
-                    .font(.caption)
-                    .foregroundColor(.red)
-            }
-        }
-        .padding(.top, 4)
-    }
-    
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Training Consistency")
-                .font(.headline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Training Consistency")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                Text("Workouts per week (last 4 weeks)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             
             chartContent
                 .frame(height: 200)
@@ -84,7 +87,10 @@ struct TrainingConsistencyChart: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .leading)
+                    AxisMarks(position: .leading) { value in
+                        AxisValueLabel()
+                        AxisGridLine()
+                    }
                 }
                 .chartOverlay { proxy in
                     GeometryReader { geometry in
@@ -96,10 +102,9 @@ struct TrainingConsistencyChart: View {
                                 let plotFrame = geometry[plotFrameAnchor]
                                 let tapX = location.x - plotFrame.origin.x
                                 
-                                // Find closest data point
-                                guard chartData.count > 1 else { return }
-                                let xScale = plotFrame.width / CGFloat(chartData.count - 1)
-                                let index = Int(round(tapX / xScale))
+                                // Find which bar was tapped
+                                let barWidth = plotFrame.width / CGFloat(chartData.count)
+                                let index = Int(tapX / barWidth)
                                 
                                 if index >= 0 && index < chartData.count {
                                     let weekId = chartData[index].id
@@ -109,8 +114,6 @@ struct TrainingConsistencyChart: View {
                             }
                     }
                 }
-            
-            legend
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))

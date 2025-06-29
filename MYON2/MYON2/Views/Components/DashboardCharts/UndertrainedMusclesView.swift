@@ -1,156 +1,172 @@
 import SwiftUI
 
 struct UndertrainedMusclesView: View {
-    let currentWeekStats: WeeklyStats?
+    let stats: [WeeklyStats]
     
-    private var undertrainedMuscles: [MuscleVolumeData] {
-        DashboardDataTransformer.getUndertrainedMuscles(from: currentWeekStats)
+    // Aggregate muscle data from last 4 weeks
+    private var aggregatedMuscleData: [(muscle: String, weight: Double, sets: Int, reps: Int)] {
+        let recentStats = Array(stats.suffix(4))
+        var muscleAggregates: [String: (weight: Double, sets: Int, reps: Int)] = [:]
+        
+        // Aggregate data across weeks
+        for stat in recentStats {
+            // Include all muscles that appear in any metric
+            let allMuscles = Set(
+                Array(stat.weightPerMuscle?.keys ?? []) +
+                Array(stat.setsPerMuscle?.keys ?? []) +
+                Array(stat.repsPerMuscle?.keys ?? [])
+            )
+            
+            for muscle in allMuscles {
+                let weight = stat.weightPerMuscle?[muscle] ?? 0
+                let sets = stat.setsPerMuscle?[muscle] ?? 0
+                let reps = stat.repsPerMuscle?[muscle] ?? 0
+                
+                if var existing = muscleAggregates[muscle] {
+                    existing.weight += weight
+                    existing.sets += sets
+                    existing.reps += reps
+                    muscleAggregates[muscle] = existing
+                } else {
+                    muscleAggregates[muscle] = (weight, sets, reps)
+                }
+            }
+        }
+        
+        // Convert to array and sort
+        return muscleAggregates.map { muscle, data in
+            (muscle.capitalized, data.weight, data.sets, data.reps)
+        }
+        .sorted { $0.weight < $1.weight } // Sort by lowest volume first
+    }
+    
+    private var undertrainedMuscles: [(muscle: String, weight: Double, sets: Int, reps: Int)] {
+        aggregatedMuscleData.filter { muscle in
+            muscle.sets < UndertrainedThresholds.minSets || 
+            muscle.weight < UndertrainedThresholds.minWeight
+        }
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Undertrained Muscles")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Training Balance")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    if undertrainedMuscles.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.subheadline)
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.subheadline)
+                    }
+                }
+                
+                Text("Muscle training analysis (last 4 weeks)")
+                    .font(.caption)
                     .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-                    .font(.subheadline)
             }
             
             if undertrainedMuscles.isEmpty {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
+                VStack(spacing: 12) {
+                    Image(systemName: "star.fill")
+                        .font(.largeTitle)
                         .foregroundColor(.green)
-                        .font(.title2)
+                    
+                    Text("Great balance!")
+                        .font(.headline)
+                        .foregroundColor(.primary)
                     
                     Text("All muscles meet minimum training thresholds")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .background(Color(UIColor.tertiarySystemBackground))
-                .cornerRadius(8)
+                .padding(.vertical, 30)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    // Header
-                    HStack(spacing: 0) {
-                        Text("Muscle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        Text("Sets")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 60, alignment: .trailing)
-                        
-                        Text("Weight")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 80, alignment: .trailing)
-                        
-                        Text("Reps")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 60, alignment: .trailing)
+                    Text("Consider training these muscles more:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    // Show up to 5 undertrained muscles
+                    ForEach(undertrainedMuscles.prefix(5), id: \.muscle) { muscle in
+                        HStack {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(Color.orange.opacity(0.2))
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.orange, lineWidth: 1)
+                                    )
+                                    .frame(width: 6, height: 6)
+                                
+                                Text(muscle.muscle)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                            }
+                            
+                            Spacer()
+                            
+                            HStack(spacing: 12) {
+                                HStack(spacing: 4) {
+                                    if muscle.sets < UndertrainedThresholds.minSets {
+                                        Image(systemName: "exclamationmark.circle.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                    }
+                                    Text("\(muscle.sets) sets")
+                                        .font(.caption)
+                                        .foregroundColor(muscle.sets < UndertrainedThresholds.minSets ? .orange : .secondary)
+                                }
+                                
+                                HStack(spacing: 4) {
+                                    if muscle.weight < UndertrainedThresholds.minWeight {
+                                        Image(systemName: "exclamationmark.circle.fill")
+                                            .font(.caption2)
+                                            .foregroundColor(.orange)
+                                    }
+                                    Text(formatWeight(muscle.weight))
+                                        .font(.caption)
+                                        .foregroundColor(muscle.weight < UndertrainedThresholds.minWeight ? .orange : .secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 4)
                     
-                    Divider()
-                    
-                    // Muscle rows
-                    ForEach(undertrainedMuscles.prefix(10)) { muscle in
-                        UndertrainedMuscleRow(muscle: muscle)
-                    }
-                    
-                    if undertrainedMuscles.count > 10 {
-                        Text("... and \(undertrainedMuscles.count - 10) more")
+                    if undertrainedMuscles.count > 5 {
+                        Text("... and \(undertrainedMuscles.count - 5) more")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.top, 4)
                     }
+                    
+                    // Thresholds info
+                    HStack(spacing: 16) {
+                        Label("Goal: 4+ sets", systemImage: "info.circle")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        
+                        Label("Goal: 500+ kg", systemImage: "info.circle")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 8)
                 }
                 .padding(.vertical, 8)
-                
-                // Thresholds info
-                HStack(spacing: 16) {
-                    Label("Min: 4 sets", systemImage: "info.circle")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    
-                    Label("Min: 500 kg", systemImage: "info.circle")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 8)
             }
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
-    }
-}
-
-struct UndertrainedMuscleRow: View {
-    let muscle: MuscleVolumeData
-    
-    private var isSetsLow: Bool { muscle.sets < UndertrainedThresholds.minSets }
-    private var isWeightLow: Bool { muscle.weight < UndertrainedThresholds.minWeight }
-    
-    var body: some View {
-        HStack(spacing: 0) {
-            // Muscle name with group color
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(muscle.group?.color ?? Color.gray)
-                    .frame(width: 6, height: 6)
-                
-                Text(muscle.muscleName)
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            // Sets
-            HStack(spacing: 4) {
-                if isSetsLow {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
-                Text("\(muscle.sets)")
-                    .font(.subheadline)
-                    .foregroundColor(isSetsLow ? .orange : .primary)
-            }
-            .frame(width: 60, alignment: .trailing)
-            
-            // Weight
-            HStack(spacing: 4) {
-                if isWeightLow {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                }
-                Text(formatWeight(muscle.weight))
-                    .font(.subheadline)
-                    .foregroundColor(isWeightLow ? .orange : .primary)
-            }
-            .frame(width: 80, alignment: .trailing)
-            
-            // Reps
-            Text("\(muscle.reps)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(width: 60, alignment: .trailing)
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
     }
     
     private func formatWeight(_ weight: Double) -> String {

@@ -1,249 +1,154 @@
 import SwiftUI
+import FirebaseFirestore
 
 struct WorkoutHistoryView: View {
-    @StateObject private var viewModel = WorkoutHistoryViewModel()
-    @State private var searchText = ""
-    @State private var selectedTimeFrame: TimeFrame = .allTime
+    let weekId: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var workouts: [Workout] = []
+    @State private var isLoading = true
     
-    enum TimeFrame: String, CaseIterable {
-        case week = "This Week"
-        case month = "This Month"
-        case year = "This Year"
-        case allTime = "All Time"
+    private let workoutRepository = WorkoutRepository()
+    
+    private var weekDateRange: (start: Date, end: Date)? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        
+        guard let startDate = formatter.date(from: weekId) else { return nil }
+        
+        let calendar = Calendar.current
+        guard let endDate = calendar.date(byAdding: .day, value: 6, to: startDate) else { return nil }
+        
+        return (startDate, endDate)
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Search bar
-            SearchBar(text: $searchText, placeholder: "Search workouts")
-                .padding()
-                .onChange(of: searchText) { _ in
-                    viewModel.filterWorkouts(searchText: searchText, timeFrame: selectedTimeFrame)
-                }
-            
-            // Time frame picker
-            Picker("Time Frame", selection: $selectedTimeFrame) {
-                ForEach(TimeFrame.allCases, id: \.self) { timeFrame in
-                    Text(timeFrame.rawValue).tag(timeFrame)
-                }
-            }
-            .pickerStyle(SegmentedPickerStyle())
-            .padding()
-            .onChange(of: selectedTimeFrame) { _ in
-                viewModel.filterWorkouts(searchText: searchText, timeFrame: selectedTimeFrame)
-            }
-            
-            // Content
+        NavigationStack {
             Group {
-                if viewModel.isLoading {
-                    LoadingView("Loading workout history...")
-                } else if let error = viewModel.error {
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 50))
-                            .foregroundColor(.orange)
-                        
-                        Text("Error Loading Workouts")
-                            .font(.headline)
-                        
-                        Text(error.localizedDescription)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        
-                        Button("Try Again") {
-                            Task {
-                                await viewModel.loadWorkouts()
-                            }
-                        }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if viewModel.filteredWorkouts.isEmpty {
-                    // Empty state
+                if isLoading {
+                    ProgressView("Loading workouts...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if workouts.isEmpty {
                     VStack(spacing: 20) {
-                        Image(systemName: "list.bullet.clipboard")
+                        Image(systemName: "calendar.badge.exclamationmark")
                             .font(.system(size: 60))
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
                         
-                        Text(viewModel.workouts.isEmpty ? "No Workouts Yet" : "No Matching Workouts")
-                            .font(.title2)
-                            .fontWeight(.semibold)
+                        Text("No workouts found")
+                            .font(.title3)
+                            .foregroundColor(.primary)
                         
-                        Text(viewModel.workouts.isEmpty ? 
-                             "Complete your first workout to see it here" :
-                             "Try adjusting your search or time frame")
+                        Text("No workouts recorded for this week")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    // Workout list
-                    List(viewModel.filteredWorkouts) { workout in
-                        NavigationLink(destination: WorkoutHistoryDetailView(workout: workout, templateName: viewModel.getTemplateName(for: workout.sourceTemplateId))) {
-                            WorkoutHistoryCard(
-                                workout: workout,
-                                templateName: viewModel.getTemplateName(for: workout.sourceTemplateId),
-                                formatDuration: viewModel.formatDuration,
-                                formatDate: viewModel.formatDate,
-                                formatTime: viewModel.formatTime,
-                                getWorkingSetsCount: viewModel.getWorkingSetsCount
-                            )
+                    List {
+                        ForEach(workouts.sorted(by: { $0.date > $1.date })) { workout in
+                            WorkoutRow(workout: workout)
                         }
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     }
-                    .listStyle(PlainListStyle())
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .navigationTitle("Week of \(DashboardDataTransformer.formatWeekLabel(weekId))")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") { dismiss() }
                 }
             }
         }
-        .navigationTitle("Workout History")
         .task {
-            await viewModel.loadWorkouts()
+            await loadWorkouts()
+        }
+    }
+    
+    private func loadWorkouts() async {
+        guard let userId = AuthService.shared.currentUser?.uid,
+              let dateRange = weekDateRange else { return }
+        
+        do {
+            let fetchedWorkouts = try await workoutRepository.getWorkouts(
+                userId: userId,
+                startDate: dateRange.start,
+                endDate: dateRange.end
+            )
+            
+            DispatchQueue.main.async {
+                self.workouts = fetchedWorkouts
+                self.isLoading = false
+            }
+        } catch {
+            print("Error loading workouts: \(error)")
+            DispatchQueue.main.async {
+                self.isLoading = false
+            }
         }
     }
 }
 
-struct WorkoutHistoryCard: View {
+struct WorkoutRow: View {
     let workout: Workout
-    let templateName: String?
-    let formatDuration: (Date, Date) -> String
-    let formatDate: (Date) -> String
-    let formatTime: (Date) -> String
-    let getWorkingSetsCount: (WorkoutExercise) -> Int
+    
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: workout.date)
+    }
+    
+    private var duration: String {
+        let totalMinutes = Int(workout.duration / 60)
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header with date and time
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(formatDate(workout.endTime))
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    HStack(spacing: 16) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text("Start: \(formatTime(workout.startTime))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text("End: \(formatTime(workout.endTime))")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
+                Text(workout.name ?? "Workout")
+                    .font(.headline)
+                    .foregroundColor(.primary)
                 
                 Spacer()
                 
-                // Duration badge
-                Text(formatDuration(workout.startTime, workout.endTime))
+                Text(duration)
                     .font(.subheadline)
-                    .fontWeight(.medium)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.blue.opacity(0.1))
-                    .foregroundColor(.blue)
-                    .cornerRadius(12)
+                    .foregroundColor(.secondary)
             }
             
-            // Template info if available
-            if let templateName = templateName {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.text")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                    Text("Based on template: ")
+            Text(formattedDate)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            if !workout.exercises.isEmpty {
+                HStack(spacing: 16) {
+                    Label("\(workout.exercises.count) exercises", systemImage: "dumbbell")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    + Text(templateName)
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(.green)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            // Exercise summary
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(workout.exercises.prefix(4).enumerated()), id: \.element.id) { index, exercise in
-                    let workingSets = getWorkingSetsCount(exercise)
-                    HStack {
-                        Text("\(workingSets)x")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.primary)
-                        Text(exercise.name.capitalized)
-                            .font(.subheadline)
-                            .foregroundColor(.primary)
-                        Spacer()
+                    
+                    if let totalSets = workout.totalSets, totalSets > 0 {
+                        Label("\(totalSets) sets", systemImage: "number")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
-                
-                // Show more indicator if there are more exercises
-                if workout.exercises.count > 4 {
-                    Text("and \(workout.exercises.count - 4) more exercises...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .italic()
-                }
-            }
-            
-            // Quick stats
-            HStack(spacing: 16) {
-                StatPill(title: "Exercises", value: "\(workout.exercises.count)", color: .orange)
-                StatPill(title: "Total Sets", value: "\(workout.analytics.totalSets)", color: .purple)
-                StatPill(title: "Volume", value: "\(String(format: "%.0f", workout.analytics.totalWeight))\(workout.analytics.weightFormat)", color: .red)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-    }
-}
-
-struct StatPill: View {
-    let title: String
-    let value: String
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.caption)
-                .fontWeight(.bold)
-                .foregroundColor(color)
-            Text(title)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(color.opacity(0.1))
-        .cornerRadius(6)
     }
 }
 
 #Preview {
     NavigationView {
-        WorkoutHistoryView()
+        WorkoutHistoryView(weekId: "2024-04-01")
     }
 } 
