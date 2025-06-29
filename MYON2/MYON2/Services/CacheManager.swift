@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import UIKit
 
 // MARK: - Cache Configuration
 struct CacheConfiguration {
@@ -34,15 +35,43 @@ protocol CacheManagerProtocol {
     func preload(keys: [String]) async
 }
 
+// MARK: - Memory Cache Wrapper
+final class MemoryCacheWrapper: @unchecked Sendable {
+    private let cache: NSCache<NSString, NSData>
+    private let lock = NSLock()
+    
+    init(countLimit: Int) {
+        self.cache = NSCache<NSString, NSData>()
+        self.cache.countLimit = countLimit
+    }
+    
+    func object(forKey key: NSString) -> NSData? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache.object(forKey: key)
+    }
+    
+    func setObject(_ obj: NSData, forKey key: NSString) {
+        lock.lock()
+        defer { lock.unlock() }
+        cache.setObject(obj, forKey: key)
+    }
+    
+    func removeAllObjects() {
+        lock.lock()
+        defer { lock.unlock() }
+        cache.removeAllObjects()
+    }
+}
+
 // MARK: - High Performance Cache Manager
 actor CacheManager: CacheManagerProtocol {
     private let logger = Logger(subsystem: "com.myon.app", category: "CacheManager")
     private let configuration: CacheConfiguration
     
     // Multi-level cache
-    private let memoryCache: NSCache<NSString, NSData>
+    private let memoryCache: MemoryCacheWrapper
     private let diskCache: DiskCache
-    private let cacheQueue = DispatchQueue(label: "com.myon.cache", attributes: .concurrent)
     
     // Cache statistics
     private var hitCount = 0
@@ -51,11 +80,12 @@ actor CacheManager: CacheManagerProtocol {
     
     init(configuration: CacheConfiguration = .default) {
         self.configuration = configuration
-        self.memoryCache = NSCache<NSString, NSData>()
-        self.memoryCache.countLimit = configuration.memoryCountLimit
+        self.memoryCache = MemoryCacheWrapper(countLimit: configuration.memoryCountLimit)
         self.diskCache = DiskCache(sizeLimit: configuration.diskSizeLimit)
         
-        setupNotifications()
+        Task {
+            await setupNotifications()
+        }
     }
     
     // MARK: - Public Methods
@@ -155,7 +185,7 @@ actor CacheManager: CacheManagerProtocol {
             missCount: missCount,
             hitRate: hitRate,
             memoryUsage: currentMemoryUsage(),
-            diskUsage: diskCache.currentSize
+            diskUsage: await diskCache.getCurrentSize()
         )
     }
     
@@ -186,7 +216,7 @@ actor CacheManager: CacheManagerProtocol {
     
     private func currentMemoryUsage() -> Int {
         // Approximate memory usage calculation
-        var usage = 0
+        let usage = 0
         // Note: NSCache doesn't expose its contents, so this is an approximation
         return usage
     }
@@ -259,6 +289,10 @@ private actor DiskCache {
     
     func cleanup() async {
         await evictExpiredEntries()
+    }
+    
+    func getCurrentSize() -> Int {
+        return currentSize
     }
     
     private func createDirectoryIfNeeded() async {

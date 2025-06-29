@@ -199,6 +199,7 @@ class DashboardService: DashboardServiceProtocol {
 }
 
 // MARK: - Dashboard Service Manager (Singleton)
+@MainActor
 class DashboardServiceManager {
     static let shared = DashboardServiceManager()
     private let service: DashboardServiceProtocol
