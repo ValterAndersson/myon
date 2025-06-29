@@ -92,8 +92,7 @@ struct TrainingConsistencyChart: View {
                             .fill(Color.clear)
                             .contentShape(Rectangle())
                             .onTapGesture { location in
-                                guard let plotFrameAnchor = proxy.plotAreaFrame else { return }
-                                let plotFrame = geometry[plotFrameAnchor]
+                                let plotFrame = geometry[proxy.plotFrame]
                                 let tapX = location.x - plotFrame.origin.x
                                 
                                 // Find closest data point
