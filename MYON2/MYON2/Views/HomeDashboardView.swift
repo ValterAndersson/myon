@@ -112,10 +112,38 @@ struct HomeDashboardView: View {
                         }
                         .padding(.top)
                     } else if !viewModel.isLoading {
-                        Text("No stats available for this period")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 40)
+                        VStack(spacing: 20) {
+                            Text("No stats available for this period")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                            
+                            // Debug section
+                            #if DEBUG
+                            VStack(spacing: 12) {
+                                Text("Debug Options")
+                                    .font(.headline)
+                                
+                                Button("Clear Cache & Reload") {
+                                    Task {
+                                        await viewModel.clearCache()
+                                        await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                
+                                Button("Force Refresh") {
+                                    Task {
+                                        await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding()
+                            .background(Color.yellow.opacity(0.1))
+                            .cornerRadius(8)
+                            #endif
+                        }
+                        .padding(.top, 40)
                     }
                 }
             }

@@ -78,13 +78,19 @@ class DashboardService: DashboardServiceProtocol {
             if let cachedData = await cacheManager.get(cacheKey, type: DashboardData.self) {
                 logger.debug("Returning cached dashboard data for user: \(userId)")
                 
-                // Check if cached data is recent enough
+                // Check if cached data is recent enough AND not empty
                 let cacheAge = Date().timeIntervalSince(cachedData.lastUpdated)
-                if cacheAge < shortTTL {
+                if cacheAge < shortTTL && !cachedData.isEmpty {
                     return cachedData
                 }
                 
-                // Return cached data but refresh in background for next time
+                // If data is empty or stale, fetch fresh data
+                if cachedData.isEmpty {
+                    logger.info("Cached data is empty, fetching fresh data")
+                    return try await fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+                }
+                
+                // Return non-empty cached data but refresh in background for next time
                 Task.detached { [weak self] in
                     try? await self?.fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
                 }
@@ -147,6 +153,8 @@ class DashboardService: DashboardServiceProtocol {
                 userGoal: userGoal,
                 lastUpdated: Date()
             )
+            
+            logger.info("Fetched dashboard data - Current week: \(currentWeek != nil), Recent stats count: \(recentStats.count), User goal: \(userGoal ?? -1)")
             
             // Cache the results
             let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)

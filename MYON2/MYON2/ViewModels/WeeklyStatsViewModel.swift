@@ -34,7 +34,7 @@ class WeeklyStatsViewModel: ObservableObject {
             recentStats = dashboardData.recentStats
             frequencyGoal = dashboardData.userGoal
             
-            logger.info("Dashboard loaded successfully")
+            logger.info("Dashboard loaded - Stats: \(stats != nil), Recent count: \(recentStats.count), Goal: \(frequencyGoal ?? -1)")
         } catch {
             logger.error("Failed to load dashboard: \(error)")
             setError(error.localizedDescription)
@@ -45,6 +45,12 @@ class WeeklyStatsViewModel: ObservableObject {
     
     func retry() async {
         await loadDashboard(forceRefresh: true)
+    }
+    
+    func clearCache() async {
+        guard let userId = AuthService.shared.currentUser?.uid else { return }
+        logger.info("Clearing dashboard cache for user")
+        await dashboardService.invalidateCache(for: userId)
     }
     
     // Keep old method for backward compatibility
