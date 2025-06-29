@@ -128,8 +128,6 @@ class AnalyticsRepository {
         let endWeekId = await getCurrentWeekId(for: userId)
         let startWeekId = await getWeekId(for: userId, weeksAgo: weekCount - 1)
         
-        print("[AnalyticsRepository] Getting recent stats - Start: \(startWeekId), End: \(endWeekId)")
-        
         return try await getWeeklyStatsRange(userId: userId, startWeekId: startWeekId, endWeekId: endWeekId)
     }
     
@@ -183,8 +181,6 @@ class AnalyticsRepository {
         formatter.dateFormat = "yyyy-MM-dd"
         
         let weekId = formatter.string(from: startOfWeekInUserTZ)
-        print("[AnalyticsRepository] Week calculation - Now: \(now), WeeksAgo: \(weeksAgo), StartOfWeek: \(startOfWeek), StartOfWeekUserTZ: \(startOfWeekInUserTZ), WeekID: \(weekId), WeekStartsMonday: \(weekStartsOnMonday)")
-        
         return weekId
     }
     
