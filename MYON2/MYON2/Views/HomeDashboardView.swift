@@ -24,7 +24,7 @@ struct HomeDashboardView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 120)
-                        .onChange(of: selectedWeekCount) { newValue in
+                        .onChange(of: selectedWeekCount) { _, newValue in
                             Task {
                                 await viewModel.loadDashboard(weekCount: newValue)
                             }
@@ -158,22 +158,6 @@ struct HomeDashboardView: View {
         }
         .refreshable {
             await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
-        }
-    }
-}
-
-// Helper view for old stat rows (kept for potential reuse)
-struct StatRow: View {
-    let title: String
-    let value: String
-    
-    var body: some View {
-        HStack {
-            Text(title)
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .font(.headline)
         }
     }
 }
