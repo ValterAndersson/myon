@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 class WeeklyStatsViewModel: ObservableObject {
@@ -8,63 +9,47 @@ class WeeklyStatsViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var hasError = false
-
-    private let analyticsRepository = AnalyticsRepository()
-    private let userRepository = UserRepository()
-    private let cache = DashboardCache.shared
-
-    func loadDashboard(weekCount: Int = 8, useCache: Bool = true) async {
-        guard let userId = AuthService.shared.currentUser?.uid else {
-            setError("User not authenticated")
-            return
-        }
-
+    
+    private let logger = Logger(subsystem: "com.myon.app", category: "WeeklyStatsViewModel")
+    private let dashboardService: DashboardServiceProtocol
+    
+    init(dashboardService: DashboardServiceProtocol? = nil) {
+        self.dashboardService = dashboardService ?? DashboardServiceManager.shared.getDashboardService()
+    }
+    
+    func loadDashboard(weekCount: Int = 8, forceRefresh: Bool = false) async {
+        logger.debug("Loading dashboard with weekCount: \(weekCount), forceRefresh: \(forceRefresh)")
+        
         isLoading = true
         clearError()
-
-        if useCache,
-           let cached = cache.load(userId: userId),
-           !cache.isExpired(cached) {
-            stats = cached.stats
-            recentStats = cached.recent
-            frequencyGoal = cached.goal
-            isLoading = false
-            return
-        }
-
+        
         do {
-            // Try to load current week first (using user's preference)
-            var currentWeekStats = try await analyticsRepository.getCurrentWeekStats(userId: userId)
-
-            if currentWeekStats == nil {
-                // If no current week data, try last week
-                currentWeekStats = try await analyticsRepository.getLastWeekStats(userId: userId)
-            }
-
-            stats = currentWeekStats
-
-            recentStats = try await analyticsRepository.getRecentWeeklyStats(userId: userId, weekCount: weekCount)
-
-            if let attributes = try await userRepository.getUserAttributes(userId: userId) {
-                frequencyGoal = attributes.workoutFrequency
-            }
-
-            let cached = CachedDashboard(
-                stats: stats,
-                recent: recentStats,
-                goal: frequencyGoal,
-                timestamp: Date()
+            let dashboardData = try await dashboardService.loadDashboard(
+                weekCount: weekCount,
+                forceRefresh: forceRefresh
             )
-            cache.save(cached, userId: userId)
+            
+            // Update published properties
+            stats = dashboardData.currentWeekStats
+            recentStats = dashboardData.recentStats
+            frequencyGoal = dashboardData.userGoal
+            
+            logger.info("Dashboard loaded successfully")
         } catch {
-            setError("Failed to load weekly stats: \(error.localizedDescription)")
+            logger.error("Failed to load dashboard: \(error)")
+            setError(error.localizedDescription)
         }
-
+        
         isLoading = false
     }
-
+    
     func retry() async {
-        await loadDashboard(useCache: false)
+        await loadDashboard(forceRefresh: true)
+    }
+    
+    // Keep old method for backward compatibility
+    func loadCurrentWeek() async {
+        await loadDashboard(weekCount: 1, forceRefresh: false)
     }
     
     private func setError(_ message: String) {
