@@ -162,7 +162,7 @@ class DashboardService: DashboardServiceProtocol {
         // Check if we've exceeded max attempts
         let attemptCount = fetchAttemptCount[fetchKey] ?? 0
         if attemptCount >= maxFetchAttempts {
-            logger.error("Max fetch attempts (\(maxFetchAttempts)) exceeded for \(fetchKey)")
+            logger.error("Max fetch attempts (\(self.maxFetchAttempts)) exceeded for \(fetchKey)")
             fetchAttemptCount[fetchKey] = 0 // Reset for next time
             throw DashboardServiceError.invalidData
         }
