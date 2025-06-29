@@ -2,189 +2,178 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     @StateObject private var viewModel = WeeklyStatsViewModel()
-    @State private var selectedWeekCount = 4
-
+    @State private var selectedWeekCount = 8
+    @State private var selectedWeekId: String?
+    
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Header
-                HStack {
-                    Text("Dashboard")
-                        .font(.largeTitle).bold()
-                    
-                    Spacer()
-                    
-                    // Week selector
-                    Picker("Weeks", selection: $selectedWeekCount) {
-                        Text("4w").tag(4)
-                        Text("8w").tag(8)
-                        Text("12w").tag(12)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 120)
-                    .onChange(of: selectedWeekCount) { newValue in
-                        Task {
-                            await viewModel.loadDashboard(weekCount: newValue)
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Header
+                    HStack {
+                        Text("Dashboard")
+                            .font(.largeTitle).bold()
+                        
+                        Spacer()
+                        
+                        // Week selector
+                        Picker("Weeks", selection: $selectedWeekCount) {
+                            Text("6w").tag(6)
+                            Text("8w").tag(8)
+                            Text("12w").tag(12)
                         }
-                    }
-                }
-
-                if viewModel.isLoading {
-                    ProgressView("Loading dashboard...")
-                        .frame(height: 200)
-                } else if viewModel.hasError {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.orange)
-                            .font(.title2)
-                        Text(viewModel.errorMessage ?? "An error occurred")
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                        Button("Retry") {
+                        .pickerStyle(.segmented)
+                        .frame(width: 120)
+                        .onChange(of: selectedWeekCount) { newValue in
                             Task {
-                                await viewModel.retry()
+                                await viewModel.loadDashboard(weekCount: newValue)
                             }
                         }
-                        .buttonStyle(.borderedProminent)
                     }
-                    .frame(height: 200)
-                } else {
-                    // Current week stats
-                    if let stats = viewModel.stats {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("This Week")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                            
-                            VStack(spacing: 12) {
-                                StatRow(title: "Workouts", value: "\(stats.workouts)")
-                                StatRow(title: "Total Sets", value: "\(stats.totalSets)")
-                                StatRow(title: "Total Reps", value: "\(stats.totalReps)")
-                                StatRow(title: "Volume", value: String(format: "%.0f kg", stats.totalWeight))
-                            }
-                            .padding()
+                    .padding(.horizontal)
+                    
+                    if viewModel.isLoading {
+                        ProgressView("Loading dashboard...")
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 200)
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(12)
-                        }
-                    } else if !viewModel.recentStats.isEmpty {
-                        // Show last week's stats if no current week
-                        if let lastWeek = viewModel.recentStats.first {
-                            VStack(alignment: .leading, spacing: 16) {
-                                Text("Last Week (\(lastWeek.id))")
-                                    .font(.headline)
-                                    .foregroundColor(.secondary)
-                                
-                                VStack(spacing: 12) {
-                                    StatRow(title: "Workouts", value: "\(lastWeek.workouts)")
-                                    StatRow(title: "Total Sets", value: "\(lastWeek.totalSets)")
-                                    StatRow(title: "Total Reps", value: "\(lastWeek.totalReps)")
-                                    StatRow(title: "Volume", value: String(format: "%.0f kg", lastWeek.totalWeight))
-                                }
-                                .padding()
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .cornerRadius(12)
-                            }
-                        }
-                    }
-                    
-                    // Debug info
-                    #if DEBUG
-                    HStack {
-                        Text("Debug: Stats: \(viewModel.stats != nil ? "Yes" : "No")")
-                        Spacer()
-                        Text("Recent: \(viewModel.recentStats.count)")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                    .padding(.horizontal)
-                    #endif
-                    
-                    // Charts
-                    if !viewModel.recentStats.isEmpty {
-                        VStack(alignment: .leading, spacing: 20) {
-                            // Workout Frequency Chart
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Workout Frequency")
-                                    .font(.headline)
-                                    .foregroundColor(.secondary)
-                                
-                                WorkoutFrequencyChart(
-                                    stats: viewModel.recentStats,
-                                    goal: viewModel.frequencyGoal
-                                )
-                                .padding()
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .cornerRadius(12)
-                            }
-                            
-                            // Volume by Muscle Group
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Volume by Muscle Group")
-                                    .font(.headline)
-                                    .foregroundColor(.secondary)
-                                
-                                VolumeByMuscleGroupChart(stats: viewModel.recentStats)
-                                    .padding()
-                                    .background(Color(UIColor.secondarySystemBackground))
-                                    .cornerRadius(12)
-                            }
-                            
-                            // Sets vs Reps
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Sets & Reps Trend")
-                                    .font(.headline)
-                                    .foregroundColor(.secondary)
-                                
-                                SetsRepsChart(stats: viewModel.recentStats)
-                                    .padding()
-                                    .background(Color(UIColor.secondarySystemBackground))
-                                    .cornerRadius(12)
-                            }
-                        }
-                        .padding(.top)
-                    } else if !viewModel.isLoading {
-                        VStack(spacing: 20) {
-                            Text("No stats available for this period")
+                            .padding(.horizontal)
+                    } else if viewModel.hasError {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                                .font(.title2)
+                            Text(viewModel.errorMessage ?? "An error occurred")
                                 .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity)
+                                .multilineTextAlignment(.center)
+                            Button("Retry") {
+                                Task {
+                                    await viewModel.retry()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 200)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+                    } else if !viewModel.recentStats.isEmpty || viewModel.stats != nil {
+                        VStack(spacing: 16) {
+                            // 1. Training Consistency
+                            TrainingConsistencyChart(
+                                stats: viewModel.recentStats,
+                                goal: viewModel.frequencyGoal,
+                                onWeekTapped: { weekId in
+                                    selectedWeekId = weekId
+                                    // TODO: Navigate to workout history for selected week
+                                }
+                            )
+                            .padding(.horizontal)
+                            
+                            // 2. Weekly Load Progression
+                            WeeklyLoadProgressionChart(stats: viewModel.recentStats)
+                                .padding(.horizontal)
+                            
+                            // 3. Muscle Group Volume Trend
+                            MuscleGroupVolumeTrendChart(stats: viewModel.recentStats)
+                                .padding(.horizontal)
+                            
+                            // 4. This Week Muscle Group Breakdown
+                            CurrentWeekMuscleGroupChart(currentWeekStats: viewModel.stats)
+                                .padding(.horizontal)
+                            
+                            // 5. Top 5 Muscles by Volume
+                            TopMusclesChart(currentWeekStats: viewModel.stats)
+                                .padding(.horizontal)
+                            
+                            // 6. Undertrained Muscles
+                            UndertrainedMusclesView(currentWeekStats: viewModel.stats)
+                                .padding(.horizontal)
                             
                             // Debug section
                             #if DEBUG
                             VStack(spacing: 12) {
-                                Text("Debug Options")
-                                    .font(.headline)
-                                
-                                Button("Clear Cache & Reload") {
-                                    Task {
-                                        await viewModel.clearCache()
-                                        await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
-                                    }
+                                HStack {
+                                    Text("Debug: Stats: \(viewModel.stats != nil ? "Yes" : "No")")
+                                    Spacer()
+                                    Text("Recent: \(viewModel.recentStats.count)")
                                 }
-                                .buttonStyle(.bordered)
+                                .font(.caption)
+                                .foregroundColor(.orange)
                                 
-                                Button("Force Refresh") {
-                                    Task {
-                                        await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+                                HStack(spacing: 12) {
+                                    Button("Clear Cache") {
+                                        Task {
+                                            await viewModel.clearCache()
+                                            await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+                                        }
                                     }
+                                    .buttonStyle(.bordered)
+                                    
+                                    Button("Force Refresh") {
+                                        Task {
+                                            await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
                                 }
-                                .buttonStyle(.bordered)
                             }
                             .padding()
                             .background(Color.yellow.opacity(0.1))
                             .cornerRadius(8)
+                            .padding(.horizontal)
                             #endif
                         }
-                        .padding(.top, 40)
+                    } else {
+                        VStack(spacing: 20) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .font(.system(size: 60))
+                                .foregroundColor(.secondary)
+                            
+                            Text("No workout data available")
+                                .font(.title3)
+                                .foregroundColor(.primary)
+                            
+                            Text("Start tracking your workouts to see insights here")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 300)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
+                        .padding(.horizontal)
                     }
                 }
+                .padding(.vertical)
             }
-            .padding()
+            .navigationBarHidden(true)
+            .background(Color(UIColor.systemBackground))
         }
         .task { 
             await viewModel.loadDashboard(weekCount: selectedWeekCount)
         }
         .refreshable {
             await viewModel.loadDashboard(weekCount: selectedWeekCount, forceRefresh: true)
+        }
+    }
+}
+
+// Helper view for old stat rows (kept for potential reuse)
+struct StatRow: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(.headline)
         }
     }
 }
