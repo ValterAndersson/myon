@@ -54,6 +54,12 @@ class DashboardService: DashboardServiceProtocol {
     private let shortTTL: TimeInterval = 300 // 5 minutes for frequently changing data
     private let longTTL: TimeInterval = 3600 // 1 hour for stable data
     
+    // Loop prevention
+    private var lastFetchAttempt: [String: Date] = [:]
+    private let minTimeBetweenFetches: TimeInterval = 10 // 10 seconds minimum between fetches
+    private var fetchAttemptCount: [String: Int] = [:]
+    private let maxFetchAttempts = 3
+    
     init(
         analyticsRepository: AnalyticsRepository = AnalyticsRepository(),
         userRepository: UserRepository = UserRepository(),
@@ -84,10 +90,16 @@ class DashboardService: DashboardServiceProtocol {
                     return cachedData
                 }
                 
-                // If data is empty or stale, fetch fresh data
+                // If data is empty, always fetch fresh data (but with safeguards)
                 if cachedData.isEmpty {
-                    logger.info("Cached data is empty, fetching fresh data")
-                    return try await fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+                    logger.info("Cached data is empty, will attempt fresh fetch")
+                    do {
+                        return try await fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+                    } catch {
+                        logger.error("Failed to fetch fresh data after empty cache: \(error)")
+                        // Return the empty cached data as last resort to prevent crash
+                        return cachedData
+                    }
                 }
                 
                 // Return non-empty cached data but refresh in background for next time
@@ -107,6 +119,13 @@ class DashboardService: DashboardServiceProtocol {
         logger.info("Invalidating dashboard cache for user: \(userId)")
         let pattern = "\(cacheKeyPrefix)_\(userId)"
         await cacheManager.invalidate(matching: pattern)
+        
+        // Also clear fetch attempt tracking for this user
+        let keysToRemove = fetchAttemptCount.keys.filter { $0.hasPrefix(userId) }
+        for key in keysToRemove {
+            fetchAttemptCount.removeValue(forKey: key)
+            lastFetchAttempt.removeValue(forKey: key)
+        }
     }
     
     func preloadDashboard() async {
@@ -129,7 +148,30 @@ class DashboardService: DashboardServiceProtocol {
     // MARK: - Private Methods
     
     private func fetchAndCacheDashboard(userId: String, weekCount: Int) async throws -> DashboardData {
-        logger.info("Fetching fresh dashboard data for user: \(userId)")
+        let fetchKey = "\(userId)_\(weekCount)"
+        
+        // Check if we're fetching too frequently (loop prevention)
+        if let lastAttempt = lastFetchAttempt[fetchKey] {
+            let timeSinceLastAttempt = Date().timeIntervalSince(lastAttempt)
+            if timeSinceLastAttempt < minTimeBetweenFetches {
+                logger.warning("Fetch attempted too soon after last attempt. Time since last: \(timeSinceLastAttempt)s")
+                throw DashboardServiceError.invalidData
+            }
+        }
+        
+        // Check if we've exceeded max attempts
+        let attemptCount = fetchAttemptCount[fetchKey] ?? 0
+        if attemptCount >= maxFetchAttempts {
+            logger.error("Max fetch attempts (\(maxFetchAttempts)) exceeded for \(fetchKey)")
+            fetchAttemptCount[fetchKey] = 0 // Reset for next time
+            throw DashboardServiceError.invalidData
+        }
+        
+        // Update attempt tracking
+        lastFetchAttempt[fetchKey] = Date()
+        fetchAttemptCount[fetchKey] = attemptCount + 1
+        
+        logger.info("Fetching fresh dashboard data for user: \(userId) (attempt \(attemptCount + 1))")
         
         do {
             // Parallel fetch all required data
@@ -156,11 +198,19 @@ class DashboardService: DashboardServiceProtocol {
             
             logger.info("Fetched dashboard data - Current week: \(currentWeek != nil), Recent stats count: \(recentStats.count), User goal: \(userGoal ?? -1)")
             
-            // Cache the results
-            let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
-            let ttl = dashboardData.isEmpty ? shortTTL : longTTL
-            
-            await cacheManager.set(cacheKey, value: dashboardData, ttl: ttl)
+            // Validate and cache only non-empty, valid data
+            if !dashboardData.isEmpty && validateDashboardData(dashboardData) {
+                let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
+                await cacheManager.set(cacheKey, value: dashboardData, ttl: longTTL)
+                
+                // Reset attempt counter on successful non-empty fetch
+                fetchAttemptCount[fetchKey] = 0
+                logger.info("Successfully cached valid non-empty dashboard data")
+            } else if dashboardData.isEmpty {
+                logger.warning("Skipping cache for empty dashboard data to prevent loops")
+            } else {
+                logger.error("Skipping cache for invalid dashboard data")
+            }
             
             // Preload related data in background
             Task.detached { [weak self] in
@@ -203,6 +253,26 @@ class DashboardService: DashboardServiceProtocol {
     
     private func makeCacheKey(userId: String, weekCount: Int) -> String {
         "\(cacheKeyPrefix)_\(userId)_weeks_\(weekCount)"
+    }
+    
+    // Data validation to prevent caching invalid data
+    private func validateDashboardData(_ data: DashboardData) -> Bool {
+        // Check for reasonable data limits
+        if let stats = data.currentWeekStats {
+            // Sanity checks - no one does 1000 workouts in a week
+            if stats.workouts > 100 || stats.totalSets > 10000 || stats.totalReps > 100000 {
+                logger.error("Dashboard data failed validation - unrealistic values detected")
+                return false
+            }
+        }
+        
+        // Check that we have reasonable number of recent stats
+        if data.recentStats.count > 52 { // More than a year of weekly data
+            logger.error("Dashboard data contains too many weeks of data: \(data.recentStats.count)")
+            return false
+        }
+        
+        return true
     }
 }
 
