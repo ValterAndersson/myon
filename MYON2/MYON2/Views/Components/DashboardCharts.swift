@@ -81,9 +81,12 @@ struct VolumeByMuscleGroupChart: View {
     let stats: [WeeklyStats]
 
     private var muscleGroups: [String] {
-        let allGroups = Set(stats.flatMap { stat in 
-            stat.weightPerMuscleGroup?.keys ?? []
-        })
+        var allGroups = Set<String>()
+        for stat in stats {
+            if let groups = stat.weightPerMuscleGroup?.keys {
+                allGroups.formUnion(groups)
+            }
+        }
         return Array(allGroups).sorted()
     }
     
@@ -153,9 +156,12 @@ struct VolumeByMuscleChart: View {
     let stats: [WeeklyStats]
 
     private var muscles: [String] {
-        let allMuscles = Set(stats.flatMap { stat in 
-            stat.weightPerMuscle?.keys ?? []
-        })
+        var allMuscles = Set<String>()
+        for stat in stats {
+            if let muscles = stat.weightPerMuscle?.keys {
+                allMuscles.formUnion(muscles)
+            }
+        }
         return Array(allMuscles).sorted()
     }
     
@@ -256,24 +262,13 @@ struct SetsRepsChart: View {
                 }
             }
         }
-        .chartYAxis(.trailing) {
-            AxisMarks(position: .trailing) { value in
-                AxisValueLabel {
-                    if let val = value.as(Int.self) {
-                        Text("\(val * 10)")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                }
-            }
-        }
         .frame(height: 220)
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 4) {
                 Label("Sets", systemImage: "square.fill")
                     .foregroundColor(.green)
                     .font(.caption)
-                Label("Reps (×10)", systemImage: "line.diagonal")
+                Label("Reps (÷10)", systemImage: "line.diagonal")
                     .foregroundColor(.orange)
                     .font(.caption)
             }
