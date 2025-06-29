@@ -25,6 +25,7 @@ struct MoreView: View {
     @State private var recalculationResult: String?
     @State private var showingRecalculationAlert = false
     @State private var weekStartsOnMonday = true
+    @State private var selectedTimeZone = TimeZone.current.identifier
     
     private let userRepository = UserRepository()
     private let cloudFunctionService = CloudFunctionService()
@@ -60,6 +61,14 @@ struct MoreView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 180)
+                    }
+                    HStack {
+                        Text("Time Zone")
+                        Spacer()
+                        NavigationLink(destination: TimeZonePickerView(selectedTimeZone: $selectedTimeZone)) {
+                            Text(formatTimeZone(selectedTimeZone))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 
@@ -204,6 +213,7 @@ struct MoreView: View {
                         self.name = user.name ?? ""
                         self.email = user.email
                         self.weekStartsOnMonday = user.weekStartsOnMonday
+                        self.selectedTimeZone = user.timeZone ?? TimeZone.current.identifier
                     }
                 }
                 
@@ -243,7 +253,7 @@ struct MoreView: View {
         Task {
             do {
                 // Update user profile
-                try await userRepository.updateUserProfile(userId: userId, name: name, email: email, weekStartsOnMonday: weekStartsOnMonday)
+                try await userRepository.updateUserProfile(userId: userId, name: name, email: email, weekStartsOnMonday: weekStartsOnMonday, timeZone: selectedTimeZone)
                 
                 // Update user attributes
                 let attributes = UserAttributes(
@@ -300,6 +310,18 @@ struct MoreView: View {
                 }
             }
         }
+    }
+    
+    private func formatTimeZone(_ identifier: String) -> String {
+        guard let timeZone = TimeZone(identifier: identifier) else { return identifier }
+        let offset = timeZone.secondsFromGMT() / 3600
+        let offsetString = offset >= 0 ? "+\(offset)" : "\(offset)"
+        
+        // Extract city name from identifier (e.g., "America/New_York" -> "New York")
+        let parts = identifier.split(separator: "/")
+        let cityName = parts.last?.replacingOccurrences(of: "_", with: " ") ?? identifier
+        
+        return "\(cityName) (GMT\(offsetString))"
     }
     
     private func recalculateWeeklyStats() {

@@ -130,19 +130,7 @@ class AnalyticsRepository {
         
         print("[AnalyticsRepository] Getting recent stats - Start: \(startWeekId), End: \(endWeekId)")
         
-        let stats = try await getWeeklyStatsRange(userId: userId, startWeekId: startWeekId, endWeekId: endWeekId)
-        
-        // TEMPORARY: If we didn't get the known week with data, add it
-        if !stats.contains(where: { $0.id == "2025-06-23" }) {
-            print("[AnalyticsRepository] Adding known week 2025-06-23 to results")
-            if let knownWeek = try? await getWeeklyStats(userId: userId, weekId: "2025-06-23") {
-                var updatedStats = stats
-                updatedStats.insert(knownWeek, at: 0)
-                return updatedStats
-            }
-        }
-        
-        return stats
+        return try await getWeeklyStatsRange(userId: userId, startWeekId: startWeekId, endWeekId: endWeekId)
     }
     
     /// Check if weekly stats exist for a specific week
@@ -172,8 +160,14 @@ class AnalyticsRepository {
         let weekDate = adjustedCalendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: now) ?? now
         let startOfWeek = adjustedCalendar.startOfWeek(for: weekDate)
         
-        // Get user's timezone - default to UTC+3 if not available
-        let userTimeZone = TimeZone(secondsFromGMT: 3 * 3600) ?? TimeZone.current
+        // Get user's timezone from preferences
+        var userTimeZone: TimeZone = TimeZone.current // Default to device timezone
+        
+        if let user = try? await db.collection("users").document(userId).getDocument().data(as: User.self),
+           let tzIdentifier = user.timeZone,
+           let tz = TimeZone(identifier: tzIdentifier) {
+            userTimeZone = tz
+        }
         
         // Adjust startOfWeek to user's timezone
         var userCalendar = Calendar.current

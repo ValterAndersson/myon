@@ -31,7 +31,7 @@ class UserRepository {
     
     // MARK: - User Profile
     
-    func updateUserProfile(userId: String, name: String, email: String, weekStartsOnMonday: Bool? = nil) async throws {
+    func updateUserProfile(userId: String, name: String, email: String, weekStartsOnMonday: Bool? = nil, timeZone: String? = nil) async throws {
         let userRef = db.collection(collection).document(userId)
         var updates: [String: Any] = [
             "name": name,
@@ -40,6 +40,9 @@ class UserRepository {
         ]
         if let weekStartsOnMonday = weekStartsOnMonday {
             updates["week_starts_on_monday"] = weekStartsOnMonday
+        }
+        if let timeZone = timeZone {
+            updates["timezone"] = timeZone
         }
         try await userRef.updateData(updates)
     }

@@ -21,18 +21,22 @@ class AuthService: ObservableObject {
         let result = try await Auth.auth().createUser(withEmail: email, password: password)
         let userRef = db.collection("users").document(result.user.uid)
         
+        // Get current device timezone
+        let currentTimeZone = TimeZone.current.identifier
+        
         let userData: [String: Any] = [
             "email": email,
             "uid": result.user.uid,
             "created_at": Timestamp(),
-            "provider": "email"
+            "provider": "email",
+            "timezone": currentTimeZone,
+            "week_starts_on_monday": true // Default
         ]
         
         try await userRef.setData(userData)
         
         // Register the current device
         try await DeviceManager.shared.registerCurrentDevice(for: result.user.uid)
-        // No location, locale, or currency logic needed
     }
     
     func signIn(email: String, password: String) async throws {
