@@ -162,7 +162,10 @@ class AnalyticsRepository {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         
-        return formatter.string(from: startOfWeek)
+        let weekId = formatter.string(from: startOfWeek)
+        print("[AnalyticsRepository] Week calculation - Now: \(now), WeeksAgo: \(weeksAgo), StartOfWeek: \(startOfWeek), WeekID: \(weekId), WeekStartsMonday: \(weekStartsOnMonday)")
+        
+        return weekId
     }
     
     /// Get current week ID based on user preference

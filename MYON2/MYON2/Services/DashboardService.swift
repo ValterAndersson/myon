@@ -189,8 +189,18 @@ class DashboardService: DashboardServiceProtocol {
                 userGoalTask
             )
             
+            // If no current week but we have recent stats with data, use the most recent one
+            var effectiveCurrentWeek = currentWeek
+            if currentWeek == nil || (currentWeek?.workouts == 0 && currentWeek?.totalSets == 0) {
+                // Find the most recent week with actual data
+                if let mostRecentWithData = recentStats.first(where: { $0.workouts > 0 || $0.totalSets > 0 }) {
+                    logger.info("Using most recent week with data as current: \(mostRecentWithData.id)")
+                    effectiveCurrentWeek = mostRecentWithData
+                }
+            }
+            
             let dashboardData = DashboardData(
-                currentWeekStats: currentWeek,
+                currentWeekStats: effectiveCurrentWeek,
                 recentStats: recentStats,
                 userGoal: userGoal,
                 lastUpdated: Date()
@@ -230,13 +240,27 @@ class DashboardService: DashboardServiceProtocol {
     }
     
     private func fetchCurrentWeekStats(userId: String) async throws -> WeeklyStats? {
+        let currentWeekId = await analyticsRepository.getCurrentWeekId(for: userId)
+        logger.info("Looking for current week: \(currentWeekId)")
+        
         // Try current week first
         if let currentWeek = try await analyticsRepository.getCurrentWeekStats(userId: userId) {
+            logger.info("Found current week data: \(currentWeek.id)")
             return currentWeek
         }
         
+        logger.info("No current week data, trying last week")
+        let lastWeekId = await analyticsRepository.getLastWeekId(for: userId)
+        logger.info("Looking for last week: \(lastWeekId)")
+        
         // Fall back to last week if current week has no data
-        return try await analyticsRepository.getLastWeekStats(userId: userId)
+        if let lastWeek = try await analyticsRepository.getLastWeekStats(userId: userId) {
+            logger.info("Found last week data: \(lastWeek.id)")
+            return lastWeek
+        }
+        
+        logger.warning("No data found for current or last week")
+        return nil
     }
     
     private func fetchUserGoal(userId: String) async throws -> Int? {
