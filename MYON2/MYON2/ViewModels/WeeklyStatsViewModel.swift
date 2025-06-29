@@ -34,7 +34,7 @@ class WeeklyStatsViewModel: ObservableObject {
             recentStats = dashboardData.recentStats
             frequencyGoal = dashboardData.userGoal
             
-            logger.info("Dashboard loaded - Stats: \(stats != nil), Recent count: \(recentStats.count), Goal: \(frequencyGoal ?? -1)")
+            logger.info("Dashboard loaded - Stats: \(self.stats != nil), Recent count: \(self.recentStats.count), Goal: \(self.frequencyGoal ?? -1)")
         } catch {
             logger.error("Failed to load dashboard: \(error)")
             setError(error.localizedDescription)
