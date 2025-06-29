@@ -90,11 +90,21 @@ class DashboardDataTransformer {
         var undertrainedMuscles: [MuscleVolumeData] = []
         
         // Get all muscles that were trained
-        let allTrainedMuscles = Set(
-            (stats.weightPerMuscle?.keys ?? []) +
-            (stats.setsPerMuscle?.keys ?? []) +
-            (stats.repsPerMuscle?.keys ?? [])
-        )
+        var allMuscleKeys: [String] = []
+        
+        if let weightKeys = stats.weightPerMuscle?.keys {
+            allMuscleKeys.append(contentsOf: weightKeys)
+        }
+        
+        if let setsKeys = stats.setsPerMuscle?.keys {
+            allMuscleKeys.append(contentsOf: setsKeys)
+        }
+        
+        if let repsKeys = stats.repsPerMuscle?.keys {
+            allMuscleKeys.append(contentsOf: repsKeys)
+        }
+        
+        let allTrainedMuscles = Set(allMuscleKeys)
         
         for muscle in allTrainedMuscles {
             let weight = stats.weightPerMuscle?[muscle] ?? 0
