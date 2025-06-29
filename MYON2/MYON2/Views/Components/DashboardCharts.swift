@@ -34,39 +34,54 @@ struct WorkoutFrequencyChart: View {
     }
     
     var body: some View {
-        Chart {
-            ForEach(stats, id: \.id) { stat in
-                BarMark(
-                    x: .value("Week", formatWeekLabel(stat.id)),
-                    y: .value("Workouts", stat.workouts)
-                )
-                .foregroundStyle(ChartTheme.primaryGradient)
-                .cornerRadius(4)
-            }
-            
-            if let goal = goal {
-                RuleMark(y: .value("Goal", goal))
-                    .foregroundStyle(.red.opacity(0.7))
-                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
-                    .annotation(position: .topTrailing, alignment: .trailing) {
-                        Text("Goal: \(goal)")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .padding(.horizontal, 4)
+        if stats.isEmpty {
+            Text("No workout data available")
+                .foregroundColor(.secondary)
+                .frame(height: 200)
+                .frame(maxWidth: .infinity)
+        } else {
+            Chart {
+                ForEach(stats, id: \.id) { stat in
+                    BarMark(
+                        x: .value("Week", formatWeekLabel(stat.id)),
+                        y: .value("Workouts", stat.workouts)
+                    )
+                    .foregroundStyle(ChartTheme.primaryGradient)
+                    .cornerRadius(4)
+                    // Add minimum width for single bars
+                    .annotation(position: .top) {
+                        if stats.count == 1 {
+                            Text("\(stat.workouts)")
+                                .font(.caption)
+                                .foregroundColor(.primary)
+                        }
                     }
+                }
+                
+                if let goal = goal {
+                    RuleMark(y: .value("Goal", goal))
+                        .foregroundStyle(.red.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                        .annotation(position: .topTrailing, alignment: .trailing) {
+                            Text("Goal: \(goal)")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .padding(.horizontal, 4)
+                        }
+                }
             }
-        }
-        .chartYScale(domain: 0...maxValue)
-        .chartXAxis {
-            AxisMarks(values: .automatic) { _ in
-                AxisValueLabel()
-                    .font(.caption)
+            .chartYScale(domain: 0...maxValue)
+            .chartXAxis {
+                AxisMarks(values: .automatic) { _ in
+                    AxisValueLabel()
+                        .font(.caption)
+                }
             }
+            .chartYAxis {
+                AxisMarks(position: .leading)
+            }
+            .frame(height: 200)
         }
-        .chartYAxis {
-            AxisMarks(position: .leading)
-        }
-        .frame(height: 200)
     }
     
     private func formatWeekLabel(_ weekId: String) -> String {

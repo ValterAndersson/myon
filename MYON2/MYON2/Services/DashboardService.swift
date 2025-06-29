@@ -198,6 +198,11 @@ class DashboardService: DashboardServiceProtocol {
             
             logger.info("Fetched dashboard data - Current week: \(currentWeek != nil), Recent stats count: \(recentStats.count), User goal: \(userGoal ?? -1)")
             
+            // Log details of recent stats
+            for (index, stat) in recentStats.enumerated() {
+                logger.debug("Recent stat \(index): Week \(stat.id), Workouts: \(stat.workouts), Sets: \(stat.totalSets), Weight: \(stat.totalWeight)")
+            }
+            
             // Validate and cache only non-empty, valid data
             if !dashboardData.isEmpty && validateDashboardData(dashboardData) {
                 let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)

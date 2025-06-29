@@ -2,7 +2,7 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     @StateObject private var viewModel = WeeklyStatsViewModel()
-    @State private var selectedWeekCount = 8
+    @State private var selectedWeekCount = 4
 
     var body: some View {
         ScrollView {
@@ -66,7 +66,38 @@ struct HomeDashboardView: View {
                             .background(Color(UIColor.secondarySystemBackground))
                             .cornerRadius(12)
                         }
+                    } else if !viewModel.recentStats.isEmpty {
+                        // Show last week's stats if no current week
+                        if let lastWeek = viewModel.recentStats.first {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Last Week (\(lastWeek.id))")
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+                                
+                                VStack(spacing: 12) {
+                                    StatRow(title: "Workouts", value: "\(lastWeek.workouts)")
+                                    StatRow(title: "Total Sets", value: "\(lastWeek.totalSets)")
+                                    StatRow(title: "Total Reps", value: "\(lastWeek.totalReps)")
+                                    StatRow(title: "Volume", value: String(format: "%.0f kg", lastWeek.totalWeight))
+                                }
+                                .padding()
+                                .background(Color(UIColor.secondarySystemBackground))
+                                .cornerRadius(12)
+                            }
+                        }
                     }
+                    
+                    // Debug info
+                    #if DEBUG
+                    HStack {
+                        Text("Debug: Stats: \(viewModel.stats != nil ? "Yes" : "No")")
+                        Spacer()
+                        Text("Recent: \(viewModel.recentStats.count)")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .padding(.horizontal)
+                    #endif
                     
                     // Charts
                     if !viewModel.recentStats.isEmpty {

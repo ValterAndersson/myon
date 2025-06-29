@@ -35,6 +35,11 @@ class WeeklyStatsViewModel: ObservableObject {
             frequencyGoal = dashboardData.userGoal
             
             logger.info("Dashboard loaded - Stats: \(self.stats != nil), Recent count: \(self.recentStats.count), Goal: \(self.frequencyGoal ?? -1)")
+            
+            // Debug log the actual recent stats
+            for (index, stat) in recentStats.enumerated() {
+                logger.debug("Recent stat \(index): Week \(stat.id), Workouts: \(stat.workouts), Sets: \(stat.totalSets), Reps: \(stat.totalReps), Weight: \(stat.totalWeight)")
+            }
         } catch {
             logger.error("Failed to load dashboard: \(error)")
             setError(error.localizedDescription)
