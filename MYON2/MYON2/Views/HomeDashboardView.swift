@@ -2,7 +2,7 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     @StateObject private var viewModel = WeeklyStatsViewModel()
-    @State private var selectedWeekId: String?
+    @State private var hasLoadedInitialData = false
     private let weekCount = 4 // Fixed 4-week window
     
     var body: some View {
@@ -50,10 +50,7 @@ struct HomeDashboardView: View {
                             // 1. Training Consistency
                             TrainingConsistencyChart(
                                 stats: viewModel.recentStats,
-                                goal: viewModel.frequencyGoal,
-                                onWeekTapped: { weekId in
-                                    selectedWeekId = weekId
-                                }
+                                goal: viewModel.frequencyGoal
                             )
                             .padding(.horizontal)
                             
@@ -66,15 +63,14 @@ struct HomeDashboardView: View {
                                 .padding(.horizontal)
                             
                             // 4. This Week Muscle Group Breakdown
-                            CurrentWeekMuscleGroupChart(currentWeekStats: viewModel.stats)
+                            CurrentWeekMuscleGroupChart(
+                                currentWeekStats: viewModel.stats,
+                                allStats: viewModel.recentStats
+                            )
                                 .padding(.horizontal)
                             
                             // 5. Top 5 Muscles by Volume
                             TopMusclesChart(stats: viewModel.recentStats)
-                                .padding(.horizontal)
-                            
-                            // 6. Training Balance
-                            UndertrainedMusclesView(stats: viewModel.recentStats)
                                 .padding(.horizontal)
                             
                             // Debug section
@@ -138,13 +134,12 @@ struct HomeDashboardView: View {
             .navigationBarHidden(true)
             .background(Color(UIColor.systemBackground))
         }
-        .navigationDestination(isPresented: .constant(selectedWeekId != nil)) {
-            if let weekId = selectedWeekId {
-                WorkoutHistoryView(weekId: weekId)
-            }
-        }
         .task { 
-            await viewModel.loadDashboard(weekCount: weekCount)
+            // Only load data if we haven't already loaded it
+            if !hasLoadedInitialData {
+                await viewModel.loadDashboard(weekCount: weekCount)
+                hasLoadedInitialData = true
+            }
         }
         .refreshable {
             await viewModel.loadDashboard(weekCount: weekCount, forceRefresh: true)

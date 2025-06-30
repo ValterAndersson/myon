@@ -135,7 +135,7 @@ struct TopMusclesChart: View {
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
-        .navigationDestination(isPresented: $showAllMuscles) {
+        .sheet(isPresented: $showAllMuscles) {
             AllMusclesTableView(stats: stats)
         }
     }

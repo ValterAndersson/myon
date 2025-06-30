@@ -65,10 +65,4 @@ struct MuscleVolumeData: Identifiable {
     var group: MuscleGroup? {
         MuscleGroup.fromMuscle(muscleName)
     }
-}
-
-// MARK: - Undertrained Muscle Thresholds
-struct UndertrainedThresholds {
-    static let minSets = 4
-    static let minWeight = 500.0 // kg
 } 

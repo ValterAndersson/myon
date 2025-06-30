@@ -3,6 +3,7 @@ import Charts
 
 struct CurrentWeekMuscleGroupChart: View {
     let currentWeekStats: WeeklyStats?
+    let allStats: [WeeklyStats]
     @State private var showExpandedBreakdown = false
     
     // Prepare data for grouped bar chart
@@ -69,12 +70,11 @@ struct CurrentWeekMuscleGroupChart: View {
                     AxisMarks(values: .automatic) { _ in
                         AxisValueLabel()
                             .font(.caption)
-                            .foregroundColor(.primary)
                         AxisGridLine()
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .leading) { value in
+                    AxisMarks(position: .trailing) { value in
                         AxisValueLabel()
                             .font(.caption)
                         AxisGridLine()
@@ -95,9 +95,9 @@ struct CurrentWeekMuscleGroupChart: View {
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
-        .navigationDestination(isPresented: $showExpandedBreakdown) {
+        .sheet(isPresented: $showExpandedBreakdown) {
             if let weekId = currentWeekStats?.id {
-                ExpandedBreakdownView(weekId: weekId)
+                ExpandedBreakdownView(weekId: weekId, allStats: allStats)
             }
         }
     }
@@ -106,11 +106,11 @@ struct CurrentWeekMuscleGroupChart: View {
 // MARK: - Expanded Breakdown View
 struct ExpandedBreakdownView: View {
     let weekId: String
+    let allStats: [WeeklyStats]
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = WeeklyStatsViewModel()
     
     private var weekStats: WeeklyStats? {
-        viewModel.recentStats.first(where: { $0.id == weekId })
+        allStats.first(where: { $0.id == weekId })
     }
     
     private var muscleGroupData: WeeklyMuscleGroupData? {
@@ -204,7 +204,7 @@ struct ExpandedBreakdownView: View {
                             }
                             .frame(height: 180)
                             .chartYAxis {
-                                AxisMarks(position: .leading) { value in
+                                AxisMarks(position: .trailing) { value in
                                     AxisValueLabel {
                                         if let val = value.as(Double.self) {
                                             Text(formatWeight(val))
@@ -229,9 +229,6 @@ struct ExpandedBreakdownView: View {
                     Button("Close") { dismiss() }
                 }
             }
-        }
-        .task {
-            await viewModel.loadDashboard(weekCount: 8)
         }
     }
     

@@ -1,16 +1,24 @@
 import SwiftUI
 import Charts
 
+// Data model for chart points
+private struct ChartDataPoint: Identifiable {
+    let id = UUID()
+    let week: String
+    let group: MuscleGroup
+    let volume: Double
+}
+
 struct MuscleGroupVolumeTrendChart: View {
     let stats: [WeeklyStats]
     @State private var selectedGroup: MuscleGroup?
     @State private var selectedWeekId: String?
     @State private var showGroupBreakdown = false
     
-    // Use last 4 weeks
-    private var chartData: [(week: String, group: MuscleGroup, volume: Double)] {
-        let muscleGroupData = DashboardDataTransformer.transformToMuscleGroupData(Array(stats.suffix(4)))
-        var data: [(String, MuscleGroup, Double)] = []
+    // Use last 4 weeks (oldest to newest)
+    private var chartData: [ChartDataPoint] {
+        let muscleGroupData = DashboardDataTransformer.transformToMuscleGroupData(Array(stats.suffix(4).reversed()))
+        var data: [ChartDataPoint] = []
         
         for weekData in muscleGroupData {
             let weekLabel = DashboardDataTransformer.formatWeekLabel(weekData.weekId)
@@ -18,12 +26,59 @@ struct MuscleGroupVolumeTrendChart: View {
             for group in MuscleGroup.allCases {
                 let volume = weekData.groupVolumes[group] ?? 0
                 if volume > 0 { // Only include groups with volume
-                    data.append((weekLabel, group, volume))
+                    data.append(ChartDataPoint(week: weekLabel, group: group, volume: volume))
                 }
             }
         }
         
         return data
+    }
+    
+    private let groupNames = MuscleGroup.allCases.map { $0.rawValue }
+    private let groupColors = MuscleGroup.allCases.map { $0.color }
+    
+    @ViewBuilder
+    private var chartView: some View {
+        Chart(chartData) { dataPoint in
+            BarMark(
+                x: .value("Week", dataPoint.week),
+                y: .value("Volume", dataPoint.volume)
+            )
+            .foregroundStyle(by: .value("Group", dataPoint.group.rawValue))
+        }
+        .frame(height: 250)
+        .chartForegroundStyleScale(
+            domain: groupNames,
+            range: groupColors
+        )
+        .chartXAxis {
+            AxisMarks(values: .automatic) { _ in
+                AxisValueLabel()
+                    .font(.caption)
+                AxisGridLine()
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { value in
+                AxisValueLabel {
+                    if let val = value.as(Double.self) {
+                        Text(formatVolume(val))
+                            .font(.caption)
+                    }
+                }
+                AxisGridLine()
+            }
+        }
+        .chartBackground { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        handleTap(location: location, proxy: proxy, geometry: geometry)
+                    }
+            }
+        }
     }
     
     var body: some View {
@@ -38,94 +93,42 @@ struct MuscleGroupVolumeTrendChart: View {
                     .foregroundColor(.secondary)
             }
             
-            Chart(chartData, id: \.week) { dataPoint in
-                BarMark(
-                    x: .value("Week", dataPoint.week),
-                    y: .value("Volume", dataPoint.volume)
-                )
-                .foregroundStyle(by: .value("Group", dataPoint.group.rawValue))
-                .position(by: .value("Group", dataPoint.group.rawValue))
-            }
-            .frame(height: 250)
-            .chartForegroundStyleScale(
-                domain: MuscleGroup.allCases.map { $0.rawValue },
-                range: MuscleGroup.allCases.map { $0.color }
-            )
-            .chartXAxis {
-                AxisMarks(values: .automatic) { _ in
-                    AxisValueLabel()
-                        .font(.caption)
-                    AxisGridLine()
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading) { value in
-                    AxisValueLabel {
-                        if let val = value.as(Double.self) {
-                            Text(formatVolume(val))
-                                .font(.caption)
-                        }
-                    }
-                    AxisGridLine()
-                }
-            }
-            .chartAngleSelection(value: .constant(nil))
-            .chartBackground { proxy in
-                GeometryReader { geometry in
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture { location in
-                            guard let plotFrameAnchor = proxy.plotFrame else { return }
-                            let plotFrame = geometry[plotFrameAnchor]
-                            
-                            // Determine which week was tapped
-                            let weekCount = 4
-                            let barWidth = plotFrame.width / CGFloat(weekCount)
-                            let weekIndex = Int(location.x / barWidth)
-                            
-                            if weekIndex >= 0 && weekIndex < weekCount {
-                                // Get the week ID
-                                let weekStats = Array(stats.suffix(4))
-                                if weekIndex < weekStats.count {
-                                    let weekId = weekStats[weekIndex].id
-                                    
-                                    // Determine which muscle group based on Y position
-                                    let relativeY = (plotFrame.height - (location.y - plotFrame.origin.y)) / plotFrame.height
-                                    
-                                    // Find which group was tapped based on stacked position
-                                    if let tappedGroup = findTappedGroup(at: relativeY, weekId: weekId) {
-                                        selectedWeekId = weekId
-                                        selectedGroup = tappedGroup
-                                        showGroupBreakdown = true
-                                    }
-                                }
-                            }
-                        }
-                }
-            }
-            
-            // Legend
-            HStack(spacing: 12) {
-                ForEach(MuscleGroup.allCases, id: \.self) { group in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(group.color)
-                            .frame(width: 8, height: 8)
-                        Text(group.rawValue)
-                            .font(.caption)
-                            .foregroundColor(.primary)
-                    }
-                }
-            }
-            .padding(.top, 8)
+            chartView
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
-        .navigationDestination(isPresented: $showGroupBreakdown) {
+        .sheet(isPresented: $showGroupBreakdown) {
             if let weekId = selectedWeekId, let group = selectedGroup {
-                MuscleGroupBreakdownView(weekId: weekId, muscleGroup: group)
+                MuscleGroupBreakdownView(weekId: weekId, muscleGroup: group, allStats: stats)
+            }
+        }
+    }
+    
+    private func handleTap(location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        guard let plotFrameAnchor = proxy.plotFrame else { return }
+        let plotFrame = geometry[plotFrameAnchor]
+        
+        // Determine which week was tapped
+        let weekCount = 4
+        let barWidth = plotFrame.width / CGFloat(weekCount)
+        let weekIndex = Int(location.x / barWidth)
+        
+                    if weekIndex >= 0 && weekIndex < weekCount {
+                // Get the week ID (remember chart is now oldest to newest)
+                let weekStats = Array(stats.suffix(4).reversed())
+                if weekIndex < weekStats.count {
+                    let weekId = weekStats[weekIndex].id
+                
+                // Determine which muscle group based on Y position
+                let relativeY = (plotFrame.height - (location.y - plotFrame.origin.y)) / plotFrame.height
+                
+                // Find which group was tapped based on stacked position
+                if let tappedGroup = findTappedGroup(at: relativeY, weekId: weekId) {
+                    selectedWeekId = weekId
+                    selectedGroup = tappedGroup
+                    showGroupBreakdown = true
+                }
             }
         }
     }
@@ -167,13 +170,13 @@ struct MuscleGroupVolumeTrendChart: View {
 struct MuscleGroupBreakdownView: View {
     let weekId: String
     let muscleGroup: MuscleGroup
+    let allStats: [WeeklyStats] // Accept stats from parent
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = WeeklyStatsViewModel()
     
     private var exercises: [(muscle: String, sets: Int, reps: Int, weight: Double)] {
-        guard let weekStats = viewModel.recentStats.first(where: { $0.id == weekId }) else { return [] }
+        guard let weekStats = allStats.first(where: { $0.id == weekId }) else { return [] }
         
-        var result: [(String, Int, Int, Double)] = []
+        var result: [(muscle: String, sets: Int, reps: Int, weight: Double)] = []
         
         for muscle in muscleGroup.muscles {
             let sets = weekStats.setsPerMuscle?[muscle] ?? 0
@@ -181,7 +184,7 @@ struct MuscleGroupBreakdownView: View {
             let weight = weekStats.weightPerMuscle?[muscle] ?? 0
             
             if sets > 0 || reps > 0 || weight > 0 {
-                result.append((muscle.capitalized, sets, reps, weight))
+                result.append((muscle: muscle.capitalized, sets: sets, reps: reps, weight: weight))
             }
         }
         
@@ -231,9 +234,6 @@ struct MuscleGroupBreakdownView: View {
                     Button("Close") { dismiss() }
                 }
             }
-        }
-        .task {
-            await viewModel.loadDashboard(weekCount: 8)
         }
     }
     

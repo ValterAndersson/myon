@@ -83,54 +83,6 @@ class DashboardDataTransformer {
         return Array(muscleData.sorted { $0.weight > $1.weight }.prefix(limit))
     }
     
-    // MARK: - Get undertrained muscles
-    static func getUndertrainedMuscles(from stats: WeeklyStats?) -> [MuscleVolumeData] {
-        guard let stats = stats else { return [] }
-        
-        var undertrainedMuscles: [MuscleVolumeData] = []
-        
-        // Get all muscles that were trained
-        var allMuscleKeys: [String] = []
-        
-        if let weightKeys = stats.weightPerMuscle?.keys {
-            allMuscleKeys.append(contentsOf: weightKeys)
-        }
-        
-        if let setsKeys = stats.setsPerMuscle?.keys {
-            allMuscleKeys.append(contentsOf: setsKeys)
-        }
-        
-        if let repsKeys = stats.repsPerMuscle?.keys {
-            allMuscleKeys.append(contentsOf: repsKeys)
-        }
-        
-        let allTrainedMuscles = Set(allMuscleKeys)
-        
-        for muscle in allTrainedMuscles {
-            let weight = stats.weightPerMuscle?[muscle] ?? 0
-            let sets = stats.setsPerMuscle?[muscle] ?? 0
-            let reps = stats.repsPerMuscle?[muscle] ?? 0
-            
-            // Check if undertrained
-            if sets < UndertrainedThresholds.minSets || weight < UndertrainedThresholds.minWeight {
-                undertrainedMuscles.append(MuscleVolumeData(
-                    muscleName: muscle.capitalized,
-                    weight: weight,
-                    sets: sets,
-                    reps: reps
-                ))
-            }
-        }
-        
-        // Sort by sets (ascending) then weight (ascending)
-        return undertrainedMuscles.sorted { 
-            if $0.sets != $1.sets {
-                return $0.sets < $1.sets
-            }
-            return $0.weight < $1.weight
-        }
-    }
-    
     // MARK: - Format week label
     static func formatWeekLabel(_ weekId: String) -> String {
         let formatter = DateFormatter()

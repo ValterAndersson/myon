@@ -56,9 +56,9 @@ class DashboardService: DashboardServiceProtocol {
     
     // Loop prevention
     private var lastFetchAttempt: [String: Date] = [:]
-    private let minTimeBetweenFetches: TimeInterval = 10 // 10 seconds minimum between fetches
+    private let minTimeBetweenFetches: TimeInterval = 2 // 2 seconds minimum between fetches
     private var fetchAttemptCount: [String: Int] = [:]
-    private let maxFetchAttempts = 3
+    private let maxFetchAttempts = 5
     
     init(
         analyticsRepository: AnalyticsRepository = AnalyticsRepository(),
@@ -77,7 +77,15 @@ class DashboardService: DashboardServiceProtocol {
             throw DashboardServiceError.userNotAuthenticated
         }
         
-        let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
+        // Sanitize weekCount to prevent absurd values
+        let sanitizedWeekCount = min(max(weekCount, 1), 52)
+        if weekCount != sanitizedWeekCount {
+            logger.warning("Week count \(weekCount) was sanitized to \(sanitizedWeekCount)")
+        }
+        
+        logger.info("Loading dashboard with weekCount: \(sanitizedWeekCount), forceRefresh: \(forceRefresh)")
+        
+        let cacheKey = makeCacheKey(userId: userId, weekCount: sanitizedWeekCount)
         
         // Try cache first unless force refresh
         if !forceRefresh {
@@ -94,7 +102,7 @@ class DashboardService: DashboardServiceProtocol {
                 if cachedData.isEmpty {
                     logger.info("Cached data is empty, will attempt fresh fetch")
                     do {
-                        return try await fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+                        return try await fetchAndCacheDashboard(userId: userId, weekCount: sanitizedWeekCount)
                     } catch {
                         logger.error("Failed to fetch fresh data after empty cache: \(error)")
                         // Return the empty cached data as last resort to prevent crash
@@ -104,7 +112,7 @@ class DashboardService: DashboardServiceProtocol {
                 
                 // Return non-empty cached data but refresh in background for next time
                 Task.detached { [weak self] in
-                    try? await self?.fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+                    try? await self?.fetchAndCacheDashboard(userId: userId, weekCount: sanitizedWeekCount)
                 }
                 
                 return cachedData
@@ -112,7 +120,7 @@ class DashboardService: DashboardServiceProtocol {
         }
         
         // Fetch fresh data
-        return try await fetchAndCacheDashboard(userId: userId, weekCount: weekCount)
+        return try await fetchAndCacheDashboard(userId: userId, weekCount: sanitizedWeekCount)
     }
     
     func invalidateCache(for userId: String) async {
@@ -133,16 +141,8 @@ class DashboardService: DashboardServiceProtocol {
         
         logger.info("Preloading dashboard data for user: \(userId)")
         
-        // Preload common week counts
-        let commonWeekCounts = [4, 8, 12]
-        
-        await withTaskGroup(of: Void.self) { group in
-            for weekCount in commonWeekCounts {
-                group.addTask { [weak self] in
-                    _ = try? await self?.loadDashboard(weekCount: weekCount, forceRefresh: false)
-                }
-            }
-        }
+        // Only preload the most common week count (4) to reduce initial load
+        _ = try? await loadDashboard(weekCount: 4, forceRefresh: false)
     }
     
     // MARK: - Private Methods
@@ -155,6 +155,14 @@ class DashboardService: DashboardServiceProtocol {
             let timeSinceLastAttempt = Date().timeIntervalSince(lastAttempt)
             if timeSinceLastAttempt < minTimeBetweenFetches {
                 logger.warning("Fetch attempted too soon after last attempt. Time since last: \(timeSinceLastAttempt)s")
+                
+                // Try to return cached data instead of throwing error
+                let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
+                if let cachedData = await cacheManager.get(cacheKey, type: DashboardData.self) {
+                    logger.info("Returning cached data to avoid rate limit")
+                    return cachedData
+                }
+                
                 throw DashboardServiceError.invalidData
             }
         }
@@ -163,6 +171,15 @@ class DashboardService: DashboardServiceProtocol {
         let attemptCount = fetchAttemptCount[fetchKey] ?? 0
         if attemptCount >= maxFetchAttempts {
             logger.error("Max fetch attempts (\(self.maxFetchAttempts)) exceeded for \(fetchKey)")
+            
+            // Try to return cached data instead of throwing error
+            let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
+            if let cachedData = await cacheManager.get(cacheKey, type: DashboardData.self) {
+                logger.info("Returning cached data after max attempts exceeded")
+                fetchAttemptCount[fetchKey] = 0 // Reset for next time
+                return cachedData
+            }
+            
             fetchAttemptCount[fetchKey] = 0 // Reset for next time
             throw DashboardServiceError.invalidData
         }
@@ -203,7 +220,7 @@ class DashboardService: DashboardServiceProtocol {
                 logger.debug("Recent stat \(index): Week \(stat.id), Workouts: \(stat.workouts), Sets: \(stat.totalSets), Weight: \(stat.totalWeight)")
             }
             
-            // Validate and cache only non-empty, valid data
+            // Validate data before caching
             if !dashboardData.isEmpty && validateDashboardData(dashboardData) {
                 let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
                 await cacheManager.set(cacheKey, value: dashboardData, ttl: longTTL)
@@ -212,7 +229,10 @@ class DashboardService: DashboardServiceProtocol {
                 fetchAttemptCount[fetchKey] = 0
                 logger.info("Successfully cached valid non-empty dashboard data")
             } else if dashboardData.isEmpty {
-                logger.warning("Skipping cache for empty dashboard data to prevent loops")
+                // Cache empty data with very short TTL to prevent immediate re-fetches
+                logger.warning("Caching empty dashboard data with short TTL")
+                let cacheKey = makeCacheKey(userId: userId, weekCount: weekCount)
+                await cacheManager.set(cacheKey, value: dashboardData, ttl: 60) // 1 minute TTL for empty data
             } else {
                 logger.error("Skipping cache for invalid dashboard data")
             }
@@ -252,13 +272,20 @@ class DashboardService: DashboardServiceProtocol {
     }
     
     private func preloadRelatedData(userId: String, weekCount: Int) async {
-        // Preload adjacent week counts
-        let adjacentCounts = [weekCount - 4, weekCount + 4].filter { $0 > 0 && $0 <= 52 }
+        // Only preload if we're not already loading too many
+        guard weekCount <= 12 else {
+            logger.debug("Skipping preload for weekCount > 12")
+            return
+        }
         
-        for count in adjacentCounts {
-            let cacheKey = makeCacheKey(userId: userId, weekCount: count)
+        // Preload one size up if reasonable
+        let nextSize = weekCount == 4 ? 8 : (weekCount == 8 ? 12 : 0)
+        
+        if nextSize > 0 {
+            let cacheKey = makeCacheKey(userId: userId, weekCount: nextSize)
             if await cacheManager.get(cacheKey, type: DashboardData.self) == nil {
-                _ = try? await fetchAndCacheDashboard(userId: userId, weekCount: count)
+                logger.debug("Preloading data for \(nextSize) weeks")
+                _ = try? await fetchAndCacheDashboard(userId: userId, weekCount: nextSize)
             }
         }
     }

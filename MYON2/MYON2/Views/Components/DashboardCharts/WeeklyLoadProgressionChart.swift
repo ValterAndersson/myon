@@ -5,9 +5,9 @@ struct WeeklyLoadProgressionChart: View {
     let stats: [WeeklyStats]
     @State private var showSetsRepsDetail = false
     
-    // Use last 4 weeks
+    // Use last 4 weeks (oldest to newest)
     private var chartData: [WeeklyStats] {
-        Array(stats.suffix(4))
+        Array(stats.suffix(4).reversed())
     }
     
     var body: some View {
@@ -51,7 +51,7 @@ struct WeeklyLoadProgressionChart: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading) { value in
+                AxisMarks(position: .trailing) { value in
                     AxisValueLabel {
                         if let val = value.as(Double.self) {
                             Text(formatWeight(val))
@@ -74,8 +74,8 @@ struct WeeklyLoadProgressionChart: View {
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(12)
-        .navigationDestination(isPresented: $showSetsRepsDetail) {
-            SetsRepsDetailView(weekIds: chartData.map(\.id))
+        .sheet(isPresented: $showSetsRepsDetail) {
+            SetsRepsDetailView(stats: chartData)
         }
     }
     
@@ -89,13 +89,8 @@ struct WeeklyLoadProgressionChart: View {
 
 // MARK: - Sets & Reps Detail View
 struct SetsRepsDetailView: View {
-    let weekIds: [String]
+    let stats: [WeeklyStats]
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = WeeklyStatsViewModel()
-    
-    private var chartData: [WeeklyStats] {
-        viewModel.recentStats.filter { weekIds.contains($0.id) }
-    }
     
     var body: some View {
         NavigationStack {
@@ -107,7 +102,7 @@ struct SetsRepsDetailView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
                         
-                        Chart(chartData) { stat in
+                        Chart(stats) { stat in
                             LineMark(
                                 x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
                                 y: .value("Sets", stat.totalSets)
@@ -134,7 +129,7 @@ struct SetsRepsDetailView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
                         
-                        Chart(chartData) { stat in
+                        Chart(stats) { stat in
                             LineMark(
                                 x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
                                 y: .value("Reps", stat.totalReps)
@@ -164,9 +159,6 @@ struct SetsRepsDetailView: View {
                     Button("Close") { dismiss() }
                 }
             }
-        }
-        .task {
-            await viewModel.loadDashboard(weekCount: 12) // Load enough data
         }
     }
 } 

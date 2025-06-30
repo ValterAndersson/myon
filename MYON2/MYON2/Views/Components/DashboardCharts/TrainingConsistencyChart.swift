@@ -4,13 +4,10 @@ import Charts
 struct TrainingConsistencyChart: View {
     let stats: [WeeklyStats]
     let goal: Int?
-    var onWeekTapped: ((String) -> Void)?
     
-    @State private var selectedWeekId: String?
-    
-    // Limit to last 4 weeks
+    // Limit to last 4 weeks (oldest to newest)
     private var chartData: [WeeklyStats] {
-        Array(stats.suffix(4))
+        Array(stats.suffix(4).reversed())
     }
     
     private var yAxisDomain: ClosedRange<Int> {
@@ -28,7 +25,7 @@ struct TrainingConsistencyChart: View {
                     BarMark(
                         x: .value("Week", DashboardDataTransformer.formatWeekLabel(stat.id)),
                         y: .value("Start", index),
-                        height: .value("Height", 1)
+                        height: 1
                     )
                     .foregroundStyle(Color.accentColor.opacity(0.9))
                     .cornerRadius(2)
@@ -87,33 +84,11 @@ struct TrainingConsistencyChart: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks(position: .leading) { value in
+                    AxisMarks(position: .trailing) { value in
                         AxisValueLabel()
-                        AxisGridLine()
-                    }
+                                            AxisGridLine()
                 }
-                .chartOverlay { proxy in
-                    GeometryReader { geometry in
-                        Rectangle()
-                            .fill(Color.clear)
-                            .contentShape(Rectangle())
-                            .onTapGesture { location in
-                                guard let plotFrameAnchor = proxy.plotFrame else { return }
-                                let plotFrame = geometry[plotFrameAnchor]
-                                let tapX = location.x - plotFrame.origin.x
-                                
-                                // Find which bar was tapped
-                                let barWidth = plotFrame.width / CGFloat(chartData.count)
-                                let index = Int(tapX / barWidth)
-                                
-                                if index >= 0 && index < chartData.count {
-                                    let weekId = chartData[index].id
-                                    selectedWeekId = weekId
-                                    onWeekTapped?(weekId)
-                                }
-                            }
-                    }
-                }
+            }
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
