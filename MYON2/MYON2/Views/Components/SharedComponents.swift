@@ -28,6 +28,162 @@ struct SearchBar: View {
     }
 }
 
+// MARK: - Authentication Components
+
+struct NativeTextField: View {
+    let title: String
+    @Binding var text: String
+    let isSecure: Bool
+    let keyboardType: UIKeyboardType
+    let isFocused: Bool
+    let onCommit: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(isFocused ? .blue : .secondary)
+                .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: isFocused)
+            
+            Group {
+                if isSecure {
+                    SecureField("", text: $text, onCommit: onCommit)
+                } else {
+                    TextField("", text: $text, onCommit: onCommit)
+                        .keyboardType(keyboardType)
+                }
+            }
+            .font(.system(size: 16, weight: .medium))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: AuthDesignConstants.inputCornerRadius)
+                    .fill(Color(.systemGray6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AuthDesignConstants.inputCornerRadius)
+                            .stroke(isFocused ? Color.blue : Color.clear, lineWidth: 2)
+                    )
+            )
+            .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: isFocused)
+        }
+    }
+}
+
+struct SocialSignInButton: View {
+    let title: String
+    let icon: String
+    let backgroundColor: Color
+    let foregroundColor: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                
+                Text(title)
+                    .font(.system(size: 16, weight: .medium))
+                
+                Spacer()
+            }
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(height: AuthDesignConstants.socialButtonHeight)
+            .background(backgroundColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: AuthDesignConstants.inputCornerRadius)
+                    .stroke(Color(.systemGray4), lineWidth: backgroundColor == .white ? 1 : 0)
+            )
+            .cornerRadius(AuthDesignConstants.inputCornerRadius)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .scaleEffect(1.0)
+        .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: false)
+    }
+}
+
+struct PasswordRequirement: View {
+    let text: String
+    let isValid: Bool
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isValid ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(isValid ? .green : .secondary)
+                .font(.system(size: 14))
+            
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(isValid ? .green : .secondary)
+            
+            Spacer()
+        }
+        .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: isValid)
+    }
+}
+
+struct AuthHeaderView: View {
+    let title: String
+    let subtitle: String
+    let geometry: GeometryProxy
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+                .frame(height: max(60, geometry.safeAreaInsets.top + 20))
+            
+            Text(title)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+            
+            Text(subtitle)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.secondary)
+        }
+        .frame(minHeight: AuthDesignConstants.minimumHeaderHeight)
+    }
+}
+
+struct AuthDivider: View {
+    var body: some View {
+        HStack {
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(.gray.opacity(0.3))
+            Text("or")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 16)
+            Rectangle()
+                .frame(height: 1)
+                .foregroundColor(.gray.opacity(0.3))
+        }
+        .padding(.horizontal, AuthDesignConstants.defaultPadding)
+        .padding(.vertical, 32)
+    }
+}
+
+struct AuthErrorMessage: View {
+    let message: String
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+            Text(message)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.red)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+        .animation(.spring(response: AuthDesignConstants.springAnimationResponse, 
+                          dampingFraction: AuthDesignConstants.springAnimationDamping), value: message)
+    }
+}
+
 // MARK: - Filter Chips
 struct FilterChips: View {
     let title: String
