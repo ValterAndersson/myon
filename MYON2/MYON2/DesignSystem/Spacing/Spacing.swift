@@ -1,81 +1,91 @@
 import SwiftUI
 
-// MARK: - Design System Spacing
+// MARK: - Responsive Spacing System
 
+@frozen
 struct Spacing {
     
     // MARK: - Base Spacing Values (8-point grid system)
-    static let xs: CGFloat = 4      // Extra small spacing
-    static let sm: CGFloat = 8      // Small spacing
-    static let md: CGFloat = 16     // Medium spacing (base unit)
-    static let lg: CGFloat = 24     // Large spacing
-    static let xl: CGFloat = 32     // Extra large spacing
-    static let xxl: CGFloat = 48    // Double extra large spacing
-    static let xxxl: CGFloat = 64   // Triple extra large spacing
+    static var xs: CGFloat { SpacingToken(4, scale: .micro).value }
+    static var sm: CGFloat { SpacingToken(8, scale: .small).value }
+    static var md: CGFloat { SpacingToken(16, scale: .medium).value }
+    static var lg: CGFloat { SpacingToken(24, scale: .large).value }
+    static var xl: CGFloat { SpacingToken(32, scale: .huge).value }
+    static var xxl: CGFloat { SpacingToken(48, scale: .huge).value }
+    static var xxxl: CGFloat { SpacingToken(64, scale: .huge).value }
     
     // MARK: - Semantic Spacing Values
     static let none: CGFloat = 0
     static let hairline: CGFloat = 1
     static let tiny: CGFloat = 2
-    static let micro: CGFloat = xs
-    static let small: CGFloat = sm
-    static let medium: CGFloat = md
-    static let large: CGFloat = lg
-    static let huge: CGFloat = xl
-    static let massive: CGFloat = xxl
+    static var micro: CGFloat { xs }
+    static var small: CGFloat { sm }
+    static var medium: CGFloat { md }
+    static var large: CGFloat { lg }
+    static var huge: CGFloat { xl }
+    static var massive: CGFloat { xxl }
+    
+    // MARK: - Tokens for Theme Support
+    static let xsToken = SpacingToken(4, scale: .micro)
+    static let smToken = SpacingToken(8, scale: .small)
+    static let mdToken = SpacingToken(16, scale: .medium)
+    static let lgToken = SpacingToken(24, scale: .large)
+    static let xlToken = SpacingToken(32, scale: .huge)
     
     // MARK: - Component-Specific Spacing
+    @frozen
     struct Component {
         // Button spacing
-        static let buttonPaddingHorizontal: CGFloat = md
-        static let buttonPaddingVertical: CGFloat = sm + xs // 12pt
-        static let buttonSpacing: CGFloat = sm
+        static var buttonPaddingHorizontal: CGFloat { md }
+        static var buttonPaddingVertical: CGFloat { sm + xs } // 12pt
+        static var buttonSpacing: CGFloat { sm }
         
         // Card spacing
-        static let cardPadding: CGFloat = md
-        static let cardSpacing: CGFloat = md
-        static let cardCornerRadius: CGFloat = sm + xs // 12pt
+        static var cardPadding: CGFloat { md }
+        static var cardSpacing: CGFloat { md }
+        static var cardCornerRadius: CGFloat { sm + xs } // 12pt
         
         // Form spacing
-        static let formFieldSpacing: CGFloat = md
-        static let formSectionSpacing: CGFloat = lg
-        static let formLabelSpacing: CGFloat = xs
+        static var formFieldSpacing: CGFloat { md }
+        static var formSectionSpacing: CGFloat { lg }
+        static var formLabelSpacing: CGFloat { xs }
         
         // List spacing
-        static let listItemPadding: CGFloat = md
-        static let listItemSpacing: CGFloat = sm
-        static let listSectionSpacing: CGFloat = lg
+        static var listItemPadding: CGFloat { md }
+        static var listItemSpacing: CGFloat { sm }
+        static var listSectionSpacing: CGFloat { lg }
         
         // Navigation spacing
-        static let navigationPadding: CGFloat = md
+        static var navigationPadding: CGFloat { md }
         static let tabBarHeight: CGFloat = 48
         
         // Modal spacing
-        static let modalPadding: CGFloat = lg
-        static let modalCornerRadius: CGFloat = md
+        static var modalPadding: CGFloat { lg }
+        static var modalCornerRadius: CGFloat { md }
         
         // Icon spacing
-        static let iconSpacing: CGFloat = sm
-        static let iconPadding: CGFloat = xs
+        static var iconSpacing: CGFloat { sm }
+        static var iconPadding: CGFloat { xs }
     }
     
     // MARK: - Layout Spacing
+    @frozen
     struct Layout {
         // Screen margins
-        static let screenMargin: CGFloat = md
-        static let screenMarginLarge: CGFloat = lg
+        static var screenMargin: CGFloat { md }
+        static var screenMarginLarge: CGFloat { lg }
         
         // Section spacing
-        static let sectionSpacing: CGFloat = lg
-        static let sectionPadding: CGFloat = md
+        static var sectionSpacing: CGFloat { lg }
+        static var sectionPadding: CGFloat { md }
         
         // Content spacing
-        static let contentSpacing: CGFloat = md
-        static let contentPadding: CGFloat = md
+        static var contentSpacing: CGFloat { md }
+        static var contentPadding: CGFloat { md }
         
         // Grid spacing
-        static let gridSpacing: CGFloat = md
-        static let gridItemSpacing: CGFloat = sm
+        static var gridSpacing: CGFloat { md }
+        static var gridItemSpacing: CGFloat { sm }
     }
 }
 

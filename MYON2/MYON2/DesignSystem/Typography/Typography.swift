@@ -1,60 +1,101 @@
 import SwiftUI
 
-// MARK: - Design System Typography
+// MARK: - Dynamic Typography System with Accessibility
 
 extension Font {
     
     // MARK: - Display Fonts (Large, attention-grabbing text)
+    @frozen
     struct Display {
-        static let large = Font.system(size: 57, weight: .regular, design: .default)
-        static let medium = Font.system(size: 45, weight: .regular, design: .default)
-        static let small = Font.system(size: 36, weight: .regular, design: .default)
+        static var large: Font { FontToken(57, weight: .regular, category: .display).value }
+        static var medium: Font { FontToken(45, weight: .regular, category: .display).value }
+        static var small: Font { FontToken(36, weight: .regular, category: .display).value }
+        
+        // Direct token access for theme switching
+        static let largeToken = FontToken(57, weight: .regular, category: .display)
+        static let mediumToken = FontToken(45, weight: .regular, category: .display)
+        static let smallToken = FontToken(36, weight: .regular, category: .display)
     }
     
     // MARK: - Headline Fonts (Page and section headers)
+    @frozen
     struct Headline {
-        static let large = Font.system(size: 32, weight: .regular, design: .default)
-        static let medium = Font.system(size: 28, weight: .regular, design: .default)
-        static let small = Font.system(size: 24, weight: .regular, design: .default)
+        static var large: Font { FontToken(32, weight: .semibold, category: .headline).value }
+        static var medium: Font { FontToken(28, weight: .semibold, category: .headline).value }
+        static var small: Font { FontToken(24, weight: .medium, category: .headline).value }
+        
+        // Tokens
+        static let largeToken = FontToken(32, weight: .semibold, category: .headline)
+        static let mediumToken = FontToken(28, weight: .semibold, category: .headline)
+        static let smallToken = FontToken(24, weight: .medium, category: .headline)
     }
     
     // MARK: - Title Fonts (Content hierarchy)
+    @frozen
     struct Title {
-        static let large = Font.system(size: 22, weight: .regular, design: .default)
-        static let medium = Font.system(size: 20, weight: .medium, design: .default)
-        static let small = Font.system(size: 18, weight: .medium, design: .default)
+        static var large: Font { FontToken(22, weight: .semibold, category: .title).value }
+        static var medium: Font { FontToken(20, weight: .medium, category: .title).value }
+        static var small: Font { FontToken(18, weight: .medium, category: .title).value }
+        
+        // Tokens
+        static let largeToken = FontToken(22, weight: .semibold, category: .title)
+        static let mediumToken = FontToken(20, weight: .medium, category: .title)
+        static let smallToken = FontToken(18, weight: .medium, category: .title)
     }
     
     // MARK: - Body Fonts (Main content)
+    @frozen
     struct Body {
-        static let large = Font.system(size: 17, weight: .regular, design: .default)
-        static let medium = Font.system(size: 16, weight: .regular, design: .default)
-        static let small = Font.system(size: 15, weight: .regular, design: .default)
+        static var large: Font { FontToken(17, weight: .regular, category: .body).value }
+        static var medium: Font { FontToken(16, weight: .regular, category: .body).value }
+        static var small: Font { FontToken(15, weight: .regular, category: .body).value }
+        
+        // Tokens
+        static let largeToken = FontToken(17, weight: .regular, category: .body)
+        static let mediumToken = FontToken(16, weight: .regular, category: .body)
+        static let smallToken = FontToken(15, weight: .regular, category: .body)
     }
     
     // MARK: - Label Fonts (UI elements, buttons, form labels)
+    @frozen
     struct Label {
-        static let large = Font.system(size: 17, weight: .semibold, design: .default)
-        static let medium = Font.system(size: 16, weight: .semibold, design: .default)
-        static let small = Font.system(size: 15, weight: .semibold, design: .default)
+        static var large: Font { FontToken(17, weight: .semibold, category: .label).value }
+        static var medium: Font { FontToken(16, weight: .semibold, category: .label).value }
+        static var small: Font { FontToken(15, weight: .semibold, category: .label).value }
+        
+        // Tokens
+        static let largeToken = FontToken(17, weight: .semibold, category: .label)
+        static let mediumToken = FontToken(16, weight: .semibold, category: .label)
+        static let smallToken = FontToken(15, weight: .semibold, category: .label)
     }
     
     // MARK: - Caption Fonts (Supporting text, metadata)
+    @frozen
     struct Caption {
-        static let large = Font.system(size: 14, weight: .regular, design: .default)
-        static let medium = Font.system(size: 13, weight: .regular, design: .default)
-        static let small = Font.system(size: 12, weight: .regular, design: .default)
+        static var large: Font { FontToken(14, weight: .regular, category: .caption).value }
+        static var medium: Font { FontToken(13, weight: .regular, category: .caption).value }
+        static var small: Font { FontToken(12, weight: .regular, category: .caption).value }
+        
+        // Tokens
+        static let largeToken = FontToken(14, weight: .regular, category: .caption)
+        static let mediumToken = FontToken(13, weight: .regular, category: .caption)
+        static let smallToken = FontToken(12, weight: .regular, category: .caption)
     }
     
     // MARK: - Specialized Fonts
+    @frozen
     struct Specialized {
         // Monospace for code, numbers, data
-        static let code = Font.system(size: 16, weight: .regular, design: .monospaced)
-        static let codeSmall = Font.system(size: 14, weight: .regular, design: .monospaced)
+        static var code: Font { FontToken(16, weight: .regular, design: .monospaced, category: .body).value }
+        static var codeSmall: Font { FontToken(14, weight: .regular, design: .monospaced, category: .caption).value }
         
         // Rounded for playful, modern feel
-        static let rounded = Font.system(size: 16, weight: .medium, design: .rounded)
-        static let roundedLarge = Font.system(size: 20, weight: .medium, design: .rounded)
+        static var rounded: Font { FontToken(16, weight: .medium, design: .rounded, category: .body).value }
+        static var roundedLarge: Font { FontToken(20, weight: .medium, design: .rounded, category: .title).value }
+        
+        // Tokens
+        static let codeToken = FontToken(16, weight: .regular, design: .monospaced, category: .body)
+        static let roundedToken = FontToken(16, weight: .medium, design: .rounded, category: .body)
     }
 }
 
