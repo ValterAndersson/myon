@@ -61,9 +61,11 @@ const {
 const {
   onWorkoutCompleted,
   onWorkoutDeleted,
-  weeklyStatsRecalculation,
   manualWeeklyStatsRecalculation
 } = require('./triggers/weekly-analytics');
+
+// Import v2 scheduled function directly (this will be re-exported)
+const { weeklyStatsRecalculation } = require('./triggers/weekly-analytics');
 
 // Export all functions as Firebase HTTPS functions
 exports.health = functions.https.onRequest(health);
@@ -117,7 +119,7 @@ exports.onWorkoutCreated = onWorkoutCreated;
 exports.onWorkoutCompleted = onWorkoutCompleted;
 exports.onWorkoutDeleted = onWorkoutDeleted;
 
-// Scheduled Functions
+// Scheduled Functions (v2 functions exported directly)
 exports.weeklyStatsRecalculation = weeklyStatsRecalculation;
 
 // Callable Functions

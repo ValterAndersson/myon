@@ -232,11 +232,14 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
 exports.weeklyStatsRecalculation = onSchedule({
   schedule: '0 2 * * *', // Daily at 2 AM UTC
   timeZone: 'UTC',
+  region: 'us-central1', // Explicitly set region for v2 functions
   retryConfig: {
     retryCount: 3,
     maxRetryDuration: '600s'
   }
 }, async (event) => {
+  console.log('Starting weekly stats recalculation job at:', new Date().toISOString());
+  
   try {
     // Get current week and last week IDs
     const now = new Date();
@@ -290,16 +293,23 @@ exports.weeklyStatsRecalculation = onSchedule({
     const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
     const failed = results.length - successful;
     
-    return {
+    const finalResult = {
       success: true,
       processed: results.length,
       successful,
       failed,
-      activeUsers: activeUserIds.length
+      activeUsers: activeUserIds.length,
+      completedAt: new Date().toISOString()
     };
+    
+    console.log('Weekly stats recalculation job completed:', finalResult);
+    
+    return finalResult;
   } catch (error) {
     console.error('Error in weekly stats recalculation job:', error);
-    return { success: false, error: error.message };
+    const errorResult = { success: false, error: error.message, completedAt: new Date().toISOString() };
+    console.log('Weekly stats recalculation job failed:', errorResult);
+    return errorResult;
   }
 });
 
