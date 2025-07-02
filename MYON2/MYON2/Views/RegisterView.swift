@@ -23,23 +23,18 @@ struct RegisterView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // Header Section
-                    VStack(spacing: 16) {
-                        Spacer()
-                            .frame(height: max(60, geometry.safeAreaInsets.top + 20))
-                        
-                        Text("Create Account")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
-                        
-                        Text("Sign up to get started")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(minHeight: 200)
+                    AuthHeaderView(
+                        title: "Create Account",
+                        subtitle: "Sign up to get started",
+                        geometry: geometry
+                    )
                     
                     // Form Section
-                    CardContainer(cornerRadius: 24, shadowRadius: 8) {
-                        VStack(spacing: 24) {
+                    CardContainer(
+                        cornerRadius: AuthDesignConstants.cardCornerRadius,
+                        shadowRadius: AuthDesignConstants.cardShadowRadius
+                    ) {
+                        VStack(spacing: AuthDesignConstants.sectionSpacing) {
                             // Email Field
                             NativeTextField(
                                 title: "Email Address",
@@ -86,21 +81,18 @@ struct RegisterView: View {
                             // Password Validation
                             if !password.isEmpty {
                                 VStack(spacing: 8) {
-                                    PasswordRequirement(
-                                        text: "At least 8 characters",
-                                        isValid: password.count >= 8
-                                    )
-                                    PasswordRequirement(
-                                        text: "Contains uppercase letter",
-                                        isValid: password.range(of: "[A-Z]", options: .regularExpression) != nil
-                                    )
-                                    PasswordRequirement(
-                                        text: "Contains number",
-                                        isValid: password.range(of: "[0-9]", options: .regularExpression) != nil
-                                    )
+                                    ForEach(PasswordValidator.requirements(for: password), id: \.text) { requirement in
+                                        PasswordRequirement(
+                                            text: requirement.text,
+                                            isValid: requirement.isValid
+                                        )
+                                    }
                                 }
                                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: password)
+                                .animation(.spring(
+                                    response: AuthDesignConstants.springAnimationResponse,
+                                    dampingFraction: AuthDesignConstants.springAnimationDamping
+                                ), value: password)
                             }
                             
                             // Password Match Validation
@@ -115,22 +107,15 @@ struct RegisterView: View {
                                 }
                                 .padding(.horizontal, 4)
                                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: confirmPassword)
+                                .animation(.spring(
+                                    response: AuthDesignConstants.springAnimationResponse,
+                                    dampingFraction: AuthDesignConstants.springAnimationDamping
+                                ), value: confirmPassword)
                             }
                             
                             // Error Message
                             if let errorMessage = errorMessage {
-                                HStack {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.red)
-                                    Text(errorMessage)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(.red)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 4)
-                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: errorMessage)
+                                AuthErrorMessage(message: errorMessage)
                             }
                             
                             // Register Button
@@ -145,32 +130,19 @@ struct RegisterView: View {
                                             .font(.system(size: 16, weight: .semibold))
                                     }
                                 }
-                                .frame(height: 50)
+                                .frame(height: AuthDesignConstants.buttonHeight)
                             }
                             .buttonStyle(PrimaryActionButtonStyle())
                             .disabled(isLoading || !isFormValid)
-                            .animation(.easeInOut(duration: 0.2), value: isLoading)
+                            .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: isLoading)
                         }
                         .padding(.vertical, 8)
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AuthDesignConstants.defaultPadding)
                     .padding(.top, 20)
                     
                     // Divider
-                    HStack {
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.gray.opacity(0.3))
-                        Text("or")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 16)
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.gray.opacity(0.3))
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 32)
+                    AuthDivider()
                     
                     // Social Sign Up Buttons
                     VStack(spacing: 12) {
@@ -180,8 +152,8 @@ struct RegisterView: View {
                             backgroundColor: .black,
                             foregroundColor: .white
                         ) {
+                            HapticFeedbackManager.shared.light()
                             // TODO: Implement Apple sign-in
-                            lightHapticFeedback()
                         }
                         
                         SocialSignInButton(
@@ -190,11 +162,11 @@ struct RegisterView: View {
                             backgroundColor: .white,
                             foregroundColor: .black
                         ) {
+                            HapticFeedbackManager.shared.light()
                             // TODO: Implement Google sign-in
-                            lightHapticFeedback()
                         }
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AuthDesignConstants.defaultPadding)
                     
                     // Login Link
                     HStack {
@@ -203,7 +175,7 @@ struct RegisterView: View {
                             .foregroundColor(.secondary)
                         
                         Button("Sign In") {
-                            lightHapticFeedback()
+                            HapticFeedbackManager.shared.light()
                             onBackToLogin?()
                         }
                         .font(.system(size: 15, weight: .semibold))
@@ -219,23 +191,20 @@ struct RegisterView: View {
             focusedField = nil
         }
         .onAppear {
-            // Small delay to feel more natural
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + AuthDesignConstants.focusDelay) {
                 focusedField = .email
             }
         }
     }
     
     private var isFormValid: Bool {
-        return !email.isEmpty 
-            && password.count >= 8
-            && password.range(of: "[A-Z]", options: .regularExpression) != nil
-            && password.range(of: "[0-9]", options: .regularExpression) != nil
+        return email.isValidEmail 
+            && password.passwordStrength != .weak
             && password == confirmPassword
     }
     
     private func handleRegister() {
-        lightHapticFeedback()
+        HapticFeedbackManager.shared.light()
         focusedField = nil
         isLoading = true
         
@@ -244,7 +213,7 @@ struct RegisterView: View {
                 try await authService.signUp(email: email, password: password)
                 if let user = Auth.auth().currentUser {
                     await MainActor.run {
-                        successHapticFeedback()
+                        HapticFeedbackManager.shared.success()
                         session.startSession(userId: user.uid)
                         onRegister?(user.uid)
                         errorMessage = nil
@@ -252,7 +221,7 @@ struct RegisterView: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorHapticFeedback()
+                    HapticFeedbackManager.shared.error()
                     errorMessage = error.localizedDescription
                 }
             }
@@ -260,41 +229,6 @@ struct RegisterView: View {
                 isLoading = false
             }
         }
-    }
-    
-    private func lightHapticFeedback() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-    }
-    
-    private func successHapticFeedback() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.success)
-    }
-    
-    private func errorHapticFeedback() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.error)
-    }
-}
-
-struct PasswordRequirement: View {
-    let text: String
-    let isValid: Bool
-    
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: isValid ? "checkmark.circle.fill" : "circle")
-                .foregroundColor(isValid ? .green : .secondary)
-                .font(.system(size: 14))
-            
-            Text(text)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isValid ? .green : .secondary)
-            
-            Spacer()
-        }
-        .animation(.easeInOut(duration: 0.2), value: isValid)
     }
 }
 

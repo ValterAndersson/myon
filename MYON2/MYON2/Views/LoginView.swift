@@ -8,8 +8,6 @@ struct LoginView: View {
     @State private var password = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
-    @State private var emailFocused = false
-    @State private var passwordFocused = false
     @FocusState private var focusedField: LoginField?
     
     var onLogin: ((String) -> Void)? = nil
@@ -24,23 +22,18 @@ struct LoginView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // Header Section
-                    VStack(spacing: 16) {
-                        Spacer()
-                            .frame(height: max(60, geometry.safeAreaInsets.top + 20))
-                        
-                        Text("Welcome Back")
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
-                        
-                        Text("Sign in to continue")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(minHeight: 200)
+                    AuthHeaderView(
+                        title: "Welcome Back",
+                        subtitle: "Sign in to continue",
+                        geometry: geometry
+                    )
                     
                     // Form Section
-                    CardContainer(cornerRadius: 24, shadowRadius: 8) {
-                        VStack(spacing: 24) {
+                    CardContainer(
+                        cornerRadius: AuthDesignConstants.cardCornerRadius,
+                        shadowRadius: AuthDesignConstants.cardShadowRadius
+                    ) {
+                        VStack(spacing: AuthDesignConstants.sectionSpacing) {
                             // Email Field
                             NativeTextField(
                                 title: "Email Address",
@@ -64,7 +57,7 @@ struct LoginView: View {
                                 keyboardType: .default,
                                 isFocused: focusedField == .password
                             ) {
-                                if !email.isEmpty && !password.isEmpty {
+                                if isFormValid {
                                     handleLogin()
                                 }
                             }
@@ -73,17 +66,7 @@ struct LoginView: View {
                             
                             // Error Message
                             if let errorMessage = errorMessage {
-                                HStack {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.red)
-                                    Text(errorMessage)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(.red)
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 4)
-                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: errorMessage)
+                                AuthErrorMessage(message: errorMessage)
                             }
                             
                             // Login Button
@@ -98,32 +81,19 @@ struct LoginView: View {
                                             .font(.system(size: 16, weight: .semibold))
                                     }
                                 }
-                                .frame(height: 50)
+                                .frame(height: AuthDesignConstants.buttonHeight)
                             }
                             .buttonStyle(PrimaryActionButtonStyle())
-                            .disabled(isLoading || email.isEmpty || password.isEmpty)
-                            .animation(.easeInOut(duration: 0.2), value: isLoading)
+                            .disabled(isLoading || !isFormValid)
+                            .animation(.easeInOut(duration: AuthDesignConstants.animationDuration), value: isLoading)
                         }
                         .padding(.vertical, 8)
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AuthDesignConstants.defaultPadding)
                     .padding(.top, 20)
                     
                     // Divider
-                    HStack {
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.gray.opacity(0.3))
-                        Text("or")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 16)
-                        Rectangle()
-                            .frame(height: 1)
-                            .foregroundColor(.gray.opacity(0.3))
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 32)
+                    AuthDivider()
                     
                     // Social Sign In Buttons
                     VStack(spacing: 12) {
@@ -133,8 +103,8 @@ struct LoginView: View {
                             backgroundColor: .black,
                             foregroundColor: .white
                         ) {
+                            HapticFeedbackManager.shared.light()
                             // TODO: Implement Apple sign-in
-                            lightHapticFeedback()
                         }
                         
                         SocialSignInButton(
@@ -143,11 +113,11 @@ struct LoginView: View {
                             backgroundColor: .white,
                             foregroundColor: .black
                         ) {
+                            HapticFeedbackManager.shared.light()
                             // TODO: Implement Google sign-in
-                            lightHapticFeedback()
                         }
                     }
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AuthDesignConstants.defaultPadding)
                     
                     // Register Link
                     HStack {
@@ -156,7 +126,7 @@ struct LoginView: View {
                             .foregroundColor(.secondary)
                         
                         Button("Sign Up") {
-                            lightHapticFeedback()
+                            HapticFeedbackManager.shared.light()
                             onRegister?()
                         }
                         .font(.system(size: 15, weight: .semibold))
@@ -172,15 +142,18 @@ struct LoginView: View {
             focusedField = nil
         }
         .onAppear {
-            // Small delay to feel more natural
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + AuthDesignConstants.focusDelay) {
                 focusedField = .email
             }
         }
     }
     
+    private var isFormValid: Bool {
+        return email.isValidEmail && !password.isEmpty
+    }
+    
     private func handleLogin() {
-        lightHapticFeedback()
+        HapticFeedbackManager.shared.light()
         focusedField = nil
         isLoading = true
         
@@ -189,7 +162,7 @@ struct LoginView: View {
                 try await authService.signIn(email: email, password: password)
                 if let user = Auth.auth().currentUser {
                     await MainActor.run {
-                        successHapticFeedback()
+                        HapticFeedbackManager.shared.success()
                         session.startSession(userId: user.uid)
                         onLogin?(user.uid)
                         errorMessage = nil
@@ -197,7 +170,7 @@ struct LoginView: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorHapticFeedback()
+                    HapticFeedbackManager.shared.error()
                     errorMessage = error.localizedDescription
                 }
             }
@@ -205,95 +178,6 @@ struct LoginView: View {
                 isLoading = false
             }
         }
-    }
-    
-    private func lightHapticFeedback() {
-        let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-        impactFeedback.impactOccurred()
-    }
-    
-    private func successHapticFeedback() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.success)
-    }
-    
-    private func errorHapticFeedback() {
-        let notificationFeedback = UINotificationFeedbackGenerator()
-        notificationFeedback.notificationOccurred(.error)
-    }
-}
-
-struct NativeTextField: View {
-    let title: String
-    @Binding var text: String
-    let isSecure: Bool
-    let keyboardType: UIKeyboardType
-    let isFocused: Bool
-    let onCommit: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(isFocused ? .blue : .secondary)
-                .animation(.easeInOut(duration: 0.2), value: isFocused)
-            
-            Group {
-                if isSecure {
-                    SecureField("", text: $text, onCommit: onCommit)
-                } else {
-                    TextField("", text: $text, onCommit: onCommit)
-                        .keyboardType(keyboardType)
-                }
-            }
-            .font(.system(size: 16, weight: .medium))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemGray6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(isFocused ? Color.blue : Color.clear, lineWidth: 2)
-                    )
-            )
-            .animation(.easeInOut(duration: 0.2), value: isFocused)
-        }
-    }
-}
-
-struct SocialSignInButton: View {
-    let title: String
-    let icon: String
-    let backgroundColor: Color
-    let foregroundColor: Color
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .medium))
-                
-                Text(title)
-                    .font(.system(size: 16, weight: .medium))
-                
-                Spacer()
-            }
-            .foregroundColor(foregroundColor)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(height: 52)
-            .background(backgroundColor)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(.systemGray4), lineWidth: backgroundColor == .white ? 1 : 0)
-            )
-            .cornerRadius(12)
-        }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(1.0)
-        .animation(.easeInOut(duration: 0.1), value: false)
     }
 }
 
