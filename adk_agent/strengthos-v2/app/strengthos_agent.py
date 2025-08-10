@@ -22,6 +22,7 @@ from google.adk.tools import FunctionTool, ToolContext
 import requests
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -636,6 +637,122 @@ def set_active_routine(user_id: str, routine_id: str) -> Dict[str, Any]:
     result = make_firebase_request("setActiveRoutine", method="POST", data=data)
     return result
 
+# --- Analysis helpers ---
+
+def analyze_recent_performance(user_id: str, limit: int = 20) -> Dict[str, Any]:
+    """Compute a compact digest from recent workouts for quick analytics.
+
+    Returns keys: totalWorkouts, lastWorkoutDate, frequencyPerWeek (approx),
+    topMuscleGroups, avgSetsPerSession, avgRepsPerSet (approx), recentHighlights.
+    """
+    raw = get_user_workouts(user_id=user_id, limit=limit)
+    data = raw.get("data") or []
+    if not isinstance(data, list) or not data:
+        return {"totalWorkouts": 0, "highlights": []}
+
+    from collections import Counter, defaultdict
+    import datetime as _dt
+
+    # Dates
+    def _to_dt(ts: Dict[str, Any]):
+        if isinstance(ts, dict) and "_seconds" in ts:
+            return _dt.datetime.utcfromtimestamp(float(ts.get("_seconds", 0)))
+        return None
+
+    dates = []
+    total_sets_sum = 0
+    reps_sum = 0
+    rep_events = 0
+    muscle_group_sets = Counter()
+
+    for w in data:
+        st = _to_dt(w.get("start_time") or w.get("created_at"))
+        if st:
+            dates.append(st)
+        # sets per session
+        session_sets = 0
+        for ex in w.get("exercises", []) or []:
+            sets = ex.get("sets", []) or []
+            session_sets += len(sets)
+            for s in sets:
+                r = s.get("reps")
+                if isinstance(r, int):
+                    reps_sum += r
+                    rep_events += 1
+        total_sets_sum += session_sets
+        # muscle groups (approx from analytics if present)
+        mg = ((w.get("analytics") or {}).get("sets_per_muscle_group") or {})
+        for k, v in mg.items():
+            try:
+                muscle_group_sets[k] += int(v)
+            except Exception:
+                continue
+
+    total = len(data)
+    last_dt = max(dates) if dates else None
+    span_days = (max(dates) - min(dates)).days + 1 if len(dates) >= 2 else 7
+    freq_per_week = round(total / (span_days / 7.0), 2) if span_days else total
+    avg_sets = round(total_sets_sum / total, 1) if total else 0.0
+    avg_reps_per_set = round(reps_sum / rep_events, 2) if rep_events else None
+    top_groups = [mg for mg, _ in muscle_group_sets.most_common(3)]
+
+    highlights = []
+    if top_groups:
+        highlights.append({"topMuscleGroups": top_groups})
+    if avg_reps_per_set is not None:
+        highlights.append({"avgRepsPerSet": avg_reps_per_set})
+    highlights.append({"avgSetsPerSession": avg_sets})
+
+    return {
+        "totalWorkouts": total,
+        "lastWorkoutDate": last_dt.isoformat() if last_dt else None,
+        "frequencyPerWeek": freq_per_week,
+        "topMuscleGroups": top_groups,
+        "avgSetsPerSession": avg_sets,
+        "avgRepsPerSet": avg_reps_per_set,
+        "highlights": highlights,
+    }
+
+
+def enforce_brevity(text: str, max_bullets: int = 6, max_sentences: int = 6) -> Dict[str, Any]:
+    """Deterministically trim output to policy: ≤max bullets or ≤max sentences.
+
+    - Normalizes bullets to '-' and removes headings lines starting with '#'.
+    - If bullets detected, keep first N bullets. Else, keep first N sentences.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return {"text": text or ""}
+
+    # Remove markdown headings
+    lines = [ln for ln in text.splitlines() if not ln.strip().startswith("#")]
+    normalized = []
+    bullet_pattern = re.compile(r"^\s*([\-*•]|\d+\.)\s+")
+    had_bullets = False
+    for ln in lines:
+        ln2 = ln.replace("•", "-")
+        if bullet_pattern.match(ln2):
+            had_bullets = True
+            ln2 = bullet_pattern.sub("- ", ln2).rstrip()
+        normalized.append(ln2)
+
+    result = "\n".join(normalized).strip()
+
+    if had_bullets:
+        kept = []
+        for ln in result.splitlines():
+            if ln.strip().startswith("-"):
+                kept.append(ln)
+            elif kept:
+                kept.append(ln)
+            if sum(1 for k in kept if k.strip().startswith("-")) >= max_bullets:
+                break
+        result = "\n".join(kept).strip()
+    else:
+        # Split on sentence boundaries and keep first N
+        sentences = re.split(r"(?<=[.!?])\s+", result)
+        result = " ".join(sentences[:max_sentences]).strip()
+
+    return {"text": result}
 # Store important facts tool
 
 
@@ -1167,6 +1284,10 @@ tools = [
 
     # Aggregated parallel fetch for analysis
     FunctionTool(func=get_analysis_context),
+
+    # Analysis and output control
+    FunctionTool(func=analyze_recent_performance),
+    FunctionTool(func=enforce_brevity),
 
     # Expose built-in memory retrieval tool so the agent can recall facts
     # load_memory,

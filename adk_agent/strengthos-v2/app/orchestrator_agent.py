@@ -36,6 +36,8 @@ from app.strengthos_agent import (
     upsert_preference,
     upsert_temporary_condition,
     review_and_decay_memories,
+    analyze_recent_performance,
+    enforce_brevity,
 )
 
 # Agents by specialization
@@ -43,6 +45,7 @@ from app.strengthos_agent import (
 performance_tools: List[FunctionTool] = [
     FunctionTool(func=get_my_user_id),
     FunctionTool(func=get_analysis_context),
+    FunctionTool(func=analyze_recent_performance),
     FunctionTool(func=get_user),
     FunctionTool(func=get_user_workouts),
     FunctionTool(func=get_workout),
@@ -192,6 +195,7 @@ root_agent = Agent(
             FunctionTool(func=upsert_preference),
             FunctionTool(func=upsert_temporary_condition),
             FunctionTool(func=review_and_decay_memories),
+            FunctionTool(func=enforce_brevity),
         ]
     )}.values()),
 )
