@@ -64,6 +64,7 @@ class DirectStreamingService: ObservableObject {
                 }
                 
                 var fullResponse = ""
+                var pendingBuffer = ""
                 var returnedSessionId: String?
                 
                 // Process streaming response
@@ -83,11 +84,15 @@ class DirectStreamingService: ObservableObject {
                             for part in parts {
                                 // Handle regular text
                                 if let text = part["text"] as? String {
-                                    // Accumulate text instead of overwriting
                                     if !text.isEmpty {
-                                        fullResponse += text
-                                        // Pass the accumulated response
-                                        progressHandler(fullResponse, nil)
+                                        // Append to pending buffer and flush only safe segments
+                                        pendingBuffer += text
+                                        let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                        if !commit.isEmpty {
+                                            fullResponse += commit
+                                            progressHandler(fullResponse, nil)
+                                        }
+                                        pendingBuffer = keep
                                     }
                                 }
                                 
@@ -142,6 +147,12 @@ class DirectStreamingService: ObservableObject {
                     }
                 }
                 
+                // Flush any remaining buffered text at stream end
+                if !pendingBuffer.isEmpty {
+                    let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer, allowPartial: true)
+                    fullResponse += commit + keep
+                    progressHandler(fullResponse, nil)
+                }
                 completion(.success((fullResponse, returnedSessionId ?? sessionId)))
                 
             } catch {
@@ -150,6 +161,42 @@ class DirectStreamingService: ObservableObject {
         }
     }
     
+    /// Split incoming text into a commit-safe prefix and a kept suffix.
+    /// Ensures we do not flush half list markers or half code fences, and normalizes bullets.
+    private static func segmentAndSanitizeMarkdown(_ incoming: String, allowPartial: Bool = false) -> (commit: String, keep: String) {
+        if incoming.isEmpty { return ("", "") }
+
+        // Normalize unwanted bullets and stray characters early
+        var text = incoming
+            .replacingOccurrences(of: "\u{2022}", with: "-") // •
+            .replacingOccurrences(of: "\u{2023}", with: "-") // ‣
+            .replacingOccurrences(of: "\t* ", with: "- ")
+
+        // If we allow partial at stream end, just return normalized content
+        if allowPartial { return (text, "") }
+
+        // Heuristics: commit up to the last safe boundary
+        // Safe boundaries: paragraph break, end of sentence, start of new list item
+        let delimiters = ["\n\n", ". ", "! ", "? ", "\n- ", "\n* ", "\n1. "]
+        var cutIndex: String.Index? = nil
+
+        for delim in delimiters {
+            if let range = text.range(of: delim, options: [.backwards]) {
+                cutIndex = range.upperBound
+                break
+            }
+        }
+
+        if let idx = cutIndex {
+            let commit = String(text[..<idx])
+            let keep = String(text[idx...])
+            return (commit, keep)
+        }
+
+        // If nothing safe found, be conservative: don't flush yet
+        return ("", text)
+    }
+
     /// Create a new session
     func createSession(userId: String) async throws -> String {
         let token = try await getAuthToken()

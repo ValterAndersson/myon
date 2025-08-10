@@ -663,12 +663,31 @@ def store_important_fact(fact: str, category: str, tool_context: ToolContext, **
     key = "user:important_facts"
     current = tool_context.state.get(key, [])
 
-    current.append({
+    now = datetime.utcnow().isoformat()
+    entry: Dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "fact": fact,
         "category": category,
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+        "timestamp": now,
+        "last_seen_at": now,
+        "mentions": 1,
+        "status": "active",  # active|expired|archived
+    }
+    # Optional TTL support
+    if kwargs.get("ttl_days"):
+        try:
+            ttl_days = int(kwargs["ttl_days"])  # type: ignore[index]
+            entry["expires_at"] = (
+                datetime.utcnow()
+                .replace(microsecond=0)
+                .isoformat()
+            )
+            # Store review_at as a hint for future checks
+            entry["review_at"] = now
+        except Exception:
+            pass
+
+    current.append(entry)
     tool_context.state[key] = current
     return {"status": "success", "stored_count": len(current)}
 
@@ -696,6 +715,11 @@ def get_important_facts(tool_context: ToolContext) -> dict:
         if "id" not in entry or not entry.get("id"):
             entry["id"] = str(uuid.uuid4())
             changed = True
+        # hydrate counters/last_seen fields
+        if not entry.get("last_seen_at"):
+            entry["last_seen_at"] = datetime.utcnow().isoformat()
+        if not isinstance(entry.get("mentions"), int):
+            entry["mentions"] = 1
     if changed:
         tool_context.state[key] = facts
 
@@ -781,6 +805,112 @@ def clear_important_facts(confirm: bool, tool_context: ToolContext) -> dict:
     deleted = len(facts)
     tool_context.state[key] = []
     return {"status": "success", "deleted": deleted}
+
+
+# Convenience: search and delete facts by matching text
+def find_facts_by_text(query: str, tool_context: ToolContext) -> dict:
+    """Find facts containing query (case-insensitive)."""
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+    q = (query or "").strip().lower()
+    matches = [f for f in facts if q and q in str(f.get("fact", "")).lower()]
+    return {"matches": matches, "count": len(matches)}
+
+
+def delete_facts_by_text(query: str, confirm: bool, tool_context: ToolContext) -> dict:
+    """Delete all facts whose text contains query.
+
+    If confirm is False, returns matched ids without deleting.
+    """
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+    q = (query or "").strip().lower()
+    matched_ids = [f.get("id") for f in facts if q and q in str(f.get("fact", "")).lower()]
+    if not confirm:
+        return {"status": "preview", "matched_ids": matched_ids, "count": len(matched_ids)}
+    new_facts = [f for f in facts if f.get("id") not in matched_ids]
+    tool_context.state[key] = new_facts
+    return {"status": "success", "deleted": len(matched_ids), "deleted_ids": matched_ids}
+
+
+def upsert_preference(preference_text: str, tool_context: ToolContext, confidence: float = 0.8) -> dict:
+    """Store or update a user preference as an important fact (category=preference)."""
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+    now = datetime.utcnow().isoformat()
+    updated = False
+    for f in facts:
+        if f.get("category") == "preference" and str(f.get("fact", "")).strip().lower() == preference_text.strip().lower():
+            f["last_seen_at"] = now
+            f["mentions"] = int(f.get("mentions", 0)) + 1
+            f["confidence"] = max(float(f.get("confidence", 0.0)), confidence)
+            updated = True
+            break
+    if not updated:
+        facts.append({
+            "id": str(uuid.uuid4()),
+            "fact": preference_text,
+            "category": "preference",
+            "timestamp": now,
+            "last_seen_at": now,
+            "mentions": 1,
+            "status": "active",
+            "confidence": confidence,
+        })
+    tool_context.state[key] = facts
+    return {"status": "success", "updated": updated, "count": len(facts)}
+
+
+def upsert_temporary_condition(condition_text: str, tool_context: ToolContext, ttl_days: int = 14) -> dict:
+    """Store a temporary condition (e.g., cold) with a TTL to auto-review/expire."""
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+    now = datetime.utcnow()
+    expires_at = now + __import__("datetime").timedelta(days=int(ttl_days))
+    exists = False
+    for f in facts:
+        if f.get("category") == "condition" and str(f.get("fact", "")).strip().lower() == condition_text.strip().lower():
+            f["last_seen_at"] = now.isoformat()
+            f["mentions"] = int(f.get("mentions", 0)) + 1
+            f["expires_at"] = expires_at.isoformat()
+            f["status"] = "active"
+            exists = True
+            break
+    if not exists:
+        facts.append({
+            "id": str(uuid.uuid4()),
+            "fact": condition_text,
+            "category": "condition",
+            "timestamp": now.isoformat(),
+            "last_seen_at": now.isoformat(),
+            "mentions": 1,
+            "status": "active",
+            "expires_at": expires_at.isoformat(),
+        })
+    tool_context.state[key] = facts
+    return {"status": "success", "exists": exists}
+
+
+def review_and_decay_memories(tool_context: ToolContext, auto_delete_expired: bool = True) -> dict:
+    """Review stored facts: expire temporaries past TTL and return a summary of changes."""
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+    now = datetime.utcnow()
+    expired_ids: List[str] = []
+    for f in facts:
+        exp = f.get("expires_at")
+        if exp:
+            try:
+                exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                if now >= exp_dt and f.get("status") != "expired":
+                    f["status"] = "expired"
+                    expired_ids.append(str(f.get("id")))
+            except Exception:
+                continue
+    if auto_delete_expired and expired_ids:
+        facts = [f for f in facts if str(f.get("id")) not in expired_ids]
+    tool_context.state[key] = facts
+    return {"status": "success", "expired": expired_ids, "remaining": len(facts)}
 
 # Add simple tool to get user ID from state
 def get_my_user_id(tool_context: ToolContext) -> dict:
@@ -1028,6 +1158,13 @@ tools = [
     FunctionTool(func=clear_important_facts),
     FunctionTool(func=get_my_user_id),
 
+    # Memory helpers
+    FunctionTool(func=find_facts_by_text),
+    FunctionTool(func=delete_facts_by_text),
+    FunctionTool(func=upsert_preference),
+    FunctionTool(func=upsert_temporary_condition),
+    FunctionTool(func=review_and_decay_memories),
+
     # Aggregated parallel fetch for analysis
     FunctionTool(func=get_analysis_context),
 
@@ -1060,8 +1197,10 @@ Templates/Routines (format rules):
 - Validate with validate_template_payload before insert/update; then call insert_template or update_template_with_validation.
 
 Memory:
-- Store injuries/constraints/preferences with store_important_fact.
-- Read with get_important_facts; update/delete via corresponding tools.
+- Prefer upsert_preference for stable likes/dislikes; upsert_temporary_condition for short-lived states (e.g., cold) with TTL.
+- Store injuries/constraints/preferences with store_important_facts when unsure; then normalize with upsert_* tools.
+- Read with get_important_facts; delete via delete_important_fact or delete_facts_by_text.
+- Periodically call review_and_decay_memories to expire stale temporaries.
 
 Style:
 - Short, factual, user-centered. Avoid repetition and self-reference. Use numbers/units explicitly.
