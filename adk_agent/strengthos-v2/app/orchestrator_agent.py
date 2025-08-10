@@ -30,6 +30,12 @@ from app.strengthos_agent import (
     validate_template_payload,
     insert_template,
     update_template_with_validation,
+    # Memory helpers
+    find_facts_by_text,
+    delete_facts_by_text,
+    upsert_preference,
+    upsert_temporary_condition,
+    review_and_decay_memories,
 )
 
 # Agents by specialization
@@ -101,9 +107,10 @@ performance_agent = Agent(
     name="PerformanceAnalysisAgent",
     model=os.getenv("PERF_AGENT_MODEL", "gemini-2.5-pro"),
     instruction=(
-        "Announce actions before tool calls (e.g., 'Fetching recent workouts...'). "
-        "Use evidence-based reasoning (volume landmarks, progressive overload). "
-        "Fetch needed data in parallel via get_analysis_context, then synthesize concise insights and recommendations."
+        "Be brief and analytical. No filler or engagement.\n"
+        "Announce actions in one short line before tool calls (e.g., 'Fetching recent workouts...').\n"
+        "Fetch needed data in parallel via get_analysis_context, then provide: 3–6 compact bullets of insights + 1–3 actionable steps.\n"
+        "Favor numbers, trends, and decisions over narration."
     ),
     tools=performance_tools,
 )
@@ -112,9 +119,10 @@ routine_design_agent = Agent(
     name="RoutineDesignAgent",
     model=os.getenv("ROUTINE_AGENT_MODEL", "gemini-2.5-pro"),
     instruction=(
-        "Announce actions before tool calls. Use science-based methods and user constraints. "
-        "Design/modify routines and templates with exact numbers (no ranges). "
-        "Validate payloads before insert/update."
+        "Be concise and schema-precise. No filler.\n"
+        "Announce actions briefly before tool calls.\n"
+        "Design/modify templates with exact numbers (no ranges). Validate with validate_template_payload, then insert/update.\n"
+        "Use user constraints and memories; update preferences when confidently inferred."
     ),
     tools=routine_design_tools,
 )
@@ -123,7 +131,7 @@ retrieval_agent = Agent(
     name="DataRetrievalAgent",
     model=os.getenv("RETRIEVAL_AGENT_MODEL", "gemini-2.5-flash"),
     instruction=(
-        "Announce actions briefly before each call. Fetch and summarize data compactly for other agents."
+        "Keep outputs minimal. Announce action, fetch, then return a 1–3 line summary with key numbers only."
     ),
     tools=data_retrieval_tools,
 )
@@ -132,9 +140,9 @@ template_selection_agent = Agent(
     name="TemplateSelectionAgent",
     model=os.getenv("TEMPLATE_SELECTION_MODEL", "gemini-2.5-pro"),
     instruction=(
-        "Announce actions. Use get_analysis_context to gather user context and history in parallel, "
-        "then select exercises and set/rep/RIR schemes using evidence-based guidance (Israetel, Nippard, studies). "
-        "Output a proposed template object with exact numbers, ready for validation."
+        "Announce actions. Use get_analysis_context to gather context in parallel.\n"
+        "Select exercises and exact set/rep/RIR schemes using evidence-based guidance.\n"
+        "Output a proposed template object (exact schema) ready for validation. No extra narration."
     ),
     tools=template_selection_tools,
 )
@@ -143,8 +151,8 @@ template_insert_agent = Agent(
     name="TemplateInsertAgent",
     model=os.getenv("TEMPLATE_INSERT_MODEL", "gemini-2.5-flash"),
     instruction=(
-        "Announce actions. Validate with validate_template_payload; if valid, call insert_template or update_template_with_validation. "
-        "Do not alter numbers; ensure fields match schema exactly. Return operation result."
+        "Announce actions. Validate with validate_template_payload; if valid, insert/update.\n"
+        "Do not alter numbers; ensure fields match schema exactly. Return only operation result (no fluff)."
     ),
     tools=template_insert_tools,
 )
@@ -161,12 +169,13 @@ orchestrator_instruction = (
     "- Memory tools: normalize/add/update/delete memories and decay temporaries.\n\n"
     "Output policy (strict):\n"
     "- Be brief; avoid filler.\n"
-    "- Prefer compact bullets with bold labels; ≤6 bullets.\n"
+    "- Prefer compact bullets with bold labels; ≤6 bullets or ≤6 short sentences.\n"
     "- No headings unless asked.\n"
     "- Use '-', '*', or numbers only (no '•').\n\n"
     "Procedure:\n"
     "- Fetch data in parallel (workouts, routines, facts) first if needed.\n"
     "- Announce actions in one short line before tool calls.\n"
+    "- If user asks to remove/override a memory, immediately call delete_facts_by_text or delete_important_fact and confirm.\n"
     "- Then produce a concise answer per policy."
 )
 
