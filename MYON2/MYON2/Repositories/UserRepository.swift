@@ -47,6 +47,40 @@ class UserRepository {
         try await userRef.updateData(updates)
     }
     
+    // MARK: - Timezone Management
+    
+    /// Update user's timezone preference
+    func updateUserTimezone(userId: String, timezone: String) async throws {
+        guard TimeZone(identifier: timezone) != nil else {
+            throw UserRepositoryError.invalidTimezone(timezone)
+        }
+        
+        let userRef = db.collection(collection).document(userId)
+        let updates: [String: Any] = [
+            "timezone": timezone,
+            "updated_at": FieldValue.serverTimestamp()
+        ]
+        
+        do {
+            try await userRef.updateData(updates)
+            print("[UserRepository] Updated timezone for user \(userId) to \(timezone)")
+        } catch {
+            print("[UserRepository] Failed to update timezone for user \(userId): \(error)")
+            throw UserRepositoryError.updateFailed(error)
+        }
+    }
+    
+    /// Get user's stored timezone, with fallback to device timezone
+    func getUserTimezone(userId: String) async throws -> String {
+        do {
+            let user = try await getUser(userId: userId)
+            return user?.timeZone ?? TimeZone.current.identifier
+        } catch {
+            print("[UserRepository] Failed to get timezone for user \(userId), using device timezone: \(error)")
+            return TimeZone.current.identifier
+        }
+    }
+    
     func deleteUser(userId: String) async throws {
         let userRef = db.collection(collection).document(userId)
         
@@ -129,5 +163,24 @@ class UserRepository {
         updates["last_updated"] = FieldValue.serverTimestamp()
         
         try await attributesRef.updateData(updates)
+    }
+}
+
+// MARK: - Error Types
+
+enum UserRepositoryError: LocalizedError {
+    case invalidTimezone(String)
+    case updateFailed(Error)
+    case userNotFound
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidTimezone(let tz):
+            return "Invalid timezone identifier: \(tz)"
+        case .updateFailed(let error):
+            return "Failed to update user data: \(error.localizedDescription)"
+        case .userNotFound:
+            return "User not found"
+        }
     }
 } 

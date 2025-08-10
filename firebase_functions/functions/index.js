@@ -62,7 +62,9 @@ const {
   onWorkoutCompleted,
   onWorkoutDeleted,
   weeklyStatsRecalculation,
-  manualWeeklyStatsRecalculation
+  manualWeeklyStatsRecalculation,
+  onWorkoutCreatedWeekly,
+  onWorkoutFinalizedForUser
 } = require('./triggers/weekly-analytics');
 
 // Export all functions as Firebase HTTPS functions
@@ -116,6 +118,8 @@ exports.onTemplateUpdated = onTemplateUpdated;
 exports.onWorkoutCreated = onWorkoutCreated;
 exports.onWorkoutCompleted = onWorkoutCompleted;
 exports.onWorkoutDeleted = onWorkoutDeleted;
+exports.onWorkoutCreatedWeekly = onWorkoutCreatedWeekly;
+exports.onWorkoutFinalizedForUser = onWorkoutFinalizedForUser;
 
 // Scheduled Functions
 exports.weeklyStatsRecalculation = weeklyStatsRecalculation;

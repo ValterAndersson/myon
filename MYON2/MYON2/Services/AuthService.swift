@@ -14,6 +14,13 @@ class AuthService: ObservableObject {
         Auth.auth().addStateDidChangeListener { [weak self] _, user in
             self?.isAuthenticated = user != nil
             self?.currentUser = user
+            
+            // Initialize timezone if needed when user signs in
+            if let user = user {
+                Task {
+                    try? await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: user.uid)
+                }
+            }
         }
     }
     
@@ -21,19 +28,18 @@ class AuthService: ObservableObject {
         let result = try await Auth.auth().createUser(withEmail: email, password: password)
         let userRef = db.collection("users").document(result.user.uid)
         
-        // Get current device timezone
-        let currentTimeZone = TimeZone.current.identifier
-        
         let userData: [String: Any] = [
             "email": email,
             "uid": result.user.uid,
             "created_at": Timestamp(),
             "provider": "email",
-            "timezone": currentTimeZone,
             "week_starts_on_monday": true // Default
         ]
         
         try await userRef.setData(userData)
+        
+        // Initialize timezone if needed
+        try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: result.user.uid)
         
         // Register the current device
         try await DeviceManager.shared.registerCurrentDevice(for: result.user.uid)
@@ -42,9 +48,11 @@ class AuthService: ObservableObject {
     func signIn(email: String, password: String) async throws {
         let result = try await Auth.auth().signIn(withEmail: email, password: password)
         
+        // Initialize timezone if needed
+        try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: result.user.uid)
+        
         // Register/update the current device
         try await DeviceManager.shared.registerCurrentDevice(for: result.user.uid)
-        // No location, locale, or currency logic needed
     }
     
     // Placeholder for Google sign-in

@@ -1,4 +1,4 @@
-const { onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
@@ -9,44 +9,115 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// Helper function to validate timezone identifier
+function isValidTimezone(timezone) {
+  try {
+    // Test if timezone is valid by trying to format a date
+    new Date().toLocaleString("en-US", { timeZone: timezone });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 // Helper function to get week start for a date with Sunday as default
-function getWeekStartSunday(dateString) {
+function getWeekStartSunday(dateString, timezone = 'UTC') {
   const date = new Date(dateString);
-  const day = date.getUTCDay();
-  // Sunday = 0, so no adjustment needed for Sunday start
-  const diff = day;
-  date.setUTCDate(date.getUTCDate() - diff);
-  date.setUTCHours(0, 0, 0, 0);
-  return date.toISOString().split('T')[0];
+  
+  // Validate timezone
+  if (!isValidTimezone(timezone)) {
+    console.warn(`Invalid timezone ${timezone}, falling back to UTC`);
+    timezone = 'UTC';
+  }
+  
+  try {
+    // Convert to user's timezone
+    const userDate = new Date(date.toLocaleString("en-US", { timeZone: timezone }));
+    const day = userDate.getDay();
+    
+    // Sunday = 0, so no adjustment needed for Sunday start
+    const diff = day;
+    userDate.setDate(userDate.getDate() - diff);
+    userDate.setHours(0, 0, 0, 0);
+    
+    // Return in YYYY-MM-DD format
+    return userDate.toISOString().split('T')[0];
+  } catch (error) {
+    console.error(`Error in getWeekStartSunday with timezone ${timezone}:`, error);
+    // Fallback to UTC calculation
+    const utcDate = new Date(dateString);
+    const day = utcDate.getUTCDay();
+    const diff = day;
+    utcDate.setUTCDate(utcDate.getUTCDate() - diff);
+    utcDate.setUTCHours(0, 0, 0, 0);
+    return utcDate.toISOString().split('T')[0];
+  }
 }
 
 // Helper function to get week start for a date with Monday as start
-function getWeekStartMonday(dateString) {
+function getWeekStartMonday(dateString, timezone = 'UTC') {
   const date = new Date(dateString);
-  const day = date.getUTCDay();
-  // Monday = 1, Sunday = 0, so we need to adjust
-  const diff = day === 0 ? 6 : day - 1; // If Sunday, go back 6 days, otherwise go back (day-1) days
-  date.setUTCDate(date.getUTCDate() - diff);
-  date.setUTCHours(0, 0, 0, 0);
-  return date.toISOString().split('T')[0];
+  
+  // Validate timezone
+  if (!isValidTimezone(timezone)) {
+    console.warn(`Invalid timezone ${timezone}, falling back to UTC`);
+    timezone = 'UTC';
+  }
+  
+  try {
+    // Convert to user's timezone
+    const userDate = new Date(date.toLocaleString("en-US", { timeZone: timezone }));
+    const day = userDate.getDay();
+    
+    // Monday = 1, Sunday = 0, so we need to adjust
+    const diff = day === 0 ? 6 : day - 1; // If Sunday, go back 6 days, otherwise go back (day-1) days
+    userDate.setDate(userDate.getDate() - diff);
+    userDate.setHours(0, 0, 0, 0);
+    
+    // Return in YYYY-MM-DD format
+    return userDate.toISOString().split('T')[0];
+  } catch (error) {
+    console.error(`Error in getWeekStartMonday with timezone ${timezone}:`, error);
+    // Fallback to UTC calculation
+    const utcDate = new Date(dateString);
+    const day = utcDate.getUTCDay();
+    const diff = day === 0 ? 6 : day - 1;
+    utcDate.setUTCDate(utcDate.getUTCDate() - diff);
+    utcDate.setUTCHours(0, 0, 0, 0);
+    return utcDate.toISOString().split('T')[0];
+  }
 }
 
 // Get week start based on user preference
 async function getWeekStartForUser(userId, dateString) {
+  // Robust early-return: if no user, NEVER touch Firestore
+  if (!userId) {
+    return getWeekStartMonday(dateString, 'UTC');
+  }
+
   try {
     const userDoc = await db.collection('users').doc(userId).get();
     if (userDoc.exists) {
       const userData = userDoc.data();
       const weekStartsOnMonday = userData.week_starts_on_monday !== undefined ? userData.week_starts_on_monday : true;
-      
-      return weekStartsOnMonday ? getWeekStartMonday(dateString) : getWeekStartSunday(dateString);
+      let userTimezone = userData.timezone || 'UTC';
+
+      // Validate and fallback timezone
+      if (!isValidTimezone(userTimezone)) {
+        console.warn(`Invalid user timezone ${userTimezone} for user ${userId}, falling back to UTC`);
+        userTimezone = 'UTC';
+      }
+
+      return weekStartsOnMonday
+        ? getWeekStartMonday(dateString, userTimezone)
+        : getWeekStartSunday(dateString, userTimezone);
     }
   } catch (error) {
-    console.warn(`Error fetching user preferences for ${userId}, defaulting to Monday start:`, error);
+    console.error(`Error fetching user preferences for ${userId}:`, error);
   }
-  
-  // Default to Monday if user preferences can't be fetched
-  return getWeekStartMonday(dateString);
+
+  // Default to Monday with UTC if user preferences can't be fetched
+  return getWeekStartMonday(dateString, 'UTC');
 }
 
 function mergeMetrics(target = {}, source = {}, increment = 1) {
@@ -246,16 +317,16 @@ exports.weeklyStatsRecalculation = onSchedule({
     const lastWeekId = await getWeekStartForUser(null, lastWeek.toISOString());
     
     // Find users who have completed workouts in the last 2 weeks
+    // Use a single collection query on users with a maintained last_workout_end_time
     const twoWeeksAgo = new Date(now);
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     const twoWeeksAgoTimestamp = admin.firestore.Timestamp.fromDate(twoWeeksAgo);
-    
-    const usersSnap = await db.collectionGroup('workouts')
-      .where('end_time', '>=', twoWeeksAgoTimestamp)
-      .select('end_time') // Only get minimal data
+
+    const usersSnap = await db.collection('users')
+      .where('last_workout_end_time', '>=', twoWeeksAgoTimestamp)
       .get();
 
-    const activeUserIds = [...new Set(usersSnap.docs.map(doc => doc.ref.parent.parent.id))];
+    const activeUserIds = usersSnap.docs.map(doc => doc.id);
 
     const results = [];
     
@@ -303,6 +374,52 @@ exports.weeklyStatsRecalculation = onSchedule({
   }
 });
 
+// Fire when a workout document is created and already contains end_time + analytics
+exports.onWorkoutCreatedWeekly = onDocumentCreated(
+  'users/{userId}/workouts/{workoutId}',
+  async (event) => {
+    try {
+      const after = event.data.data();
+      if (!after) return null;
+
+      // Only process if workout looks completed and analytics are present
+      if (!after.end_time || !after.analytics) return null;
+
+      const endTime = after.end_time.toDate ? after.end_time.toDate().toISOString() : after.end_time;
+      const weekId = await getWeekStartForUser(event.params.userId, endTime);
+      const result = await updateWeeklyStats(event.params.userId, weekId, after.analytics, 1);
+
+      if (!result.success) {
+        console.error(`Failed to update weekly stats on create:`, result);
+      }
+
+      // Maintain last_workout_end_time without regressing
+      try {
+        const userRef = db.collection('users').doc(event.params.userId);
+        const userSnap = await userRef.get();
+        const current = userSnap.exists ? userSnap.data().last_workout_end_time : null;
+        const incoming = after.end_time;
+        let shouldUpdate = false;
+        if (!current) {
+          shouldUpdate = true;
+        } else if (current.toDate && incoming.toDate) {
+          shouldUpdate = incoming.toDate() > current.toDate();
+        }
+        if (shouldUpdate) {
+          await userRef.set({ last_workout_end_time: incoming }, { merge: true });
+        }
+      } catch (e) {
+        console.warn('Failed to update last_workout_end_time on create:', e.message);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error in onWorkoutCreatedWeekly:', error);
+      return { success: false, error: error.message };
+    }
+  }
+);
+
 exports.onWorkoutCompleted = onDocumentUpdated(
   'users/{userId}/workouts/{workoutId}',
   async (event) => {
@@ -310,13 +427,20 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       const before = event.data.before.data();
       const after = event.data.after.data();
       
-      // Only process if workout was just completed (end_time was added)
-      if (!after || !after.end_time) return null;
-      if (before && before.end_time === after.end_time) return null;
+      if (!after) return null;
 
+      // Determine if completion happened now or analytics were added later
+      const endTimeAdded = (!before?.end_time && !!after.end_time);
+      const analyticsAdded = (!!after.end_time && !before?.analytics && !!after.analytics);
+
+      if (!endTimeAdded && !analyticsAdded) {
+        return null; // Nothing relevant to weekly stats in this update
+      }
+
+      // We only update weekly stats when analytics is available
       const analytics = after.analytics;
       if (!analytics) {
-        console.warn(`Workout ${event.params.workoutId} for user ${event.params.userId} missing analytics`);
+        // Wait for analytics-added path to fire
         return null;
       }
 
@@ -332,6 +456,36 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       return result;
     } catch (error) {
       console.error('Error in onWorkoutCompleted:', error);
+      return { success: false, error: error.message };
+    }
+  }
+);
+
+// Maintain users/{userId}.last_workout_end_time for scheduler efficiency
+exports.onWorkoutFinalizedForUser = onDocumentUpdated(
+  'users/{userId}/workouts/{workoutId}',
+  async (event) => {
+    try {
+      const after = event.data.after.data();
+      if (!after || !after.end_time) return null;
+
+      // Only set if newer than the current value
+      const userRef = db.collection('users').doc(event.params.userId);
+      const userSnap = await userRef.get();
+      const current = userSnap.exists ? userSnap.data().last_workout_end_time : null;
+      const incoming = after.end_time;
+      let shouldUpdate = false;
+      if (!current) {
+        shouldUpdate = true;
+      } else if (current.toDate && incoming.toDate) {
+        shouldUpdate = incoming.toDate() > current.toDate();
+      }
+      if (shouldUpdate) {
+        await userRef.set({ last_workout_end_time: incoming }, { merge: true });
+      }
+      return { success: true };
+    } catch (error) {
+      console.error('Error maintaining last_workout_end_time:', error);
       return { success: false, error: error.message };
     }
   }

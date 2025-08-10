@@ -26,6 +26,7 @@ struct MoreView: View {
     @State private var showingRecalculationAlert = false
     @State private var weekStartsOnMonday = true
     @State private var selectedTimeZone = TimeZone.current.identifier
+    @State private var hasLoadedData = false
     
     private let userRepository = UserRepository()
     private let cloudFunctionService = CloudFunctionService()
@@ -162,7 +163,7 @@ struct MoreView: View {
                     .foregroundColor(.red)
                 }
             }
-            .navigationTitle("More / Settings")
+            .navigationTitle("More")
             .alert("Delete Profile", isPresented: $showingDeleteAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
@@ -196,13 +197,22 @@ struct MoreView: View {
                 }
             }
             .onAppear {
-                loadUserData()
+                if !hasLoadedData {
+                    loadUserData()
+                } else {
+                    print("[MoreView] onAppear called but data already loaded, skipping reload")
+                }
+            }
+            .onChange(of: selectedTimeZone) { oldValue, newValue in
+                print("[MoreView] Timezone selection changed from \(oldValue) to \(newValue)")
             }
         }
     }
     
     private func loadUserData() {
         guard let userId = session.userId else { return }
+        
+        print("[MoreView] loadUserData() called - current selectedTimeZone: \(selectedTimeZone)")
         
         isLoading = true
         Task {
@@ -213,8 +223,16 @@ struct MoreView: View {
                         self.name = user.name ?? ""
                         self.email = user.email
                         self.weekStartsOnMonday = user.weekStartsOnMonday
-                        self.selectedTimeZone = user.timeZone ?? TimeZone.current.identifier
                     }
+                }
+                
+                // Get stored timezone
+                let storedTimezone = try await TimezoneManager.shared.getStoredTimezone(userId: userId)
+                print("[MoreView] Firestore returned timezone: \(storedTimezone)")
+                
+                DispatchQueue.main.async {
+                    print("[MoreView] About to set selectedTimeZone from \(self.selectedTimeZone) to \(storedTimezone)")
+                    self.selectedTimeZone = storedTimezone
                 }
                 
                 // Get user attributes
@@ -236,6 +254,7 @@ struct MoreView: View {
                 
                 DispatchQueue.main.async {
                     self.isLoading = false
+                    self.hasLoadedData = true
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -249,11 +268,18 @@ struct MoreView: View {
     private func saveChanges() {
         guard let userId = session.userId else { return }
         
+        print("[MoreView] Save button pressed - selectedTimeZone: \(selectedTimeZone)")
+        
         isLoading = true
         Task {
             do {
-                // Update user profile
-                try await userRepository.updateUserProfile(userId: userId, name: name, email: email, weekStartsOnMonday: weekStartsOnMonday, timeZone: selectedTimeZone)
+                // Update user profile (excluding timezone - handled separately)
+                try await userRepository.updateUserProfile(userId: userId, name: name, email: email, weekStartsOnMonday: weekStartsOnMonday)
+                
+                // Update timezone
+                print("[MoreView] About to update timezone to: \(selectedTimeZone)")
+                try await TimezoneManager.shared.updateUserTimezone(userId: userId, timezone: selectedTimeZone)
+                print("[MoreView] Timezone update completed")
                 
                 // Update user attributes
                 let attributes = UserAttributes(
@@ -277,6 +303,7 @@ struct MoreView: View {
                     self.isLoading = false
                 }
             } catch {
+                print("[MoreView] Save failed: \(error)")
                 DispatchQueue.main.async {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
@@ -313,15 +340,7 @@ struct MoreView: View {
     }
     
     private func formatTimeZone(_ identifier: String) -> String {
-        guard let timeZone = TimeZone(identifier: identifier) else { return identifier }
-        let offset = timeZone.secondsFromGMT() / 3600
-        let offsetString = offset >= 0 ? "+\(offset)" : "\(offset)"
-        
-        // Extract city name from identifier (e.g., "America/New_York" -> "New York")
-        let parts = identifier.split(separator: "/")
-        let cityName = parts.last?.replacingOccurrences(of: "_", with: " ") ?? identifier
-        
-        return "\(cityName) (GMT\(offsetString))"
+        return TimezoneManager.shared.formatTimezoneForDisplay(identifier)
     }
     
     private func recalculateWeeklyStats() {

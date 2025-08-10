@@ -147,8 +147,13 @@ class AnalyticsRepository {
         // Try to get user preference
         var weekStartsOnMonday = true // Default to Monday
         
-        if let user = try? await db.collection("users").document(userId).getDocument().data(as: User.self) {
-            weekStartsOnMonday = user.weekStartsOnMonday
+        do {
+            let userDoc = try await db.collection("users").document(userId).getDocument()
+            if userDoc.exists, let user = try? userDoc.data(as: User.self) {
+                weekStartsOnMonday = user.weekStartsOnMonday
+            }
+        } catch {
+            print("[AnalyticsRepository] Failed to get user week preference for \(userId), using default: \(error)")
         }
         
         // Create calendar with appropriate first weekday
@@ -158,13 +163,13 @@ class AnalyticsRepository {
         let weekDate = adjustedCalendar.date(byAdding: .weekOfYear, value: -weeksAgo, to: now) ?? now
         let startOfWeek = adjustedCalendar.startOfWeek(for: weekDate)
         
-        // Get user's timezone from preferences
-        var userTimeZone: TimeZone = TimeZone.current // Default to device timezone
+        // Get user's timezone using TimezoneManager
+        var userTimeZone: TimeZone = TimeZone.current
         
-        if let user = try? await db.collection("users").document(userId).getDocument().data(as: User.self),
-           let tzIdentifier = user.timeZone,
-           let tz = TimeZone(identifier: tzIdentifier) {
-            userTimeZone = tz
+        do {
+            userTimeZone = try await TimezoneManager.shared.getAnalyticsTimezone(userId: userId)
+        } catch {
+            print("[AnalyticsRepository] Failed to get user timezone for \(userId), using device timezone: \(error)")
         }
         
         // Adjust startOfWeek to user's timezone
