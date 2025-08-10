@@ -1,0 +1,12 @@
+{
+  "name": "workout-importer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "import:strong": "node scripts/import_strong_workout.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}
