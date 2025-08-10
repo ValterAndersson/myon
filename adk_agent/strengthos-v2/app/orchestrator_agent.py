@@ -100,12 +100,11 @@ retrieval_agent = Agent(
 # Orchestrator agent uses instruction routing. For true agent-as-tool routing,
 # use the ADK AgentTool abstraction when available in your environment.
 orchestrator_instruction = (
-    "You are the orchestrator. Decide which specialized agent should handle the request: "
-    "- PerformanceAnalysisAgent for trend analysis and insights\n"
-    "- RoutineDesignAgent for creating or adjusting plans\n"
-    "- DataRetrievalAgent for simple fetch/search tasks\n\n"
-    "When performance analysis is requested, first instruct parallel data fetching (workouts, routines, facts) "
-    "to maximize speed, then perform reasoning on the summaries. Always keep responses concise and structured."
+    "Route requests to specialized agents:\n"
+    "- PerformanceAnalysisAgent: trends/insights\n"
+    "- RoutineDesignAgent: plans/templates\n"
+    "- DataRetrievalAgent: fetch/search\n\n"
+    "For analysis: fetch data in parallel (workouts, routines, facts) first, then synthesize a concise summary."
 )
 
 # In environments without Agent-as-Tool, we expose all tools and rely on routing prompt.
