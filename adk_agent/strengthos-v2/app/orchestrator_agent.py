@@ -180,6 +180,7 @@ orchestrator_instruction = (
     "Procedure:\n"
     "- Fetch data in parallel (workouts, routines, facts) first if needed.\n"
     "- Announce actions in one short line before tool calls.\n"
+    "- Never create/update/delete templates or routines without explicit user approval. Always propose diffs first, then ask: 'Apply these changes?'.\n"
     "- If user asks to remove/override a memory, immediately call delete_facts_by_text or delete_important_fact and confirm.\n"
     "- Then produce a concise answer per policy."
 )

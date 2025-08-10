@@ -65,6 +65,9 @@ class DirectStreamingService: ObservableObject {
                 
                 var fullResponse = ""
                 var pendingBuffer = ""
+                var lastFlushedTail = ""
+                var seenChunkFingerprints: Set<String> = []
+                var seenActions: Set<String> = []
                 var returnedSessionId: String?
                 
                 // Process streaming response
@@ -89,8 +92,16 @@ class DirectStreamingService: ObservableObject {
                                         pendingBuffer += text
                                         let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
                                         if !commit.isEmpty {
-                                            fullResponse += commit
-                                            progressHandler(fullResponse, nil)
+                                            let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: commit, lastTail: lastFlushedTail)
+                                            if !commitToAppend.isEmpty {
+                                                let fp = Self.fingerprint(commitToAppend)
+                                                if !seenChunkFingerprints.contains(fp) {
+                                                    fullResponse += commitToAppend
+                                                    lastFlushedTail = String(fullResponse.suffix(200))
+                                                    seenChunkFingerprints.insert(fp)
+                                                    progressHandler(fullResponse, nil)
+                                                }
+                                            }
                                         }
                                         pendingBuffer = keep
                                     }
@@ -102,7 +113,11 @@ class DirectStreamingService: ObservableObject {
                                     let args = functionCall["args"] as? [String: Any]
                                     let argsString = formatFunctionArgs(args)
                                     let humanReadableName = getHumanReadableFunctionName(name)
-                                    progressHandler(nil, "\(humanReadableName)\(argsString)")
+                                    let actionLine = "\(humanReadableName)\(argsString)"
+                                    if !seenActions.contains(actionLine) {
+                                        seenActions.insert(actionLine)
+                                        progressHandler(nil, actionLine)
+                                    }
                                 }
                                 
                                 // Handle function responses
@@ -132,9 +147,16 @@ class DirectStreamingService: ObservableObject {
                                         default:
                                             break
                                         }
-                                        progressHandler(nil, "\(humanReadableName)\(responseDetail)")
+                                        let actionLine = "\(humanReadableName)\(responseDetail)"
+                                        if !seenActions.contains(actionLine) {
+                                            seenActions.insert(actionLine)
+                                            progressHandler(nil, actionLine)
+                                        }
                                     } else {
-                                        progressHandler(nil, humanReadableName)
+                                        if !seenActions.contains(humanReadableName) {
+                                            seenActions.insert(humanReadableName)
+                                            progressHandler(nil, humanReadableName)
+                                        }
                                     }
                                 }
                             }
@@ -145,8 +167,11 @@ class DirectStreamingService: ObservableObject {
                 // Flush any remaining buffered text at stream end
                 if !pendingBuffer.isEmpty {
                     let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer, allowPartial: true)
-                    fullResponse += commit + keep
-                    progressHandler(fullResponse, nil)
+                    let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: commit + keep, lastTail: lastFlushedTail)
+                    if !commitToAppend.isEmpty {
+                        fullResponse += commitToAppend
+                        progressHandler(fullResponse, nil)
+                    }
                 }
                 completion(.success((fullResponse, returnedSessionId ?? sessionId)))
                 
@@ -161,11 +186,22 @@ class DirectStreamingService: ObservableObject {
     private static func segmentAndSanitizeMarkdown(_ incoming: String, allowPartial: Bool = false) -> (commit: String, keep: String) {
         if incoming.isEmpty { return ("", "") }
 
-        // Normalize unwanted bullets and stray characters early
+        // Normalize unwanted bullets, headings, and stray characters early
         var text = incoming
             .replacingOccurrences(of: "\u{2022}", with: "-") // •
             .replacingOccurrences(of: "\u{2023}", with: "-") // ‣
             .replacingOccurrences(of: "\t* ", with: "- ")
+            .replacingOccurrences(of: "\r", with: "")
+
+        // Drop markdown headings to avoid giant section titles mid-stream
+        let noHeadings = text
+            .components(separatedBy: "\n")
+            .filter { ln in
+                let t = ln.trimmingCharacters(in: .whitespaces)
+                return !(t.hasPrefix("# ") || t.hasPrefix("## ") || t.hasPrefix("### "))
+            }
+            .joined(separator: "\n")
+        text = noHeadings
 
         // If we allow partial at stream end, just return normalized content
         if allowPartial { return (text, "") }
@@ -182,14 +218,43 @@ class DirectStreamingService: ObservableObject {
             }
         }
 
+        // Avoid flushing when inside an open code fence (odd number of ```)
+        let fenceCount = text.components(separatedBy: "```").count - 1
+        let isFenceOpen = fenceCount % 2 == 1
+
         if let idx = cutIndex {
-            let commit = String(text[..<idx])
+            var commit = String(text[..<idx])
+            if isFenceOpen {
+                // Keep everything if fence is open
+                return ("", text)
+            }
             let keep = String(text[idx...])
             return (commit, keep)
         }
 
         // If nothing safe found, be conservative: don't flush yet
         return ("", text)
+    }
+
+    // Fingerprint small chunks to drop exact duplicates without CryptoKit
+    private static func fingerprint(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sample = String(trimmed.suffix(128)).lowercased()
+        var hash: UInt64 = 5381
+        for u in sample.unicodeScalars { hash = ((hash << 5) &+ hash) &+ UInt64(u.value) }
+        return String(hash)
+    }
+
+    // Drop additions that already appear at the end of the base text
+    private static func dedupeTrailing(base: String, addition: String, lastTail: String, minLen: Int = 6) -> String {
+        let add = addition.trimmingCharacters(in: .whitespacesAndNewlines)
+        if add.isEmpty { return "" }
+        let tail = lastTail.isEmpty ? String(base.suffix(200)) : lastTail
+        if !tail.isEmpty && (tail.hasSuffix(add) || tail.contains(add)) { return "" }
+        // Also avoid re-adding if base already contains the addition near the end
+        let window = String(base.suffix(800))
+        if window.contains(add) && add.count >= minLen { return "" }
+        return addition
     }
 
     /// Create a new session
