@@ -92,7 +92,9 @@ class DirectStreamingService: ObservableObject {
                                         pendingBuffer += text
                                         let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
                                         if !commit.isEmpty {
-                                            let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: commit, lastTail: lastFlushedTail)
+                                            var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                            addition = Self.cleanLeadingFiller(addition)
+                                            let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
                                             if !commitToAppend.isEmpty {
                                                 let fp = Self.fingerprint(commitToAppend)
                                                 if !seenChunkFingerprints.contains(fp) {
@@ -167,7 +169,9 @@ class DirectStreamingService: ObservableObject {
                 // Flush any remaining buffered text at stream end
                 if !pendingBuffer.isEmpty {
                     let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer, allowPartial: true)
-                    let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: commit + keep, lastTail: lastFlushedTail)
+                    var finalAdd = Self.ensureJoinSpacing(base: fullResponse, addition: commit + keep)
+                    finalAdd = Self.cleanLeadingFiller(finalAdd)
+                    let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: finalAdd, lastTail: lastFlushedTail)
                     if !commitToAppend.isEmpty {
                         fullResponse += commitToAppend
                         progressHandler(fullResponse, nil)
@@ -255,6 +259,32 @@ class DirectStreamingService: ObservableObject {
         let window = String(base.suffix(800))
         if window.contains(add) && add.count >= minLen { return "" }
         return addition
+    }
+
+    // If base ends with a letter/number and addition starts with a letter (no leading space), insert a space
+    private static func ensureJoinSpacing(base: String, addition: String) -> String {
+        guard let last = base.unicodeScalars.last else { return addition }
+        guard let first = addition.unicodeScalars.first else { return addition }
+        let ws = CharacterSet.whitespacesAndNewlines
+        let letters = CharacterSet.letters
+        if !ws.contains(last) && letters.contains(first) {
+            return " " + addition
+        }
+        return addition
+    }
+
+    // Remove filler phrases at the start of paragraphs
+    private static func cleanLeadingFiller(_ text: String) -> String {
+        let fillers = ["Okay, ", "Of course, ", "Sure, ", "Got it, ", "Alright, "]
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            var ln = line
+            for f in fillers {
+                if ln.hasPrefix(f) { ln = String(ln.dropFirst(f.count)) }
+            }
+            return ln
+        }
+        // Collapse double spaces created by removals
+        return lines.joined(separator: "\n").replacingOccurrences(of: "  ", with: " ")
     }
 
     /// Create a new session
