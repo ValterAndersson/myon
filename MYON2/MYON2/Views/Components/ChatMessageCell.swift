@@ -241,6 +241,12 @@ class ChatMessageCell: UICollectionViewCell {
             }
         }
         
+        // Normalize bullets to '-' to avoid odd characters from streams
+        let normalized = attributedString.string
+            .replacingOccurrences(of: "\u{2022}", with: "-") // •
+            .replacingOccurrences(of: "\u{2023}", with: "-") // ‣
+        attributedString.mutableString.setString(normalized)
+
         // Process list items line by line
         let lines = attributedString.string.components(separatedBy: "\n")
         var currentLocation = 0
@@ -253,14 +259,14 @@ class ChatMessageCell: UICollectionViewCell {
             let indentLevel = leadingSpaces / 2
             
             // Handle bullet lists (* or -)
-            if trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("- ") || trimmedLine.hasPrefix("• ") {
+            if trimmedLine.hasPrefix("* ") || trimmedLine.hasPrefix("- ") {
                 // Find the bullet position
-                if let bulletIndex = line.firstIndex(where: { $0 == "*" || $0 == "-" || $0 == "•" }) {
+                if let bulletIndex = line.firstIndex(where: { $0 == "*" || $0 == "-" }) {
                     let bulletPosition = line.distance(from: line.startIndex, to: bulletIndex)
                     let absoluteBulletPosition = currentLocation + bulletPosition
                     
                     // Replace with appropriate bullet based on indent level
-                    let bulletChar = indentLevel == 0 ? "• " : "◦ "
+                    let bulletChar = indentLevel == 0 ? "- " : "  - "
                     let bulletRange = NSRange(location: absoluteBulletPosition, length: 1)
                     attributedString.replaceCharacters(in: bulletRange, with: bulletChar)
                     
