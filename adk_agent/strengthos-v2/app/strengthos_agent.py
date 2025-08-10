@@ -753,6 +753,149 @@ def enforce_brevity(text: str, max_bullets: int = 6, max_sentences: int = 6) -> 
         result = " ".join(sentences[:max_sentences]).strip()
 
     return {"text": result}
+
+
+# --- Progression and evaluation tools ---
+
+def compute_progression_suggestions(
+    exercise_history: List[Dict[str, Any]],
+    policy: str = "rir_anchored",
+    min_increment_kg: float = 2.5,
+) -> Dict[str, Any]:
+    """Suggest per-set progression actions using a transparent policy.
+
+    Policies:
+    - rir_anchored: if median RIR <= 1 → +weight; if median RIR >= 3 → +reps; else hold.
+    - double_progression: if all sets met top reps → +weight; else increase reps until cap.
+    """
+    suggestions: List[Dict[str, Any]] = []
+    rationale: List[str] = []
+    if not exercise_history:
+        return {"suggestions": suggestions, "rationale": ["No history provided"], "policy": policy}
+
+    # Flatten last session sets if sessions provided
+    sets = []
+    for ex in exercise_history:
+        for s in ex.get("sets", []) or []:
+            sets.append(s)
+
+    if not sets:
+        return {"suggestions": suggestions, "rationale": ["No sets found"], "policy": policy}
+
+    # Compute median RIR
+    rir_vals = [s.get("rir") for s in sets if isinstance(s.get("rir"), int)]
+    median_rir = None
+    if rir_vals:
+        rir_vals_sorted = sorted(rir_vals)
+        m = len(rir_vals_sorted) // 2
+        median_rir = (rir_vals_sorted[m] if len(rir_vals_sorted) % 2 == 1 else (rir_vals_sorted[m - 1] + rir_vals_sorted[m]) / 2)
+
+    if policy == "rir_anchored" and median_rir is not None:
+        if median_rir <= 1:
+            action = {"action": "increase_weight", "by_kg": min_increment_kg}
+            rationale.append(f"Median RIR {median_rir} ≤ 1 → add {min_increment_kg} kg")
+        elif median_rir >= 3:
+            action = {"action": "increase_reps", "by_reps": 1}
+            rationale.append("Median RIR ≥ 3 → add 1 rep per set")
+        else:
+            action = {"action": "hold"}
+            rationale.append("Median RIR in target range → hold")
+        suggestions = [action for _ in sets]
+    else:
+        # Fallback simple double progression: if reps >= 12 on average, add weight; else +1 rep
+        rep_vals = [s.get("reps") for s in sets if isinstance(s.get("reps"), int)]
+        avg_reps = sum(rep_vals) / len(rep_vals) if rep_vals else 0
+        if avg_reps >= 12:
+            suggestions = [{"action": "increase_weight", "by_kg": min_increment_kg} for _ in sets]
+            rationale.append(f"Avg reps {avg_reps:.1f} ≥ 12 → add {min_increment_kg} kg")
+        else:
+            suggestions = [{"action": "increase_reps", "by_reps": 1} for _ in sets]
+            rationale.append("Avg reps < 12 → add 1 rep per set")
+
+    return {"suggestions": suggestions, "rationale": rationale, "policy": policy}
+
+
+def apply_progression_to_template(
+    template: Dict[str, Any],
+    exercise_name_or_id: str,
+    suggestions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply suggestions to matching exercise sets in a template (pure function).
+
+    Returns a new normalized template; does not write. Caller should validate & update via existing tools.
+    """
+    new_template = json.loads(json.dumps(template))
+    ex_list = new_template.get("exercises", []) or []
+    for ex in ex_list:
+        if ex.get("exercise_id") == exercise_name_or_id or ex.get("name") == exercise_name_or_id:
+            for idx, s in enumerate(ex.get("sets", []) or []):
+                if idx < len(suggestions):
+                    sug = suggestions[idx]
+                    if sug.get("action") == "increase_weight":
+                        inc = float(sug.get("by_kg", 0))
+                        s["weight"] = float(s.get("weight") or 0) + inc
+                    elif sug.get("action") == "increase_reps":
+                        inc = int(sug.get("by_reps", 0))
+                        s["reps"] = int(s.get("reps") or 0) + inc
+                    # hold → no change
+    return new_template
+
+
+def evaluate_template(template: Dict[str, Any]) -> Dict[str, Any]:
+    """Evaluate a single template: coverage, redundancy, order warnings, weekly sets estimate."""
+    result: Dict[str, Any] = {"warnings": [], "metrics": {}}
+    exercises = template.get("exercises", []) or []
+    total_sets = sum(len(ex.get("sets", []) or []) for ex in exercises)
+    result["metrics"]["totalSets"] = total_sets
+    # Very basic redundancy check by exercise name
+    names = [str(ex.get("name") or ex.get("exercise_id") or "").lower() for ex in exercises]
+    dupes = [n for n in set(names) if names.count(n) > 1 and n]
+    if dupes:
+        result["warnings"].append({"redundantExercises": dupes})
+    # Order warning: heavy compound (heuristic) should appear earlier
+    compounds = [i for i, n in enumerate(names) if any(k in n for k in ["squat", "deadlift", "bench", "press"]) ]
+    if compounds:
+        if any(i > len(exercises) // 2 for i in compounds):
+            result["warnings"].append({"order": "compound late in session"})
+        if min(compounds) > 0:
+            result["warnings"].append({"order": "compound not first in session"})
+    return result
+
+
+def evaluate_routine(templates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Evaluate a set of templates for distribution and symmetry (simple heuristic)."""
+    from collections import Counter
+    metrics: Dict[str, Any] = {}
+    group_sets = Counter()
+    total_sets = 0
+    for t in templates:
+        for ex in t.get("exercises", []) or []:
+            total_sets += len(ex.get("sets", []) or [])
+            # naive muscle group tagging by name
+            n = (ex.get("name") or "").lower()
+            if any(k in n for k in ["squat", "leg", "quad", "hamstring", "glute"]):
+                group_sets["legs"] += len(ex.get("sets", []) or [])
+            if any(k in n for k in ["bench", "chest", "fly"]):
+                group_sets["chest"] += len(ex.get("sets", []) or [])
+            if any(k in n for k in ["row", "lat", "pull"]):
+                group_sets["back"] += len(ex.get("sets", []) or [])
+            if any(k in n for k in ["curl", "bicep"]):
+                group_sets["biceps"] += len(ex.get("sets", []) or [])
+            if any(k in n for k in ["tricep", "extension"]):
+                group_sets["triceps"] += len(ex.get("sets", []) or [])
+            if any(k in n for k in ["shoulder", "press", "lateral"]):
+                group_sets["shoulders"] += len(ex.get("sets", []) or [])
+
+    metrics["totalSets"] = total_sets
+    metrics["setsPerGroup"] = dict(group_sets)
+    # simple symmetry index: stddev/mean across major groups
+    vals = [v for k, v in group_sets.items() if k in ["legs", "chest", "back", "shoulders"]]
+    if vals:
+        mean = sum(vals) / len(vals)
+        import math
+        std = math.sqrt(sum((v - mean) ** 2 for v in vals) / len(vals))
+        metrics["symmetryIndex"] = round(std / mean, 3) if mean else None
+    return {"metrics": metrics}
 # Store important facts tool
 
 

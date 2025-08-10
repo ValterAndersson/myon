@@ -93,6 +93,7 @@ data_retrieval_tools: List[FunctionTool] = [
 template_selection_tools: List[FunctionTool] = [
     FunctionTool(func=get_my_user_id),
     FunctionTool(func=get_analysis_context),
+    FunctionTool(func=analyze_recent_performance),
     FunctionTool(func=list_exercises),
     FunctionTool(func=search_exercises),
     FunctionTool(func=get_exercise),
