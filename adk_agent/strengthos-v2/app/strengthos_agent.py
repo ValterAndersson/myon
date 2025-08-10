@@ -1093,6 +1093,25 @@ def delete_facts_by_text(query: str, confirm: bool, tool_context: ToolContext) -
     return {"status": "success", "deleted": len(matched_ids), "deleted_ids": matched_ids}
 
 
+def delete_fact(
+    tool_context: ToolContext,
+    fact_id: Optional[str] = None,
+    text: Optional[str] = None,
+    confirm: bool = True,
+) -> dict:
+    """Alias for deletion to match common model intents (delete_fact).
+
+    - If fact_id provided: delete that id via delete_important_fact
+    - Else if text provided: delete all matches via delete_facts_by_text
+    - Else: return error
+    """
+    if fact_id:
+        return delete_important_fact(fact_id=fact_id, tool_context=tool_context)
+    if text:
+        return delete_facts_by_text(query=text, confirm=confirm, tool_context=tool_context)
+    return {"status": "error", "message": "Provide fact_id or text"}
+
+
 def upsert_preference(preference_text: str, tool_context: ToolContext, confidence: float = 0.8) -> dict:
     """Store or update a user preference as an important fact (category=preference)."""
     key = "user:important_facts"
@@ -1421,6 +1440,7 @@ tools = [
     # Memory helpers
     FunctionTool(func=find_facts_by_text),
     FunctionTool(func=delete_facts_by_text),
+    FunctionTool(func=delete_fact),
     FunctionTool(func=upsert_preference),
     FunctionTool(func=upsert_temporary_condition),
     FunctionTool(func=review_and_decay_memories),

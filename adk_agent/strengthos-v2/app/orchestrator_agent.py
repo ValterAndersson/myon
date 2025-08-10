@@ -38,6 +38,7 @@ from app.strengthos_agent import (
     review_and_decay_memories,
     analyze_recent_performance,
     enforce_brevity,
+    delete_fact,
 )
 
 # Agents by specialization
@@ -193,6 +194,7 @@ root_agent = Agent(
         performance_tools + routine_design_tools + data_retrieval_tools + template_selection_tools + template_insert_tools + [
             FunctionTool(func=find_facts_by_text),
             FunctionTool(func=delete_facts_by_text),
+            FunctionTool(func=delete_fact),
             FunctionTool(func=upsert_preference),
             FunctionTool(func=upsert_temporary_condition),
             FunctionTool(func=review_and_decay_memories),
