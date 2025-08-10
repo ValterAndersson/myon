@@ -856,6 +856,129 @@ def get_analysis_context(
 
     return results
 
+def validate_template_payload(template: Dict[str, Any]) -> dict:
+    """Validate and normalize a workout template payload.
+
+    Rules:
+    - name: non-empty string
+    - exercises: non-empty list
+      - each exercise requires exercise_id (str) and sets (non-empty list)
+      - sets entries require reps (int), weight (float|int), type (default "Working Set")
+      - optional: rir (int), rest (int seconds)
+      - convert numeric strings to numbers when safe
+      - reject ranges like "8-12"; pick a single value is caller's job
+    - positions are integers if present
+
+    Returns: { valid: bool, errors: list[str], normalized: dict }
+    """
+    errors: List[str] = []
+    normalized = dict(template or {})
+
+    name = normalized.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append("name must be a non-empty string")
+
+    exercises = normalized.get("exercises")
+    if not isinstance(exercises, list) or not exercises:
+        errors.append("exercises must be a non-empty list")
+        return {"valid": False, "errors": errors, "normalized": normalized}
+
+    norm_exercises: List[Dict[str, Any]] = []
+    for idx, ex in enumerate(exercises):
+        if not isinstance(ex, dict):
+            errors.append(f"exercise[{idx}] must be an object")
+            continue
+        exercise_id = ex.get("exercise_id") or ex.get("id")
+        if not isinstance(exercise_id, str) or not exercise_id:
+            errors.append(f"exercise[{idx}].exercise_id missing")
+        sets = ex.get("sets")
+        if not isinstance(sets, list) or not sets:
+            errors.append(f"exercise[{idx}].sets must be a non-empty list")
+            continue
+        pos = ex.get("position")
+        if pos is not None:
+            try:
+                pos = int(pos)
+            except Exception:
+                errors.append(f"exercise[{idx}].position must be an integer")
+        norm_sets: List[Dict[str, Any]] = []
+        for sidx, s in enumerate(sets):
+            if not isinstance(s, dict):
+                errors.append(f"exercise[{idx}].sets[{sidx}] must be an object")
+                continue
+            rep_val = s.get("reps")
+            if isinstance(rep_val, str) and rep_val.strip().isdigit():
+                rep_val = int(rep_val.strip())
+            if not isinstance(rep_val, int):
+                errors.append(f"exercise[{idx}].sets[{sidx}].reps must be int")
+            wt_val = s.get("weight")
+            if isinstance(wt_val, str):
+                try:
+                    wt_val = float(wt_val.strip())
+                except Exception:
+                    errors.append(f"exercise[{idx}].sets[{sidx}].weight must be number")
+            if not isinstance(wt_val, (int, float)):
+                errors.append(f"exercise[{idx}].sets[{sidx}].weight must be number")
+            rir_val = s.get("rir")
+            if rir_val is not None:
+                try:
+                    rir_val = int(rir_val)
+                except Exception:
+                    errors.append(f"exercise[{idx}].sets[{sidx}].rir must be int if present")
+            set_type = s.get("type") or "Working Set"
+            rest_val = s.get("rest")
+            if rest_val is not None:
+                try:
+                    rest_val = int(rest_val)
+                except Exception:
+                    errors.append(f"exercise[{idx}].sets[{sidx}].rest must be int seconds")
+            norm_sets.append({
+                "reps": rep_val,
+                "weight": wt_val,
+                "rir": rir_val,
+                "type": set_type,
+                "rest": rest_val,
+            })
+        norm_exercises.append({
+            "exercise_id": exercise_id,
+            "position": pos if pos is not None else idx + 1,
+            "sets": norm_sets,
+        })
+    normalized["exercises"] = norm_exercises
+
+    return {"valid": len(errors) == 0, "errors": errors, "normalized": normalized}
+
+
+def insert_template(user_id: str, template: Dict[str, Any]) -> str:
+    """Validate then create a template for the user.
+
+    Returns JSON with success and created template info or validation errors.
+    """
+    check = validate_template_payload(template)
+    if not check["valid"]:
+        return json.dumps({"success": False, "errors": check["errors"]}, indent=2)
+    normalized = check["normalized"]
+    payload = {
+        "user_id": user_id,
+        "name": normalized.get("name"),
+        "description": normalized.get("description"),
+        "exercises": normalized.get("exercises", []),
+    }
+    return create_template(user_id=user_id, name=payload["name"], description=payload.get("description"), exercises=payload["exercises"])  # type: ignore
+
+
+def update_template_with_validation(template_id: str, user_id: str, updates: Dict[str, Any]) -> str:
+    """Validate updates (if exercises provided) then update the template.
+
+    Returns JSON with success or validation errors.
+    """
+    if updates.get("exercises") is not None:
+        check = validate_template_payload({"name": updates.get("name", "tmp"), "exercises": updates.get("exercises")})
+        if not check["valid"]:
+            return json.dumps({"success": False, "errors": check["errors"]}, indent=2)
+        updates = {**updates, "exercises": check["normalized"]["exercises"]}
+    return update_template(template_id=template_id, user_id=user_id, updates=updates)
+
 # Create FunctionTool instances with state parameter
 tools = [
     # User management
@@ -877,6 +1000,10 @@ tools = [
     FunctionTool(func=create_template),
     FunctionTool(func=update_template),
     FunctionTool(func=delete_template),
+    # Validation helpers
+    FunctionTool(func=validate_template_payload),
+    FunctionTool(func=insert_template),
+    FunctionTool(func=update_template_with_validation),
 
     # Routine management
     FunctionTool(func=get_user_routines),
@@ -905,6 +1032,10 @@ tools = [
 # Agent configuration with concise, high-signal instructions
 AGENT_INSTRUCTION = """You are StrengthOS, a concise fitness assistant.
 
+Announce actions: before tool calls, stream a short line like "Fetching workout history..."; before thinking, stream "Thinking about trade-offs...".
+
+Use science-based guidance (e.g., evidence-based hypertrophy, volume landmarks, progressive overload). Cite at a high level when relevant (e.g., Israetel, Nippard, peer-reviewed studies).
+
 Goals:
 - Understand intent quickly
 - Fetch only needed data
@@ -916,6 +1047,11 @@ Protocol:
 2) If data needed, call tools; prefer parallel fetch via get_analysis_context when analyzing.
 3) Summarize insights or next steps; use bullets sparingly.
 4) Offer a short follow-up question only when helpful.
+
+Templates/Routines (format rules):
+- Use exact numbers for reps/weight/sets/RIR; no ranges.
+- Each exercise must include exercise_id, position, and sets with reps, weight, optional rir.
+- Validate with validate_template_payload before insert/update; then call insert_template or update_template_with_validation.
 
 Memory:
 - Store injuries/constraints/preferences with store_important_fact.

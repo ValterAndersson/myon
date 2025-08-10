@@ -25,11 +25,18 @@ from app.strengthos_agent import (
     delete_routine,
     set_active_routine,
     get_important_facts,
+    get_analysis_context,
+    get_my_user_id,
+    validate_template_payload,
+    insert_template,
+    update_template_with_validation,
 )
 
 # Agents by specialization
 
 performance_tools: List[FunctionTool] = [
+    FunctionTool(func=get_my_user_id),
+    FunctionTool(func=get_analysis_context),
     FunctionTool(func=get_user),
     FunctionTool(func=get_user_workouts),
     FunctionTool(func=get_workout),
@@ -39,6 +46,8 @@ performance_tools: List[FunctionTool] = [
 ]
 
 routine_design_tools: List[FunctionTool] = [
+    FunctionTool(func=get_my_user_id),
+    FunctionTool(func=get_analysis_context),
     FunctionTool(func=get_user),
     FunctionTool(func=get_user_templates),
     FunctionTool(func=get_template),
@@ -52,10 +61,13 @@ routine_design_tools: List[FunctionTool] = [
     FunctionTool(func=delete_routine),
     FunctionTool(func=set_active_routine),
     FunctionTool(func=get_important_facts),
+    FunctionTool(func=validate_template_payload),
+    FunctionTool(func=insert_template),
+    FunctionTool(func=update_template_with_validation),
 ]
 
 data_retrieval_tools: List[FunctionTool] = [
-    FunctionTool(func=get_user),
+    FunctionTool(func=get_my_user_id),
     FunctionTool(func=list_exercises),
     FunctionTool(func=search_exercises),
     FunctionTool(func=get_exercise),
@@ -65,14 +77,30 @@ data_retrieval_tools: List[FunctionTool] = [
     FunctionTool(func=get_workout),
 ]
 
+# Template pipeline agents
+
+template_selection_tools: List[FunctionTool] = [
+    FunctionTool(func=get_my_user_id),
+    FunctionTool(func=get_analysis_context),
+    FunctionTool(func=list_exercises),
+    FunctionTool(func=search_exercises),
+    FunctionTool(func=get_exercise),
+    FunctionTool(func=get_important_facts),
+]
+
+template_insert_tools: List[FunctionTool] = [
+    FunctionTool(func=validate_template_payload),
+    FunctionTool(func=insert_template),
+    FunctionTool(func=update_template_with_validation),
+]
 
 performance_agent = Agent(
     name="PerformanceAnalysisAgent",
     model=os.getenv("PERF_AGENT_MODEL", "gemini-2.5-pro"),
     instruction=(
-        "You analyze historical performance, identify trends and insights, and provide actionable summaries. "
-        "First, request or fetch the required data in parallel (workouts, routines, important facts). "
-        "Then synthesize a concise analysis with key metrics and recommendations."
+        "Announce actions before tool calls (e.g., 'Fetching recent workouts...'). "
+        "Use evidence-based reasoning (volume landmarks, progressive overload). "
+        "Fetch needed data in parallel via get_analysis_context, then synthesize concise insights and recommendations."
     ),
     tools=performance_tools,
 )
@@ -81,8 +109,9 @@ routine_design_agent = Agent(
     name="RoutineDesignAgent",
     model=os.getenv("ROUTINE_AGENT_MODEL", "gemini-2.5-pro"),
     instruction=(
-        "You design or modify routines and templates based on user goals, level, equipment, and constraints. "
-        "Gather user context and any relevant templates/routines, then propose a plan with clear steps."
+        "Announce actions before tool calls. Use science-based methods and user constraints. "
+        "Design/modify routines and templates with exact numbers (no ranges). "
+        "Validate payloads before insert/update."
     ),
     tools=routine_design_tools,
 )
@@ -91,10 +120,30 @@ retrieval_agent = Agent(
     name="DataRetrievalAgent",
     model=os.getenv("RETRIEVAL_AGENT_MODEL", "gemini-2.5-flash"),
     instruction=(
-        "You fetch and summarize requested data quickly and precisely. "
-        "Return compact summaries suitable as inputs to other agents."
+        "Announce actions briefly before each call. Fetch and summarize data compactly for other agents."
     ),
     tools=data_retrieval_tools,
+)
+
+template_selection_agent = Agent(
+    name="TemplateSelectionAgent",
+    model=os.getenv("TEMPLATE_SELECTION_MODEL", "gemini-2.5-pro"),
+    instruction=(
+        "Announce actions. Use get_analysis_context to gather user context and history in parallel, "
+        "then select exercises and set/rep/RIR schemes using evidence-based guidance (Israetel, Nippard, studies). "
+        "Output a proposed template object with exact numbers, ready for validation."
+    ),
+    tools=template_selection_tools,
+)
+
+template_insert_agent = Agent(
+    name="TemplateInsertAgent",
+    model=os.getenv("TEMPLATE_INSERT_MODEL", "gemini-2.5-flash"),
+    instruction=(
+        "Announce actions. Validate with validate_template_payload; if valid, call insert_template or update_template_with_validation. "
+        "Do not alter numbers; ensure fields match schema exactly. Return operation result."
+    ),
+    tools=template_insert_tools,
 )
 
 # Orchestrator agent uses instruction routing. For true agent-as-tool routing,
@@ -103,8 +152,10 @@ orchestrator_instruction = (
     "Route requests to specialized agents:\n"
     "- PerformanceAnalysisAgent: trends/insights\n"
     "- RoutineDesignAgent: plans/templates\n"
-    "- DataRetrievalAgent: fetch/search\n\n"
-    "For analysis: fetch data in parallel (workouts, routines, facts) first, then synthesize a concise summary."
+    "- DataRetrievalAgent: fetch/search\n"
+    "- TemplateSelectionAgent → TemplateInsertAgent: sequential pipeline for template insert/update\n\n"
+    "For analysis: fetch data in parallel (workouts, routines, facts) first, then synthesize a concise summary.\n"
+    "Always narrate actions before tool calls and when thinking. Use science-based guidance."
 )
 
 # In environments without Agent-as-Tool, we expose all tools and rely on routing prompt.
@@ -114,6 +165,6 @@ root_agent = Agent(
     model=os.getenv("ORCH_MODEL", "gemini-2.5-pro"),
     instruction=orchestrator_instruction,
     tools=list({t.func.__name__: t for t in (
-        performance_tools + routine_design_tools + data_retrieval_tools
+        performance_tools + routine_design_tools + data_retrieval_tools + template_selection_tools + template_insert_tools
     )}.values()),
 )
