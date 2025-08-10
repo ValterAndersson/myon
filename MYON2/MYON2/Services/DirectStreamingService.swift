@@ -109,31 +109,26 @@ class DirectStreamingService: ObservableObject {
                                 if let functionResponse = part["function_response"] as? [String: Any],
                                    let name = functionResponse["name"] as? String {
                                     let humanReadableName = getHumanReadableFunctionResponseName(name)
-                                    
-                                    // Try to extract useful info from response
-                                    if let response = functionResponse["response"] as? String,
-                                       let responseData = response.data(using: .utf8),
-                                       let responseJson = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
-                                        
-                                        // Extract counts or relevant info based on function
+                                    // Try to extract useful info from response (dict or string JSON)
+                                    var responseJson: [String: Any]? = nil
+                                    if let responseDict = functionResponse["response"] as? [String: Any] {
+                                        responseJson = responseDict
+                                    } else if let response = functionResponse["response"] as? String,
+                                              let responseData = response.data(using: .utf8),
+                                              let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
+                                        responseJson = parsed
+                                    }
+                                    if let responseJson = responseJson {
                                         var responseDetail = ""
                                         switch name {
                                         case "get_user_templates":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")" }
                                         case "get_user_workouts":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")" }
                                         case "search_exercises", "list_exercises":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")" }
                                         case "get_user_routines":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")" }
                                         default:
                                             break
                                         }

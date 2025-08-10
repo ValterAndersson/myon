@@ -128,7 +128,7 @@ def cache_user_data(state: Dict[str, Any], user_data: Dict[str, Any]) -> None:
         state["user:equipment"] = context["availableEquipment"]
 
 # Tool implementations with state management
-def get_user(user_id: str) -> str:
+def get_user(user_id: str) -> Dict[str, Any]:
     """Fetch comprehensive user profile including fitness context and recent activity.
     
     What this tool does:
@@ -184,9 +184,9 @@ def get_user(user_id: str) -> str:
         }
     """
     result = make_firebase_request("getUser", user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
-def update_user(user_id: str, updates: Dict[str, Any]) -> str:
+def update_user(user_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
     """Update user profile information.
     
     Args:
@@ -198,14 +198,14 @@ def update_user(user_id: str, updates: Dict[str, Any]) -> str:
     """
     payload = {"userId": user_id, "userData": updates}
     result = make_firebase_request("updateUser", method="POST", data=payload)
-    return json.dumps(result, indent=2)
+    return result
 
 def list_exercises(
     muscle_group: Optional[str] = None,
     equipment: Optional[str] = None,
     difficulty: Optional[str] = None,
     limit: int = 20
-) -> str:
+) -> Dict[str, Any]:
     """List exercises with optional filters.
     
     Args:
@@ -227,7 +227,7 @@ def list_exercises(
     params = {k: v for k, v in params.items() if v is not None}
     
     result = make_firebase_request("getExercises", params=params)
-    return json.dumps(result, indent=2)
+    return result
 
 def search_exercises(
     query: Optional[str] = None,
@@ -235,7 +235,7 @@ def search_exercises(
     equipment: Optional[str] = None,
     movement_type: Optional[str] = None,
     level: Optional[str] = None
-) -> str:
+) -> Dict[str, Any]:
     """Search and filter exercises based on various criteria.
     
     What this tool does:
@@ -294,9 +294,9 @@ def search_exercises(
     # movement_type/level not currently supported server-side; omit to avoid confusion
 
     result = make_firebase_request("searchExercises", params=params)
-    return json.dumps(result, indent=2)
+    return result
 
-def get_exercise(exercise_id: str) -> str:
+def get_exercise(exercise_id: str) -> Dict[str, Any]:
     """Get detailed information about a specific exercise.
     
     Args:
@@ -306,14 +306,14 @@ def get_exercise(exercise_id: str) -> str:
         Detailed exercise information including instructions and tips
     """
     result = make_firebase_request("getExercise", params={"exerciseId": exercise_id})
-    return json.dumps(result, indent=2)
+    return result
 
 def get_user_workouts(
     user_id: str,
     limit: int = 10,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
-) -> str:
+) -> Dict[str, Any]:
     """Get user's workout history.
     
     Args:
@@ -333,9 +333,9 @@ def get_user_workouts(
     params = {k: v for k, v in params.items() if v is not None}
     
     result = make_firebase_request("getUserWorkouts", params=params, user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
-def get_workout(workout_id: str, user_id: str) -> str:
+def get_workout(workout_id: str, user_id: str) -> Dict[str, Any]:
     """Get detailed information about a specific workout.
     
     Args:
@@ -346,10 +346,10 @@ def get_workout(workout_id: str, user_id: str) -> str:
         Detailed workout information including exercises and sets
     """
     result = make_firebase_request("getWorkout", params={"workoutId": workout_id}, user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
 # Template management functions
-def get_user_templates(user_id: str) -> str:
+def get_user_templates(user_id: str) -> Dict[str, Any]:
     """Get all workout templates for a user.
     
     Args:
@@ -359,9 +359,9 @@ def get_user_templates(user_id: str) -> str:
         List of user's workout templates
     """
     result = make_firebase_request("getUserTemplates", user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
-def get_template(template_id: str, user_id: str) -> str:
+def get_template(template_id: str, user_id: str) -> Dict[str, Any]:
     """Get detailed information about a specific template.
     
     Args:
@@ -375,14 +375,14 @@ def get_template(template_id: str, user_id: str) -> str:
         "getTemplate",
         params={"templateId": template_id, "userId": user_id},
     )
-    return json.dumps(result, indent=2)
+    return result
 
 def create_template(
     user_id: str,
     name: str,
     description: str,
     exercises: List[Dict[str, Any]]
-) -> str:
+) -> Dict[str, Any]:
     """Create a new workout template with exercises and set configurations.
     
     What this tool does:
@@ -454,13 +454,13 @@ def create_template(
     }
     
     result = make_firebase_request("createTemplate", method="POST", data=template_data)
-    return json.dumps(result, indent=2)
+    return result
 
 def update_template(
     template_id: str,
     user_id: str,
     updates: Dict[str, Any]
-) -> str:
+) -> Dict[str, Any]:
     """Update an existing workout template.
     
     Args:
@@ -480,9 +480,9 @@ def update_template(
 
     # Server is onRequest; send body without relying on path params
     result = make_firebase_request("updateTemplate", method="POST", data=update_data)
-    return json.dumps(result, indent=2)
+    return result
 
-def delete_template(template_id: str, user_id: str) -> str:
+def delete_template(template_id: str, user_id: str) -> Dict[str, Any]:
     """Delete a workout template.
     
     Args:
@@ -494,10 +494,10 @@ def delete_template(template_id: str, user_id: str) -> str:
     """
     payload = {"userId": user_id, "templateId": template_id}
     result = make_firebase_request("deleteTemplate", method="POST", data=payload)
-    return json.dumps(result, indent=2)
+    return result
 
 # Routine management functions
-def get_user_routines(user_id: str) -> str:
+def get_user_routines(user_id: str) -> Dict[str, Any]:
     """Get all training routines for a user.
     
     Args:
@@ -507,9 +507,9 @@ def get_user_routines(user_id: str) -> str:
         List of user's training routines
     """
     result = make_firebase_request("getUserRoutines", user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
-def get_active_routine(user_id: str) -> str:
+def get_active_routine(user_id: str) -> Dict[str, Any]:
     """Get the user's currently active routine.
     
     Args:
@@ -519,9 +519,9 @@ def get_active_routine(user_id: str) -> str:
         Active routine information or indication that no routine is active
     """
     result = make_firebase_request("getActiveRoutine", user_id=user_id)
-    return json.dumps(result, indent=2)
+    return result
 
-def get_routine(routine_id: str, user_id: str) -> str:
+def get_routine(routine_id: str, user_id: str) -> Dict[str, Any]:
     """Get detailed information about a specific routine.
     
     Args:
@@ -533,7 +533,7 @@ def get_routine(routine_id: str, user_id: str) -> str:
     """
     params = {"userId": user_id, "routineId": routine_id}
     result = make_firebase_request("getRoutine", params=params)
-    return json.dumps(result, indent=2)
+    return result
 
 def create_routine(
     user_id: str,
@@ -541,7 +541,7 @@ def create_routine(
     description: str,
     frequency: int,
     template_ids: List[str]
-) -> str:
+) -> Dict[str, Any]:
     """Create a new workout routine (weekly/monthly training schedule).
     
     Args:
@@ -566,7 +566,7 @@ def create_routine(
     }
     
     result = make_firebase_request("createRoutine", method="POST", data=routine_data)
-    return json.dumps(result, indent=2)
+    return result
 
 def update_routine(
     routine_id: str,
@@ -574,7 +574,7 @@ def update_routine(
     name: str,
     description: str,
     frequency: int
-) -> str:
+) -> Dict[str, Any]:
     """Update an existing workout routine's metadata.
     
     Args:
@@ -598,9 +598,9 @@ def update_routine(
     }
     
     result = make_firebase_request("updateRoutine", method="POST", data=update_data)
-    return json.dumps(result, indent=2)
+    return result
 
-def delete_routine(routine_id: str, user_id: str) -> str:
+def delete_routine(routine_id: str, user_id: str) -> Dict[str, Any]:
     """Delete a workout routine.
     
     Args:
@@ -616,9 +616,9 @@ def delete_routine(routine_id: str, user_id: str) -> str:
     }
     
     result = make_firebase_request("deleteRoutine", method="POST", data=delete_data)
-    return json.dumps(result, indent=2)
+    return result
 
-def set_active_routine(user_id: str, routine_id: str) -> str:
+def set_active_routine(user_id: str, routine_id: str) -> Dict[str, Any]:
     """Set a routine as the user's active training program.
     
     Args:
@@ -634,7 +634,7 @@ def set_active_routine(user_id: str, routine_id: str) -> str:
     }
     
     result = make_firebase_request("setActiveRoutine", method="POST", data=data)
-    return json.dumps(result, indent=2)
+    return result
 
 # Store important facts tool
 
@@ -958,19 +958,19 @@ def get_analysis_context(
     }
 
     def _fetch_user():
-        return json.loads(get_user(user_id))
+        return get_user(user_id)
 
     def _fetch_workouts():
-        return json.loads(get_user_workouts(user_id=user_id, limit=workouts_limit))
+        return get_user_workouts(user_id=user_id, limit=workouts_limit)
 
     def _fetch_active_routine():
-        return json.loads(get_active_routine(user_id))
+        return get_active_routine(user_id)
 
     def _fetch_routines():
-        return json.loads(get_user_routines(user_id))
+        return get_user_routines(user_id)
 
     def _fetch_templates():
-        return json.loads(get_user_templates(user_id))
+        return get_user_templates(user_id)
 
     tasks = {
         "user": _fetch_user,
@@ -1198,9 +1198,10 @@ Templates/Routines (format rules):
 
 Memory:
 - Prefer upsert_preference for stable likes/dislikes; upsert_temporary_condition for short-lived states (e.g., cold) with TTL.
-- Store injuries/constraints/preferences with store_important_facts when unsure; then normalize with upsert_* tools.
+- If the user says a memory is wrong or no longer applies, immediately delete it (delete_facts_by_text or delete_important_fact) and confirm.
+- Store injuries/constraints/preferences with store_important_fact when unsure; then normalize with upsert_* tools.
 - Read with get_important_facts; delete via delete_important_fact or delete_facts_by_text.
-- Periodically call review_and_decay_memories to expire stale temporaries.
+- Periodically call review_and_decay_memories to expire stale temporaries. Ask for confirmation before deleting ambiguous items.
 
 Style:
 - Short, factual, user-centered. Avoid repetition and self-reference. Use numbers/units explicitly.
