@@ -43,6 +43,7 @@ performance_tools: List[FunctionTool] = [
     FunctionTool(func=get_user_routines),
     FunctionTool(func=get_active_routine),
     FunctionTool(func=get_important_facts),
+    FunctionTool(func=review_and_decay_memories),
 ]
 
 routine_design_tools: List[FunctionTool] = [
@@ -61,6 +62,7 @@ routine_design_tools: List[FunctionTool] = [
     FunctionTool(func=delete_routine),
     FunctionTool(func=set_active_routine),
     FunctionTool(func=get_important_facts),
+    FunctionTool(func=upsert_preference),
     FunctionTool(func=validate_template_payload),
     FunctionTool(func=insert_template),
     FunctionTool(func=update_template_with_validation),
@@ -86,6 +88,7 @@ template_selection_tools: List[FunctionTool] = [
     FunctionTool(func=search_exercises),
     FunctionTool(func=get_exercise),
     FunctionTool(func=get_important_facts),
+    FunctionTool(func=review_and_decay_memories),
 ]
 
 template_insert_tools: List[FunctionTool] = [
@@ -154,7 +157,8 @@ orchestrator_instruction = (
     "- PerformanceAnalysisAgent: trends/insights.\n"
     "- RoutineDesignAgent: plans/templates.\n"
     "- DataRetrievalAgent: fetch/search.\n"
-    "- TemplateSelectionAgent → TemplateInsertAgent: validate then insert/update.\n\n"
+    "- TemplateSelectionAgent → TemplateInsertAgent: validate then insert/update.\n"
+    "- Memory tools: normalize/add/update/delete memories and decay temporaries.\n\n"
     "Output policy (strict):\n"
     "- Be brief; avoid filler.\n"
     "- Prefer compact bullets with bold labels; ≤6 bullets.\n"
@@ -173,6 +177,12 @@ root_agent = Agent(
     model=os.getenv("ORCH_MODEL", "gemini-2.5-pro"),
     instruction=orchestrator_instruction,
     tools=list({t.func.__name__: t for t in (
-        performance_tools + routine_design_tools + data_retrieval_tools + template_selection_tools + template_insert_tools
+        performance_tools + routine_design_tools + data_retrieval_tools + template_selection_tools + template_insert_tools + [
+            FunctionTool(func=find_facts_by_text),
+            FunctionTool(func=delete_facts_by_text),
+            FunctionTool(func=upsert_preference),
+            FunctionTool(func=upsert_temporary_condition),
+            FunctionTool(func=review_and_decay_memories),
+        ]
     )}.values()),
 )
