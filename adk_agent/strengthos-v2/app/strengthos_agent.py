@@ -196,7 +196,8 @@ def update_user(user_id: str, updates: Dict[str, Any]) -> str:
     Returns:
         Updated user profile
     """
-    result = make_firebase_request("updateUser", method="PUT", data=updates, user_id=user_id)
+    payload = {"userId": user_id, "userData": updates}
+    result = make_firebase_request("updateUser", method="POST", data=payload)
     return json.dumps(result, indent=2)
 
 def list_exercises(
@@ -225,7 +226,7 @@ def list_exercises(
     # Remove None values
     params = {k: v for k, v in params.items() if v is not None}
     
-    result = make_firebase_request("getExercises", data=params)
+    result = make_firebase_request("getExercises", params=params)
     return json.dumps(result, indent=2)
 
 def search_exercises(
@@ -277,18 +278,21 @@ def search_exercises(
         - Beginner compounds: movement_type="compound", level="beginner"
         - Search by name: query="bench press"
     """
-    params = {}
+    params: Dict[str, Any] = {}
     if query:
         params["query"] = query
+    # Server supports single muscleGroup; if CSV provided, take the first value
     if muscle_groups:
-        params["muscleGroups"] = muscle_groups
+        first_group = str(muscle_groups).split(",")[0].strip()
+        if first_group:
+            params["muscleGroup"] = first_group
+    # Server supports single equipment value; if CSV provided, take the first value
     if equipment:
-        params["equipment"] = equipment
-    if movement_type:
-        params["movementType"] = movement_type
-    if level:
-        params["level"] = level
-    
+        first_equipment = str(equipment).split(",")[0].strip()
+        if first_equipment:
+            params["equipment"] = first_equipment
+    # movement_type/level not currently supported server-side; omit to avoid confusion
+
     result = make_firebase_request("searchExercises", params=params)
     return json.dumps(result, indent=2)
 
@@ -301,7 +305,7 @@ def get_exercise(exercise_id: str) -> str:
     Returns:
         Detailed exercise information including instructions and tips
     """
-    result = make_firebase_request(f"getExercise/{exercise_id}")
+    result = make_firebase_request("getExercise", params={"exerciseId": exercise_id})
     return json.dumps(result, indent=2)
 
 def get_user_workouts(
@@ -328,7 +332,7 @@ def get_user_workouts(
     }
     params = {k: v for k, v in params.items() if v is not None}
     
-    result = make_firebase_request("getUserWorkouts", data=params, user_id=user_id)
+    result = make_firebase_request("getUserWorkouts", params=params, user_id=user_id)
     return json.dumps(result, indent=2)
 
 def get_workout(workout_id: str, user_id: str) -> str:
@@ -341,7 +345,7 @@ def get_workout(workout_id: str, user_id: str) -> str:
     Returns:
         Detailed workout information including exercises and sets
     """
-    result = make_firebase_request(f"getWorkout/{workout_id}", user_id=user_id)
+    result = make_firebase_request("getWorkout", params={"workoutId": workout_id}, user_id=user_id)
     return json.dumps(result, indent=2)
 
 # Template management functions
@@ -367,7 +371,10 @@ def get_template(template_id: str, user_id: str) -> str:
     Returns:
         Detailed template information
     """
-    result = make_firebase_request(f"getTemplate/{template_id}", user_id=user_id)
+    result = make_firebase_request(
+        "getTemplate",
+        params={"templateId": template_id, "userId": user_id},
+    )
     return json.dumps(result, indent=2)
 
 def create_template(
@@ -467,10 +474,12 @@ def update_template(
     # Structure the update data properly
     update_data = {
         "userId": user_id,
-        "template": updates  # The updates should contain fields like name, description, exercises
+        "templateId": template_id,
+        "template": updates,
     }
-    
-    result = make_firebase_request(f"updateTemplate/{template_id}", method="PUT", data=update_data, user_id=user_id)
+
+    # Server is onRequest; send body without relying on path params
+    result = make_firebase_request("updateTemplate", method="POST", data=update_data)
     return json.dumps(result, indent=2)
 
 def delete_template(template_id: str, user_id: str) -> str:
@@ -483,7 +492,8 @@ def delete_template(template_id: str, user_id: str) -> str:
     Returns:
         Deletion confirmation
     """
-    result = make_firebase_request(f"deleteTemplate/{template_id}", method="DELETE", user_id=user_id)
+    payload = {"userId": user_id, "templateId": template_id}
+    result = make_firebase_request("deleteTemplate", method="POST", data=payload)
     return json.dumps(result, indent=2)
 
 # Routine management functions
@@ -521,11 +531,7 @@ def get_routine(routine_id: str, user_id: str) -> str:
     Returns:
         Detailed routine information
     """
-    params = {
-        "userId": user_id,
-        "routineId": routine_id
-    }
-    
+    params = {"userId": user_id, "routineId": routine_id}
     result = make_firebase_request("getRoutine", params=params)
     return json.dumps(result, indent=2)
 
