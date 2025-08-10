@@ -21,4 +21,7 @@ import os
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
 # Import the StrengthOS agent
-from app.strengthos_agent import strengthos_agent as root_agent
+if os.getenv("ENABLE_MULTI_AGENT", "false").lower() == "true":
+    from app.orchestrator_agent import root_agent  # type: ignore
+else:
+    from app.strengthos_agent import strengthos_agent as root_agent

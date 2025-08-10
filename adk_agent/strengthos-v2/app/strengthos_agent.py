@@ -21,6 +21,7 @@ from google.adk.tools import FunctionTool, ToolContext
 # from google.adk.tools import load_memory  # Built-in memory tool - disabled due to config issues
 import requests
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -631,6 +632,7 @@ def set_active_routine(user_id: str, routine_id: str) -> str:
 
 # Store important facts tool
 
+
 def store_important_fact(fact: str, category: str, tool_context: ToolContext, **kwargs) -> dict:
     """Save a user-specific important fact (e.g. injuries, limitations, disabilities).
 
@@ -647,28 +649,32 @@ def store_important_fact(fact: str, category: str, tool_context: ToolContext, **
         Adds the fact to a "user:important_facts" list in state. The "user:" prefix
         indicates this data should persist across sessions for the same user when
         using Vertex AI Agent Engine Sessions. Each entry includes the fact, 
-        category, and a timestamp. Existing facts are preserved.
+        category, a timestamp, and a stable id. Existing facts are preserved.
 
     Returns:
         {"status": "success", "stored_count": int}
     """
     key = "user:important_facts"
     current = tool_context.state.get(key, [])
-    
+
     current.append({
+        "id": str(uuid.uuid4()),
         "fact": fact,
         "category": category,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
     })
     tool_context.state[key] = current
     return {"status": "success", "stored_count": len(current)}
 
+
 # Add function to retrieve facts from current session
+
 def get_important_facts(tool_context: ToolContext) -> dict:
     """Retrieve important facts about the user from the current session.
     
     This tool retrieves any injuries, limitations, or other important facts
-    that were stored during the current conversation.
+    that were stored during the current conversation. For any legacy entries
+    missing an id, a stable id is added and written back once.
     
     Args:
         tool_context: (Injected) provides access to the current session state.
@@ -677,8 +683,98 @@ def get_important_facts(tool_context: ToolContext) -> dict:
         {"facts": list of stored facts, "count": number of facts}
     """
     key = "user:important_facts"
-    facts = tool_context.state.get(key, [])
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+
+    changed = False
+    for entry in facts:
+        if "id" not in entry or not entry.get("id"):
+            entry["id"] = str(uuid.uuid4())
+            changed = True
+    if changed:
+        tool_context.state[key] = facts
+
     return {"facts": facts, "count": len(facts)}
+
+
+def update_important_fact(
+    fact_id: str,
+    tool_context: ToolContext,
+    fact: Optional[str] = None,
+    category: Optional[str] = None,
+) -> dict:
+    """Update an existing important fact by id.
+
+    Args:
+        fact_id: The id of the fact to update
+        fact: Optional new fact text
+        category: Optional new category
+        tool_context: (Injected) session state access
+
+    Returns:
+        {"status": "success"|"not_found", "updated": int}
+    """
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+
+    updated = 0
+    for entry in facts:
+        if entry.get("id") == fact_id:
+            if fact is not None:
+                entry["fact"] = fact
+            if category is not None:
+                entry["category"] = category
+            # Update timestamp to reflect modification
+            entry["timestamp"] = datetime.utcnow().isoformat()
+            updated += 1
+            break
+
+    if updated:
+        tool_context.state[key] = facts
+        return {"status": "success", "updated": updated}
+    return {"status": "not_found", "updated": 0}
+
+
+def delete_important_fact(fact_id: str, tool_context: ToolContext) -> dict:
+    """Delete an important fact by id.
+
+    Args:
+        fact_id: The id of the fact to remove
+        tool_context: (Injected) session state access
+
+    Returns:
+        {"status": "success"|"not_found", "deleted": int}
+    """
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+
+    new_facts = [f for f in facts if f.get("id") != fact_id]
+    deleted = len(facts) - len(new_facts)
+
+    if deleted:
+        tool_context.state[key] = new_facts
+        return {"status": "success", "deleted": deleted}
+    return {"status": "not_found", "deleted": 0}
+
+
+def clear_important_facts(confirm: bool, tool_context: ToolContext) -> dict:
+    """Clear all important facts when confirm=True.
+
+    Args:
+        confirm: Must be True to perform the deletion
+        tool_context: (Injected) session state access
+
+    Returns:
+        {"status": "success"|"cancelled", "deleted": int}
+    """
+    key = "user:important_facts"
+    facts: List[Dict[str, Any]] = list(tool_context.state.get(key, []))
+
+    if not confirm:
+        return {"status": "cancelled", "deleted": 0}
+
+    deleted = len(facts)
+    tool_context.state[key] = []
+    return {"status": "success", "deleted": deleted}
 
 # Add simple tool to get user ID from state
 def get_my_user_id(tool_context: ToolContext) -> dict:
@@ -696,28 +792,92 @@ def get_my_user_id(tool_context: ToolContext) -> dict:
     user_id = get_cached_user_id(tool_context.state)
     return {"user_id": user_id, "found": user_id is not None}
 
+def get_analysis_context(
+    user_id: str,
+    tool_context: ToolContext,
+    workouts_limit: int = 20,
+    include_templates: bool = False,
+) -> dict:
+    """Fetch key data in parallel for performance analysis.
+
+    Retrieves user profile, recent workouts, routine context, and important facts
+    concurrently to minimize latency. Optionally includes templates.
+
+    Args:
+        user_id: Firebase UID
+        tool_context: (Injected) session state access
+        workouts_limit: Max number of recent workouts to fetch
+        include_templates: Whether to also include templates
+
+    Returns:
+        Combined dictionary with keys: user, workouts, activeRoutine, routines,
+        importantFacts, (optional) templates
+    """
+    results = {
+        "user": None,
+        "workouts": None,
+        "activeRoutine": None,
+        "routines": None,
+        "importantFacts": get_important_facts(tool_context),
+    }
+
+    def _fetch_user():
+        return json.loads(get_user(user_id))
+
+    def _fetch_workouts():
+        return json.loads(get_user_workouts(user_id=user_id, limit=workouts_limit))
+
+    def _fetch_active_routine():
+        return json.loads(get_active_routine(user_id))
+
+    def _fetch_routines():
+        return json.loads(get_user_routines(user_id))
+
+    def _fetch_templates():
+        return json.loads(get_user_templates(user_id))
+
+    tasks = {
+        "user": _fetch_user,
+        "workouts": _fetch_workouts,
+        "activeRoutine": _fetch_active_routine,
+        "routines": _fetch_routines,
+    }
+    if include_templates:
+        tasks["templates"] = _fetch_templates
+
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                results[key] = {"error": str(e)}
+
+    return results
+
 # Create FunctionTool instances with state parameter
 tools = [
     # User management
     FunctionTool(func=get_user),
     FunctionTool(func=update_user),
-    
+
     # Exercise database
     FunctionTool(func=list_exercises),
     FunctionTool(func=search_exercises),
     FunctionTool(func=get_exercise),
-    
+
     # Workout history
     FunctionTool(func=get_user_workouts),
     FunctionTool(func=get_workout),
-    
+
     # Template management
     FunctionTool(func=get_user_templates),
     FunctionTool(func=get_template),
     FunctionTool(func=create_template),
     FunctionTool(func=update_template),
     FunctionTool(func=delete_template),
-    
+
     # Routine management
     FunctionTool(func=get_user_routines),
     FunctionTool(func=get_active_routine),
@@ -726,12 +886,18 @@ tools = [
     FunctionTool(func=update_routine),
     FunctionTool(func=delete_routine),
     FunctionTool(func=set_active_routine),
-    
+
     # Memory / facts persistence
     FunctionTool(func=store_important_fact),
     FunctionTool(func=get_important_facts),
+    FunctionTool(func=update_important_fact),
+    FunctionTool(func=delete_important_fact),
+    FunctionTool(func=clear_important_facts),
     FunctionTool(func=get_my_user_id),
-    
+
+    # Aggregated parallel fetch for analysis
+    FunctionTool(func=get_analysis_context),
+
     # Expose built-in memory retrieval tool so the agent can recall facts
     # load_memory,
 ]
