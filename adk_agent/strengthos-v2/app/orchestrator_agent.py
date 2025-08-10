@@ -161,7 +161,7 @@ orchestrator_instruction = (
 # In environments without Agent-as-Tool, we expose all tools and rely on routing prompt.
 # The instruction strongly biases tool selection akin to sub-agent routing.
 root_agent = Agent(
-    name="StrengthOS-Orchestrator",
+    name="StrengthOS_Orchestrator",
     model=os.getenv("ORCH_MODEL", "gemini-2.5-pro"),
     instruction=orchestrator_instruction,
     tools=list({t.func.__name__: t for t in (
