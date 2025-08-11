@@ -74,6 +74,15 @@ class TextNormalizer {
     // Remove stray hyphen before punctuation ("- ." → ".")
     text = text.replace(/-\s*([\.,!\?])/g, '$1');
 
+    // Ensure a space after sentence punctuation when followed by a letter (fixes "performance.Based")
+    text = text.replace(/([\.!\?])(\S)/g, (m, p1, p2) => `${p1} ${p2}`);
+
+    // Drop trailing hyphens at end of lines introduced mid-stream ("working sets-\n" → "working sets\n")
+    text = text.replace(/-\s*$/gm, '');
+
+    // Collapse multiple spaces
+    text = text.replace(/\s{2,}/g, ' ');
+
     if (this.policy.markdown_policy?.no_headers) {
       text = text
         .split('\n')
@@ -90,14 +99,23 @@ class TextNormalizer {
     if (allowPartial) return { commit: text, keep: '' };
     const delimiters = ['\n\n', '. ', '! ', '? ', '\n- ', '\n* ', '\n1. '];
     let cut = -1;
+    let matched = '';
     for (const d of delimiters) {
       const idx = text.lastIndexOf(d);
-      if (idx !== -1) { cut = idx + d.length; break; }
+      if (idx !== -1) { matched = d; cut = idx + d.length; break; }
     }
     const fenceCount = (text.match(/```/g) || []).length;
     const isFenceOpen = fenceCount % 2 === 1;
     if (isFenceOpen) return { commit: '', keep: text }; // never commit inside open fence
-    if (cut !== -1) return { commit: text.slice(0, cut), keep: text.slice(cut) };
+    // If boundary found is the start of a list item ("\n- ", "\n* ", "\n1. "),
+    // commit BEFORE the delimiter so we don't flush a dangling bullet marker
+    if (cut !== -1) {
+      if (matched === '\n- ' || matched === '\n* ' || matched === '\n1. ') {
+        const idx = text.lastIndexOf(matched);
+        return { commit: text.slice(0, idx), keep: text.slice(idx) };
+      }
+      return { commit: text.slice(0, cut), keep: text.slice(cut) };
+    }
     return { commit: '', keep: text };
   }
 

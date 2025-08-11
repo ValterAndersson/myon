@@ -7,6 +7,7 @@ class ChatMessageCell: UICollectionViewCell {
     // MARK: - Properties
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
+    private let leftAccentView = UIView()
     private let imageView = UIImageView()
     private let timestampLabel = UILabel()
     private let statusIndicator = UIImageView()
@@ -32,7 +33,7 @@ class ChatMessageCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
         
         // Bubble view
-        bubbleView.layer.cornerRadius = 18
+        bubbleView.layer.cornerRadius = 12
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         
         // Message label
@@ -49,6 +50,12 @@ class ChatMessageCell: UICollectionViewCell {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.isHidden = true
         
+        // Left accent for assistant messages
+        leftAccentView.translatesAutoresizingMaskIntoConstraints = false
+        leftAccentView.backgroundColor = .systemBlue
+        leftAccentView.layer.cornerRadius = 2
+        leftAccentView.isHidden = true
+
         // Timestamp
         timestampLabel.font = .systemFont(ofSize: 11)
         timestampLabel.textColor = .secondaryLabel
@@ -60,6 +67,7 @@ class ChatMessageCell: UICollectionViewCell {
         
         // Add subviews
         contentView.addSubview(bubbleView)
+        bubbleView.addSubview(leftAccentView)
         bubbleView.addSubview(messageLabel)
         bubbleView.addSubview(imageView)
         contentView.addSubview(timestampLabel)
@@ -84,6 +92,12 @@ class ChatMessageCell: UICollectionViewCell {
             imageView.trailingAnchor.constraint(equalTo: messageLabel.trailingAnchor),
             imageHeightConstraint,
             imageView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12),
+
+            // Left accent pinned inside bubble
+            leftAccentView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
+            leftAccentView.widthAnchor.constraint(equalToConstant: 3),
+            leftAccentView.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 10),
+            leftAccentView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10),
             
             timestampLabel.topAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: 4),
             timestampLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
@@ -160,14 +174,15 @@ class ChatMessageCell: UICollectionViewCell {
             ])
             
         case .agent:
-            // Full-width, left-aligned assistant response without background for document-like feel
-            bubbleView.backgroundColor = .clear
+            // Full-width, left-aligned assistant response with subtle contrast and left accent
+            bubbleView.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.6)
             messageLabel.textColor = .label
             
             // Full width: pin to both sides and remove max-width limit
             bubbleLeadingConstraint.isActive = true
             bubbleTrailingConstraint.isActive = true
             bubbleMaxWidthConstraint.isActive = false
+            leftAccentView.isHidden = false
             
             // Timestamp on left (aligned with bubble left edge)
             NSLayoutConstraint.activate([
@@ -187,6 +202,7 @@ class ChatMessageCell: UICollectionViewCell {
             bubbleLeadingConstraint.isActive = true
             bubbleTrailingConstraint.isActive = true
             bubbleMaxWidthConstraint.isActive = false
+            leftAccentView.isHidden = true
             
             timestampLabel.isHidden = true
             statusIndicator.isHidden = true
@@ -350,5 +366,10 @@ class ChatMessageCell: UICollectionViewCell {
         imageView.image = nil
         timestampLabel.text = nil
         statusIndicator.image = nil
+        // Reset width constraint to avoid unsatisfiable constraints after reuse
+        bubbleMaxWidthConstraint.isActive = true
+        bubbleMaxWidthConstraint.constant = 280
+        bubbleLeadingConstraint.isActive = true
+        bubbleTrailingConstraint.isActive = false
     }
 } 

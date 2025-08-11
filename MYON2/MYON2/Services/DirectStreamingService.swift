@@ -139,12 +139,17 @@ class DirectStreamingService: ObservableObject {
                                 if let text = event["text"] as? String, !text.isEmpty {
                                     var addition = Self.ensureJoinSpacing(base: fullResponse, addition: text)
                                     addition = Self.cleanLeadingFiller(addition)
+                                    // Drop overlap if commit contains the pending buffer prefix
+                                    if !pendingBuffer.isEmpty && addition.hasPrefix(pendingBuffer) {
+                                        addition = String(addition.dropFirst(pendingBuffer.count))
+                                    }
                                     let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
                                     if !commitToAppend.isEmpty {
                                         fullResponse += commitToAppend
                                         lastFlushedTail = String(fullResponse.suffix(200))
                                         progressHandler(fullResponse, nil)
                                     }
+                                    pendingBuffer = ""
                                 }
                             case "tool_started":
                                 if let name = event["name"] as? String {

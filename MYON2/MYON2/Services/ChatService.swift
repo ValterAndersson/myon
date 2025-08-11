@@ -213,19 +213,9 @@ class ChatService: ObservableObject {
                                 hasShownThinking = false
                             }
                             
-                            // Show typing indicator for first text message
+                            // Remove typing indicator; rely on streamed chunks only
                             if isFirstTextMessage && !partialText.isEmpty {
                                 isFirstTextMessage = false
-                                let typingMessage = ChatMessage(
-                                    content: .text("…"),
-                                    author: .agent,
-                                    timestamp: Date(),
-                                    status: .streaming
-                                )
-                                continuation.yield((typingMessage, actualSessionId))
-                                
-                                // Longer delay to ensure typing animation is visible
-                                Thread.sleep(forTimeInterval: 1.5)
                             }
                             
                             // Aggregate into buffer
@@ -240,7 +230,7 @@ class ChatService: ObservableObject {
                                 let trimmed = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
                                 
                                 // Don't flush if buffer is too small (unless timeout)
-                                if trimmed.count < 100 && now.timeIntervalSince(lastFlush) < flushInterval {
+                                if trimmed.count < 60 && now.timeIntervalSince(lastFlush) < flushInterval {
                                     return false
                                 }
                                 
