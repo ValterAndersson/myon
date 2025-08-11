@@ -64,6 +64,10 @@ class DirectStreamingService: ObservableObject {
                 }
                 
                 var fullResponse = ""
+                var pendingBuffer = ""
+                var lastFlushedTail = ""
+                var seenChunkFingerprints: Set<String> = []
+                var seenActions: Set<String> = []
                 var returnedSessionId: String?
                 
                 // Process streaming response
@@ -83,11 +87,25 @@ class DirectStreamingService: ObservableObject {
                             for part in parts {
                                 // Handle regular text
                                 if let text = part["text"] as? String {
-                                    // Accumulate text instead of overwriting
                                     if !text.isEmpty {
-                                        fullResponse += text
-                                        // Pass the accumulated response
-                                        progressHandler(fullResponse, nil)
+                                        // Append to pending buffer and flush only safe segments
+                                        pendingBuffer += text
+                                        let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                        if !commit.isEmpty {
+                                            var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                            addition = Self.cleanLeadingFiller(addition)
+                                            let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                            if !commitToAppend.isEmpty {
+                                                let fp = Self.fingerprint(commitToAppend)
+                                                if !seenChunkFingerprints.contains(fp) {
+                                                    fullResponse += commitToAppend
+                                                    lastFlushedTail = String(fullResponse.suffix(200))
+                                                    seenChunkFingerprints.insert(fp)
+                                                    progressHandler(fullResponse, nil)
+                                                }
+                                            }
+                                        }
+                                        pendingBuffer = keep
                                     }
                                 }
                                 
@@ -97,44 +115,50 @@ class DirectStreamingService: ObservableObject {
                                     let args = functionCall["args"] as? [String: Any]
                                     let argsString = formatFunctionArgs(args)
                                     let humanReadableName = getHumanReadableFunctionName(name)
-                                    progressHandler(nil, "\(humanReadableName)\(argsString)")
+                                    let actionLine = "\(humanReadableName)\(argsString)"
+                                    if !seenActions.contains(actionLine) {
+                                        seenActions.insert(actionLine)
+                                        progressHandler(nil, actionLine)
+                                    }
                                 }
                                 
                                 // Handle function responses
                                 if let functionResponse = part["function_response"] as? [String: Any],
                                    let name = functionResponse["name"] as? String {
                                     let humanReadableName = getHumanReadableFunctionResponseName(name)
-                                    
-                                    // Try to extract useful info from response
-                                    if let response = functionResponse["response"] as? String,
-                                       let responseData = response.data(using: .utf8),
-                                       let responseJson = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
-                                        
-                                        // Extract counts or relevant info based on function
+                                    // Try to extract useful info from response (dict or string JSON)
+                                    var responseJson: [String: Any]? = nil
+                                    if let responseDict = functionResponse["response"] as? [String: Any] {
+                                        responseJson = responseDict
+                                    } else if let response = functionResponse["response"] as? String,
+                                              let responseData = response.data(using: .utf8),
+                                              let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
+                                        responseJson = parsed
+                                    }
+                                    if let responseJson = responseJson {
                                         var responseDetail = ""
                                         switch name {
                                         case "get_user_templates":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")" }
                                         case "get_user_workouts":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")" }
                                         case "search_exercises", "list_exercises":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")" }
                                         case "get_user_routines":
-                                            if let data = responseJson["data"] as? [[String: Any]] {
-                                                responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")"
-                                            }
+                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")" }
                                         default:
                                             break
                                         }
-                                        progressHandler(nil, "\(humanReadableName)\(responseDetail)")
+                                        let actionLine = "\(humanReadableName)\(responseDetail)"
+                                        if !seenActions.contains(actionLine) {
+                                            seenActions.insert(actionLine)
+                                            progressHandler(nil, actionLine)
+                                        }
                                     } else {
-                                        progressHandler(nil, humanReadableName)
+                                        if !seenActions.contains(humanReadableName) {
+                                            seenActions.insert(humanReadableName)
+                                            progressHandler(nil, humanReadableName)
+                                        }
                                     }
                                 }
                             }
@@ -142,6 +166,17 @@ class DirectStreamingService: ObservableObject {
                     }
                 }
                 
+                // Flush any remaining buffered text at stream end
+                if !pendingBuffer.isEmpty {
+                    let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer, allowPartial: true)
+                    var finalAdd = Self.ensureJoinSpacing(base: fullResponse, addition: commit + keep)
+                    finalAdd = Self.cleanLeadingFiller(finalAdd)
+                    let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: finalAdd, lastTail: lastFlushedTail)
+                    if !commitToAppend.isEmpty {
+                        fullResponse += commitToAppend
+                        progressHandler(fullResponse, nil)
+                    }
+                }
                 completion(.success((fullResponse, returnedSessionId ?? sessionId)))
                 
             } catch {
@@ -150,6 +185,108 @@ class DirectStreamingService: ObservableObject {
         }
     }
     
+    /// Split incoming text into a commit-safe prefix and a kept suffix.
+    /// Ensures we do not flush half list markers or half code fences, and normalizes bullets.
+    private static func segmentAndSanitizeMarkdown(_ incoming: String, allowPartial: Bool = false) -> (commit: String, keep: String) {
+        if incoming.isEmpty { return ("", "") }
+
+        // Normalize unwanted bullets, headings, and stray characters early
+        var text = incoming
+            .replacingOccurrences(of: "\u{2022}", with: "-") // •
+            .replacingOccurrences(of: "\u{2023}", with: "-") // ‣
+            .replacingOccurrences(of: "\t* ", with: "- ")
+            .replacingOccurrences(of: "\r", with: "")
+
+        // Drop markdown headings to avoid giant section titles mid-stream
+        let noHeadings = text
+            .components(separatedBy: "\n")
+            .filter { ln in
+                let t = ln.trimmingCharacters(in: .whitespaces)
+                return !(t.hasPrefix("# ") || t.hasPrefix("## ") || t.hasPrefix("### "))
+            }
+            .joined(separator: "\n")
+        text = noHeadings
+
+        // If we allow partial at stream end, just return normalized content
+        if allowPartial { return (text, "") }
+
+        // Heuristics: commit up to the last safe boundary
+        // Safe boundaries: paragraph break, end of sentence, start of new list item
+        let delimiters = ["\n\n", ". ", "! ", "? ", "\n- ", "\n* ", "\n1. "]
+        var cutIndex: String.Index? = nil
+
+        for delim in delimiters {
+            if let range = text.range(of: delim, options: [.backwards]) {
+                cutIndex = range.upperBound
+                break
+            }
+        }
+
+        // Avoid flushing when inside an open code fence (odd number of ```)
+        let fenceCount = text.components(separatedBy: "```").count - 1
+        let isFenceOpen = fenceCount % 2 == 1
+
+        if let idx = cutIndex {
+            var commit = String(text[..<idx])
+            if isFenceOpen {
+                // Keep everything if fence is open
+                return ("", text)
+            }
+            let keep = String(text[idx...])
+            return (commit, keep)
+        }
+
+        // If nothing safe found, be conservative: don't flush yet
+        return ("", text)
+    }
+
+    // Fingerprint small chunks to drop exact duplicates without CryptoKit
+    private static func fingerprint(_ s: String) -> String {
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sample = String(trimmed.suffix(128)).lowercased()
+        var hash: UInt64 = 5381
+        for u in sample.unicodeScalars { hash = ((hash << 5) &+ hash) &+ UInt64(u.value) }
+        return String(hash)
+    }
+
+    // Drop additions that already appear at the end of the base text
+    private static func dedupeTrailing(base: String, addition: String, lastTail: String, minLen: Int = 6) -> String {
+        let add = addition.trimmingCharacters(in: .whitespacesAndNewlines)
+        if add.isEmpty { return "" }
+        let tail = lastTail.isEmpty ? String(base.suffix(200)) : lastTail
+        if !tail.isEmpty && (tail.hasSuffix(add) || tail.contains(add)) { return "" }
+        // Also avoid re-adding if base already contains the addition near the end
+        let window = String(base.suffix(800))
+        if window.contains(add) && add.count >= minLen { return "" }
+        return addition
+    }
+
+    // If base ends with a letter/number and addition starts with a letter (no leading space), insert a space
+    private static func ensureJoinSpacing(base: String, addition: String) -> String {
+        guard let last = base.unicodeScalars.last else { return addition }
+        guard let first = addition.unicodeScalars.first else { return addition }
+        let ws = CharacterSet.whitespacesAndNewlines
+        let letters = CharacterSet.letters
+        if !ws.contains(last) && letters.contains(first) {
+            return " " + addition
+        }
+        return addition
+    }
+
+    // Remove filler phrases at the start of paragraphs
+    private static func cleanLeadingFiller(_ text: String) -> String {
+        let fillers = ["Okay, ", "Of course, ", "Sure, ", "Got it, ", "Alright, "]
+        let lines = text.components(separatedBy: "\n").map { line -> String in
+            var ln = line
+            for f in fillers {
+                if ln.hasPrefix(f) { ln = String(ln.dropFirst(f.count)) }
+            }
+            return ln
+        }
+        // Collapse double spaces created by removals
+        return lines.joined(separator: "\n").replacingOccurrences(of: "  ", with: " ")
+    }
+
     /// Create a new session
     func createSession(userId: String) async throws -> String {
         let token = try await getAuthToken()

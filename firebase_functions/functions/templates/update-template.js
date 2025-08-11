@@ -11,8 +11,10 @@ const db = new FirestoreHelper();
  * Description: Updates an existing workout template with analytics recalculated
  */
 async function updateTemplateHandler(req, res) {
-  const { templateId } = req.params;
-  const { userId, template } = req.body;
+  const { templateId: bodyTemplateId, userId, template } = req.body || {};
+  const { templateId: queryTemplateId } = req.query || {};
+  // Accept templateId from params (if router ever sets it), body, or query for compatibility
+  const templateId = (req.params && req.params.templateId) || bodyTemplateId || queryTemplateId;
   
   if (!userId || !templateId || !template) {
     return res.status(400).json({
