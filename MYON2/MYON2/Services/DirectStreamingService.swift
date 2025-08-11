@@ -115,6 +115,30 @@ class DirectStreamingService: ObservableObject {
                             switch type {
                             case "session":
                                 returnedSessionId = event["sessionId"] as? String
+                            case "list_item":
+                                if let text = event["text"] as? String, !text.isEmpty {
+                                    let bullet = "- " + text + "\n"
+                                    pendingBuffer += bullet
+                                    let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                    if !commit.isEmpty {
+                                        var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                        addition = Self.cleanLeadingFiller(addition)
+                                        let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                        if !commitToAppend.isEmpty {
+                                            let fp = Self.fingerprint(commitToAppend)
+                                            if !seenChunkFingerprints.contains(fp) {
+                                                fullResponse += commitToAppend
+                                                lastFlushedTail = String(fullResponse.suffix(200))
+                                                seenChunkFingerprints.insert(fp)
+                                                progressHandler(fullResponse, nil)
+                                            }
+                                        }
+                                    }
+                                    pendingBuffer = keep
+                                }
+                            case "code_block":
+                                // For now, ignore open/close; text comes via deltas. Later: render monospace blocks.
+                                break
                             case "text_delta":
                                 if let text = event["text"] as? String, !text.isEmpty {
                                     pendingBuffer += text

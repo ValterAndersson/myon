@@ -43,6 +43,8 @@ class TextNormalizer {
     this.lastTail = '';
     this.seen = new Set();
     this.seq = 0;
+    this.isFenceOpen = false;
+    this.currentFenceLang = '';
     this.policy = {
       markdown_policy: {
         bullets: '-',
@@ -243,23 +245,63 @@ async function streamAgentNormalizedHandler(req, res) {
             }
           }
 
-          // Text parts normalization
+          // Text parts normalization with list/code detection
           for (const p of parts) {
             if (typeof p.text === 'string' && p.text) {
               const incoming = normalizer.preprocess(p.text);
               const candidate = normalizer.dedupeTrailing(incoming);
               if (!candidate) continue;
-              normalizer.buffer += candidate;
 
-              // Emit delta
-              sse.write({ type: 'text_delta', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: candidate });
+              // Detect code fence transitions
+              const fenceMatches = candidate.match(/```[a-zA-Z0-9_-]*/g) || [];
+              let remainder = candidate;
+              for (const match of fenceMatches) {
+                const idx = remainder.indexOf(match);
+                const before = remainder.slice(0, idx);
+                if (before) {
+                  normalizer.buffer += before;
+                  sse.write({ type: 'text_delta', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: before });
+                }
+                // Toggle fence state
+                if (!normalizer.isFenceOpen) {
+                  normalizer.isFenceOpen = true;
+                  normalizer.currentFenceLang = match.replace('```', '') || '';
+                  sse.write({ type: 'code_block', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, fence_state: 'open', lang: normalizer.currentFenceLang });
+                } else {
+                  normalizer.isFenceOpen = false;
+                  sse.write({ type: 'code_block', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, fence_state: 'close', lang: normalizer.currentFenceLang });
+                  normalizer.currentFenceLang = '';
+                }
+                remainder = remainder.slice(idx + match.length);
+              }
+              if (remainder) {
+                // Detect list items at line starts
+                const lines = remainder.split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                  const line = lines[i];
+                  if ((i > 0 || normalizer.buffer.endsWith('\n')) && /^-\s+/.test(line)) {
+                    const textOnly = line.replace(/^-\s+/, '');
+                    sse.write({ type: 'list_item', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: textOnly });
+                  }
+                }
+
+                normalizer.buffer += remainder;
+                sse.write({ type: 'text_delta', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: remainder });
+              }
 
               // Emit commit if safe
               const { commit, keep } = normalizer.computeCommitWindow(normalizer.buffer, false);
               if (commit) {
-                sse.write({ type: 'text_commit', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: commit });
-                normalizer.buffer = keep;
-                normalizer.lastTail = (commit + keep).slice(-200);
+                // Coalesce tiny trailing commits that lack terminal punctuation
+                const trimmed = commit.trim();
+                const endsWell = /[\.!\?]$/.test(trimmed);
+                if (trimmed.length < 40 && !endsWell) {
+                  // keep everything for next pass
+                } else {
+                  sse.write({ type: 'text_commit', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: commit });
+                  normalizer.buffer = keep;
+                  normalizer.lastTail = (commit + keep).slice(-200);
+                }
               }
             }
           }
