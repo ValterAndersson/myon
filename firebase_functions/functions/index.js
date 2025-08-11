@@ -51,6 +51,8 @@ const { listStrengthOSSessions } = require('./strengthos/list-sessions');
 const { deleteStrengthOSSession } = require('./strengthos/delete-session');
 const { queryStrengthOS } = require('./strengthos/query-strengthos');
 const { queryStrengthOSv2 } = require('./strengthos/query-strengthos-v2');
+const { streamAgentNormalizedHandler } = require('./strengthos/stream-agent-normalized');
+const { requireFlexibleAuth } = require('./auth/middleware');
 
 // Firestore Triggers
 const {
@@ -106,6 +108,7 @@ exports.listStrengthOSSessions = listStrengthOSSessions;
 exports.deleteStrengthOSSession = deleteStrengthOSSession;
 exports.queryStrengthOS = queryStrengthOS;
 exports.queryStrengthOSv2 = queryStrengthOSv2;
+exports.streamAgentNormalized = functions.https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));
 
 // Auth Operations
 exports.getServiceToken = getServiceToken;

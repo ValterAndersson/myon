@@ -14,6 +14,7 @@ class ChatMessageCell: UICollectionViewCell {
     private var bubbleLeadingConstraint: NSLayoutConstraint!
     private var bubbleTrailingConstraint: NSLayoutConstraint!
     private var imageHeightConstraint: NSLayoutConstraint!
+    private var bubbleMaxWidthConstraint: NSLayoutConstraint!
     
     // MARK: - Init
     override init(frame: CGRect) {
@@ -36,8 +37,10 @@ class ChatMessageCell: UICollectionViewCell {
         
         // Message label
         messageLabel.numberOfLines = 0
-        messageLabel.font = .systemFont(ofSize: 17)
+        messageLabel.font = .systemFont(ofSize: 15)
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        messageLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         
         // Image view
         imageView.contentMode = .scaleAspectFill
@@ -47,7 +50,7 @@ class ChatMessageCell: UICollectionViewCell {
         imageView.isHidden = true
         
         // Timestamp
-        timestampLabel.font = .systemFont(ofSize: 12)
+        timestampLabel.font = .systemFont(ofSize: 11)
         timestampLabel.textColor = .secondaryLabel
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
         
@@ -66,10 +69,11 @@ class ChatMessageCell: UICollectionViewCell {
         bubbleLeadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         bubbleTrailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
         imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 0)
+        bubbleMaxWidthConstraint = bubbleView.widthAnchor.constraint(lessThanOrEqualToConstant: 280)
         
         NSLayoutConstraint.activate([
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            bubbleView.widthAnchor.constraint(lessThanOrEqualToConstant: 280),
+            bubbleMaxWidthConstraint,
             
             messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 16),
@@ -133,6 +137,9 @@ class ChatMessageCell: UICollectionViewCell {
             // Align to right
             bubbleLeadingConstraint.isActive = false
             bubbleTrailingConstraint.isActive = true
+            // Limit user bubble width so it's compact (WhatsApp-like)
+            bubbleMaxWidthConstraint.constant = 320
+            bubbleMaxWidthConstraint.isActive = true
             
             // Timestamp on right (aligned with bubble right edge)
             NSLayoutConstraint.activate([
@@ -153,12 +160,14 @@ class ChatMessageCell: UICollectionViewCell {
             ])
             
         case .agent:
-            bubbleView.backgroundColor = .secondarySystemBackground
+            // Full-width, left-aligned assistant response without background for document-like feel
+            bubbleView.backgroundColor = .clear
             messageLabel.textColor = .label
             
-            // Align to left
-            bubbleTrailingConstraint.isActive = false
+            // Full width: pin to both sides and remove max-width limit
             bubbleLeadingConstraint.isActive = true
+            bubbleTrailingConstraint.isActive = true
+            bubbleMaxWidthConstraint.isActive = false
             
             // Timestamp on left (aligned with bubble left edge)
             NSLayoutConstraint.activate([
@@ -177,6 +186,7 @@ class ChatMessageCell: UICollectionViewCell {
             // Center align
             bubbleLeadingConstraint.isActive = true
             bubbleTrailingConstraint.isActive = true
+            bubbleMaxWidthConstraint.isActive = false
             
             timestampLabel.isHidden = true
             statusIndicator.isHidden = true
@@ -196,11 +206,11 @@ class ChatMessageCell: UICollectionViewCell {
         
         // Set base attributes
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
-        paragraphStyle.paragraphSpacing = 8
+        paragraphStyle.lineSpacing = 2
+        paragraphStyle.paragraphSpacing = 6
         
         attributedString.addAttributes([
-            .font: UIFont.systemFont(ofSize: 17),
+            .font: UIFont.systemFont(ofSize: 15),
             .paragraphStyle: paragraphStyle
         ], range: NSRange(location: 0, length: attributedString.length))
         
@@ -275,9 +285,9 @@ class ChatMessageCell: UICollectionViewCell {
                     let lineRange = NSRange(location: currentLocation, length: lineLength)
                     
                     let listParagraphStyle = NSMutableParagraphStyle()
-                    listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 20)
-                    listParagraphStyle.headIndent = CGFloat(indentLevel * 20 + 20)
-                    listParagraphStyle.lineSpacing = 2
+                    listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 16)
+                    listParagraphStyle.headIndent = CGFloat(indentLevel * 16 + 18)
+                    listParagraphStyle.lineSpacing = 1.5
                     listParagraphStyle.paragraphSpacing = 4
                     
                     attributedString.addAttribute(.paragraphStyle, value: listParagraphStyle, range: lineRange)
@@ -291,16 +301,16 @@ class ChatMessageCell: UICollectionViewCell {
                 let lineRange = NSRange(location: currentLocation, length: line.count)
                 
                 let listParagraphStyle = NSMutableParagraphStyle()
-                listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 20)
-                listParagraphStyle.headIndent = CGFloat(indentLevel * 20 + 25) // More indent for numbers
-                listParagraphStyle.lineSpacing = 2
+                listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 16)
+                listParagraphStyle.headIndent = CGFloat(indentLevel * 16 + 22) // More indent for numbers
+                listParagraphStyle.lineSpacing = 1.5
                 listParagraphStyle.paragraphSpacing = 4
                 
                 attributedString.addAttribute(.paragraphStyle, value: listParagraphStyle, range: lineRange)
                 
                 // Make the number bold
                 let numberRange = NSRange(location: currentLocation + leadingSpaces, length: numberEnd)
-                attributedString.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 17), range: numberRange)
+                attributedString.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 15), range: numberRange)
             }
             
             // Update location for next line (add 1 for newline character, except for last line)
