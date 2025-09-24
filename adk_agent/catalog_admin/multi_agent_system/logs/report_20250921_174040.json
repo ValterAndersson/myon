@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-09-21T17:40:40.379154",
+  "jobs_completed": 13,
+  "jobs_in_progress": 0,
+  "tasks_by_status": {
+    "completed": 13
+  },
+  "tasks_by_agent": {
+    "scout": 1,
+    "analyst": 4,
+    "biomechanics": 2,
+    "anatomy": 1,
+    "content": 2,
+    "programming": 2,
+    "enrichment": 1
+  }
+}

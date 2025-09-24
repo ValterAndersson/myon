@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent-stream.schema.json",
+  "title": "AgentStreamCard",
+  "type": "object",
+  "required": ["id", "type", "steps"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "agentStream" },
+    "title": { "type": "string" },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"], "default": "full" } } },
+    "meta": { "$ref": "card-base.schema.json#/properties/meta" },
+    "actions": { "$ref": "card-base.schema.json#/properties/actions" },
+    "menuItems": { "$ref": "card-base.schema.json#/properties/menuItems" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["thinking", "info", "lookup", "result"] },
+          "text": { "type": "string" },
+          "durationMs": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
+
+

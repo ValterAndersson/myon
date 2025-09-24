@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "visualization.schema.json",
+  "title": "Visualization Card",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "visualization" },
+    "title": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "spec": { "type": "object" },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"] } } }
+  },
+  "additionalProperties": false
+}
+
+

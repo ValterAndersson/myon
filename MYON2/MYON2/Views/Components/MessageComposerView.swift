@@ -126,7 +126,7 @@ class MessageComposerView: UIView {
         inputContainer.translatesAutoresizingMaskIntoConstraints = false
         
         // Text view setup
-        textView.font = .systemFont(ofSize: 17)
+        textView.font = .systemFont(ofSize: 15)
         textView.textColor = .label
         textView.backgroundColor = .secondarySystemBackground
         textView.layer.cornerRadius = 20
@@ -137,7 +137,7 @@ class MessageComposerView: UIView {
         
         // Placeholder
         placeholderLabel.text = "Message"
-        placeholderLabel.font = .systemFont(ofSize: 17)
+        placeholderLabel.font = .systemFont(ofSize: 15)
         placeholderLabel.textColor = .placeholderText
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         

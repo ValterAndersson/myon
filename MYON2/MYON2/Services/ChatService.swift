@@ -150,6 +150,7 @@ class ChatService: ObservableObject {
                     let flushInterval: TimeInterval = 2.0 // Increased to allow more accumulation
                     var isFirstTextMessage = true
                     var hasShownThinking = false
+                    var hasEmittedText = false
                     
                     // Show initial thinking indicator
                     let thinkingMessage = ChatMessage(
@@ -213,19 +214,9 @@ class ChatService: ObservableObject {
                                 hasShownThinking = false
                             }
                             
-                            // Show typing indicator for first text message
+                            // Remove typing indicator; rely on streamed chunks only
                             if isFirstTextMessage && !partialText.isEmpty {
                                 isFirstTextMessage = false
-                                let typingMessage = ChatMessage(
-                                    content: .text("…"),
-                                    author: .agent,
-                                    timestamp: Date(),
-                                    status: .streaming
-                                )
-                                continuation.yield((typingMessage, actualSessionId))
-                                
-                                // Longer delay to ensure typing animation is visible
-                                Thread.sleep(forTimeInterval: 1.5)
                             }
                             
                             // Aggregate into buffer
@@ -240,7 +231,7 @@ class ChatService: ObservableObject {
                                 let trimmed = textBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
                                 
                                 // Don't flush if buffer is too small (unless timeout)
-                                if trimmed.count < 100 && now.timeIntervalSince(lastFlush) < flushInterval {
+                                if trimmed.count < 60 && now.timeIntervalSince(lastFlush) < flushInterval {
                                     return false
                                 }
                                 
@@ -279,6 +270,7 @@ class ChatService: ObservableObject {
                                     status: .streaming
                                 )
                                 continuation.yield((msg, actualSessionId))
+                                hasEmittedText = true
                                 
                                 textBuffer = ""
                                 lastFlush = now
@@ -323,6 +315,7 @@ class ChatService: ObservableObject {
                                             status: .sent
                                         )
                                         continuation.yield((finalMsg, returnedSessionId ?? actualSessionId))
+                                        hasEmittedText = true
                                     }
                                 } else if !trimmedBuffer.isEmpty {
                                     // Just flush the buffer if no new content in finalResponse
@@ -333,6 +326,17 @@ class ChatService: ObservableObject {
                                         status: .sent
                                     )
                                     continuation.yield((finalMsg, returnedSessionId ?? actualSessionId))
+                                    hasEmittedText = true
+                                } else if !hasEmittedText && !trimmedFinal.isEmpty {
+                                    // Edge case: small single-commit responses never flushed during stream
+                                    let finalMsg = ChatMessage(
+                                        content: .text(trimmedFinal),
+                                        author: .agent,
+                                        timestamp: Date(),
+                                        status: .sent
+                                    )
+                                    continuation.yield((finalMsg, returnedSessionId ?? actualSessionId))
+                                    hasEmittedText = true
                                 }
                                 
                                 continuation.finish()

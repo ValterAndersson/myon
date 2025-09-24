@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "chat.schema.json",
+  "title": "Chat Lines Card",
+  "type": "object",
+  "required": ["id", "type", "lines"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "chat" },
+    "title": { "type": "string" },
+    "lines": { "type": "array", "items": { "type": "string" } },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"] } } }
+  },
+  "additionalProperties": false
+}
+
+

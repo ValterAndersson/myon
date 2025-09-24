@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
 
@@ -12,17 +13,11 @@ const db = new FirestoreHelper();
  */
 async function getUserWorkoutsHandler(req, res) {
   const userId = req.query.userId || req.body?.userId;
-  const limit = parseInt(req.query.limit) || 50;
-  const startDate = req.query.startDate;
-  const endDate = req.query.endDate;
+  const limit = parseInt(req.query?.limit) || 50;
+  const startDate = req.query?.startDate;
+  const endDate = req.query?.endDate;
   
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing userId parameter',
-      usage: 'Provide userId as query parameter'
-    });
-  }
+  if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
 
   try {
     // Build query parameters (fixed field names to match Firestore schema)
@@ -109,33 +104,11 @@ async function getUserWorkoutsHandler(req, res) {
       analytics.totalVolume = totalWeight;
     }
 
-    return res.status(200).json({
-      success: true,
-      data: workouts,
-      analytics: analytics,
-      filters: {
-        userId: userId,
-        limit: limit,
-        startDate: startDate || null,
-        endDate: endDate || null
-      },
-      metadata: {
-        function: 'get-user-workouts',
-        requestedAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, { items: workouts, analytics, filters: { userId, limit, startDate: startDate || null, endDate: endDate || null } });
 
   } catch (error) {
     console.error('get-user-workouts function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get user workouts',
-      details: error.message,
-      function: 'get-user-workouts',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to get user workouts', { message: error.message }, 500);
   }
 }
 

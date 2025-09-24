@@ -44,8 +44,16 @@ def make_firebase_request(
     url = f"{FIREBASE_BASE_URL}/{endpoint}"
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": FIREBASE_API_KEY  # Changed back to X-API-Key header
+        "X-API-Key": FIREBASE_API_KEY,  # API key gate
     }
+    # Optional: Bearer auth (required for some endpoints)
+    id_token = os.getenv("FIREBASE_ID_TOKEN")
+    if id_token:
+        headers["Authorization"] = f"Bearer {id_token}"
+    # Optional: user scoping header
+    user_header = user_id or os.getenv("FIREBASE_USER_ID")
+    if user_header:
+        headers["X-User-Id"] = str(user_header)
     
     # Build params - add user_id if provided
     if params is None:
@@ -349,6 +357,12 @@ def get_workout(workout_id: str, user_id: str) -> Dict[str, Any]:
     result = make_firebase_request("getWorkout", params={"workoutId": workout_id}, user_id=user_id)
     return result
 
+# --- Health & Connectivity ---
+
+def health() -> Dict[str, Any]:
+    """Ping the backend health endpoint to verify connectivity and auth."""
+    return make_firebase_request("health")
+
 # Template management functions
 def get_user_templates(user_id: str) -> Dict[str, Any]:
     """Get all workout templates for a user.
@@ -636,6 +650,197 @@ def set_active_routine(user_id: str, routine_id: str) -> Dict[str, Any]:
     
     result = make_firebase_request("setActiveRoutine", method="POST", data=data)
     return result
+
+# --- Active Workout (agent-driven workout loop) ---
+
+def propose_session(constraints: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Ask backend to propose a workout session plan under optional constraints."""
+    body = {"constraints": constraints or {}}
+    return make_firebase_request("proposeSession", method="POST", data=body)
+
+def start_active_workout(plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Start an active workout; optionally pass a concrete plan to seed the session."""
+    body = {"plan": plan} if plan else {}
+    return make_firebase_request("startActiveWorkout", method="POST", data=body)
+
+def get_active_workout() -> Dict[str, Any]:
+    """Get the current active workout for the authenticated user."""
+    return make_firebase_request("getActiveWorkout")
+
+def prescribe_set(
+    workout_id: str,
+    exercise_id: str,
+    set_index: int,
+    context: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Prescribe the next set for a given exercise within an active workout."""
+    body: Dict[str, Any] = {
+        "workout_id": workout_id,
+        "exercise_id": exercise_id,
+        "set_index": set_index,
+        "context": context or {},
+    }
+    if idempotency_key:
+        body["idempotency_key"] = idempotency_key
+    return make_firebase_request("prescribeSet", method="POST", data=body)
+
+def log_set(
+    workout_id: str,
+    exercise_id: str,
+    set_index: int,
+    actual: Dict[str, Any],
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Log an actual performed set for an active workout (idempotent if key provided)."""
+    body: Dict[str, Any] = {
+        "workout_id": workout_id,
+        "exercise_id": exercise_id,
+        "set_index": set_index,
+        "actual": actual,
+    }
+    if idempotency_key:
+        body["idempotency_key"] = idempotency_key
+    return make_firebase_request("logSet", method="POST", data=body)
+
+def score_set(actual: Dict[str, Any]) -> Dict[str, Any]:
+    """Score a set payload (e.g., est. intensity, quality) without logging it."""
+    return make_firebase_request("scoreSet", method="POST", data={"actual": actual})
+
+def add_exercise(
+    workout_id: str,
+    exercise_id: str,
+    name: Optional[str] = None,
+    position: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Add an exercise to the active workout at an optional position."""
+    body: Dict[str, Any] = {"workout_id": workout_id, "exercise_id": exercise_id}
+    if name is not None:
+        body["name"] = name
+    if position is not None:
+        body["position"] = position
+    if idempotency_key:
+        body["idempotency_key"] = idempotency_key
+    return make_firebase_request("addExercise", method="POST", data=body)
+
+def swap_exercise(
+    workout_id: str,
+    from_exercise_id: str,
+    to_exercise_id: str,
+    reason: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Swap an exercise within the active workout, optionally citing a reason."""
+    body: Dict[str, Any] = {
+        "workout_id": workout_id,
+        "from_exercise_id": from_exercise_id,
+        "to_exercise_id": to_exercise_id,
+    }
+    if reason:
+        body["reason"] = reason
+    if idempotency_key:
+        body["idempotency_key"] = idempotency_key
+    return make_firebase_request("swapExercise", method="POST", data=body)
+
+def complete_active_workout(workout_id: str) -> Dict[str, Any]:
+    """Complete the current active workout and write a summary."""
+    return make_firebase_request("completeActiveWorkout", method="POST", data={"workout_id": workout_id})
+
+def cancel_active_workout(workout_id: str) -> Dict[str, Any]:
+    """Cancel the current active workout without writing completion analytics."""
+    return make_firebase_request("cancelActiveWorkout", method="POST", data={"workout_id": workout_id})
+
+def note_active_workout(workout_id: str, note: str) -> Dict[str, Any]:
+    """Attach a free-text note to the active workout session."""
+    return make_firebase_request("noteActiveWorkout", method="POST", data={"workout_id": workout_id, "note": note})
+
+# --- User Preferences ---
+
+def get_user_preferences(user_id: str) -> Dict[str, Any]:
+    """Fetch a user's preference document (units, equipment, training style, etc.)."""
+    return make_firebase_request("getUserPreferences", params={"userId": user_id})
+
+def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> Dict[str, Any]:
+    """Update a user's preferences (merging fields)."""
+    body = {"userId": user_id, "preferences": preferences}
+    return make_firebase_request("updateUserPreferences", method="POST", data=body)
+
+# --- Catalog/Admin helpers (exposed but gated by backend auth) ---
+
+def ensure_exercise_exists(name: str, **extra: Any) -> Dict[str, Any]:
+    """Ensure an exercise exists (creates a draft if missing)."""
+    payload = {"name": name}
+    payload.update(extra)
+    return make_firebase_request("ensureExerciseExists", method="POST", data=payload)
+
+def upsert_exercise(exercise: Dict[str, Any]) -> Dict[str, Any]:
+    """Create or update an exercise using merge semantics on the server."""
+    return make_firebase_request("upsertExercise", method="POST", data={"exercise": exercise})
+
+def resolve_exercise(q: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Resolve a user query to the best exercise match with optional context."""
+    body: Dict[str, Any] = {"q": q}
+    if context:
+        body["context"] = context
+    return make_firebase_request("resolveExercise", method="POST", data=body)
+
+def list_families(min_size: int = 1, limit: int = 100) -> Dict[str, Any]:
+    """List exercise families with counts (admin/reporting)."""
+    params = {"minSize": min_size, "limit": limit}
+    return make_firebase_request("listFamilies", params=params)
+
+def suggest_family_variant(name: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Suggest family_slug and variant_key for a given exercise name."""
+    body: Dict[str, Any] = {"name": name}
+    if metadata:
+        body["metadata"] = metadata
+    return make_firebase_request("suggestFamilyVariant", method="POST", data=body)
+
+def suggest_aliases(exercise: Dict[str, Any]) -> Dict[str, Any]:
+    """Suggest alias candidates for an exercise object."""
+    return make_firebase_request("suggestAliases", method="POST", data={"exercise": exercise})
+
+def upsert_alias(alias_slug: str, exercise_id: str, family_slug: Optional[str] = None) -> Dict[str, Any]:
+    """Create or update an alias mapping to an exercise (conflicts handled server-side)."""
+    body: Dict[str, Any] = {"alias_slug": alias_slug, "exercise_id": exercise_id}
+    if family_slug:
+        body["family_slug"] = family_slug
+    return make_firebase_request("upsertAlias", method="POST", data=body)
+
+def delete_alias(alias_slug: str) -> Dict[str, Any]:
+    """Remove an alias by slug."""
+    return make_firebase_request("deleteAlias", method="POST", data={"alias_slug": alias_slug})
+
+def search_aliases(q: str) -> Dict[str, Any]:
+    """Search the alias registry by query string."""
+    return make_firebase_request("searchAliases", params={"q": q})
+
+def normalize_catalog_page(pageSize: int = 50, startAfterName: Optional[str] = None) -> Dict[str, Any]:
+    """Normalize a page of exercises (family/variant/name) optionally paginated by name."""
+    body: Dict[str, Any] = {"pageSize": pageSize}
+    if startAfterName:
+        body["startAfterName"] = startAfterName
+    return make_firebase_request("normalizeCatalogPage", method="POST", data=body)
+
+def backfill_normalize_family(family: str, apply: bool = False, limit: int = 1000) -> Dict[str, Any]:
+    """Normalize or dry-run a single family, optionally applying merges/updates."""
+    body = {"family": family, "apply": apply, "limit": limit}
+    return make_firebase_request("backfillNormalizeFamily", method="POST", data=body)
+
+def approve_exercise(exercise_id: str) -> Dict[str, Any]:
+    """Mark an exercise as approved after quality checks."""
+    return make_firebase_request("approveExercise", method="POST", data={"exercise_id": exercise_id})
+
+def refine_exercise(exercise_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    """Update specific fields on an exercise document."""
+    body = {"exercise_id": exercise_id, "updates": updates}
+    return make_firebase_request("refineExercise", method="POST", data=body)
+
+def merge_exercises(source_id: str, target_id: str) -> Dict[str, Any]:
+    """Merge a duplicate exercise into a target within the same family."""
+    body = {"source_id": source_id, "target_id": target_id}
+    return make_firebase_request("mergeExercises", method="POST", data=body)
 
 # --- Analysis helpers ---
 
@@ -1399,6 +1604,8 @@ tools = [
     # User management
     FunctionTool(func=get_user),
     FunctionTool(func=update_user),
+    FunctionTool(func=get_user_preferences),
+    FunctionTool(func=update_user_preferences),
 
     # Exercise database
     FunctionTool(func=list_exercises),
@@ -1429,6 +1636,20 @@ tools = [
     FunctionTool(func=delete_routine),
     FunctionTool(func=set_active_routine),
 
+    # Active Workout
+    FunctionTool(func=health),
+    FunctionTool(func=propose_session),
+    FunctionTool(func=start_active_workout),
+    FunctionTool(func=get_active_workout),
+    FunctionTool(func=prescribe_set),
+    FunctionTool(func=log_set),
+    FunctionTool(func=score_set),
+    FunctionTool(func=add_exercise),
+    FunctionTool(func=swap_exercise),
+    FunctionTool(func=complete_active_workout),
+    FunctionTool(func=cancel_active_workout),
+    FunctionTool(func=note_active_workout),
+
     # Memory / facts persistence
     FunctionTool(func=store_important_fact),
     FunctionTool(func=get_important_facts),
@@ -1451,6 +1672,22 @@ tools = [
     # Analysis and output control
     FunctionTool(func=analyze_recent_performance),
     FunctionTool(func=enforce_brevity),
+
+    # Catalog/Admin exposure
+    FunctionTool(func=ensure_exercise_exists),
+    FunctionTool(func=upsert_exercise),
+    FunctionTool(func=resolve_exercise),
+    FunctionTool(func=list_families),
+    FunctionTool(func=suggest_family_variant),
+    FunctionTool(func=suggest_aliases),
+    FunctionTool(func=upsert_alias),
+    FunctionTool(func=delete_alias),
+    FunctionTool(func=search_aliases),
+    FunctionTool(func=normalize_catalog_page),
+    FunctionTool(func=backfill_normalize_family),
+    FunctionTool(func=approve_exercise),
+    FunctionTool(func=refine_exercise),
+    FunctionTool(func=merge_exercises),
 
     # Expose built-in memory retrieval tool so the agent can recall facts
     # load_memory,

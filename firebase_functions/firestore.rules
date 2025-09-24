@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      // Canvas: single-writer via Functions only
+      match /canvases/{canvasId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /canvases/{canvasId}/{document=**} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // Other user subcollections: allow normal read/write for the user, explicitly excluding canvases
+      match /{collection}/{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == uid && collection != "canvases";
+      }
+    }
+
+    // Canvas public contract (if ever needed): none. Everything under users subtree.
+
+    // Admin/agents: optional service account keys or custom claims could be enforced via rules if required.
+    // For now, rely on HTTPS function auth wrappers; direct writes are not allowed without user auth above.
+  }
+}

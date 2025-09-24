@@ -7,6 +7,7 @@ class ChatMessageCell: UICollectionViewCell {
     // MARK: - Properties
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
+    private let leftAccentView = UIView()
     private let imageView = UIImageView()
     private let timestampLabel = UILabel()
     private let statusIndicator = UIImageView()
@@ -14,6 +15,7 @@ class ChatMessageCell: UICollectionViewCell {
     private var bubbleLeadingConstraint: NSLayoutConstraint!
     private var bubbleTrailingConstraint: NSLayoutConstraint!
     private var imageHeightConstraint: NSLayoutConstraint!
+    private var bubbleMaxWidthConstraint: NSLayoutConstraint!
     
     // MARK: - Init
     override init(frame: CGRect) {
@@ -31,13 +33,15 @@ class ChatMessageCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
         
         // Bubble view
-        bubbleView.layer.cornerRadius = 18
+        bubbleView.layer.cornerRadius = 12
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         
         // Message label
         messageLabel.numberOfLines = 0
-        messageLabel.font = .systemFont(ofSize: 17)
+        messageLabel.font = .systemFont(ofSize: 15)
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        messageLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         
         // Image view
         imageView.contentMode = .scaleAspectFill
@@ -46,8 +50,14 @@ class ChatMessageCell: UICollectionViewCell {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.isHidden = true
         
+        // Left accent for assistant messages
+        leftAccentView.translatesAutoresizingMaskIntoConstraints = false
+        leftAccentView.backgroundColor = .systemBlue
+        leftAccentView.layer.cornerRadius = 2
+        leftAccentView.isHidden = true
+
         // Timestamp
-        timestampLabel.font = .systemFont(ofSize: 12)
+        timestampLabel.font = .systemFont(ofSize: 11)
         timestampLabel.textColor = .secondaryLabel
         timestampLabel.translatesAutoresizingMaskIntoConstraints = false
         
@@ -57,6 +67,7 @@ class ChatMessageCell: UICollectionViewCell {
         
         // Add subviews
         contentView.addSubview(bubbleView)
+        bubbleView.addSubview(leftAccentView)
         bubbleView.addSubview(messageLabel)
         bubbleView.addSubview(imageView)
         contentView.addSubview(timestampLabel)
@@ -66,10 +77,11 @@ class ChatMessageCell: UICollectionViewCell {
         bubbleLeadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
         bubbleTrailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16)
         imageHeightConstraint = imageView.heightAnchor.constraint(equalToConstant: 0)
+        bubbleMaxWidthConstraint = bubbleView.widthAnchor.constraint(lessThanOrEqualToConstant: 280)
         
         NSLayoutConstraint.activate([
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            bubbleView.widthAnchor.constraint(lessThanOrEqualToConstant: 280),
+            bubbleMaxWidthConstraint,
             
             messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 12),
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 16),
@@ -80,6 +92,12 @@ class ChatMessageCell: UICollectionViewCell {
             imageView.trailingAnchor.constraint(equalTo: messageLabel.trailingAnchor),
             imageHeightConstraint,
             imageView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -12),
+
+            // Left accent pinned inside bubble
+            leftAccentView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
+            leftAccentView.widthAnchor.constraint(equalToConstant: 3),
+            leftAccentView.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 10),
+            leftAccentView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10),
             
             timestampLabel.topAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: 4),
             timestampLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
@@ -133,6 +151,9 @@ class ChatMessageCell: UICollectionViewCell {
             // Align to right
             bubbleLeadingConstraint.isActive = false
             bubbleTrailingConstraint.isActive = true
+            // Limit user bubble width so it's compact (WhatsApp-like)
+            bubbleMaxWidthConstraint.constant = 320
+            bubbleMaxWidthConstraint.isActive = true
             
             // Timestamp on right (aligned with bubble right edge)
             NSLayoutConstraint.activate([
@@ -153,12 +174,15 @@ class ChatMessageCell: UICollectionViewCell {
             ])
             
         case .agent:
-            bubbleView.backgroundColor = .secondarySystemBackground
+            // Full-width, left-aligned assistant response with subtle contrast and left accent
+            bubbleView.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.6)
             messageLabel.textColor = .label
             
-            // Align to left
-            bubbleTrailingConstraint.isActive = false
+            // Full width: pin to both sides and remove max-width limit
             bubbleLeadingConstraint.isActive = true
+            bubbleTrailingConstraint.isActive = true
+            bubbleMaxWidthConstraint.isActive = false
+            leftAccentView.isHidden = false
             
             // Timestamp on left (aligned with bubble left edge)
             NSLayoutConstraint.activate([
@@ -177,6 +201,8 @@ class ChatMessageCell: UICollectionViewCell {
             // Center align
             bubbleLeadingConstraint.isActive = true
             bubbleTrailingConstraint.isActive = true
+            bubbleMaxWidthConstraint.isActive = false
+            leftAccentView.isHidden = true
             
             timestampLabel.isHidden = true
             statusIndicator.isHidden = true
@@ -196,11 +222,11 @@ class ChatMessageCell: UICollectionViewCell {
         
         // Set base attributes
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 4
-        paragraphStyle.paragraphSpacing = 8
+        paragraphStyle.lineSpacing = 2
+        paragraphStyle.paragraphSpacing = 6
         
         attributedString.addAttributes([
-            .font: UIFont.systemFont(ofSize: 17),
+            .font: UIFont.systemFont(ofSize: 15),
             .paragraphStyle: paragraphStyle
         ], range: NSRange(location: 0, length: attributedString.length))
         
@@ -275,9 +301,9 @@ class ChatMessageCell: UICollectionViewCell {
                     let lineRange = NSRange(location: currentLocation, length: lineLength)
                     
                     let listParagraphStyle = NSMutableParagraphStyle()
-                    listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 20)
-                    listParagraphStyle.headIndent = CGFloat(indentLevel * 20 + 20)
-                    listParagraphStyle.lineSpacing = 2
+                    listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 16)
+                    listParagraphStyle.headIndent = CGFloat(indentLevel * 16 + 18)
+                    listParagraphStyle.lineSpacing = 1.5
                     listParagraphStyle.paragraphSpacing = 4
                     
                     attributedString.addAttribute(.paragraphStyle, value: listParagraphStyle, range: lineRange)
@@ -291,16 +317,16 @@ class ChatMessageCell: UICollectionViewCell {
                 let lineRange = NSRange(location: currentLocation, length: line.count)
                 
                 let listParagraphStyle = NSMutableParagraphStyle()
-                listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 20)
-                listParagraphStyle.headIndent = CGFloat(indentLevel * 20 + 25) // More indent for numbers
-                listParagraphStyle.lineSpacing = 2
+                listParagraphStyle.firstLineHeadIndent = CGFloat(indentLevel * 16)
+                listParagraphStyle.headIndent = CGFloat(indentLevel * 16 + 22) // More indent for numbers
+                listParagraphStyle.lineSpacing = 1.5
                 listParagraphStyle.paragraphSpacing = 4
                 
                 attributedString.addAttribute(.paragraphStyle, value: listParagraphStyle, range: lineRange)
                 
                 // Make the number bold
                 let numberRange = NSRange(location: currentLocation + leadingSpaces, length: numberEnd)
-                attributedString.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 17), range: numberRange)
+                attributedString.addAttribute(.font, value: UIFont.boldSystemFont(ofSize: 15), range: numberRange)
             }
             
             // Update location for next line (add 1 for newline character, except for last line)
@@ -340,5 +366,10 @@ class ChatMessageCell: UICollectionViewCell {
         imageView.image = nil
         timestampLabel.text = nil
         statusIndicator.image = nil
+        // Reset width constraint to avoid unsatisfiable constraints after reuse
+        bubbleMaxWidthConstraint.isActive = true
+        bubbleMaxWidthConstraint.constant = 280
+        bubbleLeadingConstraint.isActive = true
+        bubbleTrailingConstraint.isActive = false
     }
 } 

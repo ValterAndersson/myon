@@ -1,0 +1,16 @@
+{
+  "timestamp": "2025-09-21T00:21:18.625623",
+  "jobs_completed": 6,
+  "jobs_in_progress": 0,
+  "tasks_by_status": {
+    "completed": 6
+  },
+  "tasks_by_agent": {
+    "scout": 1,
+    "analyst": 1,
+    "anatomy": 1,
+    "content": 1,
+    "programming": 1,
+    "enrichment": 1
+  }
+}

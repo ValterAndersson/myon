@@ -1,3 +1,34 @@
+# Stream Agent Normalized (SSE/NDJSON)
+
+This module exposes an HTTP endpoint that proxies the Agent Engine :streamQuery, applies token-level normalization and emits canonical NDJSON lines over Server-Sent Events.
+
+Endpoint
+- Name: `streamAgentNormalized`
+- Type: HTTPS (SSE)
+- Auth: Flexible (Bearer Firebase ID token or X-API-Key)
+
+Event schema (per line JSON under `data:`)
+- Common: `type`, `seq`, `ts`, `role`, `messageId`
+- Text:
+  - `text_delta`: `{ text }`
+  - `text_commit`: `{ text }`
+- Tools:
+  - `tool_started`: `{ name, args, display }`
+  - `tool_result`: `{ name, summary, counts }`
+- Control:
+  - `policy`: `{ markdown_policy }`
+  - `heartbeat`, `error`, `done`
+
+Normalization
+- Bullet normalization to `- `, drop markdown headings
+- Sentence-aware commit windows, avoid open code-fence commits
+- Rolling hash dedupe across the last window
+
+Time
+- Heartbeat every ~2.5s; graceful flush on end
+
+Notes
+- For Feature Flag rollout, clients can prefer this SSE endpoint and fall back to raw Agent stream.
 # StrengthOS Firebase Functions Integration
 
 This directory contains Firebase Cloud Functions that act as a proxy between the MYON iOS app and the StrengthOS agent deployed on Vertex AI Agent Engine.

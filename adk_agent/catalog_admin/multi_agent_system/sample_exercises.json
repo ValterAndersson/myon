@@ -1,0 +1,41 @@
+[
+  {
+    "name": "Zercher Squat",
+    "equipment": ["barbell"],
+    "muscles": {
+      "primary": ["quadriceps", "gluteus maximus"],
+      "secondary": ["hamstrings", "core"]
+    },
+    "category": "compound",
+    "movement": {
+      "type": "legs",
+      "split": "lower"
+    }
+  },
+  {
+    "name": "Face Pulls",
+    "equipment": ["cable"],
+    "muscles": {
+      "primary": ["posterior deltoid", "rhomboids"],
+      "secondary": ["trapezius", "rotator cuff"]
+    },
+    "category": "isolation",
+    "movement": {
+      "type": "pull",
+      "split": "upper"
+    }
+  },
+  {
+    "name": "Landmine Press",
+    "equipment": ["barbell", "landmine"],
+    "muscles": {
+      "primary": ["anterior deltoid", "pectoralis major"],
+      "secondary": ["triceps", "core"]
+    },
+    "category": "compound",
+    "movement": {
+      "type": "push",
+      "split": "upper"
+    }
+  }
+]

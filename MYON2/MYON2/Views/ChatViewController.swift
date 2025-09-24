@@ -50,7 +50,7 @@ class ChatViewController: UIViewController {
         messageComposer.translatesAutoresizingMaskIntoConstraints = false
         messageComposer.delegate = self
         
-        // Setup placeholder view
+        // Setup placeholder view (keep minimal, remove marketing copy)
         setupPlaceholderView()
         
         // Add to view
@@ -80,18 +80,7 @@ class ChatViewController: UIViewController {
     }
     
     private func setupNavigationBar() {
-        // Only show navigation items if presented modally
-        if !isEmbedded {
-            title = "AI Coach"
-            
-            // Close button
-            navigationItem.leftBarButtonItem = UIBarButtonItem(
-                image: UIImage(systemName: "xmark"),
-                style: .plain,
-                target: self,
-                action: #selector(closeTapped)
-            )
-        }
+        title = "AI Coach"
     }
     
     private func createLayout() -> UICollectionViewLayout {
@@ -108,8 +97,9 @@ class ChatViewController: UIViewController {
         let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: [item])
         
         let section = NSCollectionLayoutSection(group: group)
-        section.interGroupSpacing = 8
-        section.contentInsets = NSDirectionalEdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+        section.interGroupSpacing = 12
+        // Use generous horizontal insets for document-like left-aligned assistant messages
+        section.contentInsets = NSDirectionalEdgeInsets(top: 16, leading: 20, bottom: 16, trailing: 20)
         
         return UICollectionViewCompositionalLayout(section: section)
     }
@@ -168,9 +158,7 @@ class ChatViewController: UIViewController {
     }
     
     // MARK: - Actions
-    @objc private func closeTapped() {
-        dismiss(animated: true)
-    }
+    @objc private func closeTapped() {}
     
     // MARK: - Message Handling
     private func sendMessage(text: String, image: UIImage?) {
@@ -324,24 +312,22 @@ class ChatViewController: UIViewController {
         stackView.spacing = 24
         stackView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Brain icon
+        // Minimal placeholder: icon + short hint
         let iconImageView = UIImageView()
-        iconImageView.image = UIImage(systemName: "brain")
+        iconImageView.image = UIImage(systemName: "waveform")
         iconImageView.tintColor = .systemBlue
         iconImageView.contentMode = .scaleAspectFit
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Title label
+
         let titleLabel = UILabel()
-        titleLabel.text = "Ready to Transform Your Training"
-        titleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        titleLabel.text = "Ask your coach"
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
-        
-        // Description label
+
         let descriptionLabel = UILabel()
-        descriptionLabel.text = "StrengthOS has full access to your workouts, templates, and routines. I can analyze your training history, create personalized programs, and help you optimize every session.\n\nStart your journey to smarter, more effective training today."
-        descriptionLabel.font = .systemFont(ofSize: 16)
+        descriptionLabel.text = "Say what you have and what you want to do."
+        descriptionLabel.font = .systemFont(ofSize: 14)
         descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.textAlignment = .center
         descriptionLabel.numberOfLines = 0
@@ -355,10 +341,10 @@ class ChatViewController: UIViewController {
         
         // Constraints
         NSLayoutConstraint.activate([
-            iconImageView.widthAnchor.constraint(equalToConstant: 80),
-            iconImageView.heightAnchor.constraint(equalToConstant: 80),
+            iconImageView.widthAnchor.constraint(equalToConstant: 48),
+            iconImageView.heightAnchor.constraint(equalToConstant: 48),
             
-            stackView.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor, constant: -40),
+            stackView.centerYAnchor.constraint(equalTo: placeholderView.centerYAnchor),
             stackView.leadingAnchor.constraint(equalTo: placeholderView.leadingAnchor, constant: 40),
             stackView.trailingAnchor.constraint(equalTo: placeholderView.trailingAnchor, constant: -40),
             

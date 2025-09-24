@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
 
@@ -10,28 +11,14 @@ const db = new FirestoreHelper();
  * Description: Deletes a workout template and cleans up routine references
  */
 async function deleteTemplateHandler(req, res) {
-  const { userId, templateId } = req.body;
+  const { userId, templateId } = req.body || {};
   
-  if (!userId || !templateId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameters',
-      required: ['userId', 'templateId'],
-      usage: 'Provide both userId and templateId in request body'
-    });
-  }
+  if (!userId || !templateId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','templateId'], 400);
 
   try {
     // Check if template exists
     const template = await db.getDocumentFromSubcollection('users', userId, 'templates', templateId);
-    if (!template) {
-      return res.status(404).json({
-        success: false,
-        error: 'Template not found',
-        userId: userId,
-        templateId: templateId
-      });
-    }
+    if (!template) return fail(res, 'NOT_FOUND', 'Template not found', null, 404);
 
     // Check for routine references and clean them up
     const routines = await db.getDocumentsFromSubcollection('users', userId, 'routines');
@@ -51,30 +38,11 @@ async function deleteTemplateHandler(req, res) {
     // Delete template
     await db.deleteDocumentFromSubcollection('users', userId, 'templates', templateId);
 
-    return res.status(200).json({
-      success: true,
-      message: 'Template deleted successfully',
-      templateId: templateId,
-      routinesUpdated: routinesToUpdate.length,
-      metadata: {
-        function: 'delete-template',
-        userId: userId,
-        templateId: templateId,
-        deletedAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, { message: 'Template deleted', templateId, routinesUpdated: routinesToUpdate.length });
 
   } catch (error) {
     console.error('delete-template function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to delete template',
-      details: error.message,
-      function: 'delete-template',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to delete template', { message: error.message }, 500);
   }
 }
 

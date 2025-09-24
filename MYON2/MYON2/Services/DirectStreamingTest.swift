@@ -1,5 +1,5 @@
 import Foundation
-import FirebaseFunctions
+import Foundation
 
 /// Test class for validating DirectStreamingService
 @MainActor
@@ -12,6 +12,7 @@ class DirectStreamingTest {
     
     /// Run comprehensive tests of the direct streaming service
     func runTests() async {
+#if DEBUG
         print("🧪 Starting Direct Streaming Tests...")
         
         guard let userId = AuthService.shared.currentUser?.uid else {
@@ -65,7 +66,11 @@ class DirectStreamingTest {
             
         } catch {
             print("\n❌ Test failed with error: \(error.localizedDescription)")
-        }
+    }
+#else
+        // Disabled outside DEBUG
+        return
+#endif
     }
     
     private func testStreamingQuery(sessionId: String, userId: String, message: String) async {
@@ -112,10 +117,4 @@ class DirectStreamingTest {
 }
 
 // Extension to add this test to the app
-extension MoreView {
-    func runDirectStreamingTest() {
-        Task {
-            await DirectStreamingTest.shared.runTests()
-        }
-    }
-} 
+// UI extension removed to decouple from presentation layer

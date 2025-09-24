@@ -83,6 +83,23 @@ class FirestoreHelper {
     }
   }
 
+  async upsertDocument(collection, documentId, data) {
+    try {
+      const ref = this.db.collection(collection).doc(documentId);
+      const snap = await ref.get();
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const payload = { ...data, updated_at: now };
+      if (!snap.exists) {
+        payload.created_at = now;
+      }
+      await ref.set(payload, { merge: true });
+      return true;
+    } catch (error) {
+      console.error(`Error upserting document ${collection}/${documentId}:`, error);
+      throw error;
+    }
+  }
+
   async deleteDocument(collection, documentId) {
     try {
       await this.db.collection(collection).doc(documentId).delete();
@@ -174,6 +191,25 @@ class FirestoreHelper {
       return true;
     } catch (error) {
       console.error(`Error updating document in subcollection:`, error);
+      throw error;
+    }
+  }
+
+  async upsertDocumentInSubcollection(parentCollection, parentDocumentId, subcollection, documentId, data) {
+    try {
+      const ref = this.db
+        .collection(parentCollection)
+        .doc(parentDocumentId)
+        .collection(subcollection)
+        .doc(documentId);
+      const snap = await ref.get();
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const payload = { ...data, updated_at: now };
+      if (!snap.exists) payload.created_at = now;
+      await ref.set(payload, { merge: true });
+      return true;
+    } catch (error) {
+      console.error(`Error upserting document in subcollection:`, error);
       throw error;
     }
   }

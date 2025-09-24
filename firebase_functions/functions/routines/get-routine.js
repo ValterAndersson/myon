@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
 
@@ -12,51 +13,18 @@ const db = new FirestoreHelper();
 async function getRoutineHandler(req, res) {
   const userId = req.query.userId || req.body?.userId;
   const routineId = req.query.routineId || req.body?.routineId;
-  
-  if (!userId || !routineId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameters',
-      required: ['userId', 'routineId'],
-      usage: 'Provide both userId and routineId'
-    });
-  }
+  if (!userId || !routineId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','routineId'], 400);
 
   try {
     // Get routine
     const routine = await db.getDocumentFromSubcollection('users', userId, 'routines', routineId);
-    
-    if (!routine) {
-      return res.status(404).json({
-        success: false,
-        error: 'Routine not found',
-        userId: userId,
-        routineId: routineId
-      });
-    }
+    if (!routine) return fail(res, 'NOT_FOUND', 'Routine not found', null, 404);
 
-    return res.status(200).json({
-      success: true,
-      data: routine,
-      metadata: {
-        function: 'get-routine',
-        userId: userId,
-        routineId: routineId,
-        requestedAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, routine);
 
   } catch (error) {
     console.error('get-routine function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get routine',
-      details: error.message,
-      function: 'get-routine',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to get routine', { message: error.message }, 500);
   }
 }
 

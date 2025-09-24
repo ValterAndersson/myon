@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tokens.schema.json",
+  "title": "Design Tokens",
+  "type": "object",
+  "properties": {
+    "colors": {
+      "type": "object",
+      "properties": {
+        "brandPrimary": { "type": "string" },
+        "brandSecondary": { "type": "string" },
+        "textPrimary": { "type": "string" },
+        "textSecondary": { "type": "string" },
+        "surface": { "type": "string" },
+        "background": { "type": "string" }
+      }
+    },
+    "space": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "radius": {
+      "type": "object",
+      "properties": {
+        "small": { "type": "number" },
+        "medium": { "type": "number" },
+        "large": { "type": "number" }
+      }
+    },
+    "shadow": {
+      "type": "object",
+      "properties": {
+        "level1": { "type": "string" },
+        "level2": { "type": "string" },
+        "level3": { "type": "string" }
+      }
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "size": { "type": "number" },
+          "weight": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
+
+

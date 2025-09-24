@@ -1,0 +1,13 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/propose_cards_request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["canvasId", "cards"],
+  "properties": {
+    "canvasId": { "type": "string", "minLength": 1 },
+    "cards": { "type": "array", "minItems": 1, "items": { "$ref": "./card_input.schema.json" } }
+  }
+}
+
+

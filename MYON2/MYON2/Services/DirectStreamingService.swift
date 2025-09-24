@@ -23,6 +23,15 @@ class DirectStreamingService: ObservableObject {
     
     // MARK: - Public Methods
     
+    /// Feature flag to toggle normalized SSE endpoint
+    private var useNormalizedStream: Bool {
+        #if DEBUG
+        return true
+        #else
+        return true
+        #endif
+    }
+
     /// Query the agent with streaming response
     func streamQuery(
         message: String,
@@ -36,27 +45,51 @@ class DirectStreamingService: ObservableObject {
                 // Ensure we have a valid auth token
                 let token = try await getAuthToken()
                 
-                // Build the request
-                let url = URL(string: "https://\(location)-aiplatform.googleapis.com/v1beta1/projects/\(projectId)/locations/\(location)/reasoningEngines/\(reasoningEngineId):streamQuery")!
+                var asyncBytes: URLSession.AsyncBytes
+                var response: URLResponse
                 
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                
-                let payload: [String: Any] = [
-                    "class_method": "stream_query",
-                    "input": [
-                        "user_id": userId,
+                if useNormalizedStream {
+                    // Use Firebase Function SSE normalizer
+                    guard let sseURL = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/streamAgentNormalized") else {
+                        throw StreamingError.invalidURL
+                    }
+                    var req = URLRequest(url: sseURL)
+                    req.httpMethod = "POST"
+                    // For server auth, use Firebase ID token, not GCP access token
+                    guard let currentUser = AuthService.shared.currentUser else { throw StreamingError.notAuthenticated }
+                    let idToken = try await currentUser.getIDToken()
+                    req.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    let body: [String: Any] = [
                         "message": message,
-                        "session_id": sessionId as Any
+                        "sessionId": sessionId as Any,
+                        "markdown_policy": [
+                            "bullets": "-",
+                            "max_bullets": 6,
+                            "no_headers": true
+                        ]
                     ].compactMapValues { $0 }
-                ]
-                
-                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-                
-                // Create streaming task
-                let (asyncBytes, response) = try await session.bytes(for: request)
+                    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+                    (asyncBytes, response) = try await session.bytes(for: req)
+                } else {
+                    // Direct Vertex Agent Engine fallback
+                    let url = URL(string: "https://\(location)-aiplatform.googleapis.com/v1beta1/projects/\(projectId)/locations/\(location)/reasoningEngines/\(reasoningEngineId):streamQuery")!
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    let payload: [String: Any] = [
+                        "class_method": "stream_query",
+                        "input": [
+                            "user_id": userId,
+                            "message": message,
+                            "session_id": sessionId as Any
+                        ].compactMapValues { $0 }
+                    ]
+                    request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+                    (asyncBytes, response) = try await session.bytes(for: request)
+                }
                 
                 guard let httpResponse = response as? HTTPURLResponse,
                       httpResponse.statusCode == 200 else {
@@ -70,94 +103,193 @@ class DirectStreamingService: ObservableObject {
                 var seenActions: Set<String> = []
                 var returnedSessionId: String?
                 
+                
                 // Process streaming response
                 for try await line in asyncBytes.lines {
-                    print("🪵 SSE:", line)
-                    if let event = parseStreamingEvent(line) {
-                        // Extract session ID if present
-                        if let actions = event["actions"] as? [String: Any] {
-                            if let sid = actions["session_id"] as? String {
-                                returnedSessionId = sid
-                            }
-                        }
-                        
-                        // Extract and handle content
-                        if let content = event["content"] as? [String: Any],
-                           let parts = content["parts"] as? [[String: Any]] {
-                            for part in parts {
-                                // Handle regular text
-                                if let text = part["text"] as? String {
-                                    if !text.isEmpty {
-                                        // Append to pending buffer and flush only safe segments
-                                        pendingBuffer += text
-                                        let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
-                                        if !commit.isEmpty {
-                                            var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
-                                            addition = Self.cleanLeadingFiller(addition)
-                                            let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
-                                            if !commitToAppend.isEmpty {
-                                                let fp = Self.fingerprint(commitToAppend)
-                                                if !seenChunkFingerprints.contains(fp) {
-                                                    fullResponse += commitToAppend
-                                                    lastFlushedTail = String(fullResponse.suffix(200))
-                                                    seenChunkFingerprints.insert(fp)
-                                                    progressHandler(fullResponse, nil)
-                                                }
+                    // Debug: print first few normalized events for QA
+                    if useNormalizedStream { print("🪵 norm:", line) } else { print("🪵 raw:", line) }
+                    if useNormalizedStream {
+                        // Canonical SSE NDJSON events
+                        guard let event = parseStreamingEvent(line) else { continue }
+                        if let type = event["type"] as? String {
+                            switch type {
+                            case "session":
+                                returnedSessionId = event["sessionId"] as? String
+                            case "list_item":
+                                if let text = event["text"] as? String, !text.isEmpty {
+                                    let bullet = "- " + text + "\n"
+                                    pendingBuffer += bullet
+                                    let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                    if !commit.isEmpty {
+                                        var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                        addition = Self.cleanLeadingFiller(addition)
+                                        let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                        if !commitToAppend.isEmpty {
+                                            let fp = Self.fingerprint(commitToAppend)
+                                            if !seenChunkFingerprints.contains(fp) {
+                                                fullResponse += commitToAppend
+                                                lastFlushedTail = String(fullResponse.suffix(200))
+                                                seenChunkFingerprints.insert(fp)
+                                                progressHandler(fullResponse, nil)
                                             }
                                         }
-                                        pendingBuffer = keep
+                                    }
+                                    pendingBuffer = keep
+                                }
+                            case "code_block":
+                                // For now, ignore open/close; text comes via deltas. Later: render monospace blocks.
+                                break
+                            case "text_delta":
+                                if let text = event["text"] as? String, !text.isEmpty {
+                                    pendingBuffer += text
+                                    let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                    if !commit.isEmpty {
+                                        var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                        addition = Self.cleanLeadingFiller(addition)
+                                        let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                        if !commitToAppend.isEmpty {
+                                            let fp = Self.fingerprint(commitToAppend)
+                                            if !seenChunkFingerprints.contains(fp) {
+                                                fullResponse += commitToAppend
+                                                lastFlushedTail = String(fullResponse.suffix(200))
+                                                seenChunkFingerprints.insert(fp)
+                                                progressHandler(fullResponse, nil)
+                                            }
+                                        }
+                                    }
+                                    pendingBuffer = keep
+                                }
+                            case "text_commit":
+                                if let text = event["text"] as? String, !text.isEmpty {
+                                    var addition = Self.ensureJoinSpacing(base: fullResponse, addition: text)
+                                    addition = Self.cleanLeadingFiller(addition)
+                                    // Drop overlap if commit contains the pending buffer prefix
+                                    if !pendingBuffer.isEmpty && addition.hasPrefix(pendingBuffer) {
+                                        addition = String(addition.dropFirst(pendingBuffer.count))
+                                    }
+                                    let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                    if !commitToAppend.isEmpty {
+                                        fullResponse += commitToAppend
+                                        lastFlushedTail = String(fullResponse.suffix(200))
+                                        progressHandler(fullResponse, nil)
+                                    }
+                                    pendingBuffer = ""
+                                }
+                            case "tool_started":
+                                if let name = event["name"] as? String {
+                                    let human = getHumanReadableFunctionName(name)
+                                    if !seenActions.contains(human) {
+                                        seenActions.insert(human)
+                                        progressHandler(nil, human)
                                     }
                                 }
-                                
-                                // Handle function calls
-                                if let functionCall = part["function_call"] as? [String: Any],
-                                   let name = functionCall["name"] as? String {
-                                    let args = functionCall["args"] as? [String: Any]
-                                    let argsString = formatFunctionArgs(args)
-                                    let humanReadableName = getHumanReadableFunctionName(name)
-                                    let actionLine = "\(humanReadableName)\(argsString)"
+                            case "tool_result":
+                                if let name = event["name"] as? String {
+                                    let human = getHumanReadableFunctionResponseName(name)
+                                    var detail = ""
+                                    if let counts = event["counts"] as? [String: Any], let items = counts["items"] as? Int {
+                                        detail = " - found \(items) item\(items == 1 ? "" : "s")"
+                                    }
+                                    let actionLine = human + detail
                                     if !seenActions.contains(actionLine) {
                                         seenActions.insert(actionLine)
                                         progressHandler(nil, actionLine)
                                     }
                                 }
-                                
-                                // Handle function responses
-                                if let functionResponse = part["function_response"] as? [String: Any],
-                                   let name = functionResponse["name"] as? String {
-                                    let humanReadableName = getHumanReadableFunctionResponseName(name)
-                                    // Try to extract useful info from response (dict or string JSON)
-                                    var responseJson: [String: Any]? = nil
-                                    if let responseDict = functionResponse["response"] as? [String: Any] {
-                                        responseJson = responseDict
-                                    } else if let response = functionResponse["response"] as? String,
-                                              let responseData = response.data(using: .utf8),
-                                              let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
-                                        responseJson = parsed
-                                    }
-                                    if let responseJson = responseJson {
-                                        var responseDetail = ""
-                                        switch name {
-                                        case "get_user_templates":
-                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")" }
-                                        case "get_user_workouts":
-                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")" }
-                                        case "search_exercises", "list_exercises":
-                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")" }
-                                        case "get_user_routines":
-                                            if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")" }
-                                        default:
-                                            break
+                            case "error":
+                                // Optionally surface error
+                                break
+                            default:
+                                break
+                            }
+                        }
+                    } else {
+                        // Fallback: raw Agent Engine stream
+                        if let event = parseStreamingEvent(line) {
+                            // Extract session ID if present
+                            if let actions = event["actions"] as? [String: Any] {
+                                if let sid = actions["session_id"] as? String {
+                                    returnedSessionId = sid
+                                }
+                            }
+                            
+                            // Extract and handle content
+                            if let content = event["content"] as? [String: Any],
+                               let parts = content["parts"] as? [[String: Any]] {
+                                for part in parts {
+                                    // Handle regular text
+                                    if let text = part["text"] as? String {
+                                        if !text.isEmpty {
+                                            // Append to pending buffer and flush only safe segments
+                                            pendingBuffer += text
+                                            let (commit, keep) = Self.segmentAndSanitizeMarkdown(pendingBuffer)
+                                            if !commit.isEmpty {
+                                                var addition = Self.ensureJoinSpacing(base: fullResponse, addition: commit)
+                                                addition = Self.cleanLeadingFiller(addition)
+                                                let commitToAppend = Self.dedupeTrailing(base: fullResponse, addition: addition, lastTail: lastFlushedTail)
+                                                if !commitToAppend.isEmpty {
+                                                    let fp = Self.fingerprint(commitToAppend)
+                                                    if !seenChunkFingerprints.contains(fp) {
+                                                        fullResponse += commitToAppend
+                                                        lastFlushedTail = String(fullResponse.suffix(200))
+                                                        seenChunkFingerprints.insert(fp)
+                                                        progressHandler(fullResponse, nil)
+                                                    }
+                                                }
+                                            }
+                                            pendingBuffer = keep
                                         }
-                                        let actionLine = "\(humanReadableName)\(responseDetail)"
+                                    }
+                                    
+                                    // Handle function calls
+                                    if let functionCall = part["function_call"] as? [String: Any],
+                                       let name = functionCall["name"] as? String {
+                                        let args = functionCall["args"] as? [String: Any]
+                                        let argsString = formatFunctionArgs(args)
+                                        let humanReadableName = getHumanReadableFunctionName(name)
+                                        let actionLine = "\(humanReadableName)\(argsString)"
                                         if !seenActions.contains(actionLine) {
                                             seenActions.insert(actionLine)
                                             progressHandler(nil, actionLine)
                                         }
-                                    } else {
-                                        if !seenActions.contains(humanReadableName) {
-                                            seenActions.insert(humanReadableName)
-                                            progressHandler(nil, humanReadableName)
+                                    }
+                                    
+                                    // Handle function responses
+                                    if let functionResponse = part["function_response"] as? [String: Any],
+                                       let name = functionResponse["name"] as? String {
+                                        let humanReadableName = getHumanReadableFunctionResponseName(name)
+                                        var responseJson: [String: Any]? = nil
+                                        if let responseDict = functionResponse["response"] as? [String: Any] {
+                                            responseJson = responseDict
+                                        } else if let response = functionResponse["response"] as? String,
+                                                  let responseData = response.data(using: .utf8),
+                                                  let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
+                                            responseJson = parsed
+                                        }
+                                        if let responseJson = responseJson {
+                                            var responseDetail = ""
+                                            switch name {
+                                            case "get_user_templates":
+                                                if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) template\(data.count == 1 ? "" : "s")" }
+                                            case "get_user_workouts":
+                                                if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) workout\(data.count == 1 ? "" : "s")" }
+                                            case "search_exercises", "list_exercises":
+                                                if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) exercise\(data.count == 1 ? "" : "s")" }
+                                            case "get_user_routines":
+                                                if let data = responseJson["data"] as? [[String: Any]] { responseDetail = " - found \(data.count) routine\(data.count == 1 ? "" : "s")" }
+                                            default:
+                                                break
+                                            }
+                                            let actionLine = "\(humanReadableName)\(responseDetail)"
+                                            if !seenActions.contains(actionLine) {
+                                                seenActions.insert(actionLine)
+                                                progressHandler(nil, actionLine)
+                                            }
+                                        } else {
+                                            if !seenActions.contains(humanReadableName) {
+                                                seenActions.insert(humanReadableName)
+                                                progressHandler(nil, humanReadableName)
+                                            }
                                         }
                                     }
                                 }
@@ -618,7 +750,9 @@ class DirectStreamingService: ObservableObject {
         switch name {
         // User management
         case "get_user": return "Loading user profile"
+        case "get_user_preferences": return "Loading preferences"
         case "update_user": return "Updating user profile"
+        case "update_user_preferences": return "Updating preferences"
         case "get_my_user_id": return "Checking user session"
         
         // Exercise database
@@ -646,6 +780,23 @@ class DirectStreamingService: ObservableObject {
         case "delete_routine": return "Deleting routine"
         case "set_active_routine": return "Activating routine"
         
+        // Exercise admin
+        case "upsert_exercise": return "Saving exercise"
+        case "approve_exercise": return "Approving exercise"
+
+        // Active workout
+        case "propose_session": return "Proposing session"
+        case "start_active_workout": return "Starting workout"
+        case "get_active_workout": return "Loading active workout"
+        case "prescribe_set": return "Prescribing set"
+        case "log_set": return "Logging set"
+        case "score_set": return "Scoring set"
+        case "add_exercise": return "Adding exercise"
+        case "swap_exercise": return "Swapping exercise"
+        case "complete_active_workout": return "Completing workout"
+        case "cancel_active_workout": return "Cancelling workout"
+        case "note_active_workout": return "Adding note"
+
         // Memory management
         case "store_important_fact": return "Saving important information"
         case "get_important_facts": return "Recalling saved information"
@@ -658,7 +809,9 @@ class DirectStreamingService: ObservableObject {
         switch name {
         // User management
         case "get_user": return "User profile loaded"
+        case "get_user_preferences": return "Preferences loaded"
         case "update_user": return "Profile updated"
+        case "update_user_preferences": return "Preferences updated"
         case "get_my_user_id": return "Session verified"
         
         // Exercise database
@@ -686,6 +839,23 @@ class DirectStreamingService: ObservableObject {
         case "delete_routine": return "Routine deleted"
         case "set_active_routine": return "Routine activated"
         
+        // Exercise admin
+        case "upsert_exercise": return "Exercise saved"
+        case "approve_exercise": return "Exercise approved"
+
+        // Active workout
+        case "propose_session": return "Session proposed"
+        case "start_active_workout": return "Workout started"
+        case "get_active_workout": return "Active workout loaded"
+        case "prescribe_set": return "Set prescribed"
+        case "log_set": return "Set logged"
+        case "score_set": return "Set scored"
+        case "add_exercise": return "Exercise added"
+        case "swap_exercise": return "Exercise swapped"
+        case "complete_active_workout": return "Workout completed"
+        case "cancel_active_workout": return "Workout cancelled"
+        case "note_active_workout": return "Note added"
+
         // Memory management
         case "store_important_fact": return "Information saved"
         case "get_important_facts": return "Information recalled"
