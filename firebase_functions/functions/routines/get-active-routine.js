@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
 
@@ -9,50 +10,23 @@ const db = new FirestoreHelper();
  */
 async function getActiveRoutineHandler(req, res) {
   const userId = req.query.userId || req.body?.userId;
-  
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing userId parameter'
-    });
-  }
+  if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
 
   try {
     const user = await db.getDocument('users', userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
+    if (!user) return fail(res, 'NOT_FOUND', 'User not found', null, 404);
 
     if (!user.activeRoutineId) {
-      return res.status(200).json({
-        success: true,
-        data: null,
-        message: 'No active routine set'
-      });
+      return ok(res, { routine: null, message: 'No active routine set' });
     }
 
     const activeRoutine = await db.getDocumentFromSubcollection('users', userId, 'routines', user.activeRoutineId);
 
-    return res.status(200).json({
-      success: true,
-      data: activeRoutine,
-      metadata: {
-        function: 'get-active-routine',
-        userId: userId,
-        requestedAt: new Date().toISOString()
-      }
-    });
+    return ok(res, { routine: activeRoutine });
 
   } catch (error) {
     console.error('get-active-routine function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get active routine',
-      details: error.message
-    });
+    return fail(res, 'INTERNAL', 'Failed to get active routine', { message: error.message }, 500);
   }
 }
 

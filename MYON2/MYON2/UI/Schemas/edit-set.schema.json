@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "edit-set.schema.json",
+  "title": "Edit Set Target",
+  "type": "object",
+  "required": ["exerciseId", "sets", "reps"],
+  "properties": {
+    "exerciseId": { "type": "string" },
+    "sets": { "type": "integer", "minimum": 1 },
+    "reps": { "type": "integer", "minimum": 1 },
+    "weight": { "type": "number", "minimum": 0 },
+    "rir": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}
+
+

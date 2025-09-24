@@ -1,4 +1,4 @@
-const { onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
@@ -8,6 +8,7 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+const AnalyticsWrites = require('../utils/analytics-writes');
 
 // Helper function to get week start for a date with Sunday as default
 function getWeekStartSunday(dateString) {
@@ -62,6 +63,13 @@ function mergeMetrics(target = {}, source = {}, increment = 1) {
       target[key] = updated;
     }
   }
+}
+
+// Simple e1RM estimator (Epley by default)
+function estimateE1RM(weightKg, reps) {
+  if (typeof weightKg !== 'number' || typeof reps !== 'number' || reps <= 0) return 0;
+  if (reps === 1) return weightKg;
+  return weightKg * (1 + reps / 30);
 }
 
 function validateAnalytics(analytics) {
@@ -324,6 +332,74 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       const endTime = after.end_time.toDate ? after.end_time.toDate().toISOString() : after.end_time;
       const weekId = await getWeekStartForUser(event.params.userId, endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
+
+      // Also upsert rollups and per-muscle weekly series
+      try {
+        await AnalyticsWrites.upsertRollup(event.params.userId, weekId, {
+          total_sets: analytics.total_sets,
+          total_reps: analytics.total_reps,
+          total_weight: analytics.total_weight,
+          weight_per_muscle_group: analytics.weight_per_muscle_group || {},
+        }, 1);
+
+        const setsByGroup = analytics.sets_per_muscle_group || {};
+        const volByGroup = analytics.weight_per_muscle_group || {};
+        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const writes = [];
+        for (const muscle of muscles) {
+          writes.push(
+            AnalyticsWrites.appendMuscleSeries(
+              event.params.userId,
+              muscle,
+              weekId,
+              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              1
+            )
+          );
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to write analytics series/rollups for workout update', e?.message || e);
+      }
+
+      // Update watermark
+      try {
+        await AnalyticsWrites.updateWatermark(event.params.userId, { last_processed_workout_at: endTime });
+      } catch (e) {
+        console.warn('Non-fatal: failed to update watermark', e?.message || e);
+      }
+
+      // Append per-exercise daily points (e1RM max, volume sum)
+      try {
+        const dayKey = endTime.split('T')[0];
+        const exercises = Array.isArray(after.exercises) ? after.exercises : [];
+        const perExercise = new Map();
+        for (const ex of exercises) {
+          const exId = ex.exercise_id;
+          if (!exId || !Array.isArray(ex.sets)) continue;
+          let maxE1 = 0; let vol = 0;
+          for (const s of ex.sets) {
+            if (!s.is_completed) continue;
+            const reps = typeof s.reps === 'number' ? s.reps : 0;
+            const w = typeof s.weight_kg === 'number' ? s.weight_kg : 0;
+            if (reps > 0 && w > 0) {
+              maxE1 = Math.max(maxE1, estimateE1RM(w, reps));
+              vol += w * reps;
+            }
+          }
+          const curr = perExercise.get(exId) || { e1rm: 0, vol: 0 };
+          curr.e1rm = Math.max(curr.e1rm, maxE1);
+          curr.vol += vol;
+          perExercise.set(exId, curr);
+        }
+        const writes = [];
+        for (const [exerciseId, point] of perExercise.entries()) {
+          writes.push(AnalyticsWrites.appendExerciseSeries(event.params.userId, exerciseId, dayKey, point, 1));
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to write per-exercise daily series', e?.message || e);
+      }
       
       if (!result.success) {
         console.error(`Failed to update weekly stats:`, result);
@@ -332,6 +408,93 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       return result;
     } catch (error) {
       console.error('Error in onWorkoutCompleted:', error);
+      return { success: false, error: error.message };
+    }
+  }
+);
+
+// Handle newly created workouts that already include end_time and analytics
+exports.onWorkoutCreatedWithEnd = onDocumentCreated(
+  'users/{userId}/workouts/{workoutId}',
+  async (event) => {
+    try {
+      const workout = event.data.data();
+      if (!workout || !workout.end_time || !workout.analytics) return null;
+
+      const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
+      const weekId = await getWeekStartForUser(event.params.userId, endTime);
+      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, 1);
+
+      try {
+        await AnalyticsWrites.upsertRollup(event.params.userId, weekId, {
+          total_sets: workout.analytics.total_sets,
+          total_reps: workout.analytics.total_reps,
+          total_weight: workout.analytics.total_weight,
+          weight_per_muscle_group: workout.analytics.weight_per_muscle_group || {},
+        }, 1);
+
+        const setsByGroup = workout.analytics.sets_per_muscle_group || {};
+        const volByGroup = workout.analytics.weight_per_muscle_group || {};
+        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const writes = [];
+        for (const muscle of muscles) {
+          writes.push(
+            AnalyticsWrites.appendMuscleSeries(
+              event.params.userId,
+              muscle,
+              weekId,
+              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              1
+            )
+          );
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to write analytics series/rollups for workout create', e?.message || e);
+      }
+
+      // Update watermark
+      try {
+        await AnalyticsWrites.updateWatermark(event.params.userId, { last_processed_workout_at: endTime });
+      } catch (e) {
+        console.warn('Non-fatal: failed to update watermark (create)', e?.message || e);
+      }
+
+      // Append per-exercise daily points
+      try {
+        const dayKey = endTime.split('T')[0];
+        const exercises = Array.isArray(workout.exercises) ? workout.exercises : [];
+        const perExercise = new Map();
+        for (const ex of exercises) {
+          const exId = ex.exercise_id;
+          if (!exId || !Array.isArray(ex.sets)) continue;
+          let maxE1 = 0; let vol = 0;
+          for (const s of ex.sets) {
+            if (!s.is_completed) continue;
+            const reps = typeof s.reps === 'number' ? s.reps : 0;
+            const w = typeof s.weight_kg === 'number' ? s.weight_kg : 0;
+            if (reps > 0 && w > 0) {
+              maxE1 = Math.max(maxE1, estimateE1RM(w, reps));
+              vol += w * reps;
+            }
+          }
+          const curr = perExercise.get(exId) || { e1rm: 0, vol: 0 };
+          curr.e1rm = Math.max(curr.e1rm, maxE1);
+          curr.vol += vol;
+          perExercise.set(exId, curr);
+        }
+        const writes = [];
+        for (const [exerciseId, point] of perExercise.entries()) {
+          writes.push(AnalyticsWrites.appendExerciseSeries(event.params.userId, exerciseId, dayKey, point, 1));
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to write per-exercise daily series (create)', e?.message || e);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error in onWorkoutCreatedWithEnd:', error);
       return { success: false, error: error.message };
     }
   }
@@ -351,6 +514,69 @@ exports.onWorkoutDeleted = onDocumentDeleted(
       const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
       const weekId = await getWeekStartForUser(event.params.userId, endTime);
       const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
+
+      // Roll back rollups and per-muscle weekly series
+      try {
+        await AnalyticsWrites.upsertRollup(event.params.userId, weekId, {
+          total_sets: workout.analytics.total_sets,
+          total_reps: workout.analytics.total_reps,
+          total_weight: workout.analytics.total_weight,
+          weight_per_muscle_group: workout.analytics.weight_per_muscle_group || {},
+        }, -1);
+
+        const setsByGroup = workout.analytics.sets_per_muscle_group || {};
+        const volByGroup = workout.analytics.weight_per_muscle_group || {};
+        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const writes = [];
+        for (const muscle of muscles) {
+          writes.push(
+            AnalyticsWrites.appendMuscleSeries(
+              event.params.userId,
+              muscle,
+              weekId,
+              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              -1
+            )
+          );
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to revert analytics series/rollups for workout delete', e?.message || e);
+      }
+
+      // Move watermark backwards only if needed is non-trivial; skip here to avoid regressions.
+
+      // Revert per-exercise daily points
+      try {
+        const dayKey = endTime.split('T')[0];
+        const exercises = Array.isArray(workout.exercises) ? workout.exercises : [];
+        const perExercise = new Map();
+        for (const ex of exercises) {
+          const exId = ex.exercise_id;
+          if (!exId || !Array.isArray(ex.sets)) continue;
+          let maxE1 = 0; let vol = 0;
+          for (const s of ex.sets) {
+            if (!s.is_completed) continue;
+            const reps = typeof s.reps === 'number' ? s.reps : 0;
+            const w = typeof s.weight_kg === 'number' ? s.weight_kg : 0;
+            if (reps > 0 && w > 0) {
+              maxE1 = Math.max(maxE1, estimateE1RM(w, reps));
+              vol += w * reps;
+            }
+          }
+          const curr = perExercise.get(exId) || { e1rm: 0, vol: 0 };
+          curr.e1rm = Math.max(curr.e1rm, maxE1);
+          curr.vol += vol;
+          perExercise.set(exId, curr);
+        }
+        const writes = [];
+        for (const [exerciseId, point] of perExercise.entries()) {
+          writes.push(AnalyticsWrites.appendExerciseSeries(event.params.userId, exerciseId, dayKey, point, -1));
+        }
+        if (writes.length) await Promise.allSettled(writes);
+      } catch (e) {
+        console.warn('Non-fatal: failed to revert per-exercise daily series', e?.message || e);
+      }
       
       if (!result.success) {
         console.error(`Failed to update weekly stats for deleted workout:`, result);

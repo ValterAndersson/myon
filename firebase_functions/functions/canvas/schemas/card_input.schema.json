@@ -1,0 +1,21 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/card_input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "content"],
+  "properties": {
+    "type": { "type": "string", "minLength": 1 },
+    "lane": { "type": "string", "enum": ["workout", "analysis", "system"] },
+    "content": { "type": "object" },
+    "ttl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minutes"],
+      "properties": { "minutes": { "type": "integer", "minimum": 1 } }
+    },
+    "refs": { "type": "object" }
+  }
+}
+
+

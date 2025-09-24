@@ -1,0 +1,25 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/card_types/visualization.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["chart_type", "spec_format"],
+  "properties": {
+    "chart_type": { "type": "string", "enum": ["line", "bar", "table", "heatmap", "sparkline"] },
+    "spec_format": { "type": "string", "enum": ["vega_lite"] },
+    "spec": { "type": "object" },
+    "dataset_inline": { "type": "object" },
+    "dataset_ref": {
+      "type": "object",
+      "properties": {
+        "uri": { "type": "string" },
+        "format": { "type": "string", "enum": ["parquet", "json", "csv"] },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string" }
+      }
+    },
+    "params": { "type": "object" }
+  }
+}
+
+

@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "card-base.schema.json",
+  "title": "Card Base",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "lane": { "enum": ["workout", "analysis", "system"] },
+    "status": { "enum": ["proposed", "active", "accepted", "rejected", "expired", "completed"] },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"], "default": "full" } }, "additionalProperties": false },
+    "meta": { "type": "object", "properties": { "context": { "type": "string" }, "groupId": { "type": "string" }, "pinned": { "type": "boolean" }, "dismissible": { "type": "boolean" } }, "additionalProperties": false },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/action" }
+    },
+    "menuItems": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/action" }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "action": {
+      "type": "object",
+      "required": ["kind", "label"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "label": { "type": "string" },
+        "style": { "enum": ["primary", "secondary", "ghost", "destructive"] },
+        "iconSystemName": { "type": "string" },
+        "payload": { "type": "object" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+
+

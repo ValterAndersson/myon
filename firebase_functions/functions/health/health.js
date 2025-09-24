@@ -1,5 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 
+const { ok } = require('../utils/response');
+
 // Simple health check endpoint for AI agents
 async function healthHandler(req, res) {
   // Add CORS headers
@@ -12,22 +14,12 @@ async function healthHandler(req, res) {
     return res.status(200).send();
   }
 
-  const response = {
-    success: true,
+  return ok(res, {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    services: {
-      firebase: 'online',
-      firestore: 'online'
-    },
-    endpoints: {
-      getUserAI: '/getUserAI',
-      health: '/health'
-    }
-  };
-
-  return res.status(200).json(response);
+    services: { firebase: 'online', firestore: 'online' },
+  });
 }
 
 // Export the health check function (no auth required)

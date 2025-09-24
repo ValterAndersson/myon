@@ -1,6 +1,9 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
+const { RoutineSchema } = require('../utils/validators');
+const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
 
@@ -10,36 +13,19 @@ const db = new FirestoreHelper();
  * Description: Creates weekly/monthly routine structures for AI
  */
 async function createRoutineHandler(req, res) {
-  const { userId, routine } = req.body;
-  
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing userId',
-      usage: 'Provide userId in request body'
-    });
-  }
-  
-  if (!routine || !routine.name) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid routine data',
-      required: {
-        name: 'string',
-        template_ids: 'array (optional)',
-        frequency: 'number (optional)',
-        description: 'string (optional)'
-      },
-      usage: 'Provide routine object with at least name'
-    });
-  }
+  const { userId, routine } = req.body || {};
+  if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
+  const parsed = RoutineSchema.safeParse(routine);
+  if (!parsed.success) return fail(res, 'INVALID_ARGUMENT', 'Invalid routine data', parsed.error.flatten(), 400);
 
   try {
     // Enhanced routine (remove manual timestamps - FirestoreHelper handles them)
     const enhancedRoutine = {
       ...routine,
       frequency: routine.frequency || 3,
-      template_ids: routine.template_ids || routine.templateIds || [] // Support both snake_case and camelCase
+      template_ids: routine.template_ids || routine.templateIds || [],
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
     };
     
     // Remove camelCase version if it exists
@@ -54,28 +40,11 @@ async function createRoutineHandler(req, res) {
     // Get the created routine for response
     const createdRoutine = await db.getDocumentFromSubcollection('users', userId, 'routines', routineId);
 
-    return res.status(201).json({
-      success: true,
-      data: createdRoutine,
-      routineId: routineId,
-      metadata: {
-        function: 'create-routine',
-        userId: userId,
-        createdAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, { routine: createdRoutine, routineId });
 
   } catch (error) {
     console.error('create-routine function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to create routine',
-      details: error.message,
-      function: 'create-routine',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to create routine', { message: error.message }, 500);
   }
 }
 

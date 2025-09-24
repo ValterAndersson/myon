@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "swap-request.schema.json",
+  "title": "Swap Request",
+  "type": "object",
+  "required": ["scope", "choice"],
+  "properties": {
+    "scope": { "enum": ["exercise", "day", "routine"] },
+    "choice": { "enum": ["muscle", "equipment", "variant", "custom"] },
+    "details": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+
+

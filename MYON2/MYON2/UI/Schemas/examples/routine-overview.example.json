@@ -1,0 +1,12 @@
+{
+  "id": "ov1",
+  "type": "routineOverview",
+  "title": "Your Program",
+  "split": "Push/Pull/Legs",
+  "days": 3,
+  "notes": "Compound focus with balanced accessories.",
+  "layout": { "width": "full" },
+  "actions": [ { "kind": "refine", "label": "Refine", "style": "secondary" } ]
+}
+
+

@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
 
@@ -12,28 +13,12 @@ const db = new FirestoreHelper();
 async function getWorkoutHandler(req, res) {
   const userId = req.query.userId || req.body?.userId;
   const workoutId = req.query.workoutId || req.body?.workoutId;
-  
-  if (!userId || !workoutId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameters',
-      required: ['userId', 'workoutId'],
-      usage: 'Provide both userId and workoutId'
-    });
-  }
+  if (!userId || !workoutId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','workoutId'], 400);
 
   try {
     // Get workout
     const workout = await db.getDocumentFromSubcollection('users', userId, 'workouts', workoutId);
-    
-    if (!workout) {
-      return res.status(404).json({
-        success: false,
-        error: 'Workout not found',
-        userId: userId,
-        workoutId: workoutId
-      });
-    }
+    if (!workout) return fail(res, 'NOT_FOUND', 'Workout not found', null, 404);
 
     // Get template info if available
     let template = null;
@@ -66,30 +51,11 @@ async function getWorkoutHandler(req, res) {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: workout,
-      template: template,
-      metrics: metrics,
-      metadata: {
-        function: 'get-workout',
-        userId: userId,
-        workoutId: workoutId,
-        requestedAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, { workout, template, metrics });
 
   } catch (error) {
     console.error('get-workout function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to get workout',
-      details: error.message,
-      function: 'get-workout',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to get workout', { message: error.message }, 500);
   }
 }
 

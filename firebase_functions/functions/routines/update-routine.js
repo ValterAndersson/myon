@@ -1,6 +1,9 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
+const { RoutineSchema } = require('../utils/validators');
+const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
 
@@ -8,24 +11,14 @@ const db = new FirestoreHelper();
  * Firebase Function: Update Routine
  */
 async function updateRoutineHandler(req, res) {
-  const { userId, routineId, routine } = req.body;
-  
-  if (!userId || !routineId || !routine) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameters',
-      required: ['userId', 'routineId', 'routine']
-    });
-  }
+  const { userId, routineId, routine } = req.body || {};
+  if (!userId || !routineId || !routine) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','routineId','routine'], 400);
+  const parsed = RoutineSchema.safeParse(routine);
+  if (!parsed.success) return fail(res, 'INVALID_ARGUMENT', 'Invalid routine data', parsed.error.flatten(), 400);
 
   try {
     const existingRoutine = await db.getDocumentFromSubcollection('users', userId, 'routines', routineId);
-    if (!existingRoutine) {
-      return res.status(404).json({
-        success: false,
-        error: 'Routine not found'
-      });
-    }
+    if (!existingRoutine) return fail(res, 'NOT_FOUND', 'Routine not found', null, 404);
 
     const updatedRoutine = {
       ...routine,
@@ -33,27 +26,17 @@ async function updateRoutineHandler(req, res) {
       id: routine.id || routineId
     };
 
-    await db.updateDocumentInSubcollection('users', userId, 'routines', routineId, updatedRoutine);
+    await db.updateDocumentInSubcollection('users', userId, 'routines', routineId, {
+      ...updatedRoutine,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
     const result = await db.getDocumentFromSubcollection('users', userId, 'routines', routineId);
 
-    return res.status(200).json({
-      success: true,
-      data: result,
-      metadata: {
-        function: 'update-routine',
-        userId: userId,
-        routineId: routineId,
-        updatedAt: new Date().toISOString()
-      }
-    });
+    return ok(res, { routine: result });
 
   } catch (error) {
     console.error('update-routine function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to update routine',
-      details: error.message
-    });
+    return fail(res, 'INTERNAL', 'Failed to update routine', { message: error.message }, 500);
   }
 }
 

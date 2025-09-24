@@ -58,6 +58,24 @@ async function getUserHandler(req, res) {
     // Process user attributes for fitness profile (single document structure)
     const fitnessProfile = userAttributes || {};
 
+    // Normalize user preferences for agents (backwards-compatible)
+    const tz = user.timezone || userAttributes?.timezone || null;
+    const weightFormat = userAttributes?.weight_format || user.weightFormat || 'kilograms';
+    const heightFormat = userAttributes?.height_format || user.heightFormat || 'centimeter';
+    const weekStartsMonday = (
+      userAttributes?.week_starts_on_monday ?? user.week_starts_on_monday ?? false
+    );
+    const preferences = {
+      timezone: tz,
+      weight_format: weightFormat,              // 'kilograms' | 'pounds'
+      height_format: heightFormat,              // 'centimeter' | 'feet'
+      week_starts_on_monday: !!weekStartsMonday,
+      first_day_of_week: weekStartsMonday ? 'monday' : 'sunday',
+      weight_unit: weightFormat === 'pounds' ? 'lbs' : 'kg',
+      height_unit: heightFormat === 'feet' ? 'ft' : 'cm',
+      locale: user.locale || userAttributes?.locale || null
+    };
+
     const response = {
       success: true,
       data: user,
@@ -76,6 +94,7 @@ async function getUserHandler(req, res) {
         workoutFrequency: fitnessProfile.workouts_per_week_goal || 'unknown',
         height: fitnessProfile.height || null,
         weight: fitnessProfile.weight || null,
+        preferences,
         fitnessProfile: fitnessProfile // Include all attributes for debugging
       },
       metadata: {

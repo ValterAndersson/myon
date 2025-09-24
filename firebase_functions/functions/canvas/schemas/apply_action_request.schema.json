@@ -1,0 +1,14 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/apply_action_request.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["canvasId", "action"],
+  "properties": {
+    "canvasId": { "type": "string", "minLength": 1 },
+    "expected_version": { "type": "integer", "minimum": 0 },
+    "action": { "$ref": "./action.schema.json" }
+  }
+}
+
+

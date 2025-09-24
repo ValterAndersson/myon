@@ -750,7 +750,9 @@ class DirectStreamingService: ObservableObject {
         switch name {
         // User management
         case "get_user": return "Loading user profile"
+        case "get_user_preferences": return "Loading preferences"
         case "update_user": return "Updating user profile"
+        case "update_user_preferences": return "Updating preferences"
         case "get_my_user_id": return "Checking user session"
         
         // Exercise database
@@ -778,6 +780,23 @@ class DirectStreamingService: ObservableObject {
         case "delete_routine": return "Deleting routine"
         case "set_active_routine": return "Activating routine"
         
+        // Exercise admin
+        case "upsert_exercise": return "Saving exercise"
+        case "approve_exercise": return "Approving exercise"
+
+        // Active workout
+        case "propose_session": return "Proposing session"
+        case "start_active_workout": return "Starting workout"
+        case "get_active_workout": return "Loading active workout"
+        case "prescribe_set": return "Prescribing set"
+        case "log_set": return "Logging set"
+        case "score_set": return "Scoring set"
+        case "add_exercise": return "Adding exercise"
+        case "swap_exercise": return "Swapping exercise"
+        case "complete_active_workout": return "Completing workout"
+        case "cancel_active_workout": return "Cancelling workout"
+        case "note_active_workout": return "Adding note"
+
         // Memory management
         case "store_important_fact": return "Saving important information"
         case "get_important_facts": return "Recalling saved information"
@@ -790,7 +809,9 @@ class DirectStreamingService: ObservableObject {
         switch name {
         // User management
         case "get_user": return "User profile loaded"
+        case "get_user_preferences": return "Preferences loaded"
         case "update_user": return "Profile updated"
+        case "update_user_preferences": return "Preferences updated"
         case "get_my_user_id": return "Session verified"
         
         // Exercise database
@@ -818,6 +839,23 @@ class DirectStreamingService: ObservableObject {
         case "delete_routine": return "Routine deleted"
         case "set_active_routine": return "Routine activated"
         
+        // Exercise admin
+        case "upsert_exercise": return "Exercise saved"
+        case "approve_exercise": return "Exercise approved"
+
+        // Active workout
+        case "propose_session": return "Session proposed"
+        case "start_active_workout": return "Workout started"
+        case "get_active_workout": return "Active workout loaded"
+        case "prescribe_set": return "Set prescribed"
+        case "log_set": return "Set logged"
+        case "score_set": return "Set scored"
+        case "add_exercise": return "Exercise added"
+        case "swap_exercise": return "Exercise swapped"
+        case "complete_active_workout": return "Workout completed"
+        case "cancel_active_workout": return "Workout cancelled"
+        case "note_active_workout": return "Note added"
+
         // Memory management
         case "store_important_fact": return "Information saved"
         case "get_important_facts": return "Information recalled"

@@ -1,0 +1,15 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/card_types/coach_proposal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["action", "delta", "reason_code"],
+  "properties": {
+    "action": { "type": "string" },
+    "delta": { "type": "object" },
+    "reason_code": { "type": "string" },
+    "rationale_ui": { "type": "string" }
+  }
+}
+
+

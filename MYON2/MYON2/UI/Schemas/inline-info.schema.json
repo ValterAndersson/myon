@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "inline-info.schema.json",
+  "title": "Inline Info",
+  "type": "object",
+  "required": ["id", "type", "text"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "inlineInfo" },
+    "text": { "type": "string" },
+    "iconSystemName": { "type": "string" },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"], "default": "oneHalf" } } },
+    "meta": { "$ref": "card-base.schema.json#/properties/meta" },
+    "actions": { "$ref": "card-base.schema.json#/properties/actions" },
+    "menuItems": { "$ref": "card-base.schema.json#/properties/menuItems" }
+  },
+  "additionalProperties": false
+}
+
+

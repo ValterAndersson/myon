@@ -1,0 +1,13 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/card_types/proposal_group.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "groupId": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" }
+  }
+}
+
+

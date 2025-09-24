@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-09-20T23:14:13.923945",
+  "jobs_completed": 3,
+  "jobs_in_progress": 0,
+  "tasks_by_status": {
+    "completed": 3
+  },
+  "tasks_by_agent": {
+    "analyst": 1,
+    "enrichment": 1,
+    "scout": 1
+  }
+}

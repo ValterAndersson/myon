@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseFunctions
-// Import your models if needed
+// Archived path: Prefer direct HTTP via ApiClient for onRequest endpoints.
+// Keeping limited callable use for legacy features only.
 
 struct WeeklyStatsRecalculationResult: Codable {
     let success: Bool

@@ -1,0 +1,38 @@
+{
+  "groupHeader": {
+    "id": "grp1",
+    "type": "groupHeader",
+    "title": "Program Proposal",
+    "layout": { "width": "full" },
+    "meta": { "context": "proposal", "groupId": "grp1" },
+    "actions": [
+      { "kind": "accept_all", "label": "Accept all", "style": "primary" },
+      { "kind": "reject_all", "label": "Reject all", "style": "secondary" }
+    ]
+  },
+  "overview": {
+    "id": "ov1",
+    "type": "routineOverview",
+    "title": "Your Program",
+    "split": "Push/Pull/Legs",
+    "days": 3,
+    "notes": "Compound focus with balanced accessories.",
+    "layout": { "width": "full" },
+    "meta": { "context": "proposal", "groupId": "grp1" },
+    "actions": [ { "kind": "refine", "label": "Refine", "style": "secondary" } ]
+  },
+  "day1": {
+    "id": "d1",
+    "type": "list",
+    "title": "Day 1",
+    "layout": { "width": "full" },
+    "meta": { "context": "proposal", "groupId": "grp1" },
+    "options": [
+      { "id": "ex1", "title": "Bench Press", "subtitle": "4 sets of 8 reps", "iconSystemName": "dumbbell" },
+      { "id": "ex2", "title": "Pull Ups", "subtitle": "3 sets to failure", "iconSystemName": "figure.pullup" }
+    ],
+    "actions": [ { "kind": "apply", "label": "Apply", "style": "primary" }, { "kind": "dismiss", "label": "Dismiss", "style": "secondary" } ]
+  }
+}
+
+

@@ -1,0 +1,13 @@
+{
+  "id": "cq1",
+  "type": "clarifyQuestions",
+  "title": "A few questions",
+  "layout": { "width": "full" },
+  "questions": [
+    { "id": "q_days", "label": "How many days can you train?", "type": "choice", "options": ["2", "3", "4", "5"] },
+    { "id": "q_equip", "label": "Any equipment limitations?", "type": "text" }
+  ],
+  "actions": [ { "kind": "submit_answers", "label": "Submit", "style": "primary" } ]
+}
+
+

@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "session-plan.schema.json",
+  "title": "Session Plan Card",
+  "type": "object",
+  "required": ["id", "type", "exercises"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "sessionPlan" },
+    "title": { "type": "string" },
+    "exercises": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "sets"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "sets": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
+
+

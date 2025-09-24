@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "routine-overview.schema.json",
+  "title": "Routine Overview",
+  "type": "object",
+  "required": ["id", "type", "split", "days"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "routineOverview" },
+    "title": { "type": "string" },
+    "split": { "type": "string" },
+    "days": { "type": "integer", "minimum": 1 },
+    "notes": { "type": "string" },
+    "layout": { "type": "object", "properties": { "width": { "enum": ["oneThird", "oneHalf", "full"], "default": "full" } } },
+    "meta": { "$ref": "card-base.schema.json#/properties/meta" },
+    "actions": { "$ref": "card-base.schema.json#/properties/actions" },
+    "menuItems": { "$ref": "card-base.schema.json#/properties/menuItems" }
+  },
+  "additionalProperties": false
+}
+
+

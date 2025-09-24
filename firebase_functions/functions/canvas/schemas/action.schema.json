@@ -1,0 +1,111 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/action.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "idempotency_key"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["ADD_INSTRUCTION", "ACCEPT_PROPOSAL", "REJECT_PROPOSAL", "ADD_NOTE", "LOG_SET", "SWAP", "ADJUST_LOAD", "REORDER_SETS", "PAUSE", "RESUME", "COMPLETE", "UNDO"]
+    },
+    "card_id": { "type": "string" },
+    "payload": { "type": ["object", "null"] },
+    "by": { "type": "string", "enum": ["user", "agent"], "default": "user" },
+    "idempotency_key": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "ACCEPT_PROPOSAL" } } },
+      "then": { "required": ["card_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "REJECT_PROPOSAL" } } },
+      "then": { "required": ["card_id"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "LOG_SET" } } },
+      "then": {
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workout_id", "exercise_id", "set_index", "actual"],
+            "properties": {
+              "workout_id": { "type": "string", "minLength": 1 },
+              "exercise_id": { "type": "string", "minLength": 1 },
+              "set_index": { "type": "integer", "minimum": 0 },
+              "actual": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["reps", "rir"],
+                "properties": {
+                  "reps": { "type": "integer", "minimum": 0 },
+                  "rir": { "type": "integer", "minimum": 0, "maximum": 5 },
+                  "weight": { "type": "number" },
+                  "tempo": { "type": "string" },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "SWAP" } } },
+      "then": {
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["exercise_id", "replacement_exercise_id"],
+            "properties": {
+              "exercise_id": { "type": "string", "minLength": 1 },
+              "replacement_exercise_id": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "ADJUST_LOAD" } } },
+      "then": {
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["exercise_id", "set_index", "delta_kg"],
+            "properties": {
+              "exercise_id": { "type": "string", "minLength": 1 },
+              "set_index": { "type": "integer", "minimum": 0 },
+              "delta_kg": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "REORDER_SETS" } } },
+      "then": {
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["exercise_id", "order"],
+            "properties": {
+              "exercise_id": { "type": "string", "minLength": 1 },
+              "order": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 0 } }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+
+

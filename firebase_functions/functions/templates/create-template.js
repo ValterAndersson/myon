@@ -2,6 +2,9 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { calculateTemplateAnalytics } = require('../utils/analytics-calculator');
+const { ok, fail } = require('../utils/response');
+const { TemplateSchema } = require('../utils/validators');
+const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
 
@@ -13,30 +16,17 @@ const db = new FirestoreHelper();
 async function createTemplateHandler(req, res) {
   const { userId, template } = req.body;
   
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing userId',
-      usage: 'Provide userId in request body'
-    });
-  }
-  
-  if (!template || !template.name || !template.exercises || !Array.isArray(template.exercises) || template.exercises.length === 0) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid template data',
-      required: {
-        name: 'string',
-        exercises: 'array (min 1 exercise)',
-        description: 'string (optional)'
-      },
-      usage: 'Provide complete template object with at least name and exercises array'
-    });
-  }
+  if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
+  const parsed = TemplateSchema.safeParse(template);
+  if (!parsed.success) return fail(res, 'INVALID_ARGUMENT', 'Invalid template data', parsed.error.flatten(), 400);
 
   try {
     // Create template first
-    const templateId = await db.addDocumentToSubcollection('users', userId, 'templates', template);
+    const templateId = await db.addDocumentToSubcollection('users', userId, 'templates', {
+      ...template,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     // Ensure the document has an `id` field (use the Firestore doc ID)
     await db.updateDocumentInSubcollection('users', userId, 'templates', templateId, { id: templateId });
@@ -56,28 +46,11 @@ async function createTemplateHandler(req, res) {
       }
     }
 
-    return res.status(201).json({
-      success: true,
-      data: createdTemplate,
-      templateId: templateId,
-      metadata: {
-        function: 'create-template',
-        userId: userId,
-        createdAt: new Date().toISOString(),
-        authType: req.auth?.type || 'firebase',
-        source: req.auth?.source || 'user_app'
-      }
-    });
+    return ok(res, { template: createdTemplate, templateId });
 
   } catch (error) {
     console.error('create-template function error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to create template',
-      details: error.message,
-      function: 'create-template',
-      timestamp: new Date().toISOString()
-    });
+    return fail(res, 'INTERNAL', 'Failed to create template', { message: error.message }, 500);
   }
 }
 

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "suggestion.schema.json",
+  "title": "Suggestion Card",
+  "type": "object",
+  "required": ["id", "type", "title"],
+  "properties": {
+    "id": { "type": "string" },
+    "type": { "const": "suggestion" },
+    "title": { "type": "string" },
+    "rationale": { "type": "string" },
+    "actions": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["accept", "reject"] },
+      "default": ["accept", "reject"]
+    }
+  },
+  "additionalProperties": false
+}
+
+

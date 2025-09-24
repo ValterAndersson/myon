@@ -1,0 +1,13 @@
+{
+  "$id": "https://myon.dev/schemas/canvas/card_types/inline_info.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "headline": { "type": "string" },
+    "body": { "type": "string" },
+    "severity": { "type": "string", "enum": ["info", "success", "warning", "error"] }
+  }
+}
+
+
