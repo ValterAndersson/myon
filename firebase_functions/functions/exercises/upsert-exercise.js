@@ -9,6 +9,130 @@ const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
 
+// --- Lightweight normalizers (low-risk) ---
+function _kebabToken(s) {
+  return String(s || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+}
+
+function _uniqueArray(arr) {
+  return Array.from(new Set((arr || []).filter(Boolean)));
+}
+
+function normalizeMovement(mv) {
+  if (!mv || typeof mv !== 'object') return mv;
+  const typeMap = {
+    'hip hinge': 'hinge',
+    hinge: 'hinge',
+    push: 'push',
+    pull: 'pull',
+    squat: 'squat',
+    carry: 'carry',
+    rotate: 'rotate',
+    rotation: 'rotate',
+    power: 'power',
+    explosive: 'power',
+    accessory: 'accessory',
+    other: 'other',
+  };
+  const splitMap = {
+    upper: 'upper',
+    lower: 'lower',
+    'lower-body': 'lower',
+    lower_body: 'lower',
+    full: 'full',
+    'full-body': 'full',
+    full_body: 'full',
+  };
+  const out = { ...mv };
+  if (mv.type) {
+    const key = String(mv.type).trim().toLowerCase();
+    out.type = typeMap[key] || key;
+  }
+  if (mv.split) {
+    const key = String(mv.split).trim().toLowerCase();
+    out.split = splitMap[key] || key;
+  }
+  return out;
+}
+
+function normalizeMetadata(md) {
+  if (!md || typeof md !== 'object') return md;
+  const levelMap = { beginner: 'beginner', intermediate: 'intermediate', advanced: 'advanced' };
+  const planeMap = { sagittal: 'sagittal', frontal: 'frontal', transverse: 'transverse' };
+  const out = { ...md };
+  if (md.level) {
+    const k = String(md.level).trim().toLowerCase();
+    out.level = levelMap[k] || k;
+  }
+  if (md.plane_of_motion) {
+    const p = String(md.plane_of_motion).trim().toLowerCase();
+    out.plane_of_motion = planeMap[p] || p;
+  }
+  if (typeof md.unilateral !== 'undefined') {
+    out.unilateral = Boolean(md.unilateral);
+  }
+  return out;
+}
+
+function normalizeEquipment(eq) {
+  if (!Array.isArray(eq)) return eq;
+  return _uniqueArray(eq.map(_kebabToken));
+}
+
+function normalizeStimulusTags(tags) {
+  if (!Array.isArray(tags)) return tags;
+  return _uniqueArray(tags.map(t => String(t || '').trim().toLowerCase()).filter(Boolean));
+}
+
+function normalizeMuscles(muscles) {
+  if (!muscles || typeof muscles !== 'object') return muscles;
+  const out = { ...muscles };
+  // category: array of strings only
+  if (typeof muscles.category === 'string') {
+    out.category = [muscles.category];
+  } else if (muscles.category && !Array.isArray(muscles.category) && typeof muscles.category === 'object') {
+    const vals = [];
+    for (const k of Object.keys(muscles.category || {})) {
+      const v = muscles.category[k];
+      if (Array.isArray(v)) vals.push(...v);
+      else if (typeof v === 'string') vals.push(v);
+    }
+    out.category = _uniqueArray(vals);
+  }
+  if (Array.isArray(muscles.category)) {
+    out.category = _uniqueArray(muscles.category);
+  }
+  // contribution: map of muscle -> number in [0,1], sum to 1.0
+  if (muscles.contribution && typeof muscles.contribution === 'object') {
+    const raw = muscles.contribution;
+    const keys = Object.keys(raw);
+    let values = keys.map(k => Number(raw[k]));
+    const anyGtOne = values.some(v => v > 1);
+    if (anyGtOne) values = values.map(v => v / 100);
+    let sum = values.reduce((a, b) => a + (isFinite(b) ? b : 0), 0);
+    if (sum > 0) {
+      const normalized = {};
+      keys.forEach((k, i) => {
+        const val = values[i] / sum;
+        normalized[k] = Math.round(val * 1000) / 1000; // 3 decimals
+      });
+      out.contribution = normalized;
+    }
+  }
+  return out;
+}
+
+function normalizeDoc(doc) {
+  const d = { ...doc };
+  if (d.movement) d.movement = normalizeMovement(d.movement);
+  if (d.metadata) d.metadata = normalizeMetadata(d.metadata);
+  if (d.equipment) d.equipment = normalizeEquipment(d.equipment);
+  if (d.stimulus_tags) d.stimulus_tags = normalizeStimulusTags(d.stimulus_tags);
+  if (d.muscles) d.muscles = normalizeMuscles(d.muscles);
+  if (d.category && typeof d.category === 'string') d.category = String(d.category).trim().toLowerCase();
+  return d;
+}
+
 async function findExistingBySlugOrAliases(canonicalSlug, aliasSlugs) {
   // Try name_slug exact
   const byName = await db.getDocuments('exercises', { where: [{ field: 'name_slug', operator: '==', value: canonicalSlug }], limit: 1 });
@@ -112,10 +236,12 @@ async function upsertExerciseHandler(req, res) {
       const current = await db.getDocument('exercises', id);
       const targetId = current?.merged_into || id;
       // Upsert semantics: create if missing, merge if exists
-      await db.upsertDocument('exercises', targetId, { ...data, id: targetId });
+      const normalized = normalizeDoc({ ...data, id: targetId });
+      await db.upsertDocument('exercises', targetId, normalized);
       id = targetId;
     } else {
-      id = await db.addDocument('exercises', data);
+      const normalized = normalizeDoc(data);
+      id = await db.addDocument('exercises', normalized);
     }
 
     // Reserve aliases atomically (id already mirrored above for upsert path)

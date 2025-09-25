@@ -5,6 +5,7 @@ import json
 from typing import Optional, Dict, Any, List
 from google.adk.agents import Agent
 from google.adk.tools import FunctionTool
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import from app.libs (copied into app directory for deployment)
 try:
@@ -260,18 +261,60 @@ def tool_llm_analyst(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             for ex in items or []:
                 if isinstance(ex, dict) and ex.get("id"):
                     exercise_by_id[ex["id"]] = ex
+            routed_any = False
+            def _field_root(field_name: Any) -> str:
+                try:
+                    s = str(field_name)
+                    return s.split(".")[0] if "." in s else s
+                except Exception:
+                    return ""
+            def _belongs_to_role(field_name: Any, role_fields_for_match: set[str]) -> bool:  # type: ignore[name-defined]
+                root = _field_root(field_name)
+                return (str(field_name) in role_fields_for_match) or (root in role_fields_for_match)
+
+            # Build role -> items map
+            role_to_items: Dict[str, List[Dict[str, Any]]] = {}
             for role, fields in role_fields.items():
                 shaped: List[Dict[str, Any]] = []
                 for rep in reports:
                     ex_id = rep.get("exercise_id")
                     if not ex_id or ex_id not in exercise_by_id:
                         continue
-                    relevant = [i for i in (rep.get("issues") or []) if (i.get("field") in fields) and (i.get("severity", "").lower() in {"critical", "high"})]
-                    if relevant:
-                        shaped.append({"exercise": exercise_by_id[ex_id], "target_issues": relevant})
+                    role_issues: List[Dict[str, Any]] = []
+                    for issue in (rep.get("issues") or []):
+                        sev = (issue.get("severity") or "").lower()
+                        if sev not in {"critical", "high"}:
+                            continue
+                        if _belongs_to_role(issue.get("field"), fields):
+                            role_issues.append(issue)
+                    if role_issues:
+                        shaped.append({"exercise": exercise_by_id[ex_id], "target_issues": role_issues})
+                logger.info({"orchestrator": "route_to_specialist_scan", "role": role, "matched_items": len(shaped)})
                 if shaped:
-                    logger.info({"orchestrator": "route_to_specialist", "role": role, "items": len(shaped)})
-                    tool_llm_specialist(role=role, items=shaped)
+                    routed_any = True
+                    role_to_items[role] = shaped
+            if not routed_any:
+                logger.info({"orchestrator": "route_to_specialist", "note": "no routing triggered", "reports": len(reports or [])})
+            else:
+                # Run all specialists in parallel per role
+                try:
+                    t0 = time.time()
+                    with ThreadPoolExecutor(max_workers=len(role_to_items)) as pool:
+                        future_map = {}
+                        for role, items in role_to_items.items():
+                            logger.info({"orchestrator": "route_to_specialist", "role": role, "items": len(items), "mode": "parallel_start"})
+                            future = pool.submit(tool_llm_specialist, role=role, items=items)
+                            future_map[future] = role
+                        for fut in as_completed(future_map):
+                            role = future_map[fut]
+                            try:
+                                _ = fut.result()
+                                logger.info({"orchestrator": "route_to_specialist", "role": role, "status": "completed"})
+                            except Exception as e:
+                                logger.error({"orchestrator": "route_to_specialist", "role": role, "status": "failed", "error": str(e)})
+                    logger.info({"orchestrator": "route_to_specialist", "mode": "parallel_all_done", "ms": int((time.time()-t0)*1000)})
+                except Exception as e:
+                    logger.error({"orchestrator": "route_to_specialist", "mode": "parallel_error", "error": str(e)})
             # After specialists, re-run analyst for verification (switch to reasoning model)
             try:
                 agent.switch_to_reasoning_model()  # deeper pass only on verification
@@ -644,14 +687,15 @@ catalog_admin_instruction = (
     "- Normalize exercise names, families, and variants\n"
     "- Approve exercises after quality review\n"
     "\n"
-    "Operating model (self-directed):\n"
-    "- Start by calling tool_llm_fetch_catalog to understand current state (canonical-only).\n"
-    "- Use tool_llm_scout and tool_llm_analyst to decide the next actions.\n"
-    "- If triage normalization is needed, call tool_llm_triage.\n"
-    "- Route Analyst issues to Specialists explicitly: For each role in {content, biomechanics, anatomy, programming}, build an items list shaped as [{ 'exercise': <exercise JSON>, 'target_issues': [ { 'field': str, 'issue_type': str, 'severity': str, 'description': str } ] }], selecting only issues relevant to that role (prefer critical/high first). Then call tool_llm_specialist(role=<role>, items=<items>).\n"
-    "- Use tool_llm_enrichment when alias/family normalization is required.\n"
-    "- After specialist improvements, call tool_llm_analyst again to verify quality.\n"
-    "- Then run tool_llm_approver_decide(exercises=<current set>, reports=<latest analyst reports>, auto_apply=True) to evaluate approvals and apply them.\n"
+    "Mandatory execution plan (do not stop early):\n"
+    "1) Call tool_llm_fetch_catalog (canonical-only).\n"
+    "2) Immediately call tool_llm_analyst on the fetched exercises (respect the limit).\n"
+    "3) If the Analyst reports issues, route to Specialists by role: for each of {content, biomechanics, anatomy, programming},\n"
+    "   build items as [{ 'exercise': <exercise JSON>, 'target_issues': [ { 'field': str, 'issue_type': str, 'severity': str, 'description': str } ] }]\n"
+    "   selecting issues relevant to that role (prefer critical/high first), then call tool_llm_specialist(role=<role>, items=<items>).\n"
+    "4) After specialists complete, call tool_llm_analyst again on the refreshed exercises to verify improvements.\n"
+    "5) Call tool_llm_approver_decide(exercises=<current set>, reports=<latest analyst reports>, auto_apply=True).\n"
+    "Only skip a step if there are zero exercises, otherwise execute all steps above in order.\n"
     "\n"
     "Key principles:\n"
     "- Use tool_get_exercises or tool_search_exercises to explore the catalog (pass canonicalOnly=true)\n"

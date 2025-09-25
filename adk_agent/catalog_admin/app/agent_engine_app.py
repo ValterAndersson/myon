@@ -97,7 +97,15 @@ def deploy_catalog_admin(
         "env_vars": env_vars,
         "requirements": requirements,
     }
-    logging.info(f"Catalog Admin config: {cfg}")
+    # Redact secrets from logs
+    try:
+        redacted_keys = {"GOOGLE_API_KEY", "GEMINI_API_KEY", "FIREBASE_ID_TOKEN"}
+        safe_env = {k: ("***" if k in redacted_keys else v) for k, v in (env_vars or {}).items()}
+        log_cfg = dict(cfg)
+        log_cfg["env_vars"] = safe_env
+        logging.info(f"Catalog Admin config: {log_cfg}")
+    except Exception:
+        logging.info("Catalog Admin config prepared (env redacted)")
 
     if existing:
         logging.info(f"Updating existing Catalog Admin: {agent_name}")

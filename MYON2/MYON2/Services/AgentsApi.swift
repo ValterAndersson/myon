@@ -9,6 +9,7 @@ struct AgentInvokeRequest: Codable {
 enum AgentsApi {
     static func invokeCanvasOrchestrator(_ req: AgentInvokeRequest) async throws {
         struct Empty: Decodable {}
+        DebugLogger.log(.agent, "invokeCanvasOrchestrator user=\(req.userId) canvas=\(req.canvasId)")
         let _: Empty = try await ApiClient.shared.postJSON("invokeCanvasOrchestrator", body: req)
     }
 }

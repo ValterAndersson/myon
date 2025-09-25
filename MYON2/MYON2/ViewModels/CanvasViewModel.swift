@@ -33,7 +33,9 @@ final class CanvasViewModel: ObservableObject {
                 await MainActor.run { CanvasRepository.shared.currentCanvasId = canvasId }
                 self.isReady = false
                 self.attachEventsListener(userId: userId, canvasId: canvasId)
+                DebugLogger.log(.canvas, "subscribe: user=\(userId) canvas=\(canvasId)")
                 for try await snap in self.repo.subscribe(userId: userId, canvasId: canvasId) {
+                    DebugLogger.debug(.canvas, "snapshot: v=\(snap.version) cards=\(snap.cards.count) upNext=\(snap.upNext.count)")
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
@@ -42,6 +44,7 @@ final class CanvasViewModel: ObservableObject {
                 }
             } catch {
                 self.errorMessage = error.localizedDescription
+                DebugLogger.error(.canvas, "subscribe error: \(error.localizedDescription)")
             }
         }
     }
@@ -56,7 +59,9 @@ final class CanvasViewModel: ObservableObject {
                 await MainActor.run { CanvasRepository.shared.currentCanvasId = cid }
                 self.isReady = false
                 self.attachEventsListener(userId: userId, canvasId: cid)
+                DebugLogger.log(.canvas, "bootstrapped canvas id=\(cid) purpose=\(purpose)")
                 for try await snap in self.repo.subscribe(userId: userId, canvasId: cid) {
+                    DebugLogger.debug(.canvas, "snapshot: v=\(snap.version) cards=\(snap.cards.count) upNext=\(snap.upNext.count)")
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
@@ -65,6 +70,7 @@ final class CanvasViewModel: ObservableObject {
                 }
             } catch {
                 self.errorMessage = error.localizedDescription
+                DebugLogger.error(.canvas, "bootstrap/subscribe error: \(error.localizedDescription)")
             }
         }
     }
@@ -111,6 +117,7 @@ final class CanvasViewModel: ObservableObject {
             for doc in docs {
                 if let payload = doc.data()["payload"] as? [String: Any], let correlation = payload["correlation_id"] as? String {
                     print("[CanvasTelemetry] event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
+                    DebugLogger.debug(.canvas, "event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
                 }
             }
         }

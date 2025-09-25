@@ -716,6 +716,10 @@ The "improvements" object should contain only the fields that need updating."""
         if "common_mistakes" in data:
             sanitized["common_mistakes"] = as_str_list(data["common_mistakes"])[:10]
 
+        # Coaching cues (content role)
+        if "coaching_cues" in data:
+            sanitized["coaching_cues"] = as_str_list(data["coaching_cues"])[:10]
+
         # Programming fields
         if "programming_use_cases" in data:
             sanitized["programming_use_cases"] = as_str_list(data["programming_use_cases"])[:10]

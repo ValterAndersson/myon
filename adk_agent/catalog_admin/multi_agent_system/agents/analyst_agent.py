@@ -296,6 +296,7 @@ Provide a comprehensive analysis in JSON format:
 
             has_critical = any((i.get("severity") or "").lower() == "critical" for i in issues)
             structural_ok, content_ok, _aliases_ok = self._structural_content_flags(exercise)
+            ready_mask = self._compute_ready_mask(exercise)
             ready = bool(response.get("ready_for_approval", False)) or (not has_critical and structural_ok and content_ok and final_quality >= 0.80)
 
             return {
@@ -306,6 +307,7 @@ Provide a comprehensive analysis in JSON format:
                 "consistency_score": response.get("consistency_score", 0),
                 "accuracy_score": response.get("accuracy_score", 0),
                 "ready_for_approval": ready,
+                "ready_mask": ready_mask,
                 "issues": issues,
                 "strengths": response.get("strengths", []),
                 "recommendations": response.get("recommendations", [])
@@ -377,6 +379,30 @@ Provide a comprehensive analysis in JSON format:
         if has_muscles:
             score += 0.05
         return max(0.0, min(1.0, score))
+
+    def _compute_ready_mask(self, exercise: Dict[str, Any]) -> Dict[str, bool]:
+        """Deterministic presence mask for mandatory fields used by Approver."""
+        mask = {
+            "family_slug": bool(exercise.get("family_slug")),
+            "variant_key": bool(exercise.get("variant_key")),
+            "category": bool(exercise.get("category")),
+            "equipment": len(exercise.get("equipment", []) or []) > 0,
+            "movement.type": bool((exercise.get("movement") or {}).get("type")),
+            "movement.split": bool((exercise.get("movement") or {}).get("split")),
+            "metadata.level": bool((exercise.get("metadata") or {}).get("level")),
+            "metadata.plane_of_motion": bool((exercise.get("metadata") or {}).get("plane_of_motion")),
+            "muscles.primary": len(((exercise.get("muscles") or {}).get("primary") or [])) > 0,
+            "muscles.secondary": len(((exercise.get("muscles") or {}).get("secondary") or [])) > 0,
+            "muscles.category": len(((exercise.get("muscles") or {}).get("category") or [])) > 0,
+            "muscles.contribution": bool((exercise.get("muscles") or {}).get("contribution")),
+            "description": isinstance(exercise.get("description"), str) and len((exercise.get("description") or "").strip()) >= 50,
+            "execution_notes": len(exercise.get("execution_notes", []) or []) >= 4,
+            "common_mistakes": len(exercise.get("common_mistakes", []) or []) >= 2,
+            # Coaching cues: flexible min; 2+ acceptable, prefer 3–5
+            "coaching_cues": len(exercise.get("coaching_cues", []) or []) >= 2,
+            "suitability_notes": len(exercise.get("suitability_notes", []) or []) >= 1,
+        }
+        return mask
     
     def get_specialist_recommendations(self, reports: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         """

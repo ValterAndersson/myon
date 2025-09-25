@@ -12,6 +12,7 @@ struct CanvasScreen: View {
     @State private var showSwap: Bool = false
     @State private var pinned: [CanvasCardModel] = []
     @State private var toastText: String? = nil
+    @State private var didInvokeAgent: Bool = false
 
     var body: some View {
         VStack(spacing: Space.md) {
@@ -45,6 +46,13 @@ struct CanvasScreen: View {
             }
         }
         .onDisappear { vm.stop() }
+        .onChange(of: vm.canvasId) { newValue in
+            guard !didInvokeAgent, let cid = newValue else { return }
+            if let msg = computeAgentMessage(from: entryContext) {
+                didInvokeAgent = true
+                Task { try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: userId, canvasId: cid, message: msg)) }
+            }
+        }
         .overlay(alignment: .bottom) {
             if let t = toastText {
                 UndoToast(t) {
@@ -125,6 +133,19 @@ extension CanvasScreen {
                 break
             }
         }
+    }
+    private func computeAgentMessage(from ctx: String?) -> String? {
+        guard let ctx, !ctx.isEmpty else { return nil }
+        if ctx.hasPrefix("freeform:") {
+            return String(ctx.dropFirst("freeform:".count))
+        }
+        if ctx.hasPrefix("quick:") {
+            let key = String(ctx.dropFirst("quick:".count)).lowercased()
+            if key.contains("plan program") { return "Take a look at my profile and goals and propose a training program well suited for me, relying on defined exercise science." }
+            if key.contains("new workout") { return "I want to train today. Plan an upper body session and propose the first target." }
+            if key.contains("analyze progress") { return "Analyze my progress and show a few key charts for the last 6 weeks." }
+        }
+        return ctx
     }
 }
 

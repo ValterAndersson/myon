@@ -22,6 +22,9 @@ async function proposeCards(req, res) {
     if (!v.valid) return fail(res, 'INVALID_ARGUMENT', 'Invalid request', v.errors, 400);
 
     const { canvasId, cards } = v.data;
+    try {
+      console.log('proposeCards request', JSON.stringify({ uid, canvasId, count: Array.isArray(cards) ? cards.length : 0 }));
+    } catch (_) {}
     const canvasPath = `users/${uid}/canvases/${canvasId}`;
     const { FieldValue } = require('firebase-admin/firestore');
     const now = FieldValue.serverTimestamp();

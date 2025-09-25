@@ -96,13 +96,16 @@ public enum CanvasMapper {
             case "session_plan":
                 let blocks = (content?["blocks"] as? [[String: Any]]) ?? []
                 let exercises: [PlanExercise] = blocks.compactMap { blk in
-                    if let exName = blk["exercise_name"] as? String {
-                        return PlanExercise(name: exName, sets: (blk["sets"] as? Int) ?? 0)
+                    let exName = blk["exercise_name"] as? String
+                    let exId = blk["exercise_id"] as? String
+                    var setCount = 0
+                    if let setsArr = blk["sets"] as? [[String: Any]] {
+                        setCount = setsArr.count
+                    } else if let setsInt = blk["sets"] as? Int {
+                        setCount = setsInt
                     }
-                    if let exId = blk["exercise_id"] as? String {
-                        return PlanExercise(name: exId, sets: (blk["sets"] as? Int) ?? 0)
-                    }
-                    return nil
+                    let label = exName ?? exId
+                    return label.map { PlanExercise(name: $0, sets: setCount) }
                 }
                 return .sessionPlan(exercises: exercises)
             case "proposal-group":

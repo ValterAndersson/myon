@@ -35,7 +35,28 @@ class ApproverAgent:
         # Be pragmatic: if all structural/content criteria are met and the score is borderline, allow at 0.80
         quality_ok = report.get("quality_score", 0) >= 0.80
 
-        approve = has_family and content_ok and aliases_ok and no_critical and quality_ok
+        # Deterministic checklist via ready_mask if provided by Analyst
+        ready_mask = report.get("ready_mask") or {}
+        required_keys = [
+            "family_slug", "variant_key", "category", "equipment",
+            "movement.type", "movement.split",
+            "metadata.level", "metadata.plane_of_motion",
+            "muscles.primary", "muscles.secondary", "muscles.category", "muscles.contribution",
+            "description", "execution_notes", "common_mistakes", "coaching_cues", "suitability_notes",
+        ]
+        # Relax coaching_cues requirement to 2+ items
+        mask_ok = False
+        if isinstance(ready_mask, dict):
+            base_ok = all(bool(ready_mask.get(k)) for k in required_keys if k != "coaching_cues")
+            cues_ok = False
+            # If Analyst provided counts, prefer them; otherwise infer from exercise
+            if "coaching_cues" in ready_mask and isinstance(exercise.get("coaching_cues"), list):
+                cues_ok = len(exercise.get("coaching_cues") or []) >= 2
+            elif isinstance(exercise.get("coaching_cues"), list):
+                cues_ok = len(exercise.get("coaching_cues") or []) >= 2
+            mask_ok = base_ok and cues_ok
+
+        approve = mask_ok and aliases_ok and no_critical and quality_ok
 
         rationale = {
             "has_family": has_family,
@@ -48,6 +69,7 @@ class ApproverAgent:
             "quality_threshold": 0.85,
         }
 
+        rationale["mask_ok"] = mask_ok
         return {"approve": approve, "rationale": rationale}
 
     def mark_approved(self, exercise_id: str) -> Dict[str, Any]:

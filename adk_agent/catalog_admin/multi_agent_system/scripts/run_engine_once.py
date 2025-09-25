@@ -92,8 +92,8 @@ def main() -> int:
         return 1
 
     message = (
-        "Run the full catalog curation pipeline now, self-directing phases (fetch → scout/analyst → triage/"
-        "enrichment/specialists → approval → optional re-analysis). "
+        "Run the catalog pipeline end-to-end without stopping early: 1) fetch (canonical-only), 2) analyst on fetched items,"
+        " 3) route to specialists by role if issues exist, 4) re-run analyst to verify, 5) approver with auto-apply. "
         f"Limit processing to {args.limit} exercise(s). Use safe, idempotent writes. Summarize actions at the end."
     )
     if args.verbose_output:
