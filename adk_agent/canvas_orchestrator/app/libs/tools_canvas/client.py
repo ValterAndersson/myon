@@ -23,9 +23,20 @@ class CanvasFunctionsClient:
             timeout_seconds=self.timeout_seconds,
         )
 
-    def propose_cards(self, canvas_id: str, cards: List[Dict[str, Any]], correlation_id: Optional[str] = None) -> Dict[str, Any]:
-        headers = {"X-Correlation-Id": correlation_id} if correlation_id else None
-        return self._http.post("proposeCards", {"canvasId": canvas_id, "cards": cards}, headers=headers)
+    def propose_cards(
+        self,
+        canvas_id: str,
+        cards: List[Dict[str, Any]],
+        *,
+        user_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        headers: Dict[str, str] = {}
+        if correlation_id:
+            headers["X-Correlation-Id"] = correlation_id
+        if user_id:
+            headers["X-User-Id"] = user_id
+        return self._http.post("proposeCards", {"canvasId": canvas_id, "cards": cards}, headers=headers or None)
 
     def bootstrap_canvas(self, user_id: str, purpose: str) -> Dict[str, Any]:
         return self._http.post("bootstrapCanvas", {"userId": user_id, "purpose": purpose})

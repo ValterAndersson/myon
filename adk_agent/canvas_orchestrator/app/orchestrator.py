@@ -1,7 +1,8 @@
 import os
-import json
+import copy
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from google.adk.agents import Agent, SequentialAgent, BaseAgent
 from google.adk.tools import FunctionTool
@@ -9,6 +10,131 @@ from google.adk.tools import FunctionTool
 
 logger = logging.getLogger("canvas_orchestrator")
 logger.setLevel(logging.INFO)
+
+
+_context_state: Dict[str, Optional[str]] = {"canvas_id": None, "user_id": None}
+
+
+def _set_context(canvas_id: Optional[str], user_id: Optional[str]) -> None:
+    global _context_state
+    _context_state = {"canvas_id": canvas_id or None, "user_id": user_id or None}
+
+
+def _context() -> Dict[str, Optional[str]]:
+    return dict(_context_state)
+
+
+def _update_context(canvas_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+    current = _context()
+    resolved_canvas = canvas_id if canvas_id is not None else current.get("canvas_id")
+    resolved_user = user_id if user_id is not None else current.get("user_id")
+    _set_context(resolved_canvas, resolved_user)
+
+
+def _parse_context_from_text(text: str) -> Tuple[Optional[str], Optional[str]]:
+    canvas_id: Optional[str] = None
+    user_id: Optional[str] = None
+    if not text:
+        return canvas_id, user_id
+
+    # Prefer explicit (context: ...) blocks but fall back to looser matching.
+    match = re.search(r"\(context:([^)]*)\)", text, flags=re.IGNORECASE)
+    candidates: List[str] = []
+    if match:
+        candidates.append(match.group(1))
+    else:
+        # Handle JSON-ish context= {...} by capturing the braces contents.
+        jsonish = re.search(r"context\s*[=:]\s*\{([^}]*)\}", text, flags=re.IGNORECASE | re.DOTALL)
+        if jsonish:
+            candidates.append(jsonish.group(1))
+
+    if not candidates:
+        candidates.append(text)
+
+    for payload in candidates:
+        # Accept separators: space, semicolon, comma, newline.
+        tokens = re.split(r"[;,\s]+", payload)
+        for token in tokens:
+            if "=" not in token and ":" not in token:
+                continue
+            sep = "=" if "=" in token else ":"
+            key, value = token.split(sep, 1)
+            key = key.strip().lower().strip('"')
+            value = value.strip().strip('"')
+            if key in {"canvas_id", "canvasid"} and value:
+                canvas_id = value
+            elif key in {"user_id", "uid", "userid"} and value:
+                user_id = value
+
+    return canvas_id, user_id
+
+
+def _make_stage_group_id(user_id: str, canvas_id: str) -> str:
+    base = f"{user_id}_{canvas_id}".lower()
+    safe = re.sub(r"[^a-z0-9_-]+", "-", base).strip("-")
+    if not safe:
+        safe = "default"
+    # Clamp to avoid oversized group keys
+    if len(safe) > 48:
+        safe = safe[:48]
+    return f"stage1_{safe}"
+
+
+def _coerce_str(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    return None
+
+
+def _iter_entity_candidates(entities: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    yield entities
+    for key in ("context", "canvas", "user"):
+        maybe = entities.get(key)
+        if isinstance(maybe, dict):
+            yield maybe
+        elif isinstance(maybe, list):
+            for item in maybe:
+                if isinstance(item, dict):
+                    yield item
+
+
+def _update_context_from_entities(entities: Optional[Dict[str, Any]]) -> None:
+    if not isinstance(entities, dict):
+        return
+
+    canvas_val: Optional[str] = None
+    user_val: Optional[str] = None
+
+    for candidate in _iter_entity_candidates(entities):
+        if canvas_val is None:
+            for key in ("canvas_id", "canvasId", "canvasID"):
+                canvas_val = _coerce_str(candidate.get(key)) or canvas_val
+                if canvas_val:
+                    break
+            if canvas_val is None and isinstance(candidate.get("canvas"), dict):
+                inner = candidate["canvas"]
+                for key in ("id", "canvas_id", "canvasId"):
+                    canvas_val = _coerce_str(inner.get(key)) or canvas_val
+                    if canvas_val:
+                        break
+        if user_val is None:
+            for key in ("user_id", "uid", "userId"):
+                user_val = _coerce_str(candidate.get(key)) or user_val
+                if user_val:
+                    break
+            if user_val is None and isinstance(candidate.get("user"), dict):
+                inner_user = candidate["user"]
+                for key in ("id", "uid", "user_id", "userId"):
+                    user_val = _coerce_str(inner_user.get(key)) or user_val
+                    if user_val:
+                        break
+
+        if canvas_val and user_val:
+            break
+
+    if canvas_val or user_val:
+        _update_context(canvas_id=canvas_val, user_id=user_val)
 
 
 # --- Clients ---
@@ -28,7 +154,13 @@ def _canvas_client() -> "CanvasFunctionsClient":  # type: ignore
 
 
 # --- Tools ---
-def tool_propose_cards(canvas_id: str, cards: List[Dict[str, Any]], correlation_id: Optional[str] = None) -> Dict[str, Any]:
+def tool_propose_cards(
+    canvas_id: str,
+    cards: List[Dict[str, Any]],
+    *,
+    user_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
     client = _canvas_client()
     # Light shaping: leave defaults to server; ensure minimal required fields
     shaped: List[Dict[str, Any]] = []
@@ -37,7 +169,7 @@ def tool_propose_cards(canvas_id: str, cards: List[Dict[str, Any]], correlation_
             continue
         item = {k: v for k, v in c.items() if v is not None}
         shaped.append(item)
-    return client.propose_cards(canvas_id, shaped, correlation_id=correlation_id)
+    return client.propose_cards(canvas_id, shaped, user_id=user_id, correlation_id=correlation_id)
 
 
 def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] = None) -> Dict[str, Any]:
@@ -62,18 +194,50 @@ def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] =
 def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str, Any], group_id: Optional[str] = None) -> List[Dict[str, Any]]:
     # Emits session_plan + first set_target
     cards: List[Dict[str, Any]] = []
+    meta = {"groupId": group_id} if group_id else None
     cards.append({
         "type": "session_plan",
         "lane": "workout",
         "content": plan,
-        "meta": {"groupId": group_id} if group_id else {},
+        "meta": meta,
         "priority": 90,
     })
+    refs: Dict[str, Any] = {}
+    exercise_id = first_target.get("exercise_id") if isinstance(first_target, dict) else None
+    set_index = first_target.get("set_index") if isinstance(first_target, dict) else None
+    if exercise_id is not None and set_index is not None:
+        refs = {"exercise_id": exercise_id, "set_index": set_index}
+    content: Dict[str, Any] = {}
+    target: Optional[Dict[str, Any]] = None
+    if isinstance(first_target, dict):
+        maybe_target = first_target.get("target")
+        if isinstance(maybe_target, dict):
+            target = maybe_target
+    if target is None and exercise_id is not None:
+        try:
+            blocks = plan.get("blocks") if isinstance(plan, dict) else []
+            for block in blocks or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("exercise_id") != exercise_id:
+                    continue
+                sets = block.get("sets")
+                if isinstance(sets, list) and set_index is not None and 0 <= int(set_index) < len(sets):
+                    candidate = sets[int(set_index)]
+                    if isinstance(candidate, dict) and isinstance(candidate.get("target"), dict):
+                        target = candidate.get("target")
+                        break
+        except Exception:
+            pass
+    if not isinstance(target, dict):
+        raise ValueError("first_target requires a target payload")
+    content = {"target": target}
     cards.append({
         "type": "set_target",
         "lane": "workout",
-        "content": first_target,
-        "meta": {"groupId": group_id} if group_id else {},
+        "content": content,
+        "refs": refs or None,
+        "meta": meta,
         "priority": 95,
     })
     return cards
@@ -84,12 +248,16 @@ def _router_instruction() -> str:
     return (
         "You are the General Router. Read the latest user instruction and decide the route: 'workout'|'analysis'|'progress'. "
         "If intent is ambiguous, produce a short list of clarify questions. Output JSON: {route, entities, confidence, clarify_questions?}."
+        " When context like (context: canvas_id=... user_id=...) is present, surface it in entities and ensure downstream tools receive it."
     )
 
 
 def tool_route_intent(instruction_text: str) -> Dict[str, Any]:
     # Very small heuristic + LLM room later (kept tool-shaped for ADK FunctionTool)
-    t = (instruction_text or "").strip().lower()
+    raw = instruction_text or ""
+    canvas_id, user_id = _parse_context_from_text(raw)
+    _set_context(canvas_id, user_id)
+    t = raw.strip().lower()
     route = "unknown"
     if any(w in t for w in ["train", "workout", "plan"]):
         route = "workout"
@@ -99,31 +267,62 @@ def tool_route_intent(instruction_text: str) -> Dict[str, Any]:
         route = "progress"
     confidence = 0.8 if route != "unknown" else 0.3
     entities: Dict[str, Any] = {}
+    if canvas_id:
+        entities["canvas_id"] = canvas_id
+        entities.setdefault("canvasId", canvas_id)
+    if user_id:
+        entities["user_id"] = user_id
+        entities.setdefault("uid", user_id)
     return {"route": route, "entities": entities, "confidence": confidence}
 
 
-def tool_canvas_publish(cards: List[Dict[str, Any]], canvas_id: Optional[str] = None, correlation_id: Optional[str] = None) -> Dict[str, Any]:
-    cid = canvas_id or os.getenv("TEST_CANVAS_ID") or ""
+def tool_canvas_publish(
+    cards: List[Dict[str, Any]],
+    canvas_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    if canvas_id is not None or user_id is not None:
+        _update_context(canvas_id, user_id)
+    ctx = _context()
+    cid = canvas_id or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or ""
+    uid = user_id or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
     if not cid:
         raise ValueError("canvas_id is required (or set TEST_CANVAS_ID env var)")
-    return tool_propose_cards(cid, cards, correlation_id)
+    if not uid:
+        raise ValueError("user_id is required (include in context or pass explicitly)")
+    return tool_propose_cards(cid, cards, user_id=uid, correlation_id=correlation_id)
 
 
 def tool_stage1_plan(entities: Dict[str, Any]) -> Dict[str, Any]:
     # Minimal plan skeleton and first target with safe bounds (reps 6–12, RIR 0–2)
+    _update_context_from_entities(entities)
+    default_sets = [
+        {"target": {"reps": 8, "rir": 1}},
+        {"target": {"reps": 8, "rir": 1}},
+        {"target": {"reps": 8, "rir": 1}},
+    ]
+    bench_sets = copy.deepcopy(default_sets)
+    pulldown_sets = copy.deepcopy(default_sets)
     plan = {
         "title": "Session Plan",
         "blocks": [
-            {"name": "Main", "exercises": [
-                {"id": "ex_barbell_bench_press", "name": "Barbell Bench Press"},
-                {"id": "ex_lat_pulldown", "name": "Lat Pulldown"}
-            ]}
-        ]
+            {
+                "exercise_id": "ex_barbell_bench_press",
+                "name": "Barbell Bench Press",
+                "sets": bench_sets,
+            },
+            {
+                "exercise_id": "ex_lat_pulldown",
+                "name": "Lat Pulldown",
+                "sets": pulldown_sets,
+            },
+        ],
     }
     first_target = {
-        "exercise_id": "ex_barbell_bench_press",
+        "exercise_id": plan["blocks"][0]["exercise_id"],
         "set_index": 0,
-        "target": {"reps": 8, "rir": 1},
+        "target": plan["blocks"][0]["sets"][0]["target"],
     }
     return {"plan": plan, "first_target": first_target}
 
@@ -161,6 +360,7 @@ WorkoutOrchestrator = Agent(
     instruction=(
         "You orchestrate Stage-1 workout planning. Call tool_stage1_plan to get a minimal plan and first target,"
         " then build cards via tool_build_stage1_workout_cards and publish with tool_canvas_publish."
+        " Always pass canvas_id and user_id (from context/entities) when calling publishing tools."
         " After publishing, reply with a short line like 'published stage1 cards=2'."
     ),
     tools=workout_tools,
@@ -170,7 +370,7 @@ WorkoutOrchestrator = Agent(
 def _root_instruction() -> str:
     return (
         "You are the Canvas Root Agent. Step 1: use RouterAgent (transfer) to decide route. "
-        "If 'workout', transfer to WorkoutOrchestrator. After sub-agent completes, emit a one-line summary (e.g., 'done route=workout status=published')."
+        "If 'workout', transfer to WorkoutOrchestrator. Ensure canvas_id and user_id from context/entities are preserved. After sub-agent completes, emit a one-line summary (e.g., 'done route=workout status=published')."
     )
 
 
@@ -182,13 +382,28 @@ root_agent = Agent(
 )
 
 # --- MVP fast-path wrapper to make Router able to complete Stage-1 end-to-end ---
-def tool_workout_stage1_publish(entities: Optional[Dict[str, Any]] = None, canvas_id: Optional[str] = None) -> Dict[str, Any]:
+def tool_workout_stage1_publish(
+    entities: Optional[Dict[str, Any]] = None,
+    canvas_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    _update_context_from_entities(entities or {})
+    if canvas_id is not None or user_id is not None:
+        _update_context(canvas_id, user_id)
+    ctx = _context()
+    cid = canvas_id or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID")
+    uid = user_id or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
+    if not cid:
+        raise ValueError("canvas_id is required for stage1 publish")
+    if not uid:
+        raise ValueError("user_id is required for stage1 publish")
     data = tool_stage1_plan(entities or {})
     plan = data.get("plan") or {}
     first_target = data.get("first_target") or {}
-    group_id = f"stage1_{os.getenv('PIPELINE_USER_ID', 'canvas_orchestrator_engine')}"
+    group_id = _make_stage_group_id(uid, cid)
     cards = tool_build_stage1_workout_cards(plan, first_target, group_id)
-    res = tool_canvas_publish(cards, canvas_id=canvas_id)
+    res = tool_canvas_publish(cards, canvas_id=cid, user_id=uid, correlation_id=correlation_id)
     try:
         count = len(cards)
     except Exception:
