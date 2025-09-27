@@ -246,15 +246,15 @@ def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str
 # --- Agents ---
 def _router_instruction() -> str:
     return (
-        "You are the General Router. Read the latest user instruction and decide the route: 'workout'|'analysis'|'progress'. "
-        "If intent is ambiguous, produce a short list of clarify questions. Output JSON: {route, entities, confidence, clarify_questions?}."
-        " When context like (context: canvas_id=... user_id=...) is present, surface it in entities and ensure downstream tools receive it."
+        "You are the General Router. Use tool_route_intent(raw_input=<full_user_message>) with the ENTIRE last user message string (do not trim context prefixes). "
+        "Decide the route: 'workout'|'analysis'|'progress'. If intent is ambiguous, produce a short list of clarify questions. "
+        "Output JSON: {route, entities, confidence, clarify_questions?}. When context like (context: canvas_id=... user_id=...) is present, surface it in entities and ensure downstream tools receive it."
     )
 
 
-def tool_route_intent(instruction_text: str) -> Dict[str, Any]:
-    # Very small heuristic + LLM room later (kept tool-shaped for ADK FunctionTool)
-    raw = instruction_text or ""
+def tool_route_intent(instruction_text: Optional[str] = None, raw_input: Optional[str] = None) -> Dict[str, Any]:
+    # Accept both legacy (instruction_text) and new (raw_input) parameter names
+    raw = (raw_input if raw_input is not None else instruction_text) or ""
     canvas_id, user_id = _parse_context_from_text(raw)
     _set_context(canvas_id, user_id)
     t = raw.strip().lower()
@@ -273,6 +273,22 @@ def tool_route_intent(instruction_text: str) -> Dict[str, Any]:
     if user_id:
         entities["user_id"] = user_id
         entities.setdefault("uid", user_id)
+    # Telemetry: publish lightweight route info card (best-effort)
+    try:
+        ctx = _context()
+        cid = ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or canvas_id
+        uid = ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or user_id
+        if cid and uid:
+            info = {
+                "type": "inline-info",
+                "lane": "analysis",
+                "content": {"text": f"route={route} ctx.cid={cid} uid={uid}"},
+                "priority": -50,
+                "ttl": {"minutes": 1},
+            }
+            tool_propose_cards(cid, [info], user_id=uid, correlation_id="router-telemetry")
+    except Exception:
+        pass
     return {"route": route, "entities": entities, "confidence": confidence}
 
 
@@ -402,6 +418,18 @@ def tool_workout_stage1_publish(
     plan = data.get("plan") or {}
     first_target = data.get("first_target") or {}
     group_id = _make_stage_group_id(uid, cid)
+    # Telemetry: announce publish intent
+    try:
+        info = {
+            "type": "inline-info",
+            "lane": "analysis",
+            "content": {"text": f"publishing stage1 to {cid} as {uid}"},
+            "priority": -40,
+            "ttl": {"minutes": 1},
+        }
+        tool_propose_cards(cid, [info], user_id=uid, correlation_id="stage1-telemetry")
+    except Exception:
+        pass
     cards = tool_build_stage1_workout_cards(plan, first_target, group_id)
     res = tool_canvas_publish(cards, canvas_id=cid, user_id=uid, correlation_id=correlation_id)
     try:
