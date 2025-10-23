@@ -36,7 +36,11 @@ class CanvasFunctionsClient:
             headers["X-Correlation-Id"] = correlation_id
         if user_id:
             headers["X-User-Id"] = user_id
-        return self._http.post("proposeCards", {"canvasId": canvas_id, "cards": cards}, headers=headers or None)
+        # Also pass correlationId in body for clients that read body (server side extracts header first)
+        body: Dict[str, Any] = {"canvasId": canvas_id, "cards": cards}
+        if correlation_id:
+            body["correlationId"] = correlation_id
+        return self._http.post("proposeCards", body, headers=headers or None)
 
     def bootstrap_canvas(self, user_id: str, purpose: str) -> Dict[str, Any]:
         return self._http.post("bootstrapCanvas", {"userId": user_id, "purpose": purpose})

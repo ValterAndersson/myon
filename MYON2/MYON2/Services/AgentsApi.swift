@@ -4,6 +4,7 @@ struct AgentInvokeRequest: Codable {
     let userId: String
     let canvasId: String
     let message: String
+    let correlationId: String
 }
 
 enum AgentsApi {

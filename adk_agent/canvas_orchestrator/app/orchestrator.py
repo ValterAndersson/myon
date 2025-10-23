@@ -147,9 +147,15 @@ except Exception:
 
 def _canvas_client() -> "CanvasFunctionsClient":  # type: ignore
     base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
-    api_key = os.getenv("FIREBASE_API_KEY")
+    # Prefer dedicated agent API key; avoid using Firebase web key in production
+    api_key = os.getenv("MYON_API_KEY") or None
+    if not api_key:
+        alt = os.getenv("FIREBASE_API_KEY")
+        if alt:
+            logger.warning("Using FIREBASE_API_KEY for proposeCards; set MYON_API_KEY for production")
+            api_key = alt
     bearer = os.getenv("FIREBASE_ID_TOKEN")
-    user_id = os.getenv("PIPELINE_USER_ID") or os.getenv("X_USER_ID") or "canvas_orchestrator_engine"
+    user_id = os.getenv("PIPELINE_USER_ID") or os.getenv("X_USER_ID") or None
     return CanvasFunctionsClient(base_url=base_url, api_key=api_key, bearer_token=bearer, user_id=user_id)
 
 
@@ -169,7 +175,28 @@ def tool_propose_cards(
             continue
         item = {k: v for k, v in c.items() if v is not None}
         shaped.append(item)
-    return client.propose_cards(canvas_id, shaped, user_id=user_id, correlation_id=correlation_id)
+    try:
+        logger.info(
+            "tool_propose_cards: begin", extra={
+                "canvas_id": canvas_id, "user_id": user_id, "count": len(shaped), "correlation_id": correlation_id,
+            }
+        )
+    except Exception:
+        pass
+    try:
+        result = client.propose_cards(canvas_id, shaped, user_id=user_id, correlation_id=correlation_id)
+        try:
+            logger.info("tool_propose_cards: ok", extra={"created": result.get("created_card_ids"), "canvas_id": canvas_id, "correlation_id": correlation_id})
+        except Exception:
+            pass
+        return result
+    except Exception as e:
+        try:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error("tool_propose_cards: failed", extra={"error": str(e), "status": status, "canvas_id": canvas_id, "correlation_id": correlation_id})
+        except Exception:
+            pass
+        raise
 
 
 def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] = None) -> Dict[str, Any]:
@@ -192,15 +219,31 @@ def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] =
 
 
 def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str, Any], group_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    # Emits session_plan + first set_target
+    # Emits group header + session_plan + first set_target
     cards: List[Dict[str, Any]] = []
     meta = {"groupId": group_id} if group_id else None
+    if group_id:
+        cards.append({
+            "type": "proposal-group",
+            "lane": "workout",
+            "content": {"title": plan.get("title") or "Session Plan"},
+            "meta": meta,
+            "priority": 100,
+            "menuItems": [
+                {"kind": "accept_all", "label": "Accept all", "style": "primary", "iconSystemName": "checkmark.circle"},
+                {"kind": "reject_all", "label": "Dismiss all", "style": "destructive", "iconSystemName": "xmark.circle"},
+            ],
+        })
     cards.append({
         "type": "session_plan",
         "lane": "workout",
         "content": plan,
         "meta": meta,
         "priority": 90,
+        "actions": [
+            {"kind": "apply", "label": "Apply", "style": "primary", "iconSystemName": "checkmark"},
+            {"kind": "dismiss", "label": "Dismiss", "style": "destructive", "iconSystemName": "xmark"},
+        ],
     })
     refs: Dict[str, Any] = {}
     exercise_id = first_target.get("exercise_id") if isinstance(first_target, dict) else None
@@ -239,6 +282,10 @@ def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str
         "refs": refs or None,
         "meta": meta,
         "priority": 95,
+        "actions": [
+            {"kind": "apply", "label": "Apply target", "style": "primary", "iconSystemName": "checkmark"},
+            {"kind": "dismiss", "label": "Dismiss", "style": "destructive", "iconSystemName": "xmark"},
+        ],
     })
     return cards
 
@@ -273,20 +320,19 @@ def tool_route_intent(instruction_text: Optional[str] = None, raw_input: Optiona
     if user_id:
         entities["user_id"] = user_id
         entities.setdefault("uid", user_id)
-    # Telemetry: publish lightweight route info card (best-effort)
+    # Telemetry: emit route_decided event (no UI noise)
     try:
         ctx = _context()
         cid = ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or canvas_id
         uid = ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or user_id
         if cid and uid:
-            info = {
-                "type": "inline-info",
-                "lane": "analysis",
-                "content": {"text": f"route={route} ctx.cid={cid} uid={uid}"},
-                "priority": -50,
-                "ttl": {"minutes": 1},
-            }
-            tool_propose_cards(cid, [info], user_id=uid, correlation_id="router-telemetry")
+            # Emit route_decided as event (best-effort)
+            try:
+                client = _canvas_client()
+                payload = {"route": route, "entities": entities}
+                client._http.post("emitEvent", {"userId": uid, "canvasId": cid, "type": "route_decided", "payload": payload}, headers=None)
+            except Exception:
+                pass
     except Exception:
         pass
     return {"route": route, "entities": entities, "confidence": confidence}
@@ -307,7 +353,16 @@ def tool_canvas_publish(
         raise ValueError("canvas_id is required (or set TEST_CANVAS_ID env var)")
     if not uid:
         raise ValueError("user_id is required (include in context or pass explicitly)")
-    return tool_propose_cards(cid, cards, user_id=uid, correlation_id=correlation_id)
+    try:
+        logger.info("tool_canvas_publish: begin", extra={"canvas_id": cid, "user_id": uid, "count": len(cards), "correlation_id": correlation_id})
+    except Exception:
+        pass
+    res = tool_propose_cards(cid, cards, user_id=uid, correlation_id=correlation_id)
+    try:
+        logger.info("tool_canvas_publish: ok", extra={"canvas_id": cid, "user_id": uid, "correlation_id": correlation_id})
+    except Exception:
+        pass
+    return res
 
 
 def tool_stage1_plan(entities: Dict[str, Any]) -> Dict[str, Any]:
@@ -418,16 +473,10 @@ def tool_workout_stage1_publish(
     plan = data.get("plan") or {}
     first_target = data.get("first_target") or {}
     group_id = _make_stage_group_id(uid, cid)
-    # Telemetry: announce publish intent
+    # Telemetry: announce publish intent (emit event only)
     try:
-        info = {
-            "type": "inline-info",
-            "lane": "analysis",
-            "content": {"text": f"publishing stage1 to {cid} as {uid}"},
-            "priority": -40,
-            "ttl": {"minutes": 1},
-        }
-        tool_propose_cards(cid, [info], user_id=uid, correlation_id="stage1-telemetry")
+        client = _canvas_client()
+        client._http.post("emitEvent", {"userId": uid, "canvasId": cid, "type": "publish_attempt", "payload": {"stage": 1}}, headers=None)
     except Exception:
         pass
     cards = tool_build_stage1_workout_cards(plan, first_target, group_id)
