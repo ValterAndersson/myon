@@ -12,6 +12,7 @@ final class CanvasViewModel: ObservableObject {
     @Published var isApplying: Bool = false
     @Published var errorMessage: String?
     @Published var isReady: Bool = false
+    @Published var pendingInvoke: (message: String, correlationId: String)? = nil
 
     private let repo: CanvasRepositoryProtocol
     private let service: CanvasServiceProtocol
@@ -41,6 +42,13 @@ final class CanvasViewModel: ObservableObject {
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
                     if self.isReady == false { self.isReady = true }
+                    // If we have a pending orchestrator invoke, fire once when ready
+                    if let staged = PendingAgentInvoke.shared.take() {
+                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: canvasId, message: staged.message, correlationId: staged.correlationId))
+                    } else if let pending = self.pendingInvoke {
+                        self.pendingInvoke = nil
+                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: canvasId, message: pending.message, correlationId: pending.correlationId))
+                    }
                 }
             } catch {
                 self.errorMessage = error.localizedDescription
@@ -67,6 +75,12 @@ final class CanvasViewModel: ObservableObject {
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
                     if self.isReady == false { self.isReady = true }
+                    if let staged = PendingAgentInvoke.shared.take() {
+                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: cid, message: staged.message, correlationId: staged.correlationId))
+                    } else if let pending = self.pendingInvoke {
+                        self.pendingInvoke = nil
+                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: cid, message: pending.message, correlationId: pending.correlationId))
+                    }
                 }
             } catch {
                 self.errorMessage = error.localizedDescription

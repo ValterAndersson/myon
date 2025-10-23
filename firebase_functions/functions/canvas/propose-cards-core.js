@@ -67,9 +67,20 @@ async function proposeCardsCore({ uid, canvasId, cards }) {
 
   // Enforce up_next cap N=20 (trim lowest priorities)
   const upCol = db.collection(`${canvasPath}/up_next`);
-  const upSnap = await upCol.orderBy('priority', 'desc').orderBy('inserted_at', 'asc').get();
   const MAX = 20;
-  if (upSnap.size > MAX) {
+  let upSnap = null;
+  try {
+    // Preferred ordering; may require composite index in some fresh projects
+    upSnap = await upCol.orderBy('priority', 'desc').orderBy('inserted_at', 'asc').get();
+  } catch (e) {
+    try {
+      // Fallback to single-field ordering to avoid composite index requirement
+      upSnap = await upCol.orderBy('priority', 'desc').get();
+    } catch (_) {
+      upSnap = null; // give up on trim in worst case
+    }
+  }
+  if (upSnap && upSnap.size > MAX) {
     const toDelete = upSnap.docs.slice(MAX);
     const trimBatch = admin.firestore().batch();
     toDelete.forEach(doc => trimBatch.delete(doc.ref));

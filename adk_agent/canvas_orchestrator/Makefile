@@ -3,11 +3,11 @@ install:
 
 deploy:
 	PROJECT_ID=$$(gcloud config get-value project) && \
-	python3 app/agent_engine_app.py \
+	PYTHONPATH=. python3 -m app.agent_engine_app \
 		--project $$PROJECT_ID \
 		--location us-central1 \
 		--agent-name canvas-orchestrator \
-		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine}
+		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_API_KEY=$${MYON_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine}
 
 bootstrap:
 	@USER_ID=$${USER_ID:-canvas_orchestrator_engine}; \

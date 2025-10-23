@@ -22,9 +22,15 @@ async function proposeCards(req, res) {
     if (!v.valid) return fail(res, 'INVALID_ARGUMENT', 'Invalid request', v.errors, 400);
 
     const { canvasId, cards } = v.data;
+<<<<<<< HEAD
     try {
       console.log('proposeCards request', JSON.stringify({ uid, canvasId, count: Array.isArray(cards) ? cards.length : 0 }));
     } catch (_) {}
+=======
+    // Correlation (from header preferred; fallback to body if provided by clients)
+    const correlationId = req.headers['x-correlation-id'] || req.get('X-Correlation-Id') || (req.body && req.body.correlationId) || null;
+    try { console.log('[proposeCards] request', { uid, canvasId, count: Array.isArray(cards) ? cards.length : 0, correlationId }); } catch (_) {}
+>>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
     const canvasPath = `users/${uid}/canvases/${canvasId}`;
     const { FieldValue } = require('firebase-admin/firestore');
     const now = FieldValue.serverTimestamp();
@@ -92,7 +98,19 @@ async function proposeCards(req, res) {
       toDelete.forEach(doc => trimBatch.delete(doc.ref));
       await trimBatch.commit();
     }
+    // Emit compact event for telemetry/traceability (best-effort)
+    try {
+      const evtRef = admin.firestore().collection(`${canvasPath}/events`).doc();
+      await evtRef.set({
+        type: 'agent_propose',
+        payload: { created_card_ids: created, correlation_id: correlationId || null },
+        created_at: now,
+      });
+    } catch (e) {
+      console.warn('[proposeCards] event emission failed', { canvasId, error: e?.message });
+    }
 
+    try { console.log('[proposeCards] ok', { uid, canvasId, created: created.length, correlationId }); } catch (_) {}
     return ok(res, { created_card_ids: created });
   } catch (error) {
     console.error('proposeCards error:', error);

@@ -40,8 +40,7 @@ struct ChatHomeView: View {
         AgentPromptBar(text: $query, placeholder: "Ask anything") {
             entryContext = "freeform:" + query
             navigateToCanvas = true
-            // Fire-and-forget: invoke orchestrator after canvas bootstraps
-            Task { await sendToAgentIfPossible(message: query) }
+            // Defer orchestrator call to CanvasScreen once canvasId is ready
         }
         .frame(maxWidth: 680)
     }
@@ -99,11 +98,15 @@ struct ChatHomeView: View {
 
     @MainActor private func sendToAgentIfPossible(message: String) async {
         guard let uid = userId else { return }
-        // CanvasScreen will bootstrap and store current canvasId in a central place; use a simple cache/singleton if present
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let corr = UUID().uuidString
         if let cid = CanvasRepository.shared.currentCanvasId {
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: uid, canvasId: cid, message: trimmed))
+            try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: uid, canvasId: cid, message: trimmed, correlationId: corr))
+        } else {
+            // Stash for CanvasScreen to execute once canvas is ready
+            // We cannot access vm here; use a simple static stash on repository for now
+            PendingAgentInvoke.shared.set(message: trimmed, correlationId: corr)
         }
     }
 }
