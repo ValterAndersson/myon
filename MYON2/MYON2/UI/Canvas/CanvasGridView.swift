@@ -49,6 +49,8 @@ public struct CanvasGridView: View {
             })
         case .clarifyQuestions:
             ClarifyQuestionsCard(model: card)
+        case .agentMessage:
+            AgentMessageCard(model: card)
         case .routineOverview:
             RoutineOverviewCard(model: card)
         }
@@ -86,6 +88,8 @@ private struct EquatableCardHost: View, Equatable {
             })
         case .clarifyQuestions:
             ClarifyQuestionsCard(model: card)
+        case .agentMessage:
+            AgentMessageCard(model: card)
         case .routineOverview:
             RoutineOverviewCard(model: card)
         }
