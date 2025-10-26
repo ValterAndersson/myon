@@ -273,7 +273,7 @@ def tool_create_workout_card(
 # Create the streaming agent
 streaming_agent = Agent(
     name="StreamingCanvas",
-    model="gemini-2.0-flash-exp",  # Fastest Gemini model (2.5 flash when available)
+    model="gemini-2.5-flash",  # Fastest Gemini model
     instruction="""
     You provide a transparent, Cursor-like experience for workout planning.
     

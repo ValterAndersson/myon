@@ -80,7 +80,7 @@ async def process_with_streaming(message: str) -> None:
 # Create the root agent for Vertex AI
 multi_agent_root = Agent(
     name="MultiAgentOrchestrator",
-    model="gemini-2.0-flash-exp",  # Gemini 2.5 Flash - fastest model for routing
+    model="gemini-2.5-flash",  # Gemini 2.5 Flash - fastest model for routing
     instruction="""
     You coordinate a multi-agent system for workout planning and fitness analysis.
     

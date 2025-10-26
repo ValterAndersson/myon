@@ -5,7 +5,7 @@ Always use the fastest model that can reliably complete the task. Speed is criti
 
 ## Model Hierarchy
 
-### 1. Gemini 2.5 Flash (`gemini-2.0-flash-exp`)
+### 1. Gemini 2.5 Flash (`gemini-2.5-flash`)
 **Use for 95% of tasks:**
 - Intent classification
 - Simple routing decisions
@@ -26,18 +26,18 @@ Always use the fastest model that can reliably complete the task. Speed is criti
 ```python
 # Intent extraction
 intent_extractor = Agent(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     instruction="Extract intent from user message..."
 )
 
 # Routing agent
 router = Agent(
-    model="gemini-2.0-flash-exp", 
+    model="gemini-2.5-flash", 
     instruction="Route to appropriate handler..."
 )
 ```
 
-### 2. Gemini 2.5 Pro (`gemini-2.0-pro-exp`)
+### 2. Gemini 2.5 Pro (`gemini-2.5-pro`)
 **Use ONLY when reasoning is required:**
 - Complex workout program design
 - Analyzing contradictory user requirements
@@ -55,7 +55,7 @@ router = Agent(
 ```python
 # Complex program design requiring reasoning
 program_designer = Agent(
-    model="gemini-2.0-pro-exp",  # ONLY because we need reasoning
+    model="gemini-2.5-pro",  # ONLY because we need reasoning
     instruction="Design a periodized program considering injuries..."
 )
 ```
@@ -96,7 +96,7 @@ Does the task require reasoning about complex trade-offs?
 ```python
 # Good - explicit model selection
 agent = Agent(
-    model="gemini-2.0-flash-exp",  # Clear choice with reason
+    model="gemini-2.5-flash",  # Clear choice with reason
     ...
 )
 
@@ -110,7 +110,7 @@ agent = Agent(  # No model specified
 ```python
 # When using Pro, always explain why
 agent = Agent(
-    model="gemini-2.0-pro-exp",  # Need reasoning for injury adaptations
+    model="gemini-2.5-pro",  # Need reasoning for injury adaptations
     instruction="Consider user's shoulder injury when selecting exercises..."
 )
 ```
@@ -118,7 +118,7 @@ agent = Agent(
 ### 3. Environment Variable Override
 ```python
 # Allow override for testing but default to Flash
-model = os.getenv("AGENT_MODEL", "gemini-2.0-flash-exp")
+model = os.getenv("AGENT_MODEL", "gemini-2.5-flash")
 ```
 
 ## Performance Targets
@@ -136,14 +136,15 @@ model = os.getenv("AGENT_MODEL", "gemini-2.0-flash-exp")
 
 ## Migration Checklist
 
-- [x] Replace all `gemini-1.5-flash` with `gemini-2.0-flash-exp`
-- [x] Replace all `gemini-1.5-pro` with `gemini-2.0-flash-exp` (unless reasoning needed)
+- [x] Replace all `gemini-1.5-flash` with `gemini-2.5-flash`
+- [x] Replace all `gemini-1.5-pro` with `gemini-2.5-flash` (unless reasoning needed)
 - [x] Document any Pro model usage with justification
 - [x] Set up monitoring to track model usage
 - [ ] Review quarterly for new model releases
 
 ## Notes
 
-- Model names may change when 2.5 is officially released
-- Currently using `gemini-2.0-flash-exp` as proxy for 2.5
+- Gemini 2.5 Flash is now available and should be used for all non-reasoning tasks
+- Use `gemini-2.5-flash` for 95% of use cases
+- Use `gemini-2.5-pro` ONLY when reasoning is explicitly required
 - Update this guide when new models are available

@@ -125,7 +125,7 @@ def tool_prioritize_questions(
 # Clarification Agent with structured output
 clarification_agent = Agent(
     name="ClarificationAgent",
-    model="gemini-2.0-flash-exp",  # Gemini 2.5 Flash for quick clarifications
+    model="gemini-2.5-flash",  # Gemini 2.5 Flash for quick clarifications
     instruction="""
     You generate clarification questions for ambiguous user requests.
     

@@ -165,7 +165,7 @@ def tool_build_exercise_selection(
 # Exercise Selection Agent with structured output
 exercise_selector_agent = Agent(
     name="ExerciseSelector",
-    model="gemini-2.0-flash-exp",  # Use 2.5 Flash unless reasoning needed
+    model="gemini-2.5-flash",  # Use 2.5 Flash unless reasoning needed
     instruction="""
     You select exercises for workout programs. Always output valid JSON.
     
