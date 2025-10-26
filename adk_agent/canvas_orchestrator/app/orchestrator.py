@@ -770,7 +770,7 @@ def _root_instruction() -> str:
 
 root_agent = Agent(
     name="CanvasRoot",
-    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-1.5-flash"),  # Use faster model
+    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-2.0-flash-exp"),  # Use Gemini 2.5 Flash (fastest)
     instruction=(
         "You orchestrate workout planning. Execute these steps IN ORDER:\n"
         "1. IMMEDIATELY call tool_publish_agent_message with 'Understanding your request...'\n"

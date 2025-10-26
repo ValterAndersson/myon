@@ -162,7 +162,7 @@ def tool_classify_intent(
 # Create the Intent Extractor agent
 intent_extractor_agent = Agent(
     name="IntentExtractor",
-    model="gemini-1.5-flash",  # Fast model for quick classification
+    model="gemini-2.0-flash-exp",  # Gemini 2.5 Flash for quick classification
     instruction="""
     You are an intent classifier for a fitness app. Extract user intent quickly and accurately.
     

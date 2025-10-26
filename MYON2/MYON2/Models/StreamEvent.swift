@@ -107,24 +107,24 @@ public struct StreamDisplay {
     public var displayText: String {
         switch style {
         case .thinking:
-            return "🤔 Thinking..."
+            return "Thinking..."
             
         case .thought(let message, let duration):
             if let duration = duration {
-                return "💭 Thought for \(duration): \(message)"
+                return "Thought for \(duration): \(message)"
             } else {
-                return "💭 \(message)"
+                return message
             }
             
         case .toolRunning(_, let description, _):
-            return "⚙️ \(description)..."
+            return "\(description)..."
             
         case .toolComplete(let name, let duration):
             let readableName = name.replacingOccurrences(of: "_", with: " ")
             if let duration = duration {
-                return "✅ \(readableName) (\(duration))"
+                return "\(readableName) (\(duration))"
             } else {
-                return "✅ \(readableName)"
+                return readableName
             }
             
         case .message(let text):
@@ -132,6 +132,39 @@ public struct StreamDisplay {
             
         case .card:
             return "" // Cards are rendered separately
+        }
+    }
+    
+    /// Icon name for the event type (SF Symbol)
+    public var iconName: String? {
+        switch style {
+        case .thinking:
+            return "brain"
+            
+        case .thought:
+            return nil  // No icon for thoughts
+            
+        case .toolRunning:
+            return "gearshape"  // Will be animated
+            
+        case .toolComplete:
+            return "checkmark.circle"
+            
+        case .message:
+            return nil
+            
+        case .card:
+            return nil
+        }
+    }
+    
+    /// Whether the icon should animate
+    public var animateIcon: Bool {
+        switch style {
+        case .thinking, .toolRunning:
+            return true
+        default:
+            return false
         }
     }
     
