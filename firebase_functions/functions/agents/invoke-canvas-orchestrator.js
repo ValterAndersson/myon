@@ -29,17 +29,7 @@ exports.invokeCanvasOrchestrator = async (req, res) => {
     const projectId = engineId.split('/')[1] || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'unknown';
     const location = engineId.split('/')[3] || 'us-central1';
 
-    // Pre-publish a light info card so UI shows activity (do not treat as success for pipeline)
-    try {
-      await proposeCardsCore({
-        uid: userId,
-        canvasId,
-        cards: [{ type: 'inline-info', lane: 'analysis', content: { text: 'Connecting…' }, priority: -100, ttl: { minutes: 1 } }]
-      });
-      functions.logger.info('invokeCanvasOrchestrator: pre-publish connecting', { userId, canvasId, correlationId });
-    } catch (e) {
-      functions.logger.warn('invokeCanvasOrchestrator: pre-publish failed', { error: String(e?.message || e), userId, canvasId, correlationId });
-    }
+    // SRE streaming path will surface activity; skip pre-publishing any placeholder cards.
 
     // Auth
     const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });

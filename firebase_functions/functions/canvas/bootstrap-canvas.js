@@ -13,15 +13,18 @@ async function bootstrapCanvas(req, res) {
 
     const userId = (req.body && req.body.userId) || req.query.userId || callerUid;
     const purpose = (req.body && req.body.purpose) || req.query.purpose;
+    const forceNew = Boolean((req.body && req.body.forceNew) || req.query.forceNew === 'true');
     if (!userId || !purpose) return fail(res, 'INVALID_ARGUMENT', 'userId and purpose are required', null, 400);
 
     const db = admin.firestore();
     const canvasesCol = db.collection(`users/${userId}/canvases`);
 
-    // Find existing by purpose
-    const existingSnap = await canvasesCol.where('state.purpose', '==', purpose).limit(1).get();
-    if (!existingSnap.empty) {
-      return ok(res, { canvasId: existingSnap.docs[0].id });
+    // Find existing by purpose unless caller requests a new canvas
+    if (!forceNew) {
+      const existingSnap = await canvasesCol.where('state.purpose', '==', purpose).limit(1).get();
+      if (!existingSnap.empty) {
+        return ok(res, { canvasId: existingSnap.docs[0].id });
+      }
     }
 
     // Create new canvas

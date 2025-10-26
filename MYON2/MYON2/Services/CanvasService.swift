@@ -18,12 +18,17 @@ final class CanvasService: CanvasServiceProtocol {
         return res
     }
 
+    // Convenience to satisfy protocol; defaults to creating a new canvas for new sessions
     func bootstrapCanvas(for userId: String, purpose: String) async throws -> String {
-        struct Req: Codable { let userId: String; let purpose: String }
+        return try await bootstrapCanvas(for: userId, purpose: purpose, forceNew: true)
+    }
+
+    func bootstrapCanvas(for userId: String, purpose: String, forceNew: Bool = true) async throws -> String {
+        struct Req: Codable { let userId: String; let purpose: String; let forceNew: Bool }
         struct DataDTO: Codable { let canvasId: String }
         struct Envelope: Codable { let success: Bool; let data: DataDTO?; let error: ActionErrorDTO? }
         DebugLogger.log(.canvas, "bootstrapCanvas: user=\(userId) purpose=\(purpose)")
-        let env: Envelope = try await ApiClient.shared.postJSON("bootstrapCanvas", body: Req(userId: userId, purpose: purpose))
+        let env: Envelope = try await ApiClient.shared.postJSON("bootstrapCanvas", body: Req(userId: userId, purpose: purpose, forceNew: forceNew))
         if DebugLogger.enabled {
             DebugLogger.debug(.canvas, "bootstrapCanvas success=\(env.success) id=\(env.data?.canvasId ?? "-")")
         }
