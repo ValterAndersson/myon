@@ -58,6 +58,51 @@ exports.respondToAgent = functions.https.onRequest(async (req, res) => {
       created_at: admin.firestore.FieldValue.serverTimestamp()
     });
 
+    // Immediately prune the answered clarify card from the canvas
+    try {
+      const cardRef = admin.firestore().doc(`users/${userId}/canvases/${canvasId}/cards/${cardId}`);
+      await cardRef.delete();
+
+      // Remove from up_next queue
+      const upNextRef = admin.firestore()
+        .collection(`users/${userId}/canvases/${canvasId}/up_next`)
+        .where('card_id', '==', cardId)
+        .limit(10);
+      const upSnap = await upNextRef.get();
+      const batch = admin.firestore().batch();
+      upSnap.forEach(doc => batch.delete(doc.ref));
+      if (!upSnap.empty) {
+        await batch.commit();
+      }
+
+      // Log pruning event for traceability
+      const pruneEventRef = admin.firestore()
+        .collection(`users/${userId}/canvases/${canvasId}/events`)
+        .doc();
+      await pruneEventRef.set({
+        type: 'card_pruned',
+        payload: { card_id: cardId, reason: 'answered_clarification' },
+        created_at: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (pruneErr) {
+      console.error('[respondToAgent] prune error:', pruneErr);
+    }
+
+    // Re-trigger the orchestrator to continue the conversation deterministically
+    try {
+      const invokeUrl = `https://us-central1-myon-53d85.cloudfunctions.net/invokeCanvasOrchestrator`;
+      const correlationId = responseRef.id;
+      const msg = `User answered clarification: ${JSON.stringify(response)}. Continue planning.`;
+      await axios.post(invokeUrl, {
+        userId,
+        canvasId,
+        message: msg,
+        correlationId
+      }, { timeout: 8000 });
+    } catch (invokeErr) {
+      console.error('[respondToAgent] invokeCanvasOrchestrator error:', invokeErr?.message || invokeErr);
+    }
+
     return res.json({
       success: true,
       data: { response_id: responseRef.id }

@@ -49,8 +49,18 @@ async function proposeCardsCore({ uid, canvasId, cards }) {
       layout: d.layout,
       actions: d.actions,
       menuItems: d.menuItems,
-      meta: d.meta,
-      ttl: card.ttl || null,
+      meta: {
+        ...d.meta,
+        // Define visibility policy defaults; card-level meta overrides take precedence
+        visibility: {
+          kind: card?.meta?.visibility?.kind || (card.type === 'clarify-questions' ? 'ephemeral' : 'default'),
+          // seconds to auto-expire from UI even if not expired in DB
+          maxVisibleSeconds: card?.meta?.visibility?.maxVisibleSeconds || (card.type === 'clarify-questions' ? 120 : null),
+          // Remove when answered (for clarify cards)
+          removeOnAnswer: card?.meta?.visibility?.removeOnAnswer ?? (card.type === 'clarify-questions'),
+        }
+      },
+      ttl: card.ttl || (card.type === 'clarify-questions' ? { minutes: 10 } : null),
       by: 'agent',
       created_at: now,
       updated_at: now,

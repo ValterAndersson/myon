@@ -37,6 +37,15 @@ class ProfileAgent:
     def __init__(self):
         self.name = "ProfileAgent"
         self._cache = {}
+        try:
+            # Lazy import to avoid circulars
+            from ..libs.tools_canvas.client import CanvasFunctionsClient
+            import os
+            base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
+            api_key = os.getenv("MYON_API_KEY", "myon-agent-key-2024")
+            self._client = CanvasFunctionsClient(base_url=base_url, api_key=api_key)
+        except Exception:
+            self._client = None
     
     def analyze_capabilities(self, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
@@ -59,9 +68,23 @@ class ProfileAgent:
             logger.info(f"ProfileAgent: Using cached profile for {user_id}")
             profile = self._cache[user_id]
         else:
-            # In production, this would query Firestore
-            # For now, return mock data
-            profile = self._get_user_profile(user_id)
+            # Fetch from backend; fall back to mock if unavailable
+            profile = None
+            if self._client:
+                try:
+                    # Prefer comprehensive profile
+                    resp = self._client.get_user(user_id)
+                    if resp.get("success"):
+                        profile = self._profile_from_backend(user_id, resp)
+                    else:
+                        # Fallback to lightweight preferences
+                        pref = self._client.get_user_preferences(user_id)
+                        if pref.get("success"):
+                            profile = self._profile_from_prefs(user_id, pref)
+                except Exception as e:
+                    logger.warning(f"ProfileAgent backend fetch failed: {e}")
+            if profile is None:
+                profile = self._get_user_profile(user_id)
             self._cache[user_id] = profile
         
         # Analyze capabilities
@@ -163,6 +186,55 @@ class ProfileAgent:
         }
         
         return mock_profiles.get(user_id, UserProfile(user_id=user_id))
+
+    def _profile_from_backend(self, user_id: str, resp: Dict[str, Any]) -> UserProfile:
+        data = resp.get("context", {})
+        prefs = data.get("preferences", {})
+        # Map backend fields to our profile
+        return UserProfile(
+            user_id=user_id,
+            experience_level=data.get("experienceLevel", "intermediate"),
+            available_equipment=self._normalize_equipment(data.get("availableEquipment")),
+            goals=self._normalize_goals(data.get("fitnessGoals")),
+            training_days_per_week=self._parse_int(data.get("workoutFrequency"), default=3),
+            session_duration_minutes=60,
+        )
+
+    def _profile_from_prefs(self, user_id: str, pref: Dict[str, Any]) -> UserProfile:
+        # Preferences do not include fitness details; return minimal
+        return UserProfile(user_id=user_id)
+
+    def _normalize_equipment(self, eq: Any) -> List[str]:
+        if not eq:
+            return []
+        if isinstance(eq, str):
+            return [eq]
+        if isinstance(eq, list):
+            return [str(x) for x in eq]
+        return []
+
+    def _normalize_goals(self, goals: Any) -> List[str]:
+        if not goals:
+            return []
+        if isinstance(goals, str):
+            return [goals]
+        if isinstance(goals, list):
+            return [str(x) for x in goals]
+        return []
+
+    def _parse_int(self, value: Any, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            s = str(value).strip()
+            # Handle strings like "3 days"
+            import re
+            m = re.search(r"\d+", s)
+            return int(m.group(0)) if m else default
+        except Exception:
+            return default
     
     def _estimate_years(self, experience_level: str) -> int:
         """Estimate training years from experience level."""

@@ -99,6 +99,8 @@ const { expireProposalsScheduledHandler } = require('./canvas/expire-proposals-s
 const { bootstrapCanvas } = require('./canvas/bootstrap-canvas');
 const { purgeCanvas } = require('./canvas/purge-canvas');
 const { emitEvent } = require('./canvas/emit-event');
+const { respondToAgent } = require('./canvas/respond-to-agent');
+const { checkPendingResponse } = require('./canvas/check-pending-response');
 
 // Analytics
 const { runAnalyticsForUser } = require('./analytics/controller');
@@ -213,6 +215,7 @@ exports.bootstrapCanvas = functions.https.onRequest((req, res) => requireFlexibl
 exports.purgeCanvas = functions.https.onRequest((req, res) => requireFlexibleAuth(purgeCanvas)(req, res));
 exports.emitEvent = functions.https.onRequest((req, res) => withApiKey(emitEvent)(req, res));
 exports.respondToAgent = require('./canvas/respond-to-agent').respondToAgent;
+exports.checkPendingResponse = functions.https.onRequest((req, res) => withApiKey(checkPendingResponse)(req, res));
 exports.runAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(runAnalyticsForUser)(req, res));
 exports.compactAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(compactAnalyticsForUser)(req, res));
 exports.publishWeeklyJob = functions.https.onRequest((req, res) => requireFlexibleAuth(publishWeeklyJob)(req, res));

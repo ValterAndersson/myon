@@ -20,7 +20,7 @@ from .agents.card_formatter import card_formatter
 from .agents.clarification_agent import clarification_agent
 
 # Import canvas tools
-from .libs.tools_canvas import CanvasFunctionsClient
+from .libs.tools_canvas.client import CanvasFunctionsClient
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,27 @@ class MultiAgentOrchestrator:
             content={"status": "starting", "message": "Processing your request..."}
         ).to_dict()
         
-        # Step 1: Extract Intent
+        # Step 1: Load profile first to avoid asking known info
+        yield StreamEvent(
+            type="status",
+            agent="profile",
+            content={"status": "loading", "message": "Loading your profile..."}
+        ).to_dict()
+        profile = self.orchestrator.agent_registry["ProfileAgent"].analyze_capabilities(context)
+        # Merge profile-derived defaults into entities
+        profile_entities = {}
+        if profile and isinstance(profile, dict):
+            cap = profile
+            if cap.get("capacity", {}).get("days_per_week"):
+                profile_entities["available_days"] = cap["capacity"]["days_per_week"]
+            if cap.get("experience", {}).get("level"):
+                profile_entities["experience_level"] = cap["experience"]["level"]
+            if cap.get("equipment", {}).get("available"):
+                profile_entities["equipment"] = cap["equipment"]["available"]
+            if cap.get("goals"):
+                profile_entities["goals"] = cap["goals"]
+
+        # Step 2: Extract Intent
         yield StreamEvent(
             type="status",
             agent="intent_extractor",
@@ -133,6 +153,9 @@ class MultiAgentOrchestrator:
         ).to_dict()
         
         intent = await self._extract_intent(message, context)
+        # Merge profile entities to avoid redundant clarifications
+        if profile_entities:
+            intent.setdefault("entities", {}).update(profile_entities)
         
         yield StreamEvent(
             type="tool",
@@ -140,7 +163,7 @@ class MultiAgentOrchestrator:
             content={"tool": "classify_intent", "result": intent}
         ).to_dict()
         
-        # Step 2: Check if clarification needed
+        # Step 3: Check if clarification needed
         if intent.get("requires_clarification"):
             yield StreamEvent(
                 type="status",
@@ -158,9 +181,40 @@ class MultiAgentOrchestrator:
             
             # Publish to canvas
             await self._publish_cards([question_card], context)
-            return
+            
+            # Wait for user response via backend
+            yield StreamEvent(
+                type="status",
+                agent="clarification",
+                content={"status": "waiting", "message": "Waiting for your answer..."}
+            ).to_dict()
+            
+            # Poll up to 10 seconds
+            for _ in range(5):
+                resp = self.canvas_client.check_pending_response(
+                    user_id=context["user_id"],
+                    canvas_id=context["canvas_id"],
+                )
+                if resp.get("success") and resp.get("data", {}).get("has_response"):
+                    answer = resp["data"]["response"]
+                    yield StreamEvent(
+                        type="status",
+                        agent="clarification",
+                        content={"status": "received", "message": "Got your answer.", "answer": answer}
+                    ).to_dict()
+                    # Continue processing after response
+                    break
+                await asyncio.sleep(2)
+            else:
+                # Timed out waiting; end early
+                yield StreamEvent(
+                    type="status",
+                    agent="clarification",
+                    content={"status": "timeout", "message": "No response yet."}
+                ).to_dict()
+                return
         
-        # Step 3: Create execution plan
+        # Step 4: Create execution plan
         yield StreamEvent(
             type="status",
             agent="planner",
@@ -175,7 +229,7 @@ class MultiAgentOrchestrator:
             content={"plan": plan.__dict__, "task_count": len(plan.tasks)}
         ).to_dict()
         
-        # Step 4: Execute plan
+        # Step 5: Execute plan
         yield StreamEvent(
             type="status",
             agent="orchestrator",
@@ -185,7 +239,7 @@ class MultiAgentOrchestrator:
         # Execute with streaming
         results = await self._execute_plan_with_streaming(plan, context)
         
-        # Step 5: Format cards
+        # Step 6: Format cards
         yield StreamEvent(
             type="status",
             agent="formatter",
@@ -194,7 +248,7 @@ class MultiAgentOrchestrator:
         
         cards = await self._format_results_as_cards(results, intent)
         
-        # Step 6: Publish cards
+        # Step 7: Publish cards
         yield StreamEvent(
             type="status",
             agent="publisher",

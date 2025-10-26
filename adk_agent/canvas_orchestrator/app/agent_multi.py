@@ -6,7 +6,8 @@ import logging
 import asyncio
 from typing import Dict, Any, Optional
 
-from google.adk import Agent, streaming
+from google.adk import Agent
+from google.adk.tools import FunctionTool
 
 from .multi_agent_orchestrator import multi_agent_orchestrator, StreamEvent
 
@@ -96,7 +97,7 @@ multi_agent_root = Agent(
     Simply pass the ENTIRE message (including context prefix) to process_message.
     """,
     tools=[
-        streaming.stream_function(process_with_streaming)
+        FunctionTool(func=process_with_streaming)
     ]
 )
 

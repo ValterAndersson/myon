@@ -125,7 +125,7 @@ class CardFormatter:
     def format_agent_narration(self, text: str, status: str = "complete") -> CardSpec:
         """Format agent narration/status message."""
         return CardSpec(
-            type="agent_message",
+            type="agent-message",
             lane="system",
             priority=100,
             content={
@@ -170,7 +170,7 @@ class CardFormatter:
         # For choice questions, no actions needed (auto-submit on selection)
         
         return CardSpec(
-            type="clarify_questions",
+            type="clarify-questions",
             lane="analysis",
             priority=95,
             content={

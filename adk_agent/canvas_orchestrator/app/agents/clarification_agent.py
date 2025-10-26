@@ -157,27 +157,5 @@ clarification_agent = Agent(
     tools=[
         FunctionTool(func=tool_generate_clarification),
         FunctionTool(func=tool_prioritize_questions),
-    ],
-    output_schema={
-        "type": "object",
-        "properties": {
-            "question": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "text": {"type": "string"},
-                    "type": {"type": "string", "enum": ["single_choice", "multi_choice", "yes_no", "text"]},
-                    "options": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "nullable": True
-                    }
-                },
-                "required": ["id", "text", "type"]
-            },
-            "follow_up_needed": {"type": "boolean"},
-            "confidence": {"type": "number", "minimum": 0, "maximum": 1}
-        },
-        "required": ["question", "follow_up_needed", "confidence"]
-    }
+    ]
 )

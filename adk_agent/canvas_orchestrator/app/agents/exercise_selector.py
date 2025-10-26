@@ -210,21 +210,5 @@ exercise_selector_agent = Agent(
         FunctionTool(func=tool_search_exercises),
         FunctionTool(func=tool_build_exercise_selection),
     ],
-    output_schema={
-        "type": "object",
-        "properties": {
-            "exercises": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["id", "name", "primary_muscles", "equipment", "sets", "reps"]
-                }
-            },
-            "total_volume": {"type": "integer"},
-            "estimated_duration": {"type": "integer"},
-            "muscle_coverage": {"type": "object"},
-            "reasoning": {"type": "string"}
-        },
-        "required": ["exercises", "total_volume", "estimated_duration", "muscle_coverage", "reasoning"]
-    }
+    # Remove output_schema to avoid strict Pydantic BaseModel requirement in ADK
 )

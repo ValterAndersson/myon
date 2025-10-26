@@ -14,6 +14,10 @@ logger = logging.getLogger("canvas_orchestrator")
 logger.setLevel(logging.INFO)
 
 
+# NOTE: This single-agent orchestrator is DEPRECATED.
+# We now use the full multi-agent pipeline defined in `app/agent_multi.py`
+# and `app/multi_agent_orchestrator.py`. This module remains for reference
+# and backward compatibility but should not be the deployment entrypoint.
 _context_state: Dict[str, Optional[str]] = {"canvas_id": None, "user_id": None}
 # In-process idempotency stores (per-stream/session scope)
 _published_canvases: set[str] = set()
@@ -240,50 +244,109 @@ def tool_propose_cards(
 def tool_check_user_response(
     canvas_id: Optional[str] = None,
     canvasa_id: Optional[str] = None,
+    canvasaa_id: Optional[str] = None,
     user_id: Optional[str] = None,
     usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Check for pending user responses to clarify questions."""
-    cid = canvas_id or canvasa_id
-    uid = user_id or usera_id
+    import requests
+    import time
+    
+    cid = canvas_id or canvasa_id or canvasaa_id
+    uid = user_id or usera_id or useraa_id
     
     ctx = _context()
     cid = cid or ctx.get("canvas_id")
     uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID")
     
-    # In production, this would query Firestore pending_responses
-    # For now, return mock response
-    return {
-        "ok": True,
-        "has_response": False,
-        "response": None
+    if not cid or not uid:
+        logger.warning(f"tool_check_user_response: missing canvas_id={cid} or user_id={uid}")
+        return {
+            "ok": False,
+            "has_response": False,
+            "error": "Missing canvas_id or user_id"
+        }
+    
+    # Query Firestore for pending responses via a Firebase Function
+    base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
+    url = f"{base_url}/checkPendingResponse"
+    
+    api_key = os.getenv("MYON_API_KEY") or os.getenv("FIREBASE_API_KEY") or "myon-agent-key-2024"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
     }
+    
+    payload = {
+        "userId": uid,
+        "canvasId": cid
+    }
+    
+    try:
+        # Poll for a response (up to 10 seconds)
+        for _ in range(5):
+            resp = requests.post(url, json=payload, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("success") and data.get("data", {}).get("has_response"):
+                    response_data = data["data"].get("response", {})
+                    logger.info(f"tool_check_user_response: found response={response_data}")
+                    return {
+                        "ok": True,
+                        "has_response": True,
+                        "response": response_data
+                    }
+            time.sleep(2)  # Wait 2 seconds before checking again
+        
+        # No response found after polling
+        return {
+            "ok": True,
+            "has_response": False,
+            "response": None
+        }
+    except Exception as e:
+        logger.error(f"tool_check_user_response error: {e}")
+        return {
+            "ok": False,
+            "has_response": False,
+            "error": str(e)
+        }
 
 def tool_get_user_preferences(
     user_id: Optional[str] = None,
     usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,  # Handle double typo
+    **kwargs  # Catch any other variations
 ) -> Dict[str, Any]:
     """Get user preferences and profile data from Firestore."""
-    uid = user_id or usera_id
-    ctx = _context()
-    uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
-    
-    if not uid:
-        return {"ok": False, "error": "user_id required", "preferences": {}}
-    
-    # Mock response showing MISSING data to trigger questions
-    # In production this would query Firestore
-    return {
-        "ok": True,
-        "preferences": {
-            # Empty/missing data to trigger clarifying questions
-            "training_experience": None,
-            "goals": None,
-            "available_days": None,
-            "equipment": None,
-            "injuries": None
+    try:
+        uid = user_id or usera_id or useraa_id
+        ctx = _context()
+        uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
+        
+        logger.info(f"tool_get_user_preferences: uid={uid}")
+        
+        if not uid:
+            return {"ok": False, "error": "user_id required", "preferences": {}}
+        
+        # Mock response showing MISSING data to trigger questions
+        # In production this would query Firestore
+        return {
+            "ok": True,
+            "preferences": {
+                # Empty/missing data to trigger clarifying questions
+                "training_experience": None,
+                "goals": None,
+                "available_days": None,
+                "equipment": None,
+                "injuries": None
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"tool_get_user_preferences error: {e}")
+        return {"ok": False, "error": str(e), "preferences": {}}
 
 def tool_publish_agent_message(
     message: str,
@@ -417,13 +480,16 @@ def tool_publish_clarify_questions(
     canvasId: Optional[str] = None,
     canvasa_id: Optional[str] = None,
     canvasaa_id: Optional[str] = None,  # Double typo
+    canvasaaa_id: Optional[str] = None,  # Triple typo
     uid: Optional[str] = None,
     userId: Optional[str] = None,
     usera_id: Optional[str] = None,
     useraa_id: Optional[str] = None,  # Double typo
+    useraaa_id: Optional[str] = None,  # Triple typo
     correlation_id: Optional[str] = None,
     correlationId: Optional[str] = None,
     correlationa_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     # Convert old format (list of strings) to new format
     texts: List[str] = []
@@ -481,8 +547,8 @@ def tool_publish_clarify_questions(
             "options": ["Strength", "Hypertrophy", "Endurance", "Fat loss", "General fitness"]
         }]
 
-    resolved_canvas = canvas_id or canvasId or canvasa_id or canvasaa_id
-    resolved_user = user_id or userId or uid or usera_id or useraa_id
+    resolved_canvas = canvas_id or canvasId or canvasa_id or canvasaa_id or canvasaaa_id
+    resolved_user = user_id or userId or uid or usera_id or useraa_id or useraaa_id
     resolved_corr = correlation_id or correlationId or correlationa_id
     
     logger.info(f"tool_publish_clarify_questions: resolved canvas={resolved_canvas} user={resolved_user} corr={resolved_corr}")
@@ -582,15 +648,20 @@ def tool_canvas_publish(
     # Flexible synonyms / common typos
     canvasId: Optional[str] = None,
     canvasa_id: Optional[str] = None,
+    canvasaa_id: Optional[str] = None,
+    canvasaaa_id: Optional[str] = None,
     uid: Optional[str] = None,
     userId: Optional[str] = None,
     usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,
+    useraaa_id: Optional[str] = None,
     correlationId: Optional[str] = None,
     correlationa_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
     # Resolve flexible args
-    resolved_canvas = canvas_id or canvasId or canvasa_id
-    resolved_user = user_id or userId or uid or usera_id
+    resolved_canvas = canvas_id or canvasId or canvasa_id or canvasaa_id or canvasaaa_id
+    resolved_user = user_id or userId or uid or usera_id or useraa_id or useraaa_id
     resolved_corr = correlation_id or correlationId or correlationa_id
     
     logger.info(f"tool_canvas_publish: resolved canvas={resolved_canvas} user={resolved_user} corr={resolved_corr}")
@@ -772,15 +843,23 @@ root_agent = Agent(
     name="CanvasRoot",
     model=os.getenv("CANVAS_ROOT_MODEL", "gemini-2.5-flash"),  # Use Gemini 2.5 Flash (fastest)
     instruction=(
-        "You orchestrate workout planning. Execute these steps IN ORDER:\n"
+        "You orchestrate workout planning. Execute ALL steps - NEVER stop until workout is published:\n"
         "1. IMMEDIATELY call tool_publish_agent_message with 'Understanding your request...'\n"
         "2. Extract context and call tool_set_user_context(user_id=Y, canvas_id=X)\n"
-        "3. Call tool_get_user_preferences()\n"
-        "4. If preferences missing, call tool_publish_clarify_questions with ONE question\n"
-        "5. For workouts: tool_stage1_plan → tool_build_stage1_workout_cards → tool_canvas_publish\n\n"
-        "ALWAYS show progress to user via tool_publish_agent_message.\n"
-        "Pass canvas_id and user_id to EVERY tool call.\n"
-        "Be fast and decisive - no extra thinking."
+        "3. Call tool_get_user_preferences() - this returns preferences dict\n"
+        "4. After getting preferences, CHECK if any are None/missing\n"
+        "5. If ANY preference is None:\n"
+        "   a. Call tool_publish_clarify_questions with ONE question\n"
+        "   b. IMMEDIATELY call tool_check_user_response to wait for answer (it polls for 10 seconds)\n"
+        "   c. Process the response and update your understanding\n"
+        "6. Repeat step 5 for each missing preference (one at a time)\n"
+        "7. Once you have enough info, call tool_publish_agent_message with 'Creating your workout...'\n"
+        "8. Call tool_stage1_plan to generate the plan\n"
+        "9. Call tool_build_stage1_workout_cards to build the cards\n"
+        "10. Call tool_canvas_publish to publish the workout\n\n"
+        "CRITICAL: After publishing a question, you MUST call tool_check_user_response!\n"
+        "The conversation is NOT complete until you publish a workout!\n"
+        "Pass canvas_id and user_id to EVERY tool call."
     ),
     sub_agents=[],
     tools=[
@@ -788,6 +867,7 @@ root_agent = Agent(
         FunctionTool(func=tool_get_user_preferences),  # Check user data first
         FunctionTool(func=tool_publish_agent_message),  # New tool for narration
         FunctionTool(func=tool_publish_clarify_questions),
+        FunctionTool(func=tool_check_user_response),
         FunctionTool(func=tool_canvas_publish),
         FunctionTool(func=tool_build_stage1_workout_cards),
         FunctionTool(func=tool_stage1_plan),
