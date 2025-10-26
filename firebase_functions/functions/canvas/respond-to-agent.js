@@ -1,7 +1,7 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const axios = require('axios');
-const { verifyBearerToken } = require('../auth/middleware');
+const { verifyAuth } = require('../auth/middleware');
 
 /**
  * Respond to agent with user's answer to clarify questions
@@ -16,7 +16,7 @@ exports.respondToAgent = functions.https.onRequest(async (req, res) => {
   }
 
   // Auth
-  const userId = await verifyBearerToken(req, res);
+  const userId = await verifyAuth(req, res);
   if (!userId) return;
 
   const { canvasId, cardId, response } = req.body;

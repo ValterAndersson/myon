@@ -237,6 +237,28 @@ def tool_propose_cards(
         return {"ok": False, "error": str(e), "status": getattr(getattr(e, "response", None), "status_code", None)}
 
 
+def tool_check_user_response(
+    canvas_id: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    usera_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Check for pending user responses to clarify questions."""
+    cid = canvas_id or canvasa_id
+    uid = user_id or usera_id
+    
+    ctx = _context()
+    cid = cid or ctx.get("canvas_id")
+    uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID")
+    
+    # In production, this would query Firestore pending_responses
+    # For now, return mock response
+    return {
+        "ok": True,
+        "has_response": False,
+        "response": None
+    }
+
 def tool_get_user_preferences(
     user_id: Optional[str] = None,
     usera_id: Optional[str] = None,
@@ -748,18 +770,17 @@ def _root_instruction() -> str:
 
 root_agent = Agent(
     name="CanvasRoot",
-    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-2.5-pro"),
+    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-1.5-flash"),  # Use faster model
     instruction=(
-        "You are the Canvas Orchestrator. When you receive a message starting with (context: canvas_id=X user_id=Y ...), "
-        "IMMEDIATELY extract canvas_id and user_id values and call tool_set_user_context(user_id=Y, canvas_id=X).\n"
-        "For workout planning:\n"
-        "1. First set context from the (context:...) prefix\n"
-        "2. Call tool_get_user_preferences() to check existing data\n"
-        "3. If data is missing, call tool_publish_clarify_questions with ONE question AND the canvas_id\n"
-        "   - Pass question=['What is your primary fitness goal?'] AND canvas_id=X AND user_id=Y\n"
-        "4. To publish workout: tool_stage1_plan → tool_build_stage1_workout_cards → tool_canvas_publish\n"
-        "CRITICAL: Always pass canvas_id and user_id to every tool that accepts them.\n"
-        "CRITICAL: Only ONE question at a time."
+        "You orchestrate workout planning. Execute these steps IN ORDER:\n"
+        "1. IMMEDIATELY call tool_publish_agent_message with 'Understanding your request...'\n"
+        "2. Extract context and call tool_set_user_context(user_id=Y, canvas_id=X)\n"
+        "3. Call tool_get_user_preferences()\n"
+        "4. If preferences missing, call tool_publish_clarify_questions with ONE question\n"
+        "5. For workouts: tool_stage1_plan → tool_build_stage1_workout_cards → tool_canvas_publish\n\n"
+        "ALWAYS show progress to user via tool_publish_agent_message.\n"
+        "Pass canvas_id and user_id to EVERY tool call.\n"
+        "Be fast and decisive - no extra thinking."
     ),
     sub_agents=[],
     tools=[
