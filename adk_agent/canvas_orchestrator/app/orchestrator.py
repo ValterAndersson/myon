@@ -2,6 +2,8 @@ import os
 import copy
 import logging
 import re
+import json
+import hashlib
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from google.adk.agents import Agent, SequentialAgent, BaseAgent
@@ -12,7 +14,14 @@ logger = logging.getLogger("canvas_orchestrator")
 logger.setLevel(logging.INFO)
 
 
+# NOTE: This single-agent orchestrator is DEPRECATED.
+# We now use the full multi-agent pipeline defined in `app/agent_multi.py`
+# and `app/multi_agent_orchestrator.py`. This module remains for reference
+# and backward compatibility but should not be the deployment entrypoint.
 _context_state: Dict[str, Optional[str]] = {"canvas_id": None, "user_id": None}
+# In-process idempotency stores (per-stream/session scope)
+_published_canvases: set[str] = set()
+_canvas_card_fingerprints: Dict[str, set[str]] = {}
 
 
 def _set_context(canvas_id: Optional[str], user_id: Optional[str]) -> None:
@@ -155,33 +164,44 @@ def _canvas_client() -> "CanvasFunctionsClient":  # type: ignore
             logger.warning("Using FIREBASE_API_KEY for proposeCards; set MYON_API_KEY for production")
             api_key = alt
     bearer = os.getenv("FIREBASE_ID_TOKEN")
-    user_id = os.getenv("PIPELINE_USER_ID") or os.getenv("X_USER_ID") or None
+    # IMPORTANT: prefer per-request user context header over pipeline id
+    user_id = os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or None
     return CanvasFunctionsClient(base_url=base_url, api_key=api_key, bearer_token=bearer, user_id=user_id)
 # --- Context helpers ---
-def tool_set_user_context(user_id: str) -> Dict[str, Any]:
-    """Set per-request user context for downstream HTTP tools.
 
-    The HTTP client reads `X_USER_ID` env var when constructing headers.
+def tool_set_user_context(
+    user_id: Optional[str] = None,
+    uid: Optional[str] = None,
+    userId: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    canvas_id: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    canvasId: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Set per-request user and canvas context for downstream HTTP tools.
+
+    Accepts multiple parameter names to be robust to model typos.
     """
-    os.environ["X_USER_ID"] = user_id
-    # no return payload needed
-    return {"ok": True, "user_id": user_id}
+    chosen_user = user_id or uid or userId or usera_id
+    chosen_canvas = canvas_id or canvasa_id or canvasId
+    
+    if not isinstance(chosen_user, str) or not chosen_user.strip():
+        return {"ok": False, "error": "missing_user_id"}
+    
+    user_val = chosen_user.strip()
+    prev = os.getenv("X_USER_ID")
+    os.environ["X_USER_ID"] = user_val
+    
+    # Also update in-process context for agent-side defaults
+    try:
+        _update_context(user_id=user_val, canvas_id=chosen_canvas)
+    except Exception:
+        pass
+    return {"ok": True, "user_id": user_val, "canvas_id": chosen_canvas, "already_set": prev == user_val}
 
 
 
 # --- Tools ---
-<<<<<<< HEAD
-def tool_propose_cards(canvas_id: str, cards: List[Dict[str, Any]], correlation_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
-    """Publish one or more cards to the user's canvas.
-
-    Args:
-        canvas_id: Target canvas id (users/{uid}/canvases/{canvas_id}).
-        cards: Array of card inputs. Server will fill defaults and validate via Ajv.
-        correlation_id: Optional correlation id for tracing.
-        user_id: Optional explicit user id to route to correct user scope.
-    Returns: Server response JSON.
-    """
-=======
 def tool_propose_cards(
     canvas_id: str,
     cards: List[Dict[str, Any]],
@@ -189,7 +209,6 @@ def tool_propose_cards(
     user_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
     client = _canvas_client()
     # Light shaping: leave defaults to server; ensure minimal required fields
     shaped: List[Dict[str, Any]] = []
@@ -198,10 +217,6 @@ def tool_propose_cards(
             continue
         item = {k: v for k, v in c.items() if v is not None}
         shaped.append(item)
-<<<<<<< HEAD
-    logger.info(f"tool_propose_cards: canvas_id={canvas_id} user_id={user_id} count={len(shaped)}")
-    return client.propose_cards(canvas_id, shaped, correlation_id=correlation_id, user_id_override=user_id)
-=======
     try:
         logger.info(
             "tool_propose_cards: begin", extra={
@@ -216,30 +231,207 @@ def tool_propose_cards(
             logger.info("tool_propose_cards: ok", extra={"created": result.get("created_card_ids"), "canvas_id": canvas_id, "correlation_id": correlation_id})
         except Exception:
             pass
-        return result
+        return {"ok": True, **result}
     except Exception as e:
         try:
             status = getattr(getattr(e, "response", None), "status_code", None)
             logger.error("tool_propose_cards: failed", extra={"error": str(e), "status": status, "canvas_id": canvas_id, "correlation_id": correlation_id})
         except Exception:
             pass
-        raise
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
+        return {"ok": False, "error": str(e), "status": getattr(getattr(e, "response", None), "status_code", None)}
 
 
-def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] = None) -> Dict[str, Any]:
-    """Build a clarify-questions proposal with simple text questions."""
-    # Minimal clarify-questions card compatible with iOS draft schema
+def tool_check_user_response(
+    canvas_id: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    canvasaa_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Check for pending user responses to clarify questions."""
+    import requests
+    import time
+    
+    cid = canvas_id or canvasa_id or canvasaa_id
+    uid = user_id or usera_id or useraa_id
+    
+    ctx = _context()
+    cid = cid or ctx.get("canvas_id")
+    uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID")
+    
+    if not cid or not uid:
+        logger.warning(f"tool_check_user_response: missing canvas_id={cid} or user_id={uid}")
+        return {
+            "ok": False,
+            "has_response": False,
+            "error": "Missing canvas_id or user_id"
+        }
+    
+    # Query Firestore for pending responses via a Firebase Function
+    base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
+    url = f"{base_url}/checkPendingResponse"
+    
+    api_key = os.getenv("MYON_API_KEY") or os.getenv("FIREBASE_API_KEY") or "myon-agent-key-2024"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "userId": uid,
+        "canvasId": cid
+    }
+    
+    try:
+        # Poll for a response (up to 10 seconds)
+        for _ in range(5):
+            resp = requests.post(url, json=payload, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("success") and data.get("data", {}).get("has_response"):
+                    response_data = data["data"].get("response", {})
+                    logger.info(f"tool_check_user_response: found response={response_data}")
+                    return {
+                        "ok": True,
+                        "has_response": True,
+                        "response": response_data
+                    }
+            time.sleep(2)  # Wait 2 seconds before checking again
+        
+        # No response found after polling
+        return {
+            "ok": True,
+            "has_response": False,
+            "response": None
+        }
+    except Exception as e:
+        logger.error(f"tool_check_user_response error: {e}")
+        return {
+            "ok": False,
+            "has_response": False,
+            "error": str(e)
+        }
+
+def tool_get_user_preferences(
+    user_id: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,  # Handle double typo
+    **kwargs  # Catch any other variations
+) -> Dict[str, Any]:
+    """Get user preferences and profile data from Firestore."""
+    try:
+        uid = user_id or usera_id or useraa_id
+        ctx = _context()
+        uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
+        
+        logger.info(f"tool_get_user_preferences: uid={uid}")
+        
+        if not uid:
+            return {"ok": False, "error": "user_id required", "preferences": {}}
+        
+        # Mock response showing MISSING data to trigger questions
+        # In production this would query Firestore
+        return {
+            "ok": True,
+            "preferences": {
+                # Empty/missing data to trigger clarifying questions
+                "training_experience": None,
+                "goals": None,
+                "available_days": None,
+                "equipment": None,
+                "injuries": None
+            }
+        }
+    except Exception as e:
+        logger.error(f"tool_get_user_preferences error: {e}")
+        return {"ok": False, "error": str(e), "preferences": {}}
+
+def tool_publish_agent_message(
+    message: str,
+    canvas_id: Optional[str] = None,
+    canvasa_id: Optional[str] = None,  # Handle typo
+    user_id: Optional[str] = None,
+    usera_id: Optional[str] = None,  # Handle typo
+    status: str = "working",
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Publish an agent message/narration card to explain what the agent is doing."""
+    # Handle typos
+    cid = canvas_id or canvasa_id
+    uid = user_id or usera_id
+    
+    ctx = _context()
+    cid = cid or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or ""
+    uid = uid or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
+    
+    if not cid or not uid:
+        logger.warning(f"tool_publish_agent_message: missing canvas_id={cid} or user_id={uid}")
+        return {"ok": False, "error": "canvas_id and user_id required"}
+    
+    card = {
+        "type": "agent-message",
+        "lane": "system",
+        "priority": 100,
+        "content": {
+            "text": message,
+            "status": status,
+            "tool_calls": tool_calls or []
+        },
+        "actions": [],  # No actions for agent messages
+        "ttl": {"minutes": 5}
+    }
+    
+    logger.info(f"tool_publish_agent_message: publishing to canvas_id={cid} user_id={uid}")
+    return tool_canvas_publish([card], canvas_id=cid, user_id=uid)
+
+def tool_build_clarify_card(questions: List[Dict[str, Any]], title: str = "Quick question", group_id: Optional[str] = None) -> Dict[str, Any]:
+    """Build a clarify-questions card with choice or text questions.
+    
+    Args:
+        questions: List of dicts with 'text' (question), 'type' ('choice' or 'text'), and optional 'options' (for choice)
+        title: Card title
+        group_id: Optional group ID
+    """
+    # Build questions with proper structure
     qs = []
-    for idx, q in enumerate(question_texts):
-        qs.append({"id": f"q_{idx}", "label": str(q), "type": "text"})
+    for idx, q in enumerate(questions):
+        question_item = {
+            "id": f"q_{idx}",
+            "text": q.get("text", ""),  # The question text
+        }
+        
+        # Add type and options if it's a choice question
+        if q.get("type") == "choice" and q.get("options"):
+            question_item["type"] = "choice"
+            question_item["options"] = q["options"]
+        else:
+            question_item["type"] = "text"
+            
+        qs.append(question_item)
+    
     card = {
         "type": "clarify-questions",
         "lane": "analysis",
         "content": {
-            "title": "A few questions",
+            "title": title,
             "questions": qs,
         },
+        "actions": [
+            {
+                "label": "Submit",
+                "kind": "submit",
+                "style": "primary",
+                "iconSystemName": "paperplane"
+            },
+            {
+                "label": "Skip",
+                "kind": "dismiss",
+                "style": "secondary",
+                "iconSystemName": "xmark"
+            }
+        ],
         "meta": {"groupId": group_id} if group_id else {},
         "priority": 50,
         "ttl": {"minutes": 10},
@@ -247,36 +439,7 @@ def tool_build_clarify_card(question_texts: List[str], group_id: Optional[str] =
     return card
 
 
-def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str, Any], group_id: Optional[str] = None) -> List[Dict[str, Any]]:
-<<<<<<< HEAD
-    """Build Ajv-compliant Stage-1 bundle: session_plan + first set_target."""
-    # Emits session_plan + first set_target
-    cards: List[Dict[str, Any]] = []
-    # Ensure Ajv-compliant session_plan: blocks[*].exercise_id + sets[] with target
-    sp_blocks: List[Dict[str, Any]] = []
-    for b in plan.get("blocks", []):
-        ex_id = b.get("exercise_id") or b.get("id") or b.get("exerciseId")
-        # Minimal one-set target if none present
-        sets = b.get("sets")
-        if not isinstance(sets, list):
-            sets = [{"target": {"reps": 8, "rir": 1}}]
-        sp_blocks.append({
-            "exercise_id": ex_id or "ex_barbell_bench_press",
-            "sets": sets,
-        })
-    sp_content = {"blocks": sp_blocks} if sp_blocks else {
-        "blocks": [
-            {"exercise_id": "ex_barbell_bench_press", "sets": [{"target": {"reps": 8, "rir": 1}}]},
-            {"exercise_id": "ex_lat_pulldown", "sets": [{"target": {"reps": 10, "rir": 2}}]},
-        ]
-    }
-    cards.append({
-        "type": "session_plan",
-        "lane": "workout",
-        "content": sp_content,
-        "meta": {"groupId": group_id} if group_id else {},
-=======
-    # Emits group header + session_plan + first set_target
+def tool_build_stage1_workout_cards(plan: Dict[str, Any], _: Dict[str, Any], group_id: Optional[str] = None) -> List[Dict[str, Any]]:
     cards: List[Dict[str, Any]] = []
     meta = {"groupId": group_id} if group_id else None
     if group_id:
@@ -296,77 +459,129 @@ def tool_build_stage1_workout_cards(plan: Dict[str, Any], first_target: Dict[str
         "lane": "workout",
         "content": plan,
         "meta": meta,
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
         "priority": 90,
         "actions": [
             {"kind": "apply", "label": "Apply", "style": "primary", "iconSystemName": "checkmark"},
             {"kind": "dismiss", "label": "Dismiss", "style": "destructive", "iconSystemName": "xmark"},
         ],
     })
-<<<<<<< HEAD
-    # set_target must include content.target and refs.exercise_id/set_index
-    st_ex = first_target.get("exercise_id") or "ex_barbell_bench_press"
-    st_idx = int(first_target.get("set_index", 0))
-    st_target = first_target.get("target") or {"reps": 8, "rir": 1}
-    cards.append({
-        "type": "set_target",
-        "lane": "workout",
-        "content": {"target": st_target},
-        "refs": {"exercise_id": st_ex, "set_index": st_idx},
-        "meta": {"groupId": group_id} if group_id else {},
-=======
-    refs: Dict[str, Any] = {}
-    exercise_id = first_target.get("exercise_id") if isinstance(first_target, dict) else None
-    set_index = first_target.get("set_index") if isinstance(first_target, dict) else None
-    if exercise_id is not None and set_index is not None:
-        refs = {"exercise_id": exercise_id, "set_index": set_index}
-    content: Dict[str, Any] = {}
-    target: Optional[Dict[str, Any]] = None
-    if isinstance(first_target, dict):
-        maybe_target = first_target.get("target")
-        if isinstance(maybe_target, dict):
-            target = maybe_target
-    if target is None and exercise_id is not None:
-        try:
-            blocks = plan.get("blocks") if isinstance(plan, dict) else []
-            for block in blocks or []:
-                if not isinstance(block, dict):
-                    continue
-                if block.get("exercise_id") != exercise_id:
-                    continue
-                sets = block.get("sets")
-                if isinstance(sets, list) and set_index is not None and 0 <= int(set_index) < len(sets):
-                    candidate = sets[int(set_index)]
-                    if isinstance(candidate, dict) and isinstance(candidate.get("target"), dict):
-                        target = candidate.get("target")
-                        break
-        except Exception:
-            pass
-    if not isinstance(target, dict):
-        raise ValueError("first_target requires a target payload")
-    content = {"target": target}
-    cards.append({
-        "type": "set_target",
-        "lane": "workout",
-        "content": content,
-        "refs": refs or None,
-        "meta": meta,
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
-        "priority": 95,
-        "actions": [
-            {"kind": "apply", "label": "Apply target", "style": "primary", "iconSystemName": "checkmark"},
-            {"kind": "dismiss", "label": "Dismiss", "style": "destructive", "iconSystemName": "xmark"},
-        ],
-    })
     return cards
+
+
+def tool_publish_clarify_questions(
+    question_texts: Optional[List[str]] = None,
+    questions: Optional[List[str]] = None,
+    questiona_texts: Optional[List[str]] = None,
+    question: Optional[str] = None,  # Allow single question
+    *,
+    canvas_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    # Flexible synonyms (including double typos)
+    canvasId: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    canvasaa_id: Optional[str] = None,  # Double typo
+    canvasaaa_id: Optional[str] = None,  # Triple typo
+    uid: Optional[str] = None,
+    userId: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,  # Double typo
+    useraaa_id: Optional[str] = None,  # Triple typo
+    correlation_id: Optional[str] = None,
+    correlationId: Optional[str] = None,
+    correlationa_id: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    # Convert old format (list of strings) to new format
+    texts: List[str] = []
+    
+    # Handle single question first
+    if question:
+        texts = [str(question)]
+    else:
+        # Handle lists
+        for lst in (question_texts, questiona_texts, questions):
+            if isinstance(lst, list):
+                for x in lst:
+                    if isinstance(x, (str, int, float)):
+                        texts.append(str(x))
+    
+    # Convert to ONE question with clickable options
+    question_list = []
+    
+    # Take only the FIRST question and convert to choice format
+    if texts and len(texts) > 0:
+        first_q = texts[0].lower()
+        
+        if "goal" in first_q or "fitness goal" in first_q:
+            question_list = [{
+                "text": "What's your primary fitness goal?",
+                "type": "choice",
+                "options": ["Strength", "Hypertrophy", "Endurance", "Fat loss", "General fitness"]
+            }]
+        elif "fitness level" in first_q or "experience" in first_q:
+            question_list = [{
+                "text": "What's your current fitness level?",
+                "type": "choice",
+                "options": ["Beginner", "Intermediate", "Advanced"]
+            }]
+        elif "days" in first_q or "week" in first_q or "frequency" in first_q:
+            question_list = [{
+                "text": "How many days per week can you train?",
+                "type": "choice",
+                "options": ["2 days", "3 days", "4 days", "5 days", "6+ days"]
+            }]
+        elif "equipment" in first_q:
+            question_list = [{
+                "text": "What equipment do you have access to?",
+                "type": "choice",
+                "options": ["Full gym", "Dumbbells only", "Barbell & rack", "Bodyweight only", "Limited equipment"]
+            }]
+        else:
+            # For any other question, use text input but still only ONE
+            question_list = [{"text": texts[0], "type": "text"}]
+    else:
+        # Default single question with options
+        question_list = [{
+            "text": "What's your primary training goal?",
+            "type": "choice",
+            "options": ["Strength", "Hypertrophy", "Endurance", "Fat loss", "General fitness"]
+        }]
+
+    resolved_canvas = canvas_id or canvasId or canvasa_id or canvasaa_id or canvasaaa_id
+    resolved_user = user_id or userId or uid or usera_id or useraa_id or useraaa_id
+    resolved_corr = correlation_id or correlationId or correlationa_id
+    
+    logger.info(f"tool_publish_clarify_questions: resolved canvas={resolved_canvas} user={resolved_user} corr={resolved_corr}")
+
+    if resolved_canvas is not None or resolved_user is not None:
+        _update_context(canvas_id=resolved_canvas, user_id=resolved_user)
+    ctx = _context()
+    cid = (resolved_canvas or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or "").strip()
+    uid_val = (resolved_user or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or "").strip()
+    
+    logger.info(f"tool_publish_clarify_questions: final canvas_id={cid} user_id={uid_val} from context={ctx}")
+    
+    if not cid:
+        logger.error(f"tool_publish_clarify_questions: missing canvas_id, context={ctx}")
+        return {"ok": False, "error": "canvas_id is required (or set TEST_CANVAS_ID env var)"}
+    if not uid_val:
+        logger.error(f"tool_publish_clarify_questions: missing user_id, context={ctx}")
+        return {"ok": False, "error": "user_id is required (include in context or pass explicitly)"}
+
+    card = tool_build_clarify_card(question_list, title="Quick question")
+    logger.info(f"tool_publish_clarify_questions: publishing card to canvas_id={cid} user_id={uid_val}")
+    result = tool_canvas_publish([card], canvas_id=cid, user_id=uid_val, correlation_id=resolved_corr)
+    logger.info(f"tool_publish_clarify_questions: result={result}")
+    return result
 
 
 # --- Agents ---
 def _router_instruction() -> str:
     return (
         "You are the General Router. Use tool_route_intent(raw_input=<full_user_message>) with the ENTIRE last user message string (do not trim context prefixes). "
-        "Decide the route: 'workout'|'analysis'|'progress'. If intent is ambiguous, produce a short list of clarify questions. "
-        "Output JSON: {route, entities, confidence, clarify_questions?}. When context like (context: canvas_id=... user_id=...) is present, surface it in entities and ensure downstream tools receive it."
+        "Decide the route: 'workout'|'analysis'|'progress'. If intent is ambiguous, produce a short list of clarify questions and immediately call tool_publish_clarify_questions(question_texts=[...], canvas_id=?, user_id=?). "
+        "Output JSON: {route, entities, confidence, clarify_questions?}. When context like (context: canvas_id=... user_id=...) is present, surface it in entities and ensure downstream tools receive it. "
+        "If route='workout', immediately call tool_workout_stage1_publish(canvas_id=?, user_id=?)."
     )
 
 
@@ -409,69 +624,100 @@ def tool_route_intent(instruction_text: Optional[str] = None, raw_input: Optiona
     return {"route": route, "entities": entities, "confidence": confidence}
 
 
+def _card_fingerprint(card: Dict[str, Any]) -> str:
+    try:
+        meta = card.get("meta") if isinstance(card, dict) else None
+        group_id = meta.get("groupId") if isinstance(meta, dict) else None
+        relevant = {
+            "type": card.get("type") if isinstance(card, dict) else None,
+            "lane": card.get("lane") if isinstance(card, dict) else None,
+            "content": card.get("content") if isinstance(card, dict) else None,
+            "groupId": group_id,
+        }
+        s = json.dumps(relevant, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        s = str(card)
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()
+
+
 def tool_canvas_publish(
-    cards: List[Dict[str, Any]],
+    cards: Optional[List[Dict[str, Any]]] = None,
     canvas_id: Optional[str] = None,
     user_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
+    # Flexible synonyms / common typos
+    canvasId: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    canvasaa_id: Optional[str] = None,
+    canvasaaa_id: Optional[str] = None,
+    uid: Optional[str] = None,
+    userId: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    useraa_id: Optional[str] = None,
+    useraaa_id: Optional[str] = None,
+    correlationId: Optional[str] = None,
+    correlationa_id: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, Any]:
-    if canvas_id is not None or user_id is not None:
-        _update_context(canvas_id, user_id)
+    # Resolve flexible args
+    resolved_canvas = canvas_id or canvasId or canvasa_id or canvasaa_id or canvasaaa_id
+    resolved_user = user_id or userId or uid or usera_id or useraa_id or useraaa_id
+    resolved_corr = correlation_id or correlationId or correlationa_id
+    
+    logger.info(f"tool_canvas_publish: resolved canvas={resolved_canvas} user={resolved_user} corr={resolved_corr}")
+
+    if resolved_canvas is not None or resolved_user is not None:
+        _update_context(canvas_id=resolved_canvas, user_id=resolved_user)
     ctx = _context()
-    cid = canvas_id or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or ""
-    uid = user_id or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
+    cid = (resolved_canvas or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or "").strip()
+    uid_val = (resolved_user or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or "").strip()
+    
+    logger.info(f"tool_canvas_publish: final canvas_id={cid} user_id={uid_val} from context={ctx}")
+    
     if not cid:
-        raise ValueError("canvas_id is required (or set TEST_CANVAS_ID env var)")
-    if not uid:
-        raise ValueError("user_id is required (include in context or pass explicitly)")
+        logger.error(f"tool_canvas_publish: missing canvas_id, context={ctx}")
+        return {"ok": False, "error": "canvas_id is required (or set TEST_CANVAS_ID env var)"}
+    if not uid_val:
+        logger.error(f"tool_canvas_publish: missing user_id, context={ctx}")
+        return {"ok": False, "error": "user_id is required (include in context or pass explicitly)"}
+
+    # Deduplicate identical cards within this process for this canvas
+    incoming = list(cards or [])
+    seen = _canvas_card_fingerprints.setdefault(cid, set())
+    unique_cards: List[Dict[str, Any]] = []
+    for c in incoming:
+        if not isinstance(c, dict):
+            continue
+        fp = _card_fingerprint(c)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        unique_cards.append(c)
+
+    if not unique_cards:
+        try:
+            logger.info("tool_canvas_publish: skip duplicate set", extra={"canvas_id": cid, "user_id": uid_val, "correlation_id": resolved_corr})
+        except Exception:
+            pass
+        return {"ok": True, "created_card_ids": [], "deduped": True}
+
     try:
-        logger.info("tool_canvas_publish: begin", extra={"canvas_id": cid, "user_id": uid, "count": len(cards), "correlation_id": correlation_id})
+        logger.info("tool_canvas_publish: begin", extra={"canvas_id": cid, "user_id": uid_val, "count": len(unique_cards), "correlation_id": resolved_corr})
     except Exception:
         pass
-    res = tool_propose_cards(cid, cards, user_id=uid, correlation_id=correlation_id)
+
+    res = tool_propose_cards(cid, unique_cards, user_id=uid_val, correlation_id=resolved_corr)
     try:
-        logger.info("tool_canvas_publish: ok", extra={"canvas_id": cid, "user_id": uid, "correlation_id": correlation_id})
+        logger.info("tool_canvas_publish: ok", extra={"canvas_id": cid, "user_id": uid_val, "correlation_id": resolved_corr, "ok": res.get("ok", True)})
     except Exception:
         pass
     return res
 
 
 def tool_stage1_plan(entities: Dict[str, Any]) -> Dict[str, Any]:
-    """Synthesize a minimal workout plan and the first target to prime the UI."""
-    # Minimal plan skeleton and first target with safe bounds (reps 6–12, RIR 0–2)
     _update_context_from_entities(entities)
-    default_sets = [
-        {"target": {"reps": 8, "rir": 1}},
-        {"target": {"reps": 8, "rir": 1}},
-        {"target": {"reps": 8, "rir": 1}},
-    ]
-    bench_sets = copy.deepcopy(default_sets)
-    pulldown_sets = copy.deepcopy(default_sets)
-    plan = {
-        "blocks": [
-<<<<<<< HEAD
-            {"exercise_id": "ex_barbell_bench_press", "sets": [{"target": {"reps": 8, "rir": 1}}]},
-            {"exercise_id": "ex_lat_pulldown", "sets": [{"target": {"reps": 10, "rir": 2}}]},
-=======
-            {
-                "exercise_id": "ex_barbell_bench_press",
-                "name": "Barbell Bench Press",
-                "sets": bench_sets,
-            },
-            {
-                "exercise_id": "ex_lat_pulldown",
-                "name": "Lat Pulldown",
-                "sets": pulldown_sets,
-            },
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
-        ],
-    }
-    first_target = {
-        "exercise_id": plan["blocks"][0]["exercise_id"],
-        "set_index": 0,
-        "target": plan["blocks"][0]["sets"][0]["target"],
-    }
-    return {"plan": plan, "first_target": first_target}
+    # Leave planning to the model; provide empty skeleton
+    return {"plan": {"blocks": []}, "first_target": {}}
 
 
 class RouterAdapter(BaseAgent):
@@ -485,6 +731,7 @@ router_tools = [
     FunctionTool(func=tool_set_user_context),
     FunctionTool(func=tool_route_intent),
     FunctionTool(func=tool_build_clarify_card),
+    FunctionTool(func=tool_publish_clarify_questions),
     FunctionTool(func=tool_canvas_publish),
 ]
 
@@ -496,18 +743,68 @@ workout_tools = [
 
 
 # --- MVP fast-path wrapper to make Router able to complete Stage-1 end-to-end ---
-def tool_workout_stage1_publish(entities: Optional[Dict[str, Any]] = None, canvas_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+
+def tool_workout_stage1_publish(
+    entities: Optional[Dict[str, Any]] = None,
+    canvas_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    # Flexible synonyms / common typos
+    canvasId: Optional[str] = None,
+    canvasa_id: Optional[str] = None,
+    uid: Optional[str] = None,
+    userId: Optional[str] = None,
+    usera_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    correlationId: Optional[str] = None,
+    correlationa_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    # Resolve flexible args
+    resolved_canvas = canvas_id or canvasId or canvasa_id
+    resolved_user = user_id or userId or uid or usera_id
+    resolved_corr = correlation_id or correlationId or correlationa_id
+
+    # Update context from provided entities first
+    try:
+        if entities:
+            _update_context_from_entities(entities)
+    except Exception:
+        pass
+
+    # Apply explicit overrides to context
+    if resolved_canvas is not None or resolved_user is not None:
+        _update_context(canvas_id=resolved_canvas, user_id=resolved_user)
+
+    ctx = _context()
+    cid = (resolved_canvas or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID") or "").strip()
+    uid_val = (resolved_user or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID") or "").strip()
+    if not cid:
+        raise ValueError("canvas_id is required (or set TEST_CANVAS_ID env var)")
+    if not uid_val:
+        raise ValueError("user_id is required (include in context or pass explicitly)")
+
+    # Idempotency: avoid publishing stage1 multiple times per canvas in a single stream
+    if cid in _published_canvases:
+        try:
+            logger.info("tool_workout_stage1_publish: skip duplicate", extra={"canvas_id": cid, "user_id": uid_val, "correlation_id": resolved_corr})
+        except Exception:
+            pass
+        return {"ok": True, "published_cards": 0, "skipped": "duplicate"}
+    _published_canvases.add(cid)
+
     data = tool_stage1_plan(entities or {})
     plan = data.get("plan") or {}
     first_target = data.get("first_target") or {}
-    group_id = f"stage1_{os.getenv('PIPELINE_USER_ID', 'canvas_orchestrator_engine')}"
+    group_id = _make_stage_group_id(uid_val, cid)
     cards = tool_build_stage1_workout_cards(plan, first_target, group_id)
-    logger.info(f"tool_workout_stage1_publish: canvas_id={canvas_id} user_id={user_id} cards={len(cards)}")
-    res = tool_canvas_publish(cards, canvas_id=canvas_id, correlation_id=None, user_id=user_id)
+    try:
+        logger.info("tool_workout_stage1_publish: begin", extra={"canvas_id": cid, "user_id": uid_val, "cards": len(cards), "correlation_id": resolved_corr})
+    except Exception:
+        pass
+    res = tool_canvas_publish(cards, canvas_id=cid, correlation_id=resolved_corr, user_id=uid_val)
     try:
         count = len(cards)
     except Exception:
-        count = 2
+        count = 1
     return {"ok": True, "published_cards": count, "group_id": group_id, "response": res}
 
 # Expose wrapper on Router so it can complete the MVP path without agent transfer race
@@ -536,66 +833,49 @@ WorkoutOrchestrator = Agent(
 
 def _root_instruction() -> str:
     return (
-        "You are the Canvas Root Agent. Step 1: use RouterAgent (transfer) to decide route. "
-        "If 'workout', transfer to WorkoutOrchestrator. Ensure canvas_id and user_id from context/entities are preserved. After sub-agent completes, emit a one-line summary (e.g., 'done route=workout status=published')."
+        "You are the Canvas Root Agent. Use RouterAgent (transfer) to decide route and orchestrate. "
+        "If the user intent is training-related or ambiguous, prefer the workout path: generate a concise session plan (blocks with exercise_id/name and sets array), "
+        "call tool_build_stage1_workout_cards(plan=..., first_target={}), and publish with tool_canvas_publish. Keep outputs compact."
     )
 
 
 root_agent = Agent(
     name="CanvasRoot",
-    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-2.5-pro"),
-    instruction=_root_instruction() + " Always start by calling tool_set_user_context(user_id=?). If the user intent is about training or is ambiguous, you MUST call tool_workout_stage1_publish(canvas_id=?, user_id=?). Prefer concise outputs.",
-    sub_agents=[RouterAgent, WorkoutOrchestrator],
+    model=os.getenv("CANVAS_ROOT_MODEL", "gemini-2.5-flash"),  # Use Gemini 2.5 Flash (fastest)
+    instruction=(
+        "You orchestrate workout planning. Execute ALL steps - NEVER stop until workout is published:\n"
+        "1. IMMEDIATELY call tool_publish_agent_message with 'Understanding your request...'\n"
+        "2. Extract context and call tool_set_user_context(user_id=Y, canvas_id=X)\n"
+        "3. Call tool_get_user_preferences() - this returns preferences dict\n"
+        "4. After getting preferences, CHECK if any are None/missing\n"
+        "5. If ANY preference is None:\n"
+        "   a. Call tool_publish_clarify_questions with ONE question\n"
+        "   b. IMMEDIATELY call tool_check_user_response to wait for answer (it polls for 10 seconds)\n"
+        "   c. Process the response and update your understanding\n"
+        "6. Repeat step 5 for each missing preference (one at a time)\n"
+        "7. Once you have enough info, call tool_publish_agent_message with 'Creating your workout...'\n"
+        "8. Call tool_stage1_plan to generate the plan\n"
+        "9. Call tool_build_stage1_workout_cards to build the cards\n"
+        "10. Call tool_canvas_publish to publish the workout\n\n"
+        "CRITICAL: After publishing a question, you MUST call tool_check_user_response!\n"
+        "The conversation is NOT complete until you publish a workout!\n"
+        "Pass canvas_id and user_id to EVERY tool call."
+    ),
+    sub_agents=[],
     tools=[
         FunctionTool(func=tool_set_user_context),
-        FunctionTool(func=tool_workout_stage1_publish),
+        FunctionTool(func=tool_get_user_preferences),  # Check user data first
+        FunctionTool(func=tool_publish_agent_message),  # New tool for narration
+        FunctionTool(func=tool_publish_clarify_questions),
+        FunctionTool(func=tool_check_user_response),
         FunctionTool(func=tool_canvas_publish),
         FunctionTool(func=tool_build_stage1_workout_cards),
         FunctionTool(func=tool_stage1_plan),
         FunctionTool(func=tool_build_clarify_card),
     ],
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True,
 )
 
-<<<<<<< HEAD
-=======
-# --- MVP fast-path wrapper to make Router able to complete Stage-1 end-to-end ---
-def tool_workout_stage1_publish(
-    entities: Optional[Dict[str, Any]] = None,
-    canvas_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    correlation_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    _update_context_from_entities(entities or {})
-    if canvas_id is not None or user_id is not None:
-        _update_context(canvas_id, user_id)
-    ctx = _context()
-    cid = canvas_id or ctx.get("canvas_id") or os.getenv("TEST_CANVAS_ID")
-    uid = user_id or ctx.get("user_id") or os.getenv("X_USER_ID") or os.getenv("PIPELINE_USER_ID")
-    if not cid:
-        raise ValueError("canvas_id is required for stage1 publish")
-    if not uid:
-        raise ValueError("user_id is required for stage1 publish")
-    data = tool_stage1_plan(entities or {})
-    plan = data.get("plan") or {}
-    first_target = data.get("first_target") or {}
-    group_id = _make_stage_group_id(uid, cid)
-    # Telemetry: announce publish intent (emit event only)
-    try:
-        client = _canvas_client()
-        client._http.post("emitEvent", {"userId": uid, "canvasId": cid, "type": "publish_attempt", "payload": {"stage": 1}}, headers=None)
-    except Exception:
-        pass
-    cards = tool_build_stage1_workout_cards(plan, first_target, group_id)
-    res = tool_canvas_publish(cards, canvas_id=cid, user_id=uid, correlation_id=correlation_id)
-    try:
-        count = len(cards)
-    except Exception:
-        count = 2
-    return {"ok": True, "published_cards": count, "group_id": group_id, "response": res}
-
-# Expose wrapper on Router so it can complete the MVP path without agent transfer race
-router_tools.append(FunctionTool(func=tool_workout_stage1_publish))
-
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
 
 

@@ -13,6 +13,8 @@ final class CanvasViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isReady: Bool = false
     @Published var pendingInvoke: (message: String, correlationId: String)? = nil
+    @Published var currentToolCall: (name: String, status: String)? = nil
+    @Published var agentThinking: String? = nil
 
     private let repo: CanvasRepositoryProtocol
     private let service: CanvasServiceProtocol
@@ -44,10 +46,10 @@ final class CanvasViewModel: ObservableObject {
                     if self.isReady == false { self.isReady = true }
                     // If we have a pending orchestrator invoke, fire once when ready
                     if let staged = PendingAgentInvoke.shared.take() {
-                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: canvasId, message: staged.message, correlationId: staged.correlationId))
+                        // SSE now handles publish; do not call invokeCanvasOrchestrator here
                     } else if let pending = self.pendingInvoke {
                         self.pendingInvoke = nil
-                        try? await AgentsApi.invokeCanvasOrchestrator(AgentInvokeRequest(userId: userId, canvasId: canvasId, message: pending.message, correlationId: pending.correlationId))
+                        // SSE now handles publish; do not call invokeCanvasOrchestrator here
                     }
                 }
             } catch {
@@ -96,6 +98,20 @@ final class CanvasViewModel: ObservableObject {
     }
 
     // MARK: - Actions
+    func sendResponseToAgent(canvasId: String, cardId: String, response: [String: String]) async {
+        do {
+            let req = AgentResponseRequest(
+                canvasId: canvasId,
+                cardId: cardId,
+                response: response
+            )
+            try await AgentsApi.respondToAgent(req)
+            DebugLogger.log(.canvas, "Response sent to agent for card: \(cardId)")
+        } catch {
+            DebugLogger.log(.canvas, "Failed to send response: \(error)")
+        }
+    }
+    
     func applyAction(canvasId: String, expectedVersion: Int? = nil, type: String, cardId: String? = nil, payload: [String: AnyCodable]? = nil) async {
         guard !isApplying else { return }
         isApplying = true
