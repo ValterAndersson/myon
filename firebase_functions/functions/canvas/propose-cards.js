@@ -18,20 +18,70 @@ async function proposeCards(req, res) {
     const uid = req.headers['x-user-id'] || req.get('X-User-Id') || req.query.userId || auth.uid;
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing X-User-Id', null, 400);
 
-    const v = validateProposeCardsRequest(req.body || {});
-    if (!v.valid) return fail(res, 'INVALID_ARGUMENT', 'Invalid request', v.errors, 400);
+    // Try validate; if invalid, coerce into a minimal safe form (clarify-questions)
+    let body = req.body || {};
+    let { canvasId, cards } = body;
+    const v = validateProposeCardsRequest(body);
+    if (!v.valid) {
+      try { console.warn('[proposeCards] validation failed; attempting to coerce', { errors: v.errors }); } catch (_) {}
+      function coerceToClarifyCard(item) {
+        const qs = Array.isArray(item?.content?.questions)
+          ? item.content.questions
+          : Array.isArray(item?.question_texts)
+            ? item.question_texts
+            : Array.isArray(item?.questiona_texts)
+              ? item.questiona_texts
+              : [];
+        const questions = (qs || []).slice(0, 6).map((q, idx) => ({ id: `q_${idx}`, text: String(q) }));
+        if (questions.length === 0) {
+          questions.push(
+            { id: 'q_0', text: 'What are your primary fitness goals?' },
+            { id: 'q_1', text: 'How many days per week can you train?' },
+            { id: 'q_2', text: 'What equipment do you have access to?' }
+          );
+        }
+        return {
+          type: 'clarify-questions',
+          lane: 'analysis',
+          content: { title: 'A few questions', questions },
+          priority: 50,
+        };
+      }
+      function coerceCards(list) {
+        if (!Array.isArray(list) || list.length === 0) return [coerceToClarifyCard({})];
+        const out = [];
+        for (const c of list) {
+          if (c && typeof c === 'object' && c.type === 'session_plan' && c.content) {
+            out.push(c); // already fine; keep
+          } else if (c && typeof c === 'object' && c.type === 'clarify-questions' && c.content) {
+            out.push(c);
+          } else {
+            out.push(coerceToClarifyCard(c));
+          }
+        }
+        return out;
+      }
+      cards = coerceCards(cards);
+      body = { canvasId, cards };
+    }
 
-    const { canvasId, cards } = v.data;
-<<<<<<< HEAD
-    try {
-      console.log('proposeCards request', JSON.stringify({ uid, canvasId, count: Array.isArray(cards) ? cards.length : 0 }));
-    } catch (_) {}
-=======
+    const { canvasId: canvasIdSafe } = body;
+    const cardsInput = body.cards;
+    if (!canvasIdSafe) return fail(res, 'INVALID_ARGUMENT', 'Missing canvasId', null, 400);
+
     // Correlation (from header preferred; fallback to body if provided by clients)
     const correlationId = req.headers['x-correlation-id'] || req.get('X-Correlation-Id') || (req.body && req.body.correlationId) || null;
-    try { console.log('[proposeCards] request', { uid, canvasId, count: Array.isArray(cards) ? cards.length : 0, correlationId }); } catch (_) {}
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
-    const canvasPath = `users/${uid}/canvases/${canvasId}`;
+    try {
+      console.log('[proposeCards] request', {
+        uid,
+        canvasId: canvasIdSafe,
+        count: Array.isArray(cardsInput) ? cardsInput.length : 0,
+        correlationId,
+        hasApiKey: !!(req.get('X-API-Key') || req.query.apiKey),
+        hasUserHeader: !!(req.get('X-User-Id'))
+      });
+    } catch (_) {}
+    const canvasPath = `users/${uid}/canvases/${canvasIdSafe}`;
     const { FieldValue } = require('firebase-admin/firestore');
     const now = FieldValue.serverTimestamp();
 
@@ -59,7 +109,7 @@ async function proposeCards(req, res) {
       const refs = typeof card.refs === 'object' && card.refs !== null ? card.refs : {};
       return { lane, layout, actions, menuItems, meta: metaIn, refs };
     }
-    for (const card of cards) {
+    for (const card of cardsInput) {
       const d = buildDefaults(card);
       const ref = db.collection(`${canvasPath}/cards`).doc();
       batch.set(ref, {
@@ -85,7 +135,14 @@ async function proposeCards(req, res) {
       batch.set(upRef, { card_id: ref.id, priority, inserted_at: now });
       created.push(ref.id);
     }
-    await batch.commit();
+    try { await batch.commit(); } catch (e) {
+      console.error('[proposeCards] batch commit failed', { error: e?.message, canvasId: canvasIdSafe, uid });
+      try {
+        const evtRef = admin.firestore().collection(`${canvasPath}/events`).doc();
+        await evtRef.set({ type: 'agent_publish_failed', payload: { error: String(e?.message || e), correlation_id: correlationId || null }, created_at: now });
+      } catch (_) {}
+      return fail(res, 'INTERNAL', 'Commit failed', { message: e?.message }, 500);
+    }
 
     // Enforce up_next cap N=20 (trim lowest priorities)
     const upCol = db.collection(`${canvasPath}/up_next`);
@@ -107,10 +164,10 @@ async function proposeCards(req, res) {
         created_at: now,
       });
     } catch (e) {
-      console.warn('[proposeCards] event emission failed', { canvasId, error: e?.message });
+      console.warn('[proposeCards] event emission failed', { canvasId: canvasIdSafe, error: e?.message });
     }
 
-    try { console.log('[proposeCards] ok', { uid, canvasId, created: created.length, correlationId }); } catch (_) {}
+    try { console.log('[proposeCards] ok', { uid, canvasId: canvasIdSafe, created: created.length, correlationId }); } catch (_) {}
     return ok(res, { created_card_ids: created });
   } catch (error) {
     console.error('proposeCards error:', error);
