@@ -43,7 +43,6 @@ final class CanvasRepository: CanvasRepositoryProtocol {
             let cardsListener = cardsRef.addSnapshotListener { snap, err in
                 if let err { continuation.finish(throwing: err); return }
                 guard let docs = snap?.documents else { return }
-                cards.removeAll()
                 for doc in docs {
                     if let model = CanvasMapper.mapCard(from: doc) {
                         cards[model.id] = model

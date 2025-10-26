@@ -106,19 +106,6 @@ public enum CanvasCardData: Equatable {
     case groupHeader(title: String)
     case clarifyQuestions([ClarifyQuestion])
     case routineOverview(split: String, days: Int, notes: String?)
-    case agentMessage(String, status: String?, toolCalls: [ToolCall])
-}
-
-public struct ToolCall: Codable, Equatable {
-    public let name: String
-    public let status: String
-    public let args: [String: String]?
-    
-    public init(name: String, status: String, args: [String: String]? = nil) {
-        self.name = name
-        self.status = status
-        self.args = args
-    }
 }
 
 public struct CanvasCardModel: Identifiable, Equatable {

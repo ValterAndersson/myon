@@ -52,7 +52,10 @@ struct ChatHomeView: View {
             LazyVGrid(columns: columns, alignment: .center, spacing: Space.md) {
                 QuickActionCard(title: "Plan program", icon: iconForPreset("make a training program")) {
                     entryContext = "quick:Plan program"; navigateToCanvas = true
-                    // Defer to CanvasScreen to stream SRE and generate cards
+                    Task {
+                        let preset = "Take a look at my profile and goals and propose a training program well suited for me, relying on defined exercise science."
+                        await sendToAgentIfPossible(message: preset)
+                    }
                 }
                 QuickActionCard(title: "New workout", icon: iconForPreset("start exercise")) {
                     entryContext = "quick:New workout"; navigateToCanvas = true
@@ -94,11 +97,17 @@ struct ChatHomeView: View {
     }
 
     @MainActor private func sendToAgentIfPossible(message: String) async {
-        // Always stash and let CanvasScreen start the streaming flow
+        guard let uid = userId else { return }
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let corr = UUID().uuidString
-        PendingAgentInvoke.shared.set(message: trimmed, correlationId: corr)
+        if let cid = CanvasRepository.shared.currentCanvasId {
+            try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: uid, canvasId: cid, message: trimmed, correlationId: corr))
+        } else {
+            // Stash for CanvasScreen to execute once canvas is ready
+            // We cannot access vm here; use a simple static stash on repository for now
+            PendingAgentInvoke.shared.set(message: trimmed, correlationId: corr)
+        }
     }
 }
 

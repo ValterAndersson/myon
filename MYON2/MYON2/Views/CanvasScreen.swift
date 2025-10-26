@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CanvasScreen: View {
     @StateObject private var vm = CanvasViewModel()
-    @StateObject private var streamer = DirectStreamingService()
     let userId: String
     let canvasId: String?
     let purpose: String?
@@ -13,10 +12,7 @@ struct CanvasScreen: View {
     @State private var showSwap: Bool = false
     @State private var pinned: [CanvasCardModel] = []
     @State private var toastText: String? = nil
-    @State private var didStartStream: Bool = false
-    @State private var sreActive: Bool = false
-    @State private var sreStatus: String? = nil
-    @State private var sreCorrelationId: String? = nil
+    @State private var didInvokeAgent: Bool = false
 
     var body: some View {
         VStack(spacing: Space.md) {
@@ -51,32 +47,11 @@ struct CanvasScreen: View {
         }
         .onDisappear { vm.stop() }
         .onChange(of: vm.canvasId) { newValue in
-            guard !didStartStream, let cid = newValue else { return }
+            guard !didInvokeAgent, let cid = newValue else { return }
             if let msg = computeAgentMessage(from: entryContext) {
-                didStartStream = true
-                sreActive = true
-                let corr = UUID().uuidString
-                sreCorrelationId = corr
-                sreStatus = "Understanding task"
-                streamer.streamQuery(
-                    message: msg,
-                    userId: userId,
-                    sessionId: nil,
-                    canvasId: cid,
-                    correlationId: corr,
-                    progressHandler: { _, action in
-                        if let a = action, !a.isEmpty {
-                            DispatchQueue.main.async { self.sreStatus = a }
-                        }
-                    },
-                    completion: { _ in
-                        // Keep overlay until cards arrive; completion just ends the stream
-                    }
-                )
+                didInvokeAgent = true
+                Task { try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: userId, canvasId: cid, message: msg)) }
             }
-        }
-        .onChange(of: vm.cards.count) { newCount in
-            if newCount > 0 { sreActive = false }
         }
         .overlay(alignment: .bottom) {
             if let t = toastText {
@@ -99,21 +74,6 @@ struct CanvasScreen: View {
                     }
                     .padding(InsetsToken.screen)
                 }
-            }
-        }
-        .overlay(alignment: .top) {
-            if sreActive, let status = sreStatus, vm.cards.isEmpty {
-                VStack {
-                    HStack {
-                        ProgressView().progressViewStyle(.circular)
-                        MyonText(status, style: .subheadline, color: ColorsToken.Text.secondary)
-                    }
-                    .padding(8)
-                    .background(ColorsToken.Background.secondary.opacity(0.8))
-                    .cornerRadius(8)
-                    Spacer()
-                }
-                .padding(InsetsToken.screen)
             }
         }
         .overlay {
@@ -169,32 +129,6 @@ extension CanvasScreen {
                 pinned.removeAll { $0.id == card.id }
             case "explain":
                 withAnimation { vm.cards.insert(CanvasCardModel(type: .summary, data: .inlineInfo("The agent chose this based on your recent volume and preferences."), width: .oneHalf), at: 0) }
-            case "submit":
-                // Handle clarify questions submission
-                print("[CanvasScreen] Handling submit action for card: \(card.id)")
-                if let cid = vm.canvasId ?? canvasId {
-                    Task {
-                        await vm.sendResponseToAgent(
-                            canvasId: cid,
-                            cardId: card.id,
-                            response: action.payload ?? [:]
-                        )
-                        toastText = "Response sent"
-                    }
-                }
-            case "skip":
-                // Handle skip action
-                print("[CanvasScreen] Handling skip action for card: \(card.id)")
-                if let cid = vm.canvasId ?? canvasId {
-                    Task {
-                        await vm.sendResponseToAgent(
-                            canvasId: cid,
-                            cardId: card.id,
-                            response: action.payload ?? [:]
-                        )
-                        toastText = "Skipped"
-                    }
-                }
             default:
                 break
             }

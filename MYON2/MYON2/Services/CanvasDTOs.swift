@@ -116,13 +116,11 @@ public enum CanvasMapper {
             case "clarify-questions":
                 let qsArray = (content?["questions"] as? [[String: Any]]) ?? []
                 let qs: [ClarifyQuestion] = qsArray.compactMap { q in
-                    // Support both "text" (schema) and "label" (legacy) fields
-                    guard let label = (q["text"] as? String) ?? (q["label"] as? String) else { return nil }
-                    let id = (q["id"] as? String) ?? UUID().uuidString
+                    guard let label = q["label"] as? String else { return nil }
                     let typeStr = (q["type"] as? String) ?? "text"
                     let qType = ClarifyQuestionType(rawValue: typeStr) ?? .text
                     let opts = q["options"] as? [String]
-                    return ClarifyQuestion(id: id, label: label, type: qType, options: opts)
+                    return ClarifyQuestion(label: label, type: qType, options: opts)
                 }
                 return .clarifyQuestions(qs)
             case "routine-overview":
@@ -130,17 +128,6 @@ public enum CanvasMapper {
                 let days = (content?["days"] as? Int) ?? 0
                 let notes = content?["notes"] as? String
                 return .routineOverview(split: split, days: days, notes: notes)
-            case "agent-message":
-                let text = (content?["text"] as? String) ?? ""
-                let status = content?["status"] as? String
-                let toolCallsArray = (content?["tool_calls"] as? [[String: Any]]) ?? []
-                let toolCalls: [ToolCall] = toolCallsArray.compactMap { tc in
-                    guard let name = tc["name"] as? String,
-                          let status = tc["status"] as? String else { return nil }
-                    let args = tc["args"] as? [String: String]
-                    return ToolCall(name: name, status: status, args: args)
-                }
-                return .agentMessage(text, status: status, toolCalls: toolCalls)
             case "list":
                 let items = (content?["items"] as? [[String: Any]]) ?? []
                 let options: [ListOption] = items.map { item in

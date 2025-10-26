@@ -1,6 +1,7 @@
 const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const { logger } = require('firebase-functions');
+const { VERTEX_AI_CONFIG } = require('./config');
 
 // Helper: SSE writer for NDJSON lines
 function createSSE(res) {
@@ -167,14 +168,6 @@ async function streamAgentNormalizedHandler(req, res) {
     const userId = req.user?.uid || req.auth?.uid || 'anonymous';
     const message = req.body?.message || '';
     const sessionId = req.body?.sessionId || null;
-    const canvasId = req.body?.canvasId || null;
-    const correlationId = req.body?.correlationId || null;
-
-    // Resolve engine for Canvas Orchestrator
-    const ENGINE_ID_DEFAULT = process.env.ENGINE_ID_DEFAULT || 'projects/919326069447/locations/us-central1/reasoningEngines/8723635205937561600';
-    const engineId = process.env.CANVAS_ENGINE_ID || ENGINE_ID_DEFAULT;
-    const projectId = engineId.split('/')[1] || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'unknown';
-    const location = engineId.split('/')[3] || 'us-central1';
 
     // Auth to Vertex
     const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
@@ -183,7 +176,7 @@ async function streamAgentNormalizedHandler(req, res) {
     // If no session, create one first
     let sessionToUse = sessionId;
     if (!sessionToUse) {
-      const createUrl = `https://${location}-aiplatform.googleapis.com/v1/${engineId}:query`;
+      const createUrl = `https://${VERTEX_AI_CONFIG.location}-aiplatform.googleapis.com/v1/projects/${VERTEX_AI_CONFIG.projectId}/locations/${VERTEX_AI_CONFIG.location}/reasoningEngines/${VERTEX_AI_CONFIG.agentId}:query`;
       const createResp = await axios.post(createUrl, {
         class_method: 'create_session',
         input: { user_id: userId, state: { 'user:id': userId } },
@@ -192,15 +185,10 @@ async function streamAgentNormalizedHandler(req, res) {
       sse.write({ type: 'session', seq: normalizer.nextSeq(), ts: Date.now(), sessionId: sessionToUse });
     }
 
-    const url = `https://${location}-aiplatform.googleapis.com/v1/${engineId}:streamQuery`;
-    // Inject lightweight context hint so the agent preserves canvas/user and calls the fast-path when applicable
-    const contextHint = canvasId
-      ? `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'}; if route=workout then call tool_workout_stage1_publish)`
-      : '';
-    const messageToSend = contextHint ? `${contextHint}\n${message}` : message;
+    const url = `https://${VERTEX_AI_CONFIG.location}-aiplatform.googleapis.com/v1/projects/${VERTEX_AI_CONFIG.projectId}/locations/${VERTEX_AI_CONFIG.location}/reasoningEngines/${VERTEX_AI_CONFIG.agentId}:streamQuery`;
     const payload = {
       class_method: 'stream_query',
-      input: { user_id: userId, session_id: sessionToUse, message: messageToSend },
+      input: { user_id: userId, session_id: sessionToUse, message },
     };
 
     // Request as a stream
@@ -210,7 +198,7 @@ async function streamAgentNormalizedHandler(req, res) {
       data: payload,
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       responseType: 'stream',
-      timeout: 90000,
+      timeout: 60000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       validateStatus: (status) => status >= 200 && status < 500,

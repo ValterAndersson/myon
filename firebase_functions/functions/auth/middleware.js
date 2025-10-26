@@ -41,7 +41,6 @@ async function verifyAuth(req, res) {
  */
 async function verifyApiKey(req, res) {
   const apiKey = req.get('X-API-Key') || req.query.apiKey;
-  try { console.log('[auth] verifyApiKey:start', { hasApiKey: !!apiKey, path: req.path }); } catch (_) {}
   
   if (!apiKey) {
     res.status(401).json({ 
@@ -66,12 +65,10 @@ async function verifyApiKey(req, res) {
       return null;
     }
     if (!validApiKeys.includes(apiKey)) {
-      try { console.warn('[auth] verifyApiKey:invalid', { path: req.path }); } catch (_) {}
       res.status(403).json({ success: false, error: 'Invalid API key' });
       return null;
     }
     const uidHeader = req.get('X-User-Id') || req.query.userId;
-    try { console.log('[auth] verifyApiKey:ok', { hasUidHeader: !!uidHeader, path: req.path }); } catch (_) {}
     return { type: 'api_key', key: apiKey, uid: uidHeader || undefined, source: 'third_party_agent' };
   } catch (error) {
     console.error('API key verification error:', error);
@@ -141,7 +138,6 @@ function requireFlexibleAuth(handler) {
       return res.status(200).send();
     }
     
-    try { console.log('[auth] requireFlexibleAuth:path', req.path); } catch (_) {}
     const authInfo = await verifyFlexibleAuth(req, res);
     if (!authInfo) {
       return; // Response already sent by verifyFlexibleAuth
@@ -164,7 +160,6 @@ const withApiKey = (handler) => {
       return res.status(204).send('');
     }
 
-    try { console.log('[auth] withApiKey:path', req.path); } catch (_) {}
     const authInfo = await verifyApiKey(req, res);
     if (!authInfo) return; // response already sent
     req.auth = authInfo;

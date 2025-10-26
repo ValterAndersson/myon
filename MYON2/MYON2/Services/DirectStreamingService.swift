@@ -37,8 +37,6 @@ class DirectStreamingService: ObservableObject {
         message: String,
         userId: String,
         sessionId: String? = nil,
-        canvasId: String? = nil,
-        correlationId: String? = nil,
         progressHandler: @escaping (_ partialText: String?, _ action: String?) -> Void,
         completion: @escaping (Result<(response: String, sessionId: String?), Error>) -> Void
     ) {
@@ -66,8 +64,6 @@ class DirectStreamingService: ObservableObject {
                     let body: [String: Any] = [
                         "message": message,
                         "sessionId": sessionId as Any,
-                        "canvasId": canvasId as Any,
-                        "correlationId": correlationId as Any,
                         "markdown_policy": [
                             "bullets": "-",
                             "max_bullets": 6,
