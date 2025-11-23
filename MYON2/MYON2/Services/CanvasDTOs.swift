@@ -116,11 +116,13 @@ public enum CanvasMapper {
             case "clarify-questions":
                 let qsArray = (content?["questions"] as? [[String: Any]]) ?? []
                 let qs: [ClarifyQuestion] = qsArray.compactMap { q in
-                    guard let label = q["label"] as? String else { return nil }
+                    // Support both 'text' and 'label' fields for backwards compatibility
+                    guard let text = (q["text"] as? String) ?? (q["label"] as? String) else { return nil }
                     let typeStr = (q["type"] as? String) ?? "text"
                     let qType = ClarifyQuestionType(rawValue: typeStr) ?? .text
                     let opts = q["options"] as? [String]
-                    return ClarifyQuestion(label: label, type: qType, options: opts)
+                    let qId = (q["id"] as? String) ?? UUID().uuidString
+                    return ClarifyQuestion(id: qId, text: text, options: opts, type: qType)
                 }
                 return .clarifyQuestions(qs)
             case "routine-overview":
@@ -128,6 +130,31 @@ public enum CanvasMapper {
                 let days = (content?["days"] as? Int) ?? 0
                 let notes = content?["notes"] as? String
                 return .routineOverview(split: split, days: days, notes: notes)
+            case "agent-message":
+                let type = content?["type"] as? String
+                let status = content?["status"] as? String
+                let message = content?["message"] as? String
+                let thoughts = content?["thoughts"] as? [String]
+                
+                var toolCalls: [ToolCall]? = nil
+                if let tools = content?["toolCalls"] as? [[String: Any]] {
+                    toolCalls = tools.map { tool in
+                        ToolCall(
+                            id: (tool["id"] as? String) ?? UUID().uuidString,
+                            name: (tool["name"] as? String) ?? "",
+                            displayName: (tool["displayName"] as? String) ?? (tool["name"] as? String) ?? "",
+                            duration: tool["duration"] as? String
+                        )
+                    }
+                }
+                
+                return .agentMessage(AgentMessage(
+                    type: type,
+                    status: status,
+                    message: message,
+                    toolCalls: toolCalls,
+                    thoughts: thoughts
+                ))
             case "list":
                 let items = (content?["items"] as? [[String: Any]]) ?? []
                 let options: [ListOption] = items.map { item in

@@ -29,6 +29,8 @@ exports.invokeCanvasOrchestrator = async (req, res) => {
     const projectId = engineId.split('/')[1] || process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'unknown';
     const location = engineId.split('/')[3] || 'us-central1';
 
+    // Note: Card purging is now handled in bootstrapCanvas, not here
+    
     // Pre-publish a light info card so UI shows activity (do not treat as success for pipeline)
     try {
       await proposeCardsCore({
@@ -51,7 +53,7 @@ exports.invokeCanvasOrchestrator = async (req, res) => {
     // 1) Create session
     const createResp = await axios.post(
       `${base}:query`,
-      { class_method: 'create_session', input: { user_id: userId, state: { 'user:id': userId } } },
+      { class_method: 'create_session', input: { user_id: userId, state: { user_id: userId, canvas_id: canvasId, correlation_id: correlationId || null } } },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, validateStatus: (s) => s >= 200 && s < 500 }
     );
     if (createResp.status >= 400) {
@@ -65,7 +67,7 @@ exports.invokeCanvasOrchestrator = async (req, res) => {
     }
 
     // 2) Stream query (fire-and-forget for now; we rely on the agent to publish cards via tools)
-    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'}; if route=workout then call tool_workout_stage1_publish)`;
+    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'})`;
     const streamPayload = {
       class_method: 'stream_query',
       input: { user_id: userId, session_id: sessionId, message: `${contextHint}\n${message}` },

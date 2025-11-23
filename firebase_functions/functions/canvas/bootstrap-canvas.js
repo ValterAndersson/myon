@@ -21,7 +21,26 @@ async function bootstrapCanvas(req, res) {
     // Find existing by purpose
     const existingSnap = await canvasesCol.where('state.purpose', '==', purpose).limit(1).get();
     if (!existingSnap.empty) {
-      return ok(res, { canvasId: existingSnap.docs[0].id });
+      const canvasId = existingSnap.docs[0].id;
+      
+      // Purge old cards and up_next entries from the canvas
+      try {
+        const cardsRef = db.collection(`users/${userId}/canvases/${canvasId}/cards`);
+        const cardSnap = await cardsRef.get();
+        const batch = db.batch();
+        cardSnap.docs.forEach(doc => batch.delete(doc.ref));
+        
+        const upNextRef = db.collection(`users/${userId}/canvases/${canvasId}/up_next`);
+        const upNextSnap = await upNextRef.get();
+        upNextSnap.docs.forEach(doc => batch.delete(doc.ref));
+        
+        await batch.commit();
+        console.log('bootstrapCanvas: purged old cards', { userId, canvasId, deletedCards: cardSnap.size, deletedUpNext: upNextSnap.size });
+      } catch (e) {
+        console.warn('bootstrapCanvas: purge failed', { error: String(e?.message || e), userId, canvasId });
+      }
+      
+      return ok(res, { canvasId });
     }
 
     // Create new canvas

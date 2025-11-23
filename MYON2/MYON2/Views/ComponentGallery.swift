@@ -83,8 +83,8 @@ struct ComponentGallery: View {
 
                     // Clarify questions
                     let qs = [
-                        ClarifyQuestion(label: "What days can you train?", type: .choice, options: ["2", "3", "4", "5"]),
-                        ClarifyQuestion(label: "Any equipment limitations?", type: .text)
+                        ClarifyQuestion(text: "What days can you train?", options: ["2", "3", "4", "5"], type: .single_choice),
+                        ClarifyQuestion(text: "Any equipment limitations?", type: .text)
                     ]
                     let clarify = CanvasCardModel(type: .analysis_task, title: "A few questions", data: .clarifyQuestions(qs), width: .full, actions: [CardAction(kind: "submit_answers", label: "Submit", style: .primary)])
                     ClarifyQuestionsCard(model: clarify)

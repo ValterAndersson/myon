@@ -3,6 +3,28 @@ const axios = require('axios');
 const { logger } = require('firebase-functions');
 const { VERTEX_AI_CONFIG } = require('./config');
 
+const TOOL_LABELS = {
+  tool_set_canvas_context: 'Linking canvas context',
+  tool_fetch_profile: 'Reviewing athlete profile',
+  tool_fetch_recent_sessions: 'Reviewing recent sessions',
+  tool_emit_agent_event: 'Logging telemetry',
+  tool_request_clarification: 'Requesting clarification',
+  tool_format_workout_plan_cards: 'Formatting workout cards',
+  tool_format_analysis_cards: 'Formatting analysis cards',
+  tool_publish_cards: 'Publishing cards',
+};
+
+function describeToolEvent(name, args = {}) {
+  if (!name) return 'Working';
+  if (name === 'transfer_to_agent' && args.agent_name) {
+    return `Routing to ${args.agent_name}`;
+  }
+  if (name === 'tool_emit_agent_event' && args.event_type) {
+    return `Telemetry: ${args.event_type}`;
+  }
+  return TOOL_LABELS[name] || name.replace(/_/g, ' ');
+}
+
 // Helper: SSE writer for NDJSON lines
 function createSSE(res) {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -35,6 +57,154 @@ function fingerprint(text) {
     hash >>>= 0; // force uint32
   }
   return String(hash);
+}
+
+// Track event start times for duration calculation
+const eventStartTimes = new Map();
+
+// Transform ADK events to iOS-friendly StreamEvent format
+function transformToIOSEvent(adkEvent) {
+  const timestamp = Date.now() / 1000; // Convert to seconds
+  const base = {
+    type: 'unknown',
+    agent: 'orchestrator',
+    timestamp,
+    metadata: {}
+  };
+
+  // Map ADK event types to iOS event types
+  switch (adkEvent.type) {
+    case 'tool_started':
+      // Track start time for duration calculation
+      const toolKey = `tool_${adkEvent.name}`;
+      eventStartTimes.set(toolKey, timestamp);
+      
+      return {
+        ...base,
+        type: 'toolRunning',
+        content: {
+          tool: adkEvent.name,
+          tool_name: adkEvent.name,
+          args: adkEvent.args,
+          text: describeToolEvent(adkEvent.name, adkEvent.args)
+        },
+        metadata: {
+          start_time: timestamp
+        }
+      };
+    
+    case 'tool_result':
+      // Calculate duration if we have start time
+      const toolResultKey = `tool_${adkEvent.name}`;
+      const toolStartTime = eventStartTimes.get(toolResultKey);
+      const metadata = toolStartTime ? { start_time: toolStartTime } : {};
+      eventStartTimes.delete(toolResultKey);
+      
+      return {
+        ...base,
+        type: 'toolComplete',
+        content: {
+          tool: adkEvent.name,
+          tool_name: adkEvent.name,
+          result: adkEvent.summary || 'Complete',
+          text: describeToolEvent(adkEvent.name, adkEvent.args)
+        },
+        metadata
+      };
+    
+    case 'text_delta':
+      return {
+        ...base,
+        type: 'message',
+        content: {
+          text: adkEvent.text || '',
+          role: 'assistant',
+          is_delta: true
+        }
+      };
+    
+    case 'text_commit':
+      return {
+        ...base,
+        type: 'agentResponse',
+        content: {
+          text: adkEvent.text || '',
+          role: 'assistant',
+          is_commit: true
+        }
+      };
+    
+    case 'thinking':
+      // Track thinking start time
+      eventStartTimes.set('thinking', timestamp);
+      
+      return {
+        ...base,
+        type: 'thinking',
+        content: {
+          text: adkEvent.text || 'Analyzing...'
+        },
+        metadata: {
+          start_time: timestamp
+        }
+      };
+    
+    case 'thought':
+      // Calculate thinking duration
+      const thinkingStartTime = eventStartTimes.get('thinking');
+      const thinkingMeta = thinkingStartTime ? { start_time: thinkingStartTime } : {};
+      eventStartTimes.delete('thinking');
+      
+      return {
+        ...base,
+        type: 'thought',
+        content: {
+          text: adkEvent.text || ''
+        },
+        metadata: thinkingMeta
+      };
+    
+    case 'session':
+      return {
+        ...base,
+        type: 'status',
+        content: {
+          text: 'Connected',
+          session_id: adkEvent.sessionId
+        }
+      };
+    
+    case 'done':
+      // Clear all tracked times
+      eventStartTimes.clear();
+      
+      return {
+        ...base,
+        type: 'done',
+        content: {}
+      };
+    
+    case 'error':
+      // Clear tracked times on error
+      eventStartTimes.clear();
+      
+      return {
+        ...base,
+        type: 'error',
+        content: {
+          error: adkEvent.error || 'Unknown error',
+          text: adkEvent.error || 'Unknown error'
+        }
+      };
+    
+    default:
+      // Pass through other events as-is
+      return {
+        ...base,
+        type: adkEvent.type,
+        content: adkEvent
+      };
+  }
 }
 
 class TextNormalizer {
@@ -144,23 +314,40 @@ async function streamAgentNormalizedHandler(req, res) {
     return;
   }
 
-  const sse = createSSE(res);
+  logger.info('[streamAgentNormalized] Handler invoked', { 
+    body: req.body, 
+    method: req.method,
+    headers: { authorization: req.headers.authorization ? 'present' : 'missing' }
+  });
+
+  const sseRaw = createSSE(res);
   const normalizer = new TextNormalizer({ markdown_policy: req.body?.markdown_policy });
 
-  // emit policy upfront
-  sse.write({ type: 'policy', seq: normalizer.nextSeq(), ts: Date.now(), policy: normalizer.policy.markdown_policy });
+  // Wrap SSE writer to transform ADK events to iOS StreamEvent format
+  const sse = {
+    write: (adkEvent) => {
+      const iosEvent = transformToIOSEvent(adkEvent);
+      logger.debug('[streamAgentNormalized] Emitting event', { type: iosEvent.type });
+      sseRaw.write(iosEvent);
+    },
+    close: () => sseRaw.close()
+  };
 
-  // Heartbeat every ~2500ms
+  // Emit initial status
+  sse.write({ type: 'status', content: { text: 'Connecting...' } });
+  logger.info('[streamAgentNormalized] Emitted initial status');
+
+  // Heartbeat every ~2500ms - send as status events
   const hb = setInterval(() => {
-    sse.write({ type: 'heartbeat', seq: normalizer.nextSeq(), ts: Date.now() });
+    sse.write({ type: 'heartbeat' });
   }, 2500);
 
   const done = (ok = true, err) => {
     clearInterval(hb);
     if (err) {
-      sse.write({ type: 'error', seq: normalizer.nextSeq(), ts: Date.now(), error: String(err.message || err) });
+      sse.write({ type: 'error', error: String(err.message || err) });
     }
-    sse.write({ type: 'done', seq: normalizer.nextSeq(), ts: Date.now() });
+    sse.write({ type: 'done' });
     sse.close();
   };
 
@@ -168,28 +355,58 @@ async function streamAgentNormalizedHandler(req, res) {
     const userId = req.user?.uid || req.auth?.uid || 'anonymous';
     const message = req.body?.message || '';
     const sessionId = req.body?.sessionId || null;
+    const canvasId = req.body?.canvasId;
+    const correlationId = req.body?.correlationId || null;
+    
+    if (!canvasId) {
+      sse.write({ type: 'error', error: 'canvasId is required' });
+      done(false, new Error('canvasId is required'));
+      return;
+    }
+    
+    // Canvas Orchestrator agent ID
+    const agentId = '8723635205937561600';
+    const projectId = VERTEX_AI_CONFIG.projectId;
+    const location = VERTEX_AI_CONFIG.location;
 
     // Auth to Vertex
+    logger.info('[streamAgentNormalized] Getting Vertex AI auth token...');
     const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const token = await auth.getAccessToken();
+    logger.info('[streamAgentNormalized] Got Vertex AI auth token');
 
     // If no session, create one first
     let sessionToUse = sessionId;
     if (!sessionToUse) {
-      const createUrl = `https://${VERTEX_AI_CONFIG.location}-aiplatform.googleapis.com/v1/projects/${VERTEX_AI_CONFIG.projectId}/locations/${VERTEX_AI_CONFIG.location}/reasoningEngines/${VERTEX_AI_CONFIG.agentId}:query`;
+      logger.info('[streamAgentNormalized] Creating new session...');
+      const createUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:query`;
       const createResp = await axios.post(createUrl, {
         class_method: 'create_session',
         input: { user_id: userId, state: { 'user:id': userId } },
       }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
       sessionToUse = createResp.data?.output?.id || createResp.data?.output?.session_id || createResp.data?.id;
-      sse.write({ type: 'session', seq: normalizer.nextSeq(), ts: Date.now(), sessionId: sessionToUse });
+      logger.info('[streamAgentNormalized] Created session', { sessionId: sessionToUse });
+      sse.write({ type: 'session', sessionId: sessionToUse });
+    } else {
+      logger.info('[streamAgentNormalized] Using existing session', { sessionId: sessionToUse });
     }
 
-    const url = `https://${VERTEX_AI_CONFIG.location}-aiplatform.googleapis.com/v1/projects/${VERTEX_AI_CONFIG.projectId}/locations/${VERTEX_AI_CONFIG.location}/reasoningEngines/${VERTEX_AI_CONFIG.agentId}:streamQuery`;
+    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:streamQuery`;
+    
+    // Prepend context hint with canvas_id and user_id for Canvas Orchestrator
+    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'})`;
+    const finalMessage = message ? `${contextHint}\n${message}` : contextHint;
+    
     const payload = {
       class_method: 'stream_query',
-      input: { user_id: userId, session_id: sessionToUse, message },
+      input: { user_id: userId, session_id: sessionToUse, message: finalMessage },
     };
+
+    logger.info('[streamAgentNormalized] Sending stream request to Vertex AI', { 
+      agentId, 
+      sessionId: sessionToUse,
+      messageLength: finalMessage.length
+    });
 
     // Request as a stream
     const response = await axios({
@@ -203,9 +420,14 @@ async function streamAgentNormalizedHandler(req, res) {
       maxBodyLength: Infinity,
       validateStatus: (status) => status >= 200 && status < 500,
     });
+    
+    logger.info('[streamAgentNormalized] Got response from Vertex AI', { status: response.status });
 
-    // Line-by-line reader
+    // Line-by-line reader with state tracking
     let partial = '';
+    let isCurrentlyThinking = false;
+    let hasEmittedThinkingEvent = false;
+    
     response.data.on('data', (chunk) => {
       partial += chunk.toString('utf8');
       const lines = partial.split('\n');
@@ -223,31 +445,59 @@ async function streamAgentNormalizedHandler(req, res) {
           // Map function calls/responses to tool events
           for (const p of parts) {
             if (p.function_call) {
+              // If we were thinking and now calling a tool, emit thought completion
+              if (isCurrentlyThinking && hasEmittedThinkingEvent) {
+                sse.write({ type: 'thought', text: '' });
+                isCurrentlyThinking = false;
+                hasEmittedThinkingEvent = false;
+              }
+              
               const name = p.function_call.name || 'tool';
-              sse.write({ type: 'tool_started', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, name, args: p.function_call.args || {}, display: true });
+              sse.write({ type: 'tool_started', name, args: p.function_call.args || {} });
             }
             if (p.function_response) {
               const name = p.function_response.name || 'tool';
               const resp = p.function_response.response;
-              let counts = {};
               let summary = '';
+              let parsedResponse = null;
               try {
-                const obj = typeof resp === 'string' ? JSON.parse(resp) : resp;
-                if (obj && typeof obj === 'object') {
-                  if (Array.isArray(obj.data)) counts.items = obj.data.length;
-                  if (Array.isArray(obj.sessions)) counts.sessions = obj.sessions.length;
-                  if (Array.isArray(obj.templates)) counts.templates = obj.templates.length;
-                  if (Array.isArray(obj.workouts)) counts.workouts = obj.workouts.length;
+                parsedResponse = typeof resp === 'string' ? JSON.parse(resp) : resp;
+                if (parsedResponse && typeof parsedResponse === 'object') {
+                  if (Array.isArray(parsedResponse.data)) summary = `items: ${parsedResponse.data.length}`;
+                  else if (Array.isArray(parsedResponse.sessions)) summary = `sessions: ${parsedResponse.sessions.length}`;
+                  else if (Array.isArray(parsedResponse.templates)) summary = `templates: ${parsedResponse.templates.length}`;
+                  else if (Array.isArray(parsedResponse.workouts)) summary = `workouts: ${parsedResponse.workouts.length}`;
                 }
               } catch (_) {}
-              if (counts.items) summary = `items: ${counts.items}`;
-              sse.write({ type: 'tool_result', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, name, summary, counts });
+              sse.write({ type: 'tool_result', name, summary });
+              
+              if (parsedResponse && Array.isArray(parsedResponse.events)) {
+                for (const evt of parsedResponse.events) {
+                  if (evt && typeof evt === 'object') {
+                    sse.write(evt);
+                  }
+                }
+              }
+              
+              // After tool completes, agent is thinking about next step
+              if (!isCurrentlyThinking) {
+                sse.write({ type: 'thinking', text: 'Analyzing...' });
+                isCurrentlyThinking = true;
+                hasEmittedThinkingEvent = true;
+              }
             }
           }
 
           // Text parts normalization with list/code detection
           for (const p of parts) {
             if (typeof p.text === 'string' && p.text) {
+              // If we were thinking and now have text response, emit thought completion
+              if (isCurrentlyThinking && hasEmittedThinkingEvent) {
+                sse.write({ type: 'thought', text: '' });
+                isCurrentlyThinking = false;
+                hasEmittedThinkingEvent = false;
+              }
+              
               const incoming = normalizer.preprocess(p.text);
               const candidate = normalizer.dedupeTrailing(incoming);
               if (!candidate) continue;
@@ -260,33 +510,23 @@ async function streamAgentNormalizedHandler(req, res) {
                 const before = remainder.slice(0, idx);
                 if (before) {
                   normalizer.buffer += before;
-                  sse.write({ type: 'text_delta', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: before });
+                  sse.write({ type: 'text_delta', text: before });
                 }
                 // Toggle fence state
                 if (!normalizer.isFenceOpen) {
                   normalizer.isFenceOpen = true;
                   normalizer.currentFenceLang = match.replace('```', '') || '';
-                  sse.write({ type: 'code_block', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, fence_state: 'open', lang: normalizer.currentFenceLang });
+                  // Code blocks aren't mapped to iOS events yet, skip for now
                 } else {
                   normalizer.isFenceOpen = false;
-                  sse.write({ type: 'code_block', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, fence_state: 'close', lang: normalizer.currentFenceLang });
                   normalizer.currentFenceLang = '';
                 }
                 remainder = remainder.slice(idx + match.length);
               }
               if (remainder) {
-                // Detect list items at line starts
-                const lines = remainder.split('\n');
-                for (let i = 0; i < lines.length; i++) {
-                  const line = lines[i];
-                  if ((i > 0 || normalizer.buffer.endsWith('\n')) && /^-\s+/.test(line)) {
-                    const textOnly = line.replace(/^-\s+/, '');
-                    sse.write({ type: 'list_item', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: textOnly });
-                  }
-                }
-
+                // Skip list item detection for simplicity
                 normalizer.buffer += remainder;
-                sse.write({ type: 'text_delta', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: remainder });
+                sse.write({ type: 'text_delta', text: remainder });
               }
 
               // Emit commit if safe
@@ -298,7 +538,7 @@ async function streamAgentNormalizedHandler(req, res) {
                 if (trimmed.length < 40 && !endsWell) {
                   // keep everything for next pass
                 } else {
-                  sse.write({ type: 'text_commit', seq: normalizer.nextSeq(), ts: Date.now(), role, messageId, text: commit });
+                  sse.write({ type: 'text_commit', text: commit });
                   normalizer.buffer = keep;
                   normalizer.lastTail = (commit + keep).slice(-200);
                 }
@@ -315,7 +555,7 @@ async function streamAgentNormalizedHandler(req, res) {
       // Flush remaining buffer
       const pre = normalizer.preprocess(normalizer.buffer);
       if (pre) {
-        sse.write({ type: 'text_commit', seq: normalizer.nextSeq(), ts: Date.now(), role: 'model', text: pre });
+        sse.write({ type: 'text_commit', text: pre });
       }
       done(true);
     });

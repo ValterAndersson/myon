@@ -12,6 +12,8 @@ struct SessionDetails {
 
 /// Service for direct streaming communication with the Agent Engine API
 class DirectStreamingService: ObservableObject {
+    static let shared = DirectStreamingService()
+    
     private let projectId = "myon-53d85"
     private let location = "us-central1"
     private let reasoningEngineId = "4683295011721183232"
@@ -32,7 +34,136 @@ class DirectStreamingService: ObservableObject {
         #endif
     }
 
-    /// Query the agent with streaming response
+    /// Query the agent with streaming response (Canvas version with AsyncSequence)
+    func streamQuery(
+        userId: String,
+        canvasId: String,
+        message: String,
+        correlationId: String
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    print("[DirectStreaming] Starting stream for canvas=\(canvasId) correlation=\(correlationId)")
+                    
+                    // Get Firebase ID token - same approach as legacy streamQuery
+                    guard let currentUser = AuthService.shared.currentUser else {
+                        print("[DirectStreaming] ERROR: No authenticated user")
+                        continuation.finish(throwing: StreamingError.notAuthenticated)
+                        return
+                    }
+                    
+                    print("[DirectStreaming] Getting Firebase ID token for user: \(currentUser.uid)...")
+                    let idToken = try await currentUser.getIDToken()
+                    print("[DirectStreaming] Got Firebase ID token (length: \(idToken.count))")
+                    
+                    // Use streamAgentNormalized endpoint
+                    let url = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/streamAgentNormalized")!
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    
+                    let body: [String: Any] = [
+                        "userId": userId,
+                        "canvasId": canvasId,
+                        "message": message,
+                        "correlationId": correlationId
+                    ]
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                    
+                    print("[DirectStreaming] Sending SSE request to streamAgentNormalized...")
+                    print("[DirectStreaming] Request body: \(String(data: request.httpBody ?? Data(), encoding: .utf8) ?? "nil")")
+                    
+                    // Stream the response
+                    let (asyncBytes, response) = try await session.bytes(for: request)
+                    
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        print("[DirectStreaming] ERROR: Response is not HTTPURLResponse")
+                        throw NSError(domain: "DirectStreamingService", code: -1,
+                                    userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
+                    }
+                    
+                    print("[DirectStreaming] Got response, status: \(httpResponse.statusCode)")
+                    print("[DirectStreaming] Response headers: \(httpResponse.allHeaderFields)")
+                    
+                    guard httpResponse.statusCode == 200 else {
+                        print("[DirectStreaming] ERROR: Non-200 status code: \(httpResponse.statusCode)")
+                        throw NSError(domain: "DirectStreamingService", code: httpResponse.statusCode,
+                                    userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"])
+                    }
+                    
+                    // Parse SSE stream
+                    print("[DirectStreaming] Starting to parse SSE lines...")
+                    var buffer = ""
+                    var lineCount = 0
+                    var hasReceivedData = false
+                    
+                    for try await line in asyncBytes.lines {
+                        lineCount += 1
+                        hasReceivedData = true
+                        
+                        if lineCount == 1 || lineCount % 10 == 0 {
+                            print("[DirectStreaming] Processed \(lineCount) lines...")
+                        }
+                        
+                        // Log every line for debugging
+                        if lineCount <= 5 {
+                            print("[DirectStreaming] Line \(lineCount): \(line)")
+                        }
+                        
+                        if line.hasPrefix("data: ") {
+                            let jsonStr = String(line.dropFirst(6))
+                            print("[DirectStreaming] Received SSE data: \(jsonStr.prefix(100))...")
+                            
+                            if jsonStr == "[DONE]" {
+                                print("[DirectStreaming] Stream done")
+                                continuation.finish()
+                                break
+                            }
+                            
+                            if let data = jsonStr.data(using: .utf8),
+                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                
+                                // Parse the event
+                                let event = StreamEvent(
+                                    type: json["type"] as? String ?? "unknown",
+                                    agent: json["agent"] as? String,
+                                    content: json["content"] as? [String: AnyCodable],
+                                    timestamp: json["timestamp"] as? Double,
+                                    metadata: json["metadata"] as? [String: AnyCodable]
+                                )
+                                
+                                print("[DirectStreaming] Yielding event type=\(event.type)")
+                                continuation.yield(event)
+                            } else {
+                                print("[DirectStreaming] WARNING: Failed to parse JSON: \(jsonStr)")
+                            }
+                        } else if !line.isEmpty {
+                            print("[DirectStreaming] Non-data line: \(line)")
+                        }
+                    }
+                    
+                    print("[DirectStreaming] SSE stream ended normally (received \(lineCount) lines)")
+                    if !hasReceivedData {
+                        print("[DirectStreaming] WARNING: Stream ended but no data was received!")
+                    }
+                    continuation.finish()
+                    
+                } catch {
+                    print("[DirectStreaming] Stream error: \(error)")
+                    continuation.finish(throwing: error)
+                }
+            }
+            
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+    
+    /// Query the agent with streaming response (Legacy version)
     func streamQuery(
         message: String,
         userId: String,

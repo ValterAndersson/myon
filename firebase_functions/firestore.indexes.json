@@ -1,33 +1,11 @@
 {
   "indexes": [
     {
-      "collectionGroup": "cards",
+      "collectionGroup": "pending_responses",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
-        { "fieldPath": "lane", "order": "ASCENDING" },
-        { "fieldPath": "refs.topic_key", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "workouts",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "end_time", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "analytics_rollups",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "updated_at", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "up_next",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "priority", "order": "DESCENDING" },
-        { "fieldPath": "inserted_at", "order": "ASCENDING" }
+        { "fieldPath": "processed", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
     }
   ],

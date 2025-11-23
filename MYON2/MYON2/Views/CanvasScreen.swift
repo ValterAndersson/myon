@@ -36,6 +36,15 @@ struct CanvasScreen: View {
         .environment(\.cardActionHandler, handleCardAction)
         .sheet(isPresented: $showRefine) { RefineSheet(text: $refineText) { _ in showRefine = false } }
         .sheet(isPresented: $showSwap) { SwapSheet { _, _ in showSwap = false } }
+        .overlay {
+            if vm.showStreamOverlay {
+                StreamOverlay(
+                    status: vm.currentAgentStatus ?? "Working...",
+                    isThinking: vm.isAgentThinking,
+                    events: vm.streamEvents
+                )
+            }
+        }
         .navigationTitle("Canvas")
         .onAppear {
             if let cid = canvasId {
@@ -50,7 +59,10 @@ struct CanvasScreen: View {
             guard !didInvokeAgent, let cid = newValue else { return }
             if let msg = computeAgentMessage(from: entryContext) {
                 didInvokeAgent = true
-                Task { try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: userId, canvasId: cid, message: msg)) }
+                let correlationId = UUID().uuidString
+                
+                // Start SSE stream - this will both stream events AND invoke the agent
+                vm.startSSEStream(userId: userId, canvasId: cid, message: msg, correlationId: correlationId)
             }
         }
         .overlay(alignment: .bottom) {

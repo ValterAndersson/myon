@@ -52,17 +52,7 @@ public struct ListOption: Identifiable, Equatable, Codable {
     }
 }
 
-public enum ClarifyQuestionType: String, Codable { case text, choice }
-
-public struct ClarifyQuestion: Identifiable, Equatable, Codable {
-    public let id: String
-    public let label: String
-    public let type: ClarifyQuestionType
-    public let options: [String]?
-    public init(id: String = UUID().uuidString, label: String, type: ClarifyQuestionType, options: [String]? = nil) {
-        self.id = id; self.label = label; self.type = type; self.options = options
-    }
-}
+// ClarifyQuestion model (single source of truth)
 
 public enum CardActionStyle: String, Codable { case primary, secondary, ghost, destructive }
 
@@ -106,6 +96,7 @@ public enum CanvasCardData: Equatable {
     case groupHeader(title: String)
     case clarifyQuestions([ClarifyQuestion])
     case routineOverview(split: String, days: Int, notes: String?)
+    case agentMessage(AgentMessage)
 }
 
 public struct CanvasCardModel: Identifiable, Equatable {
@@ -144,6 +135,53 @@ public struct CanvasCardModel: Identifiable, Equatable {
         self.actions = actions
         self.menuItems = menuItems
         self.meta = meta
+    }
+}
+
+public enum ClarifyQuestionType: String, Codable { case text, single_choice, multi_choice, yes_no }
+
+public struct ClarifyQuestion: Identifiable, Equatable, Codable {
+    public let id: String
+    public let text: String
+    public let options: [String]?
+    public let type: ClarifyQuestionType
+    
+    public init(id: String = UUID().uuidString, text: String, options: [String]? = nil, type: ClarifyQuestionType = .text) {
+        self.id = id
+        self.text = text
+        self.options = options
+        self.type = type
+    }
+}
+
+public struct AgentMessage: Equatable, Codable {
+    public let type: String? // "thinking", "tool_running", "tool_complete", "status", etc.
+    public let status: String?
+    public let message: String?
+    public let toolCalls: [ToolCall]?
+    public let thoughts: [String]?
+    
+    public init(type: String? = nil, status: String? = nil, message: String? = nil, 
+                toolCalls: [ToolCall]? = nil, thoughts: [String]? = nil) {
+        self.type = type
+        self.status = status
+        self.message = message
+        self.toolCalls = toolCalls
+        self.thoughts = thoughts
+    }
+}
+
+public struct ToolCall: Identifiable, Equatable, Codable {
+    public let id: String
+    public let name: String
+    public let displayName: String
+    public let duration: String?
+    
+    public init(id: String = UUID().uuidString, name: String, displayName: String, duration: String? = nil) {
+        self.id = id
+        self.name = name
+        self.displayName = displayName
+        self.duration = duration
     }
 }
 

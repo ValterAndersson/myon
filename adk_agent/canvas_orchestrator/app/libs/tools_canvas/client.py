@@ -44,5 +44,50 @@ class CanvasFunctionsClient:
 
     def bootstrap_canvas(self, user_id: str, purpose: str) -> Dict[str, Any]:
         return self._http.post("bootstrapCanvas", {"userId": user_id, "purpose": purpose})
+    
+    def check_pending_response(self, user_id: str, canvas_id: str) -> Dict[str, Any]:
+        """Check for pending user responses."""
+        return self._http.post("checkPendingResponse", {
+            "userId": user_id,
+            "canvasId": canvas_id
+        })
+    
+    def get_user(self, user_id: str) -> Dict[str, Any]:
+        """Get comprehensive user profile data."""
+        return self._http.post("getUser", {"userId": user_id})
+    
+    def get_user_preferences(self, user_id: str) -> Dict[str, Any]:
+        """Get user preferences and settings."""
+        return self._http.post("getUserPreferences", {"userId": user_id})
+    
+    def get_user_workouts(self, user_id: str, limit: int = 50) -> Dict[str, Any]:
+        """Get user's workout history."""
+        return self._http.post("getUserWorkouts", {
+            "userId": user_id,
+            "limit": limit
+        })
+
+    def emit_event(
+        self,
+        user_id: str,
+        canvas_id: str,
+        event_type: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Write a debug event to the canvas events collection."""
+        headers: Dict[str, str] = {}
+        if correlation_id:
+            headers["X-Correlation-Id"] = correlation_id
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "canvasId": canvas_id,
+            "type": event_type,
+            "payload": payload or {},
+        }
+        if correlation_id:
+            body["correlationId"] = correlation_id
+        return self._http.post("emitEvent", body, headers=headers or None)
 
 

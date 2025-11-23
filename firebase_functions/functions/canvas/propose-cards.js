@@ -22,15 +22,9 @@ async function proposeCards(req, res) {
     if (!v.valid) return fail(res, 'INVALID_ARGUMENT', 'Invalid request', v.errors, 400);
 
     const { canvasId, cards } = v.data;
-<<<<<<< HEAD
-    try {
-      console.log('proposeCards request', JSON.stringify({ uid, canvasId, count: Array.isArray(cards) ? cards.length : 0 }));
-    } catch (_) {}
-=======
     // Correlation (from header preferred; fallback to body if provided by clients)
     const correlationId = req.headers['x-correlation-id'] || req.get('X-Correlation-Id') || (req.body && req.body.correlationId) || null;
     try { console.log('[proposeCards] request', { uid, canvasId, count: Array.isArray(cards) ? cards.length : 0, correlationId }); } catch (_) {}
->>>>>>> codex/investigate-canvas_orchestrator-functionality-issues
     const canvasPath = `users/${uid}/canvases/${canvasId}`;
     const { FieldValue } = require('firebase-admin/firestore');
     const now = FieldValue.serverTimestamp();
@@ -87,17 +81,15 @@ async function proposeCards(req, res) {
     }
     await batch.commit();
 
-    // Enforce up_next cap N=20 (trim lowest priorities)
+    // Enforce up_next cap N=20 (trim lowest priorities) using transaction to satisfy read/write ordering
     const upCol = db.collection(`${canvasPath}/up_next`);
-    // Single-field order avoids composite index requirement. Tie-break on client side by slice order.
-    const upSnap = await upCol.orderBy('priority', 'desc').get();
     const MAX = 20;
-    if (upSnap.size > MAX) {
+    await db.runTransaction(async (tx) => {
+      const upSnap = await tx.get(upCol.orderBy('priority', 'desc'));
+      if (upSnap.size <= MAX) return;
       const toDelete = upSnap.docs.slice(MAX);
-      const trimBatch = admin.firestore().batch();
-      toDelete.forEach(doc => trimBatch.delete(doc.ref));
-      await trimBatch.commit();
-    }
+      toDelete.forEach(doc => tx.delete(doc.ref));
+    });
     // Emit compact event for telemetry/traceability (best-effort)
     try {
       const evtRef = admin.firestore().collection(`${canvasPath}/events`).doc();
