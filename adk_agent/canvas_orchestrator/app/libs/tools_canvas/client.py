@@ -66,6 +66,10 @@ class CanvasFunctionsClient:
             "userId": user_id,
             "limit": limit
         })
+    
+    def get_analytics_features(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Proxy to getAnalyticsFeatures for analytics summaries."""
+        return self._http.post("getAnalyticsFeatures", payload)
 
     def emit_event(
         self,

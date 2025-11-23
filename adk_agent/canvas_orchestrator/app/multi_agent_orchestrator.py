@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+import uuid
 from typing import Any, Dict, List, Optional, Set
 
 from google.adk import Agent
@@ -76,6 +78,43 @@ def tool_fetch_recent_sessions(*, user_id: Optional[str] = None, limit: int = 5)
     logger.info("fetch_recent_sessions uid=%s limit=%s", uid, limit)
     resp = _canvas_client().get_user_workouts(uid, limit=limit)
     return resp.get("data") or resp.get("workouts") or []
+
+
+def tool_fetch_analytics(
+    *,
+    user_id: Optional[str] = None,
+    mode: str = "weekly",
+    weeks: int = 6,
+    week_id: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    muscles: Optional[List[str]] = None,
+    exercise_ids: Optional[List[str]] = None,
+    days: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Fetch preprocessed analytics rollups for the active user."""
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        raise ValueError("tool_fetch_analytics requires user_id or prior context")
+    body: Dict[str, Any] = {"userId": uid}
+    if mode:
+        body["mode"] = mode
+    if weeks and mode == "weekly":
+        body["weeks"] = max(1, min(int(weeks), 52))
+    if week_id:
+        body["weekId"] = week_id
+    if start and end:
+        body["start"] = start
+        body["end"] = end
+    if isinstance(days, int) and mode == "daily":
+        body["days"] = max(1, min(days, 120))
+    if muscles:
+        body["muscles"] = muscles[:50]
+    if exercise_ids:
+        body["exerciseIds"] = exercise_ids[:50]
+    logger.info("fetch_analytics uid=%s mode=%s weeks=%s", uid, body.get("mode"), body.get("weeks"))
+    resp = _canvas_client().get_analytics_features(body)
+    return resp.get("data") or resp
 
 
 def tool_emit_agent_event(
@@ -151,6 +190,11 @@ def _coerce_float(value: Any, default: float) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return slug[:48] or "exercise"
 
 def _extract_reps(value: Any, default: int = 8) -> int:
     if isinstance(value, (int, float)):
@@ -239,8 +283,32 @@ def tool_format_workout_plan_cards(
     )
     if not isinstance(blocks_in, list):
         blocks_in = [blocks_in] if blocks_in else []
-    blocks: List[Dict[str, Any]] = []
+    expanded_blocks: List[Dict[str, Any]] = []
     for block in blocks_in:
+        if not isinstance(block, dict):
+            continue
+        exercises = block.get("exercises")
+        if isinstance(exercises, list) and exercises:
+            for ex in exercises:
+                if isinstance(ex, dict):
+                    merged = dict(block)
+                    merged.pop("exercises", None)
+                    merged.update(ex)
+                    expanded_blocks.append(merged)
+        else:
+            has_sets = block.get("sets") or block.get("targets") or block.get("set_targets") or block.get("prescribed_sets")
+            has_struct = isinstance(block.get("exercise"), dict)
+            has_id = block.get("exercise_id") or block.get("id")
+            if not (has_sets or has_struct or has_id):
+                logger.info(
+                    "format_workout_plan skipping placeholder block title=%s",
+                    block.get("title") or block.get("name") or block.get("display_name"),
+                )
+                continue
+            expanded_blocks.append(block)
+
+    blocks: List[Dict[str, Any]] = []
+    for block in expanded_blocks:
         if not isinstance(block, dict):
             continue
         exercise_id = block.get("exercise_id") or block.get("id") or ""
@@ -251,27 +319,50 @@ def tool_format_workout_plan_cards(
         name = block.get("name") or block.get("title") or block.get("display_name")
         if not name and isinstance(block.get("exercise"), dict):
             name = block["exercise"].get("name")
-        name = name or "Exercise"
+        name = name or block.get("block_title") or "Exercise"
+        if not exercise_id and name:
+            exercise_id = _slugify(name)
         sets = _normalize_sets(block)
         if not sets:
             sets = _build_sets_from_count(block, 3)
         blocks.append(
             {
                 "exercise_id": exercise_id or f"exercise_{len(blocks)+1}",
+                "exercise_name": name,
                 "name": name,
                 "sets": sets,
+                "set_count": len(sets),
                 "notes": (
                     block.get("notes")
                     or block.get("instruction")
                     or block.get("rationale")
+                    or block.get("block_title")
                     or block.get("rest")
                 ),
             }
         )
 
     if not blocks:
-        logger.warning("format_workout_plan produced no blocks for payload")
-        blocks.append({"exercise_id": "exercise_1", "name": "Exercise", "sets": [{"target": {"reps": 8, "rir": 2}}]})
+        logger.warning("format_workout_plan produced no valid blocks for payload keys=%s", list(payload.keys()))
+        fallback_text = payload.get("narration") or payload.get("focus") or "Need more details before building a session."
+        if not isinstance(fallback_text, str):
+            fallback_text = str(fallback_text)
+        return {
+            "cards": [
+                {
+                    "type": "inline-info",
+                    "lane": "analysis",
+                    "priority": 30,
+                    "content": {
+                        "title": "Workout plan not ready",
+                        "body": f"{fallback_text} Please specify equipment, goals, or muscle groups so I can propose exact exercises.",
+                    },
+                    "actions": [
+                        {"kind": "follow_up", "label": "Provide details", "style": "primary", "iconSystemName": "bubble.left"},
+                    ],
+                }
+            ]
+        }
 
     cards: List[Dict[str, Any]] = []
     duration_minutes = (
@@ -279,18 +370,23 @@ def tool_format_workout_plan_cards(
         or payload.get("duration_minutes")
         or data.get("duration_minutes")
     )
-    cards.append(
-        {
-            "type": "session_plan",
-            "lane": "workout",
-            "priority": 90,
-            "content": {
-                "title": session.get("title") or session.get("name") or payload.get("title") or data.get("title") or "Proposed Workout",
-                "blocks": blocks,
-                "estimated_duration_minutes": _coerce_int(duration_minutes, 45),
-            },
-        }
-    )
+) -> Dict[str, Any]:
+    session_card = {
+        "type": "session_plan",
+        "lane": "workout",
+        "priority": 90,
+        "actions": [
+            {"kind": "accept_plan", "label": "Accept Plan", "style": "primary", "iconSystemName": "checkmark"},
+            {"kind": "dismiss_plan", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
+            {"kind": "follow_up", "label": "Follow up", "style": "ghost", "iconSystemName": "bubble.left"},
+        ],
+        "content": {
+            "title": session.get("title") or session.get("name") or payload.get("title") or data.get("title") or "Proposed Workout",
+            "blocks": blocks,
+            "estimated_duration_minutes": _coerce_int(duration_minutes, 45),
+        },
+    }
+    cards.append(session_card)
 
     narration = (
         payload.get("narration")
@@ -299,18 +395,13 @@ def tool_format_workout_plan_cards(
         or session.get("description")
         or payload.get("summary")
     )
+    if not narration:
+        exercise_names = [blk.get("exercise_name") or blk.get("name") for blk in blocks if blk.get("name")]
+        if exercise_names:
+            joined = ", ".join(exercise_names[:4])
+            narration = f"This session covers {joined} with {len(blocks)} total movements tailored to the athlete's goals."
     if narration:
-        cards.append(
-            {
-                "type": "inline-info",
-                "lane": "analysis",
-                "priority": 40,
-                "content": {
-                    "title": "Coach Notes",
-                    "body": narration,
-                },
-            }
-        )
+        session_card["content"]["coach_notes"] = narration
     return {"cards": cards}
 
 def tool_format_analysis_cards(
@@ -378,33 +469,29 @@ def tool_request_clarification(
     user_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Publish a clarify-questions card for additional user input."""
-    card = {
-        "type": "clarify-questions",
-        "lane": "analysis",
-        "priority": 95,
-        "content": {
-            "title": "Quick clarification",
-            "questions": [
-                {
-                    "id": "clarify_1",
-                    "text": question,
-                    "type": "text",
-                    "options": None,
-                }
-            ],
-        },
-        "actions": [
-            {"kind": "submit", "label": "Send", "style": "primary"},
-            {"kind": "skip", "label": "Skip", "style": "secondary"},
+    """Emit a clarification request event so the UI can collect input inline."""
+    question_id = f"clarify_{uuid.uuid4().hex[:8]}"
+    payload = {"id": question_id, "question": question}
+    client = _canvas_client()
+    if canvas_id and user_id:
+        client.emit_event(
+            user_id=user_id,
+            canvas_id=canvas_id,
+            event_type="clarification.request",
+            payload=payload,
+            correlation_id=correlation_id,
+        )
+    return {
+        "clarification_id": question_id,
+        "events": [
+            {
+                "type": "clarification.request",
+                "agent": "orchestrator",
+                "timestamp": time.time(),
+                "content": payload,
+            }
         ],
     }
-    return tool_publish_cards(
-        cards=[card],
-        canvas_id=canvas_id,
-        user_id=user_id,
-        correlation_id=correlation_id,
-    )
 
 
 router_tools = [
@@ -418,6 +505,7 @@ router_tools = [
 analysis_tools = [
     FunctionTool(func=tool_fetch_profile),
     FunctionTool(func=tool_fetch_recent_sessions),
+    FunctionTool(func=tool_fetch_analytics),
     FunctionTool(func=tool_emit_agent_event),
 ]
 
@@ -425,6 +513,7 @@ planner_tools = [
     FunctionTool(func=tool_fetch_profile),
     FunctionTool(func=tool_fetch_recent_sessions),
     FunctionTool(func=tool_emit_agent_event),
+    FunctionTool(func=tool_request_clarification),
 ]
 
 runner_tools = [
@@ -454,8 +543,11 @@ def _maybe_auto_publish_cards(
     if not isinstance(payload, dict):
         logger.info("auto_publish skipped: payload is %s", type(payload).__name__)
         return
-    task = payload.get("task") if isinstance(payload, dict) else None
+    task = payload.get("task")
     if event_type != "plan_workout" and task != "plan_workout":
+        return
+    if not payload.get("_force_auto_publish"):
+        logger.info("auto_publish skipped: force flag not set")
         return
     if payload.get("_skip_auto_publish"):
         logger.info("auto_publish skip requested explicitly")
@@ -524,38 +616,83 @@ def _maybe_auto_publish_cards(
 
 
 ANALYSIS_INSTRUCTION = """
-You are the Analysis Agent. Interpret the user's instruction, reference their profile + recent sessions,
-derive 1-3 key insights, and package them into a structured payload.
+You are the Analysis Agent. Interpret the user’s prompt, study their history, and deliver 1‑3 high‑value insights
+grounded in the latest analytics. Use the dedicated tools before drafting any conclusions.
 
-Workflow:
-1. Call tool_fetch_profile / tool_fetch_recent_sessions to gather context.
-2. Reason about trends, issues, or opportunities. Keep explanations concise, actionable, and science-backed.
-3. When you're ready to present, TRANSFER to CardAgentAnalysis and include JSON payload:
+Required workflow:
+1. Fetch profile and context:
+   - `tool_fetch_profile(user_id=...)` for goals, constraints, injuries.
+   - `tool_fetch_recent_sessions(user_id=..., limit=5)` to see raw workout transcripts.
+2. Pull precomputed analytics BEFORE writing insights:
+   - Call `tool_fetch_analytics(user_id=..., mode="weekly", weeks=6-8)` to retrieve `intensity.*`, `summary.muscle_groups`,
+     `summary.muscles`, and (optionally) per-muscle or per-exercise series. Reference these fields explicitly when
+     describing trends (“Back load averaged 5.0 load units, with hamstrings at 4.9 and posterior delts at 1.9”).
+   - You can pass `muscles=["glutes","hamstrings"]` or `exercise_ids=[...]` when you need deeper cuts.
+3. Synthesize up to three insights plus concrete actions. Focus on progression, readiness, adherence, or plan/actual deltas.
+4. When ready to publish, TRANSFER to CardAgentAnalysis with:
    {
      "task": "analysis",
-     "insights": [...],
-     "visuals": [...],
-     "recommendations": [...]
+     "insights": [
+       {"title": "...", "summary": "...", "metrics": [...], "recommendation": "..."}
+     ],
+     "visuals": [
+       {"type": "chart|stat|table", "title": "...", "data": {...}}
+     ],
+     "recommendations": ["..."]
    }
-4. Emit events via tool_emit_agent_event as needed.
-Never publish cards yourself; CardAgent handles formatting.
+5. Use `tool_emit_agent_event` for any important telemetry (e.g., “analysis.started”, “analysis.completed”).
+
+Never call tool_publish_cards; the CardAgent handles rendering.
 """
 
 PLANNER_INSTRUCTION = """
-You are the Workout Planner Agent. Design a single workout proposal tailored to the user's constraints.
+You are the Workout Planner Agent. Collaborate with the user to design either a single-session workout or a repeatable routine.
 
-Workflow:
-1. Fetch the profile and recent sessions.
-2. Define 3-6 exercises with set/rep targets, rest guidance, and rationale.
-3. Prepare JSON:
+Before planning:
+- Review the user prompt, profile, and recent sessions.
+- Decide if they want a "single_session" workout or a multi-day "routine".
+- If intent is unclear, call tool_request_clarification with ONE concise question (e.g., "Do you want a single workout or an ongoing routine?") and wait for the answer.
+
+Once you have enough context:
+1. Fetch profile + recent sessions for constraints (experience, equipment, schedule).
+2. Produce JSON exactly in this shape:
    {
      "task": "plan_workout",
-     "session": { "title": "...", "blocks": [ ... ] },
-     "narration": "short summary"
+     "plan_type": "single_session" | "routine",
+     "focus": "short description of goals / muscle groups",
+     "session": {
+       "title": "...",
+       "blocks": [
+         {
+           "title": "optional section name",
+           "exercises": [
+             {
+               "exercise_id": "catalog id or slug",
+               "name": "Bench Press",
+               "sets": [
+                 { "target": { "reps": 6, "rir": 2, "weight_kg": 70 } }
+               ],
+               "rest_seconds": 120,
+               "rationale": "Why this exercise is included"
+             }
+           ]
+         }
+       ]
+     },
+     "routine": {
+       "days": [
+         { "title": "Day 1 Upper", "session": { ...same schema as session... } }
+       ]
+     },
+     "narration": "Coach summary referencing the user's constraints and why this plan fits."
    }
-4. Before transferring, call tool_emit_agent_event(type="plan_workout", payload=<the same JSON>) so telemetry + fallbacks stay in sync.
-5. TRANSFER to CardAgentPlanner with that JSON so it can produce UI cards.
-Do not call tool_publish_cards directly.
+
+Guidelines:
+- Always output real exercises (no placeholders like "Warm-up"). Provide at least four movements with concrete set targets.
+- Use catalog IDs when available; otherwise create a clear lowercase slug (e.g., "db_row").
+- Reference available equipment, time, recovery, and preferences in the narration.
+- Emit tool_emit_agent_event(type="plan_workout", payload=<JSON>) before transferring to CardAgentPlanner so telemetry stays in sync.
+- Never call tool_publish_cards directly.
 """
 
 RUNNER_INSTRUCTION = """
