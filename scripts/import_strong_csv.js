@@ -10,6 +10,31 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+let admin = null;
+let firestore = null;
+
+function getFirestore() {
+  if (!admin) {
+    try {
+      admin = require('firebase-admin');
+    } catch (e) {
+      try {
+        const functionsDir = path.resolve(__dirname, 'firebase_functions', 'functions');
+        admin = require(require.resolve('firebase-admin', { paths: [functionsDir] }));
+      } catch (err) {
+        throw new Error('firebase-admin is required for dedupe lookup. Install it or run from functions dir.');
+      }
+    }
+    if (!admin.apps.length) {
+      admin.initializeApp();
+    }
+  }
+  if (!firestore) {
+    firestore = admin.firestore();
+  }
+  return firestore;
+}
+
 const API_BASE_URL = 'https://us-central1-myon-53d85.cloudfunctions.net';
 const API_KEY = 'myon-agent-key-2024';
 
@@ -62,14 +87,15 @@ async function followCanonical(exerciseId) {
   return exerciseId;
 }
 
-// Minimal CSV parser for semicolon-delimited, double-quoted values.
+// Minimal CSV parser for semicolon- or comma-delimited, double-quoted values.
 function parseCSV(content) {
   const lines = content.split(/\r?\n/).filter(l => l.length > 0);
   if (lines.length === 0) return [];
-  const header = splitLine(lines[0]);
+  const delimiter = detectDelimiter(lines[0]);
+  const header = splitLine(lines[0], delimiter);
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const fields = splitLine(lines[i]);
+    const fields = splitLine(lines[i], delimiter);
     if (fields.length === 0) continue;
     const obj = {};
     for (let j = 0; j < header.length; j++) {
@@ -80,7 +106,14 @@ function parseCSV(content) {
   return rows;
 }
 
-function splitLine(line) {
+function detectDelimiter(line) {
+  const semi = (line.match(/;/g) || []).length;
+  const comma = (line.match(/,/g) || []).length;
+  if (semi === 0 && comma === 0) return ';';
+  return semi >= comma ? ';' : ',';
+}
+
+function splitLine(line, delimiter = ';') {
   const out = [];
   let cur = '';
   let inQuotes = false;
@@ -89,7 +122,7 @@ function splitLine(line) {
     if (ch === '"') {
       inQuotes = !inQuotes;
       cur += ch;
-    } else if (ch === ';' && !inQuotes) {
+    } else if (ch === delimiter && !inQuotes) {
       out.push(cur);
       cur = '';
     } else {
@@ -114,6 +147,7 @@ function toNumber(str) {
 }
 
 function parseStrongDate(dateStr) {
+  if (!dateStr) throw new Error('Missing Date column in CSV export.');
   // Input like: 2024-06-18 11:04:00 (local time)
   // Treat as local and convert to ISO.
   return new Date(dateStr.replace(' ', 'T'));
@@ -284,7 +318,7 @@ async function main() {
       for (const sr of srows) {
         const order = sr['Set Order'];
         const reps = toNumber(sr['Reps']);
-        const weightKg = toNumber(sr['Weight (kg)']);
+        const weightKg = toNumber(sr['Weight (kg)'] ?? sr['Weight']);
         const rpe = sr['RPE'];
         const seconds = toNumber(sr['Seconds']);
         let type = 'working set';
@@ -321,14 +355,42 @@ async function main() {
     };
     const digest = crypto.createHash('sha1').update(JSON.stringify(digestObj)).digest('hex');
 
+    // Dedup existing workout with same import key
+    const normalizedName = (meta.name || '').trim();
+    const importKey = `${roundedStart.toISOString()}|${normalizedName}`;
+    let existingWorkoutId = null;
+    try {
+      const db = getFirestore();
+      const userDoc = db.collection('users').doc(userId);
+      const workoutsSnap = await userDoc.collection('workouts')
+        .where('source_meta.key', '==', importKey)
+        .get();
+      if (!workoutsSnap.empty) {
+        const docs = workoutsSnap.docs.sort((a, b) => {
+          const at = a.createTime?.seconds || 0;
+          const bt = b.createTime?.seconds || 0;
+          return at - bt;
+        });
+        existingWorkoutId = docs[0].id;
+        const duplicates = docs.slice(1);
+        if (duplicates.length) {
+          await Promise.all(
+            duplicates.map((doc) => doc.ref.delete().catch(() => {}))
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('Existing workout lookup failed (continuing):', e.message);
+    }
+
     const payload = {
       userId,
       workout: {
-        id: `imp:strong:${digest}`,
+        id: existingWorkoutId || `imp:strong:${digest}`,
         start_time: iso(start),
         end_time: iso(end),
         notes: `Strong import — ${meta.name}${workoutNotes ? ' — ' + workoutNotes : ''}`,
-        source_meta: { source: 'strong_csv', key: `${meta.no}|${meta.dateStr}|${meta.name}`, digest },
+        source_meta: { source: 'strong_csv', key: importKey, digest },
         exercises,
       },
     };

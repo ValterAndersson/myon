@@ -63,10 +63,13 @@ function attachFatigueMetrics(rollups) {
   const history = new Map();
   for (const entry of indexed) {
     const currentLoads = entry.rollup.intensity?.load_per_muscle || {};
+    const currentGroupLoads = entry.rollup.intensity?.load_per_muscle_group || {};
     const muscles = new Set([
       ...history.keys(),
       ...Object.keys(currentLoads),
     ]);
+    entry.rollup.intensity = entry.rollup.intensity || {};
+    entry.rollup.intensity.group_loads = currentGroupLoads;
     const fatiguePerMuscle = {};
     let systemicAcute = 0;
     let systemicChronicAccum = 0;
@@ -110,6 +113,43 @@ function attachFatigueMetrics(rollups) {
         fatigue_score: systemicChronic !== null ? systemicAcute - systemicChronic : null,
         acwr: systemicChronic && systemicChronic > 0 ? systemicAcute / systemicChronic : null,
       },
+    };
+  }
+}
+
+function addSummaries(rollups, topN = 8) {
+  if (!Array.isArray(rollups)) return;
+  for (const rollup of rollups) {
+    const intensity = rollup.intensity || {};
+    const groupLoads = Object.entries(intensity.load_per_muscle_group || {});
+    const muscleLoads = Object.entries(intensity.load_per_muscle || {});
+    const toSummary = (entries, hardMap = {}, lowMap = {}) =>
+      entries
+        .map(([key, load]) => ({
+          key,
+          load,
+          hard_sets: hardMap[key] || 0,
+          low_rir_sets: lowMap[key] || 0,
+        }))
+        .filter((item) => item.load > 0 || item.hard_sets > 0 || item.low_rir_sets > 0)
+        .sort((a, b) => {
+          if (b.load !== a.load) return b.load - a.load;
+          if (b.hard_sets !== a.hard_sets) return b.hard_sets - a.hard_sets;
+          return b.low_rir_sets - a.low_rir_sets;
+        })
+        .slice(0, topN);
+
+    rollup.summary = {
+      muscle_groups: toSummary(
+        groupLoads,
+        intensity.hard_sets_per_muscle_group || {},
+        intensity.low_rir_sets_per_muscle_group || {}
+      ),
+      muscles: toSummary(
+        muscleLoads,
+        intensity.hard_sets_per_muscle || {},
+        intensity.low_rir_sets_per_muscle || {}
+      ),
     };
   }
 }
@@ -176,6 +216,9 @@ async function handler(req, res) {
               hard_sets_per_muscle: data.hard_sets_per_muscle || {},
               low_rir_sets_per_muscle: data.low_rir_sets_per_muscle || {},
               load_per_muscle: data.load_per_muscle || {},
+              hard_sets_per_muscle_group: data.hard_sets_per_muscle_group || {},
+              low_rir_sets_per_muscle_group: data.low_rir_sets_per_muscle_group || {},
+              load_per_muscle_group: data.load_per_muscle_group || {},
             },
             cadence: {
               sessions: data.workouts || 0,
@@ -184,6 +227,7 @@ async function handler(req, res) {
         }
       }));
       attachFatigueMetrics(rollups);
+      addSummaries(rollups);
     }
 
     // Optionally fetch per-muscle weekly series for requested muscles

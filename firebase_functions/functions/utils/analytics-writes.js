@@ -149,10 +149,20 @@ async function upsertRollup(userId, periodId, delta, increment = 1) {
       }
     };
 
-    mergeMap(data.weight_per_muscle_group, delta.weight_per_muscle_group);
-    mergeMap(data.hard_sets_per_muscle, delta.hard_sets_per_muscle);
-    mergeMap(data.low_rir_sets_per_muscle, delta.low_rir_sets_per_muscle);
-    mergeMap(data.load_per_muscle, delta.load_per_muscle);
+    const ensureMap = (key) => {
+      if (!data[key] || typeof data[key] !== 'object') {
+        data[key] = {};
+      }
+      return data[key];
+    };
+
+    mergeMap(ensureMap('weight_per_muscle_group'), delta.weight_per_muscle_group);
+    mergeMap(ensureMap('hard_sets_per_muscle'), delta.hard_sets_per_muscle);
+    mergeMap(ensureMap('low_rir_sets_per_muscle'), delta.low_rir_sets_per_muscle);
+    mergeMap(ensureMap('load_per_muscle'), delta.load_per_muscle);
+    mergeMap(ensureMap('hard_sets_per_muscle_group'), delta.hard_sets_per_muscle_group);
+    mergeMap(ensureMap('low_rir_sets_per_muscle_group'), delta.low_rir_sets_per_muscle_group);
+    mergeMap(ensureMap('load_per_muscle_group'), delta.load_per_muscle_group);
 
     tx.set(ref, {
       ...data,

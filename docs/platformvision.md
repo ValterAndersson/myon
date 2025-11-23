@@ -326,11 +326,12 @@ Performance alignment
 ### Deterministic analytics (off‑path, Phase 1)
 - Triggers and jobs compute analytics and write to Firestore under `users/{uid}/analytics_*`:
   - `analytics_series_exercise/{exercise_id}`: daily per‑exercise points `{ e1rm, vol }`, compacted to `weeks_by_start` after 90 days
-  - `analytics_series_muscle/{muscle}`: weekly `{ sets, volume }`
-  - `analytics_rollups/{yyyy-ww|yyyy-mm}`: compact weekly/monthly totals
+  - `analytics_series_muscle/{muscle}`: weekly `{ sets, volume, hard_sets, low_rir_sets, load }`
+  - `analytics_rollups/{yyyy-ww|yyyy-mm}`: compact weekly/monthly totals (total sets/reps/weight/workouts, hard/low-RIR set counts, per-muscle maps, per-muscle-group maps, and a baked `summary` block for “top muscle groups/muscles”)
   - `analytics_state/current`: job watermarks and cursors
 - Compaction merges older day‑level points into weekly buckets to keep storage sublinear.
 - These analytics are the source of truth for charts, trends, and deltas and are updated idempotently from watermarks.
+- Each workout’s analytics include both fine-grained muscles (`load_per_muscle`, `hard_sets_per_muscle`, `low_rir_sets_per_muscle`) and grouped counters so downstream consumers can reason at “back/legs/push” granularity without re-aggregating. `getAnalyticsFeatures` exposes both raw maps and a `summary` array that lists the top groups/muscles with precomputed load and hard-set stats.
 
 ### LLM/agent read path (no auto‑publishing)
 - Read‑only HTTPS endpoint for compact, typed features; LLMs or fast services consume this to decide if/what to propose:

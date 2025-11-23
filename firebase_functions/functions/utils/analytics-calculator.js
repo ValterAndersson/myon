@@ -64,6 +64,13 @@ function addToMap(target, key, delta) {
   }
 }
 
+function normalizeMuscleKey(name) {
+  if (!name || typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase().replace(/\s+/g, ' ');
+}
+
 /**
  * Calculate template analytics similar to Swift's StimulusCalculator
  */
@@ -165,6 +172,9 @@ async function calculateWorkoutAnalytics(workout) {
   const repsPerMuscle = {};
   const setsPerMuscleGroup = {};
   const setsPerMuscle = {};
+  const loadPerMuscleGroup = {};
+  const hardSetsPerMuscleGroup = {};
+  const lowRirSetsPerMuscleGroup = {};
   let totalHardSets = 0;
   let totalLowRirSets = 0;
   let relativeIntensitySum = 0;
@@ -221,22 +231,61 @@ async function calculateWorkoutAnalytics(workout) {
         low_rir_sets: 0,
         load_per_muscle: {},
         hard_sets_per_muscle: {},
-        low_rir_sets_per_muscle: {}
+        low_rir_sets_per_muscle: {},
+        load_per_muscle_group: {},
+        hard_sets_per_muscle_group: {},
+        low_rir_sets_per_muscle_group: {}
       }
     };
 
-    // Distribute across muscle groups
-    const muscleCategories = exercise.muscles?.category || [];
-    if (muscleCategories.length > 0) {
+    const muscleCategoriesRaw = Array.isArray(exercise.muscles?.category)
+      ? exercise.muscles.category
+      : [];
+    const muscleCategories = muscleCategoriesRaw.map(normalizeMuscleKey).filter(Boolean);
+    const muscleCategoryCount = muscleCategories.length || 0;
+
+    const rawContributions = exercise.muscles?.contribution || {};
+    const muscleContributions = {};
+    for (const [muscle, contribution] of Object.entries(rawContributions)) {
+      const key = normalizeMuscleKey(muscle);
+      if (!key) continue;
+      const coeff = typeof contribution === 'number' ? contribution : Number(contribution);
+      if (!Number.isFinite(coeff) || coeff <= 0) continue;
+      muscleContributions[key] = (muscleContributions[key] || 0) + coeff;
+    }
+
+    const groupContributions = {};
+    if (muscleCategoryCount > 0) {
       for (const category of muscleCategories) {
-        const categoryWeight = exerciseWeight / muscleCategories.length;
-        const categoryReps = exerciseReps / muscleCategories.length;
+        groupContributions[category] = (groupContributions[category] || 0) + 1 / muscleCategoryCount;
+      }
+    }
+    if (muscleCategoryCount > 0) {
+      for (const category of muscleCategories) {
+        hardSetsPerMuscleGroup[category] = hardSetsPerMuscleGroup[category] || 0;
+        lowRirSetsPerMuscleGroup[category] = lowRirSetsPerMuscleGroup[category] || 0;
+        loadPerMuscleGroup[category] = loadPerMuscleGroup[category] || 0;
+      }
+    }
+
+      const fallbackGroupContribs = muscleCategories.length
+        ? muscleCategories.reduce((acc, category) => {
+            acc[category] = 1 / muscleCategories.length;
+            return acc;
+          }, {})
+        : {};
+
+
+    // Distribute across muscle groups
+    if (muscleCategoryCount > 0) {
+      for (const category of muscleCategories) {
+        const categoryWeight = exerciseWeight / muscleCategoryCount;
+        const categoryReps = exerciseReps / muscleCategoryCount;
 
         exerciseAnalytics.sets_per_muscle_group[category] = exerciseSets;
         exerciseAnalytics.weight_per_muscle_group[category] = categoryWeight;
         exerciseAnalytics.reps_per_muscle_group[category] = categoryReps;
 
-        // Accumulate for workout totals
         setsPerMuscleGroup[category] = (setsPerMuscleGroup[category] || 0) + exerciseSets;
         weightPerMuscleGroup[category] = (weightPerMuscleGroup[category] || 0) + categoryWeight;
         repsPerMuscleGroup[category] = (repsPerMuscleGroup[category] || 0) + categoryReps;
@@ -244,14 +293,12 @@ async function calculateWorkoutAnalytics(workout) {
     }
 
     // Distribute across individual muscles
-    const muscleContributions = exercise.muscles?.contribution || {};
     if (Object.keys(muscleContributions).length > 0) {
       for (const [muscle, contribution] of Object.entries(muscleContributions)) {
         exerciseAnalytics.weight_per_muscle[muscle] = exerciseWeight * contribution;
         exerciseAnalytics.reps_per_muscle[muscle] = exerciseReps * contribution;
         exerciseAnalytics.sets_per_muscle[muscle] = exerciseSets;
 
-        // Accumulate for workout totals
         weightPerMuscle[muscle] = (weightPerMuscle[muscle] || 0) + (exerciseWeight * contribution);
         repsPerMuscle[muscle] = (repsPerMuscle[muscle] || 0) + (exerciseReps * contribution);
         setsPerMuscle[muscle] = (setsPerMuscle[muscle] || 0) + exerciseSets;
@@ -276,16 +323,36 @@ async function calculateWorkoutAnalytics(workout) {
         relativeIntensityCount += 1;
       }
 
+      const fallbackContribs = muscleCategories.length
+        ? muscleCategories.reduce((acc, category) => {
+            acc[category] = 1 / muscleCategories.length;
+            return acc;
+          }, {})
+        : {};
+
       const muscleContribs = Object.keys(muscleContributions).length
         ? muscleContributions
-        : (exercise.muscles?.category || []).reduce((acc, category) => {
-            acc[category] = 1 / (exercise.muscles?.category?.length || 1);
-            return acc;
-          }, {});
+        : fallbackContribs;
+
+      const groupContribsLocal = Object.keys(groupContributions).length
+        ? groupContributions
+        : fallbackGroupContribs;
 
       for (const [muscle, contribution] of Object.entries(muscleContribs)) {
         const coeff = typeof contribution === 'number' && contribution > 0 ? contribution : 0;
         if (coeff <= 0) continue;
+      for (const [group, contribution] of Object.entries(groupContribsLocal)) {
+        const coeff = typeof contribution === 'number' && contribution > 0 ? contribution : 0;
+        if (coeff <= 0) continue;
+        const loadContribution = loadUnits * coeff;
+        addToMap(loadPerMuscleGroup, group, loadContribution);
+        addToMap(hardSetsPerMuscleGroup, group, 1 * coeff);
+        addToMap(lowRirSetsPerMuscleGroup, group, (set.rir <= 1 ? 1 : 0) * coeff);
+        addToMap(exerciseAnalytics.intensity.load_per_muscle_group, group, loadContribution);
+        addToMap(exerciseAnalytics.intensity.hard_sets_per_muscle_group, group, 1 * coeff);
+        addToMap(exerciseAnalytics.intensity.low_rir_sets_per_muscle_group, group, (set.rir <= 1 ? 1 : 0) * coeff);
+      }
+
         const loadContribution = loadUnits * coeff;
 
         addToMap(loadPerMuscle, muscle, loadContribution);
@@ -328,7 +395,10 @@ async function calculateWorkoutAnalytics(workout) {
       load_per_muscle: loadPerMuscle,
       hard_sets_per_muscle: hardSetsPerMuscle,
       low_rir_sets_per_muscle: lowRirSetsPerMuscle,
-      top_set_e1rm_per_muscle: topSetE1rmPerMuscle
+      top_set_e1rm_per_muscle: topSetE1rmPerMuscle,
+      load_per_muscle_group: loadPerMuscleGroup,
+      hard_sets_per_muscle_group: hardSetsPerMuscleGroup,
+      low_rir_sets_per_muscle_group: lowRirSetsPerMuscleGroup
     }
   };
 

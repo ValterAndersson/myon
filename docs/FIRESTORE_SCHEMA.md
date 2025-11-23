@@ -232,6 +232,9 @@ Subcollections:
      - `hard_sets_per_muscle?: { [muscle]: number }`
      - `low_rir_sets_per_muscle?: { [muscle]: number }`
      - `load_per_muscle?: { [muscle]: number }`
+     - `hard_sets_per_muscle_group?: { [group]: number }`
+     - `low_rir_sets_per_muscle_group?: { [group]: number }`
+     - `load_per_muscle_group?: { [group]: number }`
      - `updated_at: Timestamp`
 
 13) analytics_state/current
