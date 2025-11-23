@@ -370,7 +370,6 @@ def tool_format_workout_plan_cards(
         or payload.get("duration_minutes")
         or data.get("duration_minutes")
     )
-) -> Dict[str, Any]:
     session_card = {
         "type": "session_plan",
         "lane": "workout",
@@ -486,9 +485,7 @@ def tool_request_clarification(
         "events": [
             {
                 "type": "clarification.request",
-                "agent": "orchestrator",
-                "timestamp": time.time(),
-                "content": payload,
+                "payload": payload,
             }
         ],
     }
@@ -627,6 +624,9 @@ Required workflow:
    - Call `tool_fetch_analytics(user_id=..., mode="weekly", weeks=6-8)` to retrieve `intensity.*`, `summary.muscle_groups`,
      `summary.muscles`, and (optionally) per-muscle or per-exercise series. Reference these fields explicitly when
      describing trends (“Back load averaged 5.0 load units, with hamstrings at 4.9 and posterior delts at 1.9”).
+   - Interpret `fatigue.muscles[muscle].acwr` as an acute:chronic ratio: >1.3 = spike/reintroduction, <0.7 = detraining.
+     Highlight spikes and drop-offs, but ALWAYS mention the longer-term trend (“single-week spike after reintroducing deadlifts”)
+     rather than sounding alarms without context.
    - You can pass `muscles=["glutes","hamstrings"]` or `exercise_ids=[...]` when you need deeper cuts.
 3. Synthesize up to three insights plus concrete actions. Focus on progression, readiness, adherence, or plan/actual deltas.
 4. When ready to publish, TRANSFER to CardAgentAnalysis with:
