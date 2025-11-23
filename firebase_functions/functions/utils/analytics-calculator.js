@@ -33,6 +33,37 @@ function isWorkingSet(type) {
   return workingSetTypes.includes(type.toLowerCase());
 }
 
+function estimateE1RM(weightKg, reps) {
+  if (typeof weightKg !== 'number' || typeof reps !== 'number' || weightKg <= 0 || reps <= 0) {
+    return 0;
+  }
+  if (reps === 1) return weightKg;
+  return weightKg * (1 + reps / 30);
+}
+
+function computeRelativeIntensity(weightKg, reps) {
+  const e1rm = estimateE1RM(weightKg, reps);
+  if (!e1rm) return 0;
+  return Math.min(1, Math.max(0, weightKg / e1rm));
+}
+
+function isStimulusSet(set) {
+  if (!set || typeof set !== 'object') return false;
+  if (!set.is_completed) return false;
+  if (!isWorkingSet(set.type)) return false;
+  if (typeof set.reps !== 'number' || set.reps < 5 || set.reps > 20) return false;
+  if (typeof set.rir !== 'number' || set.rir < 0 || set.rir > 5) return false;
+  return set.rir <= 3;
+}
+
+function addToMap(target, key, delta) {
+  if (!target || !key || typeof delta !== 'number' || Number.isNaN(delta)) return;
+  target[key] = (target[key] || 0) + delta;
+  if (Math.abs(target[key]) < 1e-6) {
+    delete target[key];
+  }
+}
+
 /**
  * Calculate template analytics similar to Swift's StimulusCalculator
  */
@@ -134,6 +165,14 @@ async function calculateWorkoutAnalytics(workout) {
   const repsPerMuscle = {};
   const setsPerMuscleGroup = {};
   const setsPerMuscle = {};
+  let totalHardSets = 0;
+  let totalLowRirSets = 0;
+  let relativeIntensitySum = 0;
+  let relativeIntensityCount = 0;
+  const loadPerMuscle = {};
+  const hardSetsPerMuscle = {};
+  const lowRirSetsPerMuscle = {};
+  const topSetE1rmPerMuscle = {};
 
   // Get exercise data
   const exerciseIds = workout.exercises.map(ex => ex.exercise_id).filter(Boolean);
@@ -176,7 +215,14 @@ async function calculateWorkoutAnalytics(workout) {
       reps_per_muscle_group: {},
       reps_per_muscle: {},
       sets_per_muscle_group: {},
-      sets_per_muscle: {}
+      sets_per_muscle: {},
+      intensity: {
+        hard_sets: 0,
+        low_rir_sets: 0,
+        load_per_muscle: {},
+        hard_sets_per_muscle: {},
+        low_rir_sets_per_muscle: {}
+      }
     };
 
     // Distribute across muscle groups
@@ -212,6 +258,50 @@ async function calculateWorkoutAnalytics(workout) {
       }
     }
 
+    // Stimulus-aware intensity metrics
+    for (const set of workingSets) {
+      if (!isStimulusSet(set)) continue;
+      const relIntensity = computeRelativeIntensity(set.weight_kg, set.reps);
+      const effortFactor = 1 + (Math.max(0, 3 - set.rir) / 3);
+      const loadUnits = relIntensity * effortFactor || 0;
+
+      totalHardSets += 1;
+      exerciseAnalytics.intensity.hard_sets += 1;
+      if (set.rir <= 1) {
+        totalLowRirSets += 1;
+        exerciseAnalytics.intensity.low_rir_sets += 1;
+      }
+      if (relIntensity > 0) {
+        relativeIntensitySum += relIntensity;
+        relativeIntensityCount += 1;
+      }
+
+      const muscleContribs = Object.keys(muscleContributions).length
+        ? muscleContributions
+        : (exercise.muscles?.category || []).reduce((acc, category) => {
+            acc[category] = 1 / (exercise.muscles?.category?.length || 1);
+            return acc;
+          }, {});
+
+      for (const [muscle, contribution] of Object.entries(muscleContribs)) {
+        const coeff = typeof contribution === 'number' && contribution > 0 ? contribution : 0;
+        if (coeff <= 0) continue;
+        const loadContribution = loadUnits * coeff;
+
+        addToMap(loadPerMuscle, muscle, loadContribution);
+        addToMap(hardSetsPerMuscle, muscle, 1 * coeff);
+        addToMap(lowRirSetsPerMuscle, muscle, (set.rir <= 1 ? 1 : 0) * coeff);
+        addToMap(exerciseAnalytics.intensity.load_per_muscle, muscle, loadContribution);
+        addToMap(exerciseAnalytics.intensity.hard_sets_per_muscle, muscle, 1 * coeff);
+        addToMap(exerciseAnalytics.intensity.low_rir_sets_per_muscle, muscle, (set.rir <= 1 ? 1 : 0) * coeff);
+
+        const e1rm = estimateE1RM(set.weight_kg, set.reps);
+        if (e1rm > (topSetE1rmPerMuscle[muscle] || 0)) {
+          topSetE1rmPerMuscle[muscle] = e1rm;
+        }
+      }
+    }
+
     // Update the exercise with analytics
     workoutExercise.analytics = exerciseAnalytics;
   }
@@ -230,7 +320,16 @@ async function calculateWorkoutAnalytics(workout) {
     reps_per_muscle_group: repsPerMuscleGroup,
     reps_per_muscle: repsPerMuscle,
     sets_per_muscle_group: setsPerMuscleGroup,
-    sets_per_muscle: setsPerMuscle
+    sets_per_muscle: setsPerMuscle,
+    intensity: {
+      hard_sets: totalHardSets,
+      low_rir_sets: totalLowRirSets,
+      avg_relative_intensity: relativeIntensityCount > 0 ? relativeIntensitySum / relativeIntensityCount : 0,
+      load_per_muscle: loadPerMuscle,
+      hard_sets_per_muscle: hardSetsPerMuscle,
+      low_rir_sets_per_muscle: lowRirSetsPerMuscle,
+      top_set_e1rm_per_muscle: topSetE1rmPerMuscle
+    }
   };
 
   return { workoutAnalytics, updatedExercises: workout.exercises };

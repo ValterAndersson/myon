@@ -76,15 +76,18 @@ async function appendMuscleSeries(userId, muscleKey, weekId, delta, increment = 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.exists ? snap.data() : { weeks: {} };
-    const current = data.weeks?.[weekId] || { sets: 0, volume: 0 };
+    const current = data.weeks?.[weekId] || { sets: 0, volume: 0, hard_sets: 0, load: 0, low_rir_sets: 0 };
 
     const next = {
       sets: current.sets + ((delta.sets || 0) * increment),
       volume: current.volume + ((delta.volume || 0) * increment),
+      hard_sets: current.hard_sets + ((delta.hard_sets || 0) * increment),
+      load: current.load + ((delta.load || 0) * increment),
+      low_rir_sets: current.low_rir_sets + ((delta.low_rir_sets || 0) * increment),
     };
 
     const weeks = { ...(data.weeks || {}) };
-    if (next.sets <= 0 && next.volume <= 0) {
+    if (next.sets <= 0 && next.volume <= 0 && next.hard_sets <= 0 && next.low_rir_sets <= 0 && next.load <= 0) {
       delete weeks[weekId];
     } else {
       weeks[weekId] = next;
@@ -116,25 +119,40 @@ async function upsertRollup(userId, periodId, delta, increment = 1) {
       total_reps: 0,
       total_weight: 0,
       weight_per_muscle_group: {},
+      workouts: 0,
+      hard_sets_total: 0,
+      low_rir_sets_total: 0,
+      hard_sets_per_muscle: {},
+      low_rir_sets_per_muscle: {},
+      load_per_muscle: {},
     };
 
     const sign = increment >= 0 ? 1 : -1;
     if (typeof delta.total_sets === 'number') data.total_sets += delta.total_sets * sign;
     if (typeof delta.total_reps === 'number') data.total_reps += delta.total_reps * sign;
     if (typeof delta.total_weight === 'number') data.total_weight += delta.total_weight * sign;
+    if (typeof delta.workouts === 'number') data.workouts += delta.workouts * sign;
+    if (typeof delta.hard_sets_total === 'number') data.hard_sets_total += delta.hard_sets_total * sign;
+    if (typeof delta.low_rir_sets_total === 'number') data.low_rir_sets_total += delta.low_rir_sets_total * sign;
 
-    if (delta.weight_per_muscle_group && typeof delta.weight_per_muscle_group === 'object') {
-      for (const [k, v] of Object.entries(delta.weight_per_muscle_group)) {
+    const mergeMap = (target, source) => {
+      if (!source || typeof source !== 'object') return;
+      for (const [k, v] of Object.entries(source)) {
         if (typeof v !== 'number') continue;
-        const cur = data.weight_per_muscle_group[k] || 0;
+        const cur = target[k] || 0;
         const upd = cur + v * sign;
-        if (upd === 0) {
-          delete data.weight_per_muscle_group[k];
+        if (Math.abs(upd) < 1e-6) {
+          delete target[k];
         } else {
-          data.weight_per_muscle_group[k] = upd;
+          target[k] = upd;
         }
       }
-    }
+    };
+
+    mergeMap(data.weight_per_muscle_group, delta.weight_per_muscle_group);
+    mergeMap(data.hard_sets_per_muscle, delta.hard_sets_per_muscle);
+    mergeMap(data.low_rir_sets_per_muscle, delta.low_rir_sets_per_muscle);
+    mergeMap(data.load_per_muscle, delta.load_per_muscle);
 
     tx.set(ref, {
       ...data,

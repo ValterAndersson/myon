@@ -117,6 +117,11 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
               reps_per_muscle: {},
               sets_per_muscle_group: {},
               sets_per_muscle: {},
+              hard_sets_total: 0,
+              low_rir_sets_total: 0,
+              hard_sets_per_muscle: {},
+              low_rir_sets_per_muscle: {},
+              load_per_muscle: {},
             };
 
         data.workouts += increment;
@@ -130,6 +135,14 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
         mergeMetrics(data.reps_per_muscle, analytics.reps_per_muscle, increment);
         mergeMetrics(data.sets_per_muscle_group, analytics.sets_per_muscle_group, increment);
         mergeMetrics(data.sets_per_muscle, analytics.sets_per_muscle, increment);
+        if (analytics.intensity) {
+          const intensity = analytics.intensity;
+          data.hard_sets_total += (intensity.hard_sets || 0) * increment;
+          data.low_rir_sets_total += (intensity.low_rir_sets || 0) * increment;
+          mergeMetrics(data.hard_sets_per_muscle, intensity.hard_sets_per_muscle, increment);
+          mergeMetrics(data.low_rir_sets_per_muscle, intensity.low_rir_sets_per_muscle, increment);
+          mergeMetrics(data.load_per_muscle, intensity.load_per_muscle, increment);
+        }
 
         data.updated_at = admin.firestore.FieldValue.serverTimestamp();
         tx.set(ref, data, { merge: true });
@@ -185,6 +198,11 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
       reps_per_muscle: {},
       sets_per_muscle_group: {},
       sets_per_muscle: {},
+      hard_sets_total: 0,
+      low_rir_sets_total: 0,
+      hard_sets_per_muscle: {},
+      low_rir_sets_per_muscle: {},
+      load_per_muscle: {},
     };
 
     workoutsSnap.docs.forEach(doc => {
@@ -212,6 +230,14 @@ async function recalculateWeeklyStats(userId, weekId, weekStartsOnMonday = null)
       mergeMetrics(freshStats.reps_per_muscle, workout.analytics.reps_per_muscle, 1);
       mergeMetrics(freshStats.sets_per_muscle_group, workout.analytics.sets_per_muscle_group, 1);
       mergeMetrics(freshStats.sets_per_muscle, workout.analytics.sets_per_muscle, 1);
+      if (workout.analytics.intensity) {
+        const intensity = workout.analytics.intensity;
+        freshStats.hard_sets_total += intensity.hard_sets || 0;
+        freshStats.low_rir_sets_total += intensity.low_rir_sets || 0;
+        mergeMetrics(freshStats.hard_sets_per_muscle, intensity.hard_sets_per_muscle, 1);
+        mergeMetrics(freshStats.low_rir_sets_per_muscle, intensity.low_rir_sets_per_muscle, 1);
+        mergeMetrics(freshStats.load_per_muscle, intensity.load_per_muscle, 1);
+      }
     });
 
     // Update the weekly stats document
@@ -340,11 +366,26 @@ exports.onWorkoutCompleted = onDocumentUpdated(
           total_reps: analytics.total_reps,
           total_weight: analytics.total_weight,
           weight_per_muscle_group: analytics.weight_per_muscle_group || {},
+          workouts: 1,
+          hard_sets_total: analytics.intensity?.hard_sets || 0,
+          low_rir_sets_total: analytics.intensity?.low_rir_sets || 0,
+          hard_sets_per_muscle: analytics.intensity?.hard_sets_per_muscle || {},
+          low_rir_sets_per_muscle: analytics.intensity?.low_rir_sets_per_muscle || {},
+          load_per_muscle: analytics.intensity?.load_per_muscle || {},
         }, 1);
 
         const setsByGroup = analytics.sets_per_muscle_group || {};
         const volByGroup = analytics.weight_per_muscle_group || {};
-        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const hardSetsByMuscle = analytics.intensity?.hard_sets_per_muscle || {};
+        const loadByMuscle = analytics.intensity?.load_per_muscle || {};
+        const lowRirByMuscle = analytics.intensity?.low_rir_sets_per_muscle || {};
+        const muscles = new Set([
+          ...Object.keys(setsByGroup),
+          ...Object.keys(volByGroup),
+          ...Object.keys(hardSetsByMuscle),
+          ...Object.keys(loadByMuscle),
+          ...Object.keys(lowRirByMuscle),
+        ]);
         const writes = [];
         for (const muscle of muscles) {
           writes.push(
@@ -352,7 +393,13 @@ exports.onWorkoutCompleted = onDocumentUpdated(
               event.params.userId,
               muscle,
               weekId,
-              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              {
+                sets: setsByGroup[muscle] || 0,
+                volume: volByGroup[muscle] || 0,
+                hard_sets: hardSetsByMuscle[muscle] || 0,
+                load: loadByMuscle[muscle] || 0,
+                low_rir_sets: lowRirByMuscle[muscle] || 0,
+              },
               1
             )
           );
@@ -431,11 +478,26 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
           total_reps: workout.analytics.total_reps,
           total_weight: workout.analytics.total_weight,
           weight_per_muscle_group: workout.analytics.weight_per_muscle_group || {},
+          workouts: 1,
+          hard_sets_total: workout.analytics.intensity?.hard_sets || 0,
+          low_rir_sets_total: workout.analytics.intensity?.low_rir_sets || 0,
+          hard_sets_per_muscle: workout.analytics.intensity?.hard_sets_per_muscle || {},
+          low_rir_sets_per_muscle: workout.analytics.intensity?.low_rir_sets_per_muscle || {},
+          load_per_muscle: workout.analytics.intensity?.load_per_muscle || {},
         }, 1);
 
         const setsByGroup = workout.analytics.sets_per_muscle_group || {};
         const volByGroup = workout.analytics.weight_per_muscle_group || {};
-        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const hardSetsByMuscle = workout.analytics.intensity?.hard_sets_per_muscle || {};
+        const loadByMuscle = workout.analytics.intensity?.load_per_muscle || {};
+        const lowRirByMuscle = workout.analytics.intensity?.low_rir_sets_per_muscle || {};
+        const muscles = new Set([
+          ...Object.keys(setsByGroup),
+          ...Object.keys(volByGroup),
+          ...Object.keys(hardSetsByMuscle),
+          ...Object.keys(loadByMuscle),
+          ...Object.keys(lowRirByMuscle),
+        ]);
         const writes = [];
         for (const muscle of muscles) {
           writes.push(
@@ -443,7 +505,13 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
               event.params.userId,
               muscle,
               weekId,
-              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              {
+                sets: setsByGroup[muscle] || 0,
+                volume: volByGroup[muscle] || 0,
+                hard_sets: hardSetsByMuscle[muscle] || 0,
+                load: loadByMuscle[muscle] || 0,
+                low_rir_sets: lowRirByMuscle[muscle] || 0,
+              },
               1
             )
           );
@@ -522,11 +590,26 @@ exports.onWorkoutDeleted = onDocumentDeleted(
           total_reps: workout.analytics.total_reps,
           total_weight: workout.analytics.total_weight,
           weight_per_muscle_group: workout.analytics.weight_per_muscle_group || {},
+          workouts: 1,
+          hard_sets_total: workout.analytics.intensity?.hard_sets || 0,
+          low_rir_sets_total: workout.analytics.intensity?.low_rir_sets || 0,
+          hard_sets_per_muscle: workout.analytics.intensity?.hard_sets_per_muscle || {},
+          low_rir_sets_per_muscle: workout.analytics.intensity?.low_rir_sets_per_muscle || {},
+          load_per_muscle: workout.analytics.intensity?.load_per_muscle || {},
         }, -1);
 
         const setsByGroup = workout.analytics.sets_per_muscle_group || {};
         const volByGroup = workout.analytics.weight_per_muscle_group || {};
-        const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+        const hardSetsByMuscle = workout.analytics.intensity?.hard_sets_per_muscle || {};
+        const loadByMuscle = workout.analytics.intensity?.load_per_muscle || {};
+        const lowRirByMuscle = workout.analytics.intensity?.low_rir_sets_per_muscle || {};
+        const muscles = new Set([
+          ...Object.keys(setsByGroup),
+          ...Object.keys(volByGroup),
+          ...Object.keys(hardSetsByMuscle),
+          ...Object.keys(loadByMuscle),
+          ...Object.keys(lowRirByMuscle),
+        ]);
         const writes = [];
         for (const muscle of muscles) {
           writes.push(
@@ -534,7 +617,13 @@ exports.onWorkoutDeleted = onDocumentDeleted(
               event.params.userId,
               muscle,
               weekId,
-              { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+              {
+                sets: setsByGroup[muscle] || 0,
+                volume: volByGroup[muscle] || 0,
+                hard_sets: hardSetsByMuscle[muscle] || 0,
+                load: loadByMuscle[muscle] || 0,
+                low_rir_sets: lowRirByMuscle[muscle] || 0,
+              },
               -1
             )
           );

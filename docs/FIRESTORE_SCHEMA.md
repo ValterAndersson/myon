@@ -218,7 +218,7 @@ Subcollections:
 11) analytics_series_muscle/{muscle}
    - Per-muscle weekly aggregates.
    - Fields:
-     - `weeks: { [YYYY-MM-DD]: { sets: number, volume: number } }`
+     - `weeks: { [YYYY-MM-DD]: { sets: number, volume: number, hard_sets?: number, low_rir_sets?: number, load?: number } }`
      - `updated_at: Timestamp`
 
 12) analytics_rollups/{periodId}
@@ -226,6 +226,12 @@ Subcollections:
    - Fields:
      - `total_sets, total_reps, total_weight: number`
      - `weight_per_muscle_group: { [group]: number }`
+     - `workouts?: number`
+     - `hard_sets_total?: number`
+     - `low_rir_sets_total?: number`
+     - `hard_sets_per_muscle?: { [muscle]: number }`
+     - `low_rir_sets_per_muscle?: { [muscle]: number }`
+     - `load_per_muscle?: { [muscle]: number }`
      - `updated_at: Timestamp`
 
 13) analytics_state/current

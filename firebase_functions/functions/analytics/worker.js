@@ -88,16 +88,32 @@ async function processUserAnalytics(userId, { backfillDays = 90 } = {}) {
 
     // Upsert rollups and per-muscle weekly series
     const weekId = await getWeekStartForUser(userId, endIso);
+    const intensity = analytics.intensity || {};
     await AnalyticsWrites.upsertRollup(userId, weekId, {
       total_sets: analytics.total_sets,
       total_reps: analytics.total_reps,
       total_weight: analytics.total_weight,
       weight_per_muscle_group: analytics.weight_per_muscle_group || {},
+      workouts: 1,
+      hard_sets_total: intensity.hard_sets || 0,
+      low_rir_sets_total: intensity.low_rir_sets || 0,
+      hard_sets_per_muscle: intensity.hard_sets_per_muscle || {},
+      low_rir_sets_per_muscle: intensity.low_rir_sets_per_muscle || {},
+      load_per_muscle: intensity.load_per_muscle || {},
     }, 1);
 
     const setsByGroup = analytics.sets_per_muscle_group || {};
     const volByGroup = analytics.weight_per_muscle_group || {};
-    const muscles = new Set([...Object.keys(setsByGroup), ...Object.keys(volByGroup)]);
+    const hardSetsByMuscle = intensity.hard_sets_per_muscle || {};
+    const loadByMuscle = intensity.load_per_muscle || {};
+    const lowRirByMuscle = intensity.low_rir_sets_per_muscle || {};
+    const muscles = new Set([
+      ...Object.keys(setsByGroup),
+      ...Object.keys(volByGroup),
+      ...Object.keys(hardSetsByMuscle),
+      ...Object.keys(loadByMuscle),
+      ...Object.keys(lowRirByMuscle),
+    ]);
     const mWrites = [];
     for (const muscle of muscles) {
       mWrites.push(
@@ -105,7 +121,13 @@ async function processUserAnalytics(userId, { backfillDays = 90 } = {}) {
           userId,
           muscle,
           weekId,
-          { sets: setsByGroup[muscle] || 0, volume: volByGroup[muscle] || 0 },
+          {
+            sets: setsByGroup[muscle] || 0,
+            volume: volByGroup[muscle] || 0,
+            hard_sets: hardSetsByMuscle[muscle] || 0,
+            load: loadByMuscle[muscle] || 0,
+            low_rir_sets: lowRirByMuscle[muscle] || 0,
+          },
           1
         )
       );

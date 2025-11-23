@@ -43,6 +43,77 @@ function slopeOf(points) {
   return (last - first) / (points.length - 1);
 }
 
+function parseWeekDate(weekId) {
+  if (!weekId) return null;
+  const date = new Date(`${weekId}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function attachFatigueMetrics(rollups) {
+  if (!Array.isArray(rollups) || !rollups.length) return;
+  const indexed = rollups
+    .map((rollup) => ({
+      rollup,
+      weekDate: parseWeekDate(rollup.id || rollup.week_id),
+    }))
+    .filter((item) => item.weekDate);
+
+  indexed.sort((a, b) => a.weekDate - b.weekDate);
+
+  const history = new Map();
+  for (const entry of indexed) {
+    const currentLoads = entry.rollup.intensity?.load_per_muscle || {};
+    const muscles = new Set([
+      ...history.keys(),
+      ...Object.keys(currentLoads),
+    ]);
+    const fatiguePerMuscle = {};
+    let systemicAcute = 0;
+    let systemicChronicAccum = 0;
+    let systemicChronicContrib = 0;
+
+    for (const muscle of muscles) {
+      const load = currentLoads[muscle] || 0;
+      const previous = history.get(muscle) || [];
+      const chronicWindow = previous.slice(-4);
+      const chronic = chronicWindow.length
+        ? chronicWindow.reduce((sum, val) => sum + val, 0) / chronicWindow.length
+        : null;
+      const fatigueScore = chronic !== null ? load - chronic : null;
+      const acwr = chronic && chronic > 0 ? load / chronic : null;
+
+      fatiguePerMuscle[muscle] = {
+        acute: load,
+        chronic,
+        fatigue_score: fatigueScore,
+        acwr,
+      };
+
+      systemicAcute += load;
+      if (chronic !== null) {
+        systemicChronicAccum += chronic;
+        systemicChronicContrib += 1;
+      }
+
+      const nextHistory = previous.concat(load);
+      if (nextHistory.length > 8) nextHistory.shift();
+      history.set(muscle, nextHistory);
+    }
+
+    const systemicChronic = systemicChronicContrib > 0 ? systemicChronicAccum : null;
+
+    entry.rollup.fatigue = {
+      muscles: fatiguePerMuscle,
+      systemic: {
+        acute: systemicAcute,
+        chronic: systemicChronic,
+        fatigue_score: systemicChronic !== null ? systemicAcute - systemicChronic : null,
+        acwr: systemicChronic && systemicChronic > 0 ? systemicAcute / systemicChronic : null,
+      },
+    };
+  }
+}
+
 async function handler(req, res) {
   try {
     if (req.method !== 'POST') {
@@ -94,8 +165,25 @@ async function handler(req, res) {
     if (weekIds.length) {
       await Promise.all(weekIds.map(async (wid) => {
         const snap = await rollupsCol.doc(wid).get();
-        if (snap.exists) rollups.push({ id: wid, ...snap.data() });
+        if (snap.exists) {
+          const data = snap.data() || {};
+          rollups.push({
+            id: wid,
+            ...data,
+            intensity: {
+              hard_sets_total: data.hard_sets_total || 0,
+              low_rir_sets_total: data.low_rir_sets_total || 0,
+              hard_sets_per_muscle: data.hard_sets_per_muscle || {},
+              low_rir_sets_per_muscle: data.low_rir_sets_per_muscle || {},
+              load_per_muscle: data.load_per_muscle || {},
+            },
+            cadence: {
+              sessions: data.workouts || 0,
+            },
+          });
+        }
       }));
+      attachFatigueMetrics(rollups);
     }
 
     // Optionally fetch per-muscle weekly series for requested muscles
@@ -105,7 +193,14 @@ async function handler(req, res) {
         const doc = await db.collection('users').doc(uid).collection('analytics_series_muscle').doc(m).get();
         if (!doc.exists) return;
         const weeksMap = doc.data().weeks || {};
-        const arr = weekIds.map((wid) => ({ week: wid, sets: weeksMap[wid]?.sets || 0, volume: weeksMap[wid]?.volume || 0 }));
+        const arr = weekIds.map((wid) => ({
+          week: wid,
+          sets: weeksMap[wid]?.sets || 0,
+          volume: weeksMap[wid]?.volume || 0,
+          hard_sets: weeksMap[wid]?.hard_sets || 0,
+          load: weeksMap[wid]?.load || 0,
+          low_rir_sets: weeksMap[wid]?.low_rir_sets || 0,
+        }));
         seriesMuscle[m] = arr;
       }));
     }
@@ -144,7 +239,7 @@ async function handler(req, res) {
       rollups,
       series_muscle: seriesMuscle,
       series_exercise: seriesExercise,
-      schema_version: 2,
+      schema_version: 3,
     });
   } catch (e) {
     console.error('get-features error', e);
