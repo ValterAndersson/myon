@@ -45,7 +45,6 @@ public struct ClarifyQuestionsCard: View {
                                                 } else {
                                                     // Single choice - auto submit
                                                     answers[q.id] = opt
-                                                    print("[ClarifyQuestionsCard] Selected option: \(opt) for question: \(q.id)")
                                                     submitAnswer()
                                                 }
                                             }) {
@@ -159,7 +158,6 @@ public struct ClarifyQuestionsCard: View {
     }
     
     private func submitAnswer() {
-        print("[ClarifyQuestionsCard] submitAnswer called with answers: \(answers)")
         guard case .clarifyQuestions(let qs) = model.data else { return }
         let payloadValue: String
         if qs.count == 1, let first = qs.first {

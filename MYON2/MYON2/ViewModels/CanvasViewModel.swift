@@ -180,7 +180,7 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func startSSEStream(userId: String, canvasId: String, message: String, correlationId: String) {
-        print("[CanvasVM] startSSEStream called userId=\(userId) canvasId=\(canvasId) correlationId=\(correlationId)")
+        DebugLogger.log(.canvas, "startSSEStream: user=\(userId) canvas=\(canvasId) corr=\(correlationId)")
         sseStreamTask?.cancel()
         sseStreamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -194,7 +194,6 @@ final class CanvasViewModel: ObservableObject {
                 self.messageBuffer = ""
                 self.thoughtStartAt = Date().timeIntervalSince1970
                 self.toolStartByName.removeAll()
-                print("[CanvasVM] SSE overlay shown")
             }
             
             // Track last meaningful event time for timeout detection
@@ -203,7 +202,6 @@ final class CanvasViewModel: ObservableObject {
             var receivedDoneEvent = false
             
             do {
-                print("[CanvasVM] Starting SSE stream consumption...")
                 // Seed log with user prompt
                 await MainActor.run {
                     let now = Date().timeIntervalSince1970
@@ -233,7 +231,7 @@ final class CanvasViewModel: ObservableObject {
                     if isMeaningfulEvent {
                         lastMeaningfulEventTime = Date()
                     } else if Date().timeIntervalSince(lastMeaningfulEventTime) > streamTimeoutSeconds {
-                        print("[CanvasVM] Stream timeout - only heartbeats for \(streamTimeoutSeconds)s")
+                        DebugLogger.debug(.canvas, "Stream timeout - only heartbeats for \(streamTimeoutSeconds)s")
                         await MainActor.run {
                             self.currentAgentStatus = "Request timed out"
                             self.showStreamOverlay = false
@@ -242,7 +240,7 @@ final class CanvasViewModel: ObservableObject {
                         break
                     }
                     
-                    print("[CanvasVM] Received SSE event: \(event.type)")
+                    DebugLogger.debug(.canvas, "SSE event: \(event.type)")
                     await MainActor.run {
                         // Process stream event
                         self.handleIncomingStreamEvent(event)
@@ -255,11 +253,10 @@ final class CanvasViewModel: ObservableObject {
                 
                 // If stream ended without done event, clean up gracefully
                 if !receivedDoneEvent {
-                    print("[CanvasVM] Stream ended without done event - cleaning up")
+                    DebugLogger.debug(.canvas, "Stream ended without done event - cleaning up")
                     await MainActor.run {
                         self.showStreamOverlay = false
                         self.isAgentThinking = false
-                        // Don't show error - it might just be the backend finishing quietly
                     }
                 }
             } catch {
@@ -420,7 +417,6 @@ final class CanvasViewModel: ObservableObject {
             // Lightweight telemetry: log correlation id if present
             for doc in docs {
                 if let payload = doc.data()["payload"] as? [String: Any], let correlation = payload["correlation_id"] as? String {
-                    print("[CanvasTelemetry] event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
                     DebugLogger.debug(.canvas, "event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
                 }
             }
