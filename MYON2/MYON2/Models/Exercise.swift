@@ -14,16 +14,16 @@ struct Exercise: Identifiable, Codable {
     let stimulusTags: [String]
     let suitabilityNotes: [String]
     
-    // Custom init for decoding with defaults for missing optional arrays
+    // Custom init for decoding with defaults for missing optional fields
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
-        category = try container.decode(String.self, forKey: .category)
-        metadata = try container.decode(ExerciseMetadata.self, forKey: .metadata)
-        movement = try container.decode(Movement.self, forKey: .movement)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? "exercise"
+        metadata = try container.decodeIfPresent(ExerciseMetadata.self, forKey: .metadata) ?? ExerciseMetadata.empty
+        movement = try container.decodeIfPresent(Movement.self, forKey: .movement) ?? Movement.empty
         equipment = try container.decodeIfPresent([String].self, forKey: .equipment) ?? []
-        muscles = try container.decode(Muscles.self, forKey: .muscles)
+        muscles = try container.decodeIfPresent(Muscles.self, forKey: .muscles) ?? Muscles.empty
         
         // These fields may be missing in some documents - default to empty arrays
         executionNotes = try container.decodeIfPresent([String].self, forKey: .executionNotes) ?? []
@@ -112,6 +112,21 @@ struct ExerciseMetadata: Codable {
     let planeOfMotion: String?
     let unilateral: Bool?
     
+    static let empty = ExerciseMetadata(level: "intermediate", planeOfMotion: nil, unilateral: nil)
+    
+    init(level: String, planeOfMotion: String?, unilateral: Bool?) {
+        self.level = level
+        self.planeOfMotion = planeOfMotion
+        self.unilateral = unilateral
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        level = try container.decodeIfPresent(String.self, forKey: .level) ?? "intermediate"
+        planeOfMotion = try container.decodeIfPresent(String.self, forKey: .planeOfMotion)
+        unilateral = try container.decodeIfPresent(Bool.self, forKey: .unilateral)
+    }
+    
     enum CodingKeys: String, CodingKey {
         case level
         case planeOfMotion = "plane_of_motion"
@@ -122,6 +137,24 @@ struct ExerciseMetadata: Codable {
 struct Movement: Codable {
     let split: String?
     let type: String
+    
+    static let empty = Movement(split: nil, type: "other")
+    
+    init(split: String?, type: String) {
+        self.split = split
+        self.type = type
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        split = try container.decodeIfPresent(String.self, forKey: .split)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "other"
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case split
+        case type
+    }
 }
 
 struct Muscles: Codable {
@@ -129,6 +162,15 @@ struct Muscles: Codable {
     let primary: [String]
     let secondary: [String]
     let contribution: [String: Double]?
+    
+    static let empty = Muscles(category: nil, primary: [], secondary: [], contribution: nil)
+    
+    init(category: [String]?, primary: [String], secondary: [String], contribution: [String: Double]?) {
+        self.category = category
+        self.primary = primary
+        self.secondary = secondary
+        self.contribution = contribution
+    }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
