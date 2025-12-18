@@ -286,12 +286,24 @@ public struct ExerciseDetailSheet: View {
         error = nil
         
         do {
+            // Try by ID first
             if let id = exerciseId, !id.isEmpty {
                 exercise = try await repository.read(id: id)
-            } else {
-                // Fallback: search by name
-                let results = try await repository.searchExercises(query: exerciseName)
-                exercise = results.first
+            }
+            
+            // If not found by ID, search by name (case-insensitive)
+            if exercise == nil {
+                let allExercises = try await repository.list()
+                let searchName = exerciseName.lowercased()
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Exact match first
+                exercise = allExercises.first { $0.name.lowercased() == searchName }
+                
+                // Contains match fallback
+                if exercise == nil {
+                    exercise = allExercises.first { $0.name.lowercased().contains(searchName) || searchName.contains($0.name.lowercased()) }
+                }
             }
         } catch {
             self.error = error.localizedDescription
