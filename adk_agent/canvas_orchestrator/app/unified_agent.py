@@ -333,6 +333,11 @@ def tool_create_workout_plan(
         else:
             sets = [{"target": {"reps": 8, "rir": 2}} for _ in range(3)]
         
+        # Include muscle data for swap functionality
+        primary_muscles = ex.get("primary_muscles") or ex.get("primaryMuscles") or []
+        equipment_list = ex.get("equipment") or []
+        equipment_str = equipment_list[0] if isinstance(equipment_list, list) and equipment_list else None
+        
         blocks.append({
             "exercise_id": exercise_id,
             "name": name,
@@ -340,6 +345,8 @@ def tool_create_workout_plan(
             "sets": sets,
             "set_count": len(sets),
             "notes": ex.get("notes") or ex.get("rationale"),
+            "primary_muscles": primary_muscles,
+            "equipment": equipment_str,
         })
     
     if not blocks:
@@ -550,8 +557,10 @@ Use the EXACT `id` and `name` from search results in `tool_create_workout_plan`.
 1. `tool_set_context(...)`
 2. `tool_search_exercises(muscle_group="...", limit=10)` - get real exercises
 3. Pick 5 exercises from results, use their `id` as `exercise_id`
-4. `tool_create_workout_plan(title="...", exercises=[{exercise_id: "...", name: "...", sets: 3, reps: 8}])`
+4. `tool_create_workout_plan(title="...", exercises=[{exercise_id: "...", name: "...", sets: 3, reps: 8, primary_muscles: [...]}])`
 5. `tool_publish_workout_plan()`
+
+IMPORTANT: Always include `primary_muscles` from search results in each exercise!
 
 ## REQUEST MAPPINGS:
 - "Plan a workout" / "I want to train" → search with no filter, pick variety
