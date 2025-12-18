@@ -238,11 +238,7 @@ extension CanvasScreen {
                     """
                     firePrompt(prompt, resetCards: false)
                 }
-            case "learn_exercise":
-                if let name = action.payload?["name"] {
-                    let prompt = "Tell me about the exercise: \(name) - how to perform it, key cues, and common mistakes."
-                    firePrompt(prompt, resetCards: false)
-                }
+            // learn_exercise is now handled directly in SessionPlanCard via ExerciseDetailSheet
             default:
                 break
             }

@@ -6,6 +6,7 @@ public struct SessionPlanCard: View {
     @State private var expandedExerciseId: String? = nil
     @State private var showCardMenu: Bool = false
     @State private var exerciseForAction: PlanExercise? = nil
+    @State private var exerciseForDetail: PlanExercise? = nil
     @Environment(\.cardActionHandler) private var handleAction
     
     public init(model: CanvasCardModel) {
@@ -63,6 +64,13 @@ public struct SessionPlanCard: View {
             titleVisibility: .visible
         ) {
             exerciseMenuOptions
+        }
+        .sheet(item: $exerciseForDetail) { exercise in
+            ExerciseDetailSheet(
+                exerciseId: exercise.exerciseId,
+                exerciseName: exercise.name,
+                onDismiss: { exerciseForDetail = nil }
+            )
         }
     }
     
@@ -287,8 +295,7 @@ public struct SessionPlanCard: View {
     private var exerciseMenuOptions: some View {
         Button("Learn About Exercise") {
             if let ex = exerciseForAction {
-                let action = CardAction(kind: "learn_exercise", label: "Learn", payload: ["exercise_id": ex.exerciseId ?? "", "name": ex.name])
-                handleAction(action, model)
+                exerciseForDetail = ex
             }
         }
         
