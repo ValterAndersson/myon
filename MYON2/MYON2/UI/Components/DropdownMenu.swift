@@ -45,12 +45,12 @@ public struct DropdownMenu: View {
                     HStack(spacing: Space.sm) {
                         Image(systemName: item.icon)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(item.isDestructive ? ColorsToken.Status.error : ColorsToken.Text.secondary)
+                            .foregroundColor(item.isDestructive ? ColorsToken.State.error : ColorsToken.Text.secondary)
                             .frame(width: 20)
                         
                         Text(item.title)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(item.isDestructive ? ColorsToken.Status.error : ColorsToken.Text.primary)
+                            .foregroundColor(item.isDestructive ? ColorsToken.State.error : ColorsToken.Text.primary)
                         
                         Spacer()
                     }
@@ -66,7 +66,7 @@ public struct DropdownMenu: View {
                 }
             }
         }
-        .background(ColorsToken.Surface.elevated)
+        .background(ColorsToken.Surface.card)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         .overlay(

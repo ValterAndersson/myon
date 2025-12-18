@@ -60,7 +60,7 @@ public struct ExerciseDetailSheet: View {
         VStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 40))
-                .foregroundColor(ColorsToken.Status.error)
+                .foregroundColor(ColorsToken.State.error)
             MyonText("Failed to load exercise", style: .headline)
             MyonText(message, style: .caption)
                 .foregroundColor(ColorsToken.Text.secondary)
@@ -120,7 +120,7 @@ public struct ExerciseDetailSheet: View {
                             HStack(alignment: .top, spacing: Space.sm) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(ColorsToken.Status.error)
+                                    .foregroundColor(ColorsToken.State.error)
                                 MyonText(mistake, style: .body)
                                     .foregroundColor(ColorsToken.Text.primary)
                             }
@@ -154,7 +154,7 @@ public struct ExerciseDetailSheet: View {
                             HStack(alignment: .top, spacing: Space.sm) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(ColorsToken.Status.success)
+                                    .foregroundColor(ColorsToken.State.success)
                                 MyonText(note, style: .body)
                                     .foregroundColor(ColorsToken.Text.primary)
                             }
@@ -173,9 +173,9 @@ public struct ExerciseDetailSheet: View {
             // Category & Level badges
             HStack(spacing: Space.sm) {
                 StatusTag(ex.capitalizedCategory, kind: .info)
-                StatusTag(ex.capitalizedLevel, kind: .neutral)
+                StatusTag(ex.capitalizedLevel, kind: .info)
                 if let unilateral = ex.metadata.unilateral, unilateral {
-                    StatusTag("Unilateral", kind: .neutral)
+                    StatusTag("Unilateral", kind: .info)
                 }
             }
             
