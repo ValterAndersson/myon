@@ -14,6 +14,25 @@ struct Exercise: Identifiable, Codable {
     let stimulusTags: [String]
     let suitabilityNotes: [String]
     
+    // Custom init for decoding with defaults for missing optional arrays
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        category = try container.decode(String.self, forKey: .category)
+        metadata = try container.decode(ExerciseMetadata.self, forKey: .metadata)
+        movement = try container.decode(Movement.self, forKey: .movement)
+        equipment = try container.decodeIfPresent([String].self, forKey: .equipment) ?? []
+        muscles = try container.decode(Muscles.self, forKey: .muscles)
+        
+        // These fields may be missing in some documents - default to empty arrays
+        executionNotes = try container.decodeIfPresent([String].self, forKey: .executionNotes) ?? []
+        commonMistakes = try container.decodeIfPresent([String].self, forKey: .commonMistakes) ?? []
+        programmingNotes = try container.decodeIfPresent([String].self, forKey: .programmingNotes) ?? []
+        stimulusTags = try container.decodeIfPresent([String].self, forKey: .stimulusTags) ?? []
+        suitabilityNotes = try container.decodeIfPresent([String].self, forKey: .suitabilityNotes) ?? []
+    }
+    
     // Computed properties for backward compatibility and capitalized text
     var level: String { metadata.level }
     var movementType: String { movement.type }
@@ -110,4 +129,12 @@ struct Muscles: Codable {
     let primary: [String]
     let secondary: [String]
     let contribution: [String: Double]?
-} 
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        category = try container.decodeIfPresent([String].self, forKey: .category)
+        primary = try container.decodeIfPresent([String].self, forKey: .primary) ?? []
+        secondary = try container.decodeIfPresent([String].self, forKey: .secondary) ?? []
+        contribution = try container.decodeIfPresent([String: Double].self, forKey: .contribution)
+    }
+}
