@@ -5,7 +5,7 @@ public struct SessionPlanCard: View {
     @State private var editableExercises: [PlanExercise] = []
     @State private var expandedExerciseId: String? = nil
     @State private var showCardMenu: Bool = false
-    @State private var exerciseForAction: PlanExercise? = nil
+    @State private var exerciseMenuId: String? = nil
     @State private var exerciseForDetail: PlanExercise? = nil
     @Environment(\.cardActionHandler) private var handleAction
     
@@ -17,17 +17,7 @@ public struct SessionPlanCard: View {
         CardContainer(status: model.status) {
             VStack(alignment: .leading, spacing: Space.sm) {
                 // Header with menu
-                HStack {
-                    CardHeader(
-                        title: model.title ?? "Session Plan",
-                        subtitle: model.subtitle,
-                        lane: model.lane,
-                        status: model.status,
-                        timestamp: model.publishedAt
-                    )
-                    Spacer()
-                    cardMenuButton
-                }
+                cardHeader
                 
                 // Exercise list
                 VStack(alignment: .leading, spacing: Space.xs) {
@@ -52,19 +42,6 @@ public struct SessionPlanCard: View {
                 editableExercises = exercises
             }
         }
-        .confirmationDialog("Plan Options", isPresented: $showCardMenu, titleVisibility: .visible) {
-            cardMenuOptions
-        }
-        .confirmationDialog(
-            exerciseForAction?.name ?? "Exercise",
-            isPresented: Binding(
-                get: { exerciseForAction != nil },
-                set: { if !$0 { exerciseForAction = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            exerciseMenuOptions
-        }
         .sheet(item: $exerciseForDetail) { exercise in
             ExerciseDetailSheet(
                 exerciseId: exercise.exerciseId,
@@ -74,45 +51,82 @@ public struct SessionPlanCard: View {
         }
     }
     
-    // MARK: - Card Menu
+    // MARK: - Card Header with Menu
     
-    private var cardMenuButton: some View {
-        Button(action: { showCardMenu = true }) {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
-                .frame(width: 32, height: 32)
-                .background(ColorsToken.Background.secondary.opacity(0.5))
-                .clipShape(Circle())
+    private var cardHeader: some View {
+        HStack {
+            CardHeader(
+                title: model.title ?? "Session Plan",
+                subtitle: model.subtitle,
+                lane: model.lane,
+                status: model.status,
+                timestamp: model.publishedAt
+            )
+            Spacer()
+            cardMenuTrigger
         }
     }
     
-    @ViewBuilder
-    private var cardMenuOptions: some View {
-        Button("Accept Plan") {
-            let action = CardAction(kind: "accept_plan", label: "Accept", style: .primary, payload: serializePlan())
-            handleAction(action, model)
+    private var cardMenuTrigger: some View {
+        ZStack(alignment: .topTrailing) {
+            Button(action: {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showCardMenu.toggle()
+                    exerciseMenuId = nil
+                }
+            }) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(showCardMenu ? ColorsToken.Background.secondary : ColorsToken.Background.secondary.opacity(0.5))
+                    .clipShape(Circle())
+            }
+            
+            if showCardMenu {
+                cardMenuDropdown
+                    .offset(x: 0, y: 36)
+            }
         }
-        Button("Make it Shorter") {
-            fireAdjustment("Make this session shorter - reduce total sets or exercises")
+    }
+    
+    private var cardMenuDropdown: some View {
+        DropdownMenu(items: cardMenuItems) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                showCardMenu = false
+            }
         }
-        Button("Make it Harder") {
-            fireAdjustment("Make this session more challenging - increase intensity or volume")
-        }
-        Button("Regenerate") {
-            fireAdjustment("Regenerate this workout plan with different exercises")
-        }
-        Button("Dismiss", role: .destructive) {
-            let action = CardAction(kind: "dismiss", label: "Dismiss", style: .destructive)
-            handleAction(action, model)
-        }
-        Button("Cancel", role: .cancel) { }
+        .frame(minWidth: 180)
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
+    }
+    
+    private var cardMenuItems: [DropdownMenuItem] {
+        [
+            DropdownMenuItem(title: "Accept Plan", icon: "checkmark.circle") {
+                let action = CardAction(kind: "accept_plan", label: "Accept", style: .primary, payload: serializePlan())
+                handleAction(action, model)
+            },
+            DropdownMenuItem(title: "Make Shorter", icon: "minus.circle") {
+                fireAdjustment("Make this session shorter - reduce total sets or exercises")
+            },
+            DropdownMenuItem(title: "Make Harder", icon: "flame") {
+                fireAdjustment("Make this session more challenging - increase intensity or volume")
+            },
+            DropdownMenuItem(title: "Regenerate", icon: "arrow.triangle.2.circlepath") {
+                fireAdjustment("Regenerate this workout plan with different exercises")
+            },
+            DropdownMenuItem(title: "Dismiss", icon: "xmark.circle", isDestructive: true) {
+                let action = CardAction(kind: "dismiss", label: "Dismiss", style: .destructive)
+                handleAction(action, model)
+            }
+        ]
     }
     
     // MARK: - Exercise Row
     
     private func exerciseRow(exercise: PlanExercise, index: Int) -> some View {
         let isExpanded = expandedExerciseId == exercise.id
+        let showMenu = exerciseMenuId == exercise.id
         
         return VStack(alignment: .leading, spacing: 0) {
             // Collapsed row
@@ -138,14 +152,28 @@ public struct SessionPlanCard: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 
-                // Exercise menu button
-                Button(action: { exerciseForAction = exercise }) {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .frame(width: 28, height: 28)
+                // Exercise menu trigger
+                ZStack(alignment: .topTrailing) {
+                    Button(action: {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            exerciseMenuId = showMenu ? nil : exercise.id
+                            showCardMenu = false
+                        }
+                    }) {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14))
+                            .foregroundColor(ColorsToken.Text.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(showMenu ? ColorsToken.Background.secondary : Color.clear)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    if showMenu {
+                        exerciseMenuDropdown(exercise: exercise)
+                            .offset(x: 0, y: 32)
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
             }
             .padding(.vertical, Space.xs)
             
@@ -157,6 +185,43 @@ public struct SessionPlanCard: View {
         }
         .background(ColorsToken.Background.primary)
     }
+    
+    private func exerciseMenuDropdown(exercise: PlanExercise) -> some View {
+        DropdownMenu(items: exerciseMenuItems(for: exercise)) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                exerciseMenuId = nil
+            }
+        }
+        .frame(minWidth: 200)
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
+    }
+    
+    private func exerciseMenuItems(for exercise: PlanExercise) -> [DropdownMenuItem] {
+        let muscles = exercise.primaryMuscles?.joined(separator: ", ") ?? "similar muscles"
+        let equipment = exercise.equipment ?? "same equipment"
+        
+        return [
+            DropdownMenuItem(title: "Learn About Exercise", icon: "book") {
+                exerciseForDetail = exercise
+            },
+            DropdownMenuItem(title: "Swap (Same Muscles)", icon: "arrow.left.arrow.right") {
+                fireSwap(exercise: exercise, reason: "same_muscles")
+            },
+            DropdownMenuItem(title: "Swap (Same Equipment)", icon: "dumbbell") {
+                fireSwap(exercise: exercise, reason: "same_equipment")
+            },
+            DropdownMenuItem(title: "Swap (Ask AI)", icon: "sparkles") {
+                fireSwap(exercise: exercise, reason: "ai_suggestion")
+            },
+            DropdownMenuItem(title: "Remove", icon: "trash", isDestructive: true) {
+                withAnimation {
+                    editableExercises.removeAll { $0.id == exercise.id }
+                }
+            }
+        ]
+    }
+    
+    // MARK: - Expanded Content
     
     @ViewBuilder
     private func expandedContent(index: Int) -> some View {
@@ -287,45 +352,6 @@ public struct SessionPlanCard: View {
         }
         .background(ColorsToken.Background.secondary)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
-    }
-    
-    // MARK: - Exercise Menu
-    
-    @ViewBuilder
-    private var exerciseMenuOptions: some View {
-        Button("Learn About Exercise") {
-            if let ex = exerciseForAction {
-                exerciseForDetail = ex
-            }
-        }
-        
-        Button("Swap → Same Muscles") {
-            if let ex = exerciseForAction {
-                fireSwap(exercise: ex, reason: "same_muscles")
-            }
-        }
-        
-        Button("Swap → Same Equipment") {
-            if let ex = exerciseForAction {
-                fireSwap(exercise: ex, reason: "same_equipment")
-            }
-        }
-        
-        Button("Swap → Ask AI") {
-            if let ex = exerciseForAction {
-                fireSwap(exercise: ex, reason: "ai_suggestion")
-            }
-        }
-        
-        Button("Remove", role: .destructive) {
-            if let ex = exerciseForAction {
-                withAnimation {
-                    editableExercises.removeAll { $0.id == ex.id }
-                }
-            }
-        }
-        
-        Button("Cancel", role: .cancel) { }
     }
     
     // MARK: - Accept Button
