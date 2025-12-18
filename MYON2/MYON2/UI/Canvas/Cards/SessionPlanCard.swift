@@ -1,5 +1,13 @@
 import SwiftUI
 
+// Preference key for passing menu anchor position
+private struct MenuAnchorPreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 public struct SessionPlanCard: View {
     private let model: CanvasCardModel
     @State private var editableExercises: [PlanExercise] = []
@@ -191,6 +199,7 @@ public struct SessionPlanCard: View {
         
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
+                // Expand/collapse tap area
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         expandedExerciseId = isExpanded ? nil : exercise.id
@@ -209,24 +218,35 @@ public struct SessionPlanCard: View {
                         
                         Spacer()
                     }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
                 
-                GeometryReader { geo in
-                    Button {
-                        menuAnchor = CGPoint(x: geo.frame(in: .named("card")).midX, y: geo.frame(in: .named("card")).minY)
-                        activeMenu = .exercise(exercise.id)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14))
-                            .foregroundColor(ColorsToken.Text.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(Color.clear)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                // Exercise menu button - with proper touch target
+                Button {
+                    // Calculate position for menu
+                    activeMenu = .exercise(exercise.id)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .frame(width: 44, height: 44) // Apple HIG minimum 44pt
+                        .contentShape(Rectangle())
                 }
-                .frame(width: 28, height: 28)
+                .buttonStyle(PlainButtonStyle())
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.onAppear {
+                            // No-op, we set menuAnchor when button is tapped
+                        }
+                        .preference(key: MenuAnchorPreferenceKey.self, value: geo.frame(in: .named("card")))
+                    }
+                )
+                .onPreferenceChange(MenuAnchorPreferenceKey.self) { frame in
+                    if activeMenu == .exercise(exercise.id) {
+                        menuAnchor = CGPoint(x: frame.midX, y: frame.minY)
+                    }
+                }
             }
             .padding(.vertical, Space.xs)
             
