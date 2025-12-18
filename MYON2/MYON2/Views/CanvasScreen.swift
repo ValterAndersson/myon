@@ -13,38 +13,34 @@ struct CanvasScreen: View {
     @State private var pinned: [CanvasCardModel] = []
     @State private var toastText: String? = nil
     @State private var didInvokeAgent: Bool = false
+    @State private var composerText: String = ""
+    @State private var answeredClarifications: Set<String> = []
+    
+    private typealias ClarificationPrompt = TimelineClarificationPrompt
 
     var body: some View {
-        VStack(spacing: Space.md) {
+        let embeddedCards = vm.cards.sorted {
+            ($0.publishedAt ?? Date.distantPast) < ($1.publishedAt ?? Date.distantPast)
+        }
+        let pendingClarification = activeClarificationPrompt
+        
+        VStack(spacing: 0) {
             if !vm.errorMessage.orEmpty.isEmpty {
                 Banner(title: "Error", message: vm.errorMessage, kind: .error)
             }
-            if let ctx = entryContext, !ctx.isEmpty { Banner(title: "Requested", message: ctx, kind: .info) }
-            PinnedRailView(cards: pinned) { _ in }
-            UpNextRailView(cards: vm.cards, upNextIds: vm.upNext) { _ in }
-            ScrollView {
-                CanvasGridView(cards: vm.cards, columns: 12, onAccept: { cardId in
-                    guard let cid = vm.canvasId ?? canvasId else { return }
-                    Task { await vm.applyAction(canvasId: cid, type: "ACCEPT_PROPOSAL", cardId: cardId) }
-                }, onReject: { cardId in
-                    guard let cid = vm.canvasId ?? canvasId else { return }
-                    Task { await vm.applyAction(canvasId: cid, type: "REJECT_PROPOSAL", cardId: cardId) }
-                })
-                    .padding(InsetsToken.screen)
-            }
+            WorkspaceTimelineView(
+                events: vm.workspaceEvents,
+                embeddedCards: embeddedCards,
+                syntheticClarification: syntheticClarificationPrompt,
+                answeredClarifications: answeredClarifications,
+                onClarificationSubmit: handleClarificationSubmit,
+                onClarificationSkip: handleClarificationSkip
+            )
+            composeBar(pendingClarification: pendingClarification)
         }
         .environment(\.cardActionHandler, handleCardAction)
         .sheet(isPresented: $showRefine) { RefineSheet(text: $refineText) { _ in showRefine = false } }
         .sheet(isPresented: $showSwap) { SwapSheet { _, _ in showSwap = false } }
-        .overlay {
-            if vm.showStreamOverlay {
-                StreamOverlay(
-                    status: vm.currentAgentStatus ?? "Working...",
-                    isThinking: vm.isAgentThinking,
-                    events: vm.streamEvents
-                )
-            }
-        }
         .navigationTitle("Canvas")
         .onAppear {
             if let cid = canvasId {
@@ -55,13 +51,13 @@ struct CanvasScreen: View {
             }
         }
         .onDisappear { vm.stop() }
-        .onChange(of: vm.canvasId) { newValue in
-            guard !didInvokeAgent, let cid = newValue else { return }
+        .onChange(of: vm.isReady) { ready in
+            guard ready, !didInvokeAgent, let cid = vm.canvasId else { return }
             if let msg = computeAgentMessage(from: entryContext) {
                 didInvokeAgent = true
+                vm.clearCards()
+                answeredClarifications.removeAll()
                 let correlationId = UUID().uuidString
-                
-                // Start SSE stream - this will both stream events AND invoke the agent
                 vm.startSSEStream(userId: userId, canvasId: cid, message: msg, correlationId: correlationId)
             }
         }
@@ -106,6 +102,65 @@ private extension Optional where Wrapped == String {
 
 // MARK: - Demo seeding (disabled; live data now)
 extension CanvasScreen {
+    private func composeBar(pendingClarification: ClarificationPrompt?) -> some View {
+        let placeholder = pendingClarification?.question ?? "Ask anything…"
+        return HStack(spacing: Space.sm) {
+            TextField(placeholder, text: $composerText, axis: .vertical)
+                .lineLimit(1...4)
+                .padding(Space.sm)
+                .background(ColorsToken.Surface.default.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
+            Button(action: sendComposerMessage) {
+                Image(systemName: "paperplane.fill")
+                    .foregroundColor(.white)
+                    .padding(Space.sm)
+                    .background(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
+                    .clipShape(Circle())
+            }
+            .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.bottom, Space.md)
+    }
+    
+    private func sendComposerMessage() {
+        let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let pending = activeClarificationPrompt {
+            composerText = ""
+            handleClarificationSubmit(id: pending.id, question: pending.question, answer: trimmed)
+            return
+        }
+        composerText = ""
+        firePrompt(trimmed)
+    }
+    
+    private func firePrompt(_ message: String, resetCards: Bool = true) {
+        guard let cid = vm.canvasId ?? canvasId else { return }
+        if resetCards {
+            answeredClarifications.removeAll()
+            vm.clearCards()
+        }
+        let correlationId = UUID().uuidString
+        vm.startSSEStream(userId: userId, canvasId: cid, message: message, correlationId: correlationId)
+    }
+    
+    private func handleClarificationSubmit(id: String, question: String, answer: String) {
+        answeredClarifications.insert(id)
+        vm.clearPendingClarification(id: id)
+        let message = "Clarification response — \(question): \(answer)"
+        vm.logUserResponse(text: message)
+        firePrompt(message, resetCards: false)
+    }
+    
+    private func handleClarificationSkip(id: String, question: String) {
+        answeredClarifications.insert(id)
+        vm.clearPendingClarification(id: id)
+        let message = "Clarification skipped — \(question)"
+        vm.logUserResponse(text: message)
+        firePrompt(message, resetCards: false)
+    }
+    
     private var handleCardAction: CardActionHandler {
         { action, card in
             switch action.kind {
@@ -140,7 +195,17 @@ extension CanvasScreen {
             case "unpin":
                 pinned.removeAll { $0.id == card.id }
             case "explain":
-                withAnimation { vm.cards.insert(CanvasCardModel(type: .summary, data: .inlineInfo("The agent chose this based on your recent volume and preferences."), width: .oneHalf), at: 0) }
+                withAnimation {
+                    vm.cards.insert(
+                        CanvasCardModel(
+                            type: .summary,
+                            data: .inlineInfo("The agent chose this based on your recent volume and preferences."),
+                            width: .oneHalf,
+                            publishedAt: Date()
+                        ),
+                        at: 0
+                    )
+                }
             default:
                 break
             }
@@ -158,6 +223,31 @@ extension CanvasScreen {
             if key.contains("analyze progress") { return "Analyze my progress and show a few key charts for the last 6 weeks." }
         }
         return ctx
+    }
+}
+
+private extension CanvasScreen {
+    private var workspaceClarificationPrompt: ClarificationPrompt? {
+        for entry in vm.workspaceEvents.reversed() {
+            guard entry.event.eventType == .clarificationRequest,
+                  let id = entry.event.content?["id"]?.value as? String,
+                  answeredClarifications.contains(id) == false,
+                  let question = entry.event.content?["question"]?.value as? String else { continue }
+            return ClarificationPrompt(id: id, question: question)
+        }
+        return nil
+    }
+    
+    private var syntheticClarificationPrompt: WorkspaceTimelineView.ClarificationPrompt? {
+        guard let cue = vm.pendingClarificationCue else { return nil }
+        if let workspace = workspaceClarificationPrompt, workspace.id == cue.id {
+            return nil
+        }
+        return WorkspaceTimelineView.ClarificationPrompt(id: cue.id, question: cue.question)
+    }
+    
+    private var activeClarificationPrompt: ClarificationPrompt? {
+        workspaceClarificationPrompt ?? syntheticClarificationPrompt
     }
 }
 

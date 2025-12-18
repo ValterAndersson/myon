@@ -10,6 +10,8 @@ public struct StreamEvent: Codable {
         case message = "message"
         case agentResponse = "agent_response"
         case userPrompt = "user_prompt"
+        case userResponse = "user_response"
+        case clarificationRequest = "clarification.request"
         case card = "card"
         case status = "status"
         case error = "error"

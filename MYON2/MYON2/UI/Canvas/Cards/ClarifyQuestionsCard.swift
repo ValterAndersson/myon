@@ -160,37 +160,33 @@ public struct ClarifyQuestionsCard: View {
     
     private func submitAnswer() {
         print("[ClarifyQuestionsCard] submitAnswer called with answers: \(answers)")
-        
-        // Create response action with answers
-        var payload: [String: String] = [:]
-        // Convert answers dictionary to JSON string for payload
-        if let answersData = try? JSONSerialization.data(withJSONObject: answers, options: []),
-           let answersJson = String(data: answersData, encoding: .utf8) {
-            payload["answers"] = answersJson
-            print("[ClarifyQuestionsCard] Sending payload: \(answersJson)")
+        guard case .clarifyQuestions(let qs) = model.data else { return }
+        let payloadValue: String
+        if qs.count == 1, let first = qs.first {
+            let value = answers[first.id] ?? ""
+            payloadValue = value
+        } else if let answersData = try? JSONSerialization.data(withJSONObject: answers, options: []),
+                  let answersJson = String(data: answersData, encoding: .utf8) {
+            payloadValue = answersJson
+        } else {
+            payloadValue = answers.description
         }
-        
         let submitAction = CardAction(
             kind: "submit",
             label: "Submit",
             style: .primary,
-            payload: payload
+            payload: ["answers": payloadValue]
         )
-        print("[ClarifyQuestionsCard] Calling handleAction with submit action")
         handleAction(submitAction, model)
     }
     
     private func skipQuestion() {
         // Send skip signal to agent
-        var payload: [String: String] = [:]
-        payload["skipped"] = "true"
-        payload["message"] = "User decided to skip this question. Move to next step accordingly."
-        
         let skipAction = CardAction(
             kind: "skip",
             label: "Skip",
             style: .secondary,
-            payload: payload
+            payload: ["answers": "User skipped the question"]
         )
         handleAction(skipAction, model)
     }

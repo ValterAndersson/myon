@@ -1,7 +1,13 @@
 const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const { logger } = require('firebase-functions');
+const admin = require('firebase-admin');
 const { VERTEX_AI_CONFIG } = require('./config');
+
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+const db = admin.firestore();
 
 const TOOL_LABELS = {
   tool_set_canvas_context: 'Linking canvas context',
@@ -9,10 +15,37 @@ const TOOL_LABELS = {
   tool_fetch_recent_sessions: 'Reviewing recent sessions',
   tool_emit_agent_event: 'Logging telemetry',
   tool_request_clarification: 'Requesting clarification',
-  tool_format_workout_plan_cards: 'Formatting workout cards',
+  tool_format_workout_plan_cards: 'Formatting workout plan',
   tool_format_analysis_cards: 'Formatting analysis cards',
   tool_publish_cards: 'Publishing cards',
 };
+
+const TELEMETRY_LABELS = {
+  'route.workout_planning': 'Routing to workout planner',
+  'route.plan_workout': 'Routing to workout planner',
+  'route.analysis': 'Routing to analysis agent',
+  'plan_workout': 'Synthesizing workout plan',
+  'analysis': 'Reviewing analysis task',
+  'card.summary': 'Posting summary',
+  'card.auto.plan_workout': 'Publishing workout cards',
+  'card.auto.plan_workout.error': 'Workout card publish failed',
+  'workout_proposed': 'Session plan published',
+  'agent_propose': 'Cards posted to canvas',
+};
+
+const HIDDEN_TOOL_EVENTS = new Set([
+  'transfer_to_agent',
+  'tool_emit_agent_event',
+  'tool_publish_cards',
+  'tool_set_canvas_context',
+]);
+
+function shouldSuppressToolEvent(name = '') {
+  if (!name) return false;
+  if (HIDDEN_TOOL_EVENTS.has(name)) return true;
+  if (name.startsWith('tool_emit_')) return true;
+  return false;
+}
 
 function describeToolEvent(name, args = {}) {
   if (!name) return 'Working';
@@ -23,6 +56,67 @@ function describeToolEvent(name, args = {}) {
     return `Telemetry: ${args.event_type}`;
   }
   return TOOL_LABELS[name] || name.replace(/_/g, ' ');
+}
+
+function formatTelemetryEvent(evt) {
+  if (!evt || typeof evt !== 'object') return null;
+  const { type, payload = {} } = evt;
+  const baseLabel = TELEMETRY_LABELS[type];
+  if (!type && !baseLabel) return null;
+  if (type === 'clarification.request') {
+    return {
+      type: 'clarification.request',
+      agent: 'orchestrator',
+      timestamp: Date.now() / 1000,
+      content: payload,
+    };
+  }
+  let text = baseLabel || type?.replace(/\./g, ' ') || 'Update';
+  if (type === 'card.auto.plan_workout.error' && payload.error) {
+    text = `${text}: ${payload.error}`;
+  }
+  if (type === 'plan_workout' && payload.session && payload.session.title) {
+    text = `${text}: ${payload.session.title}`;
+  }
+  return {
+    type: 'status',
+    agent: 'orchestrator',
+    timestamp: Date.now() / 1000,
+    content: {
+      text,
+      status: text,
+      telemetry_type: type,
+      payload,
+    },
+    metadata: { telemetry_type: type },
+  };
+}
+
+const WORKSPACE_EVENT_TYPES = new Set([
+  'status',
+  'thinking',
+  'thought',
+  'toolRunning',
+  'toolComplete',
+  'message',
+  'agent_response',
+  'agentResponse',
+  'text_commit',
+  'error',
+  'done',
+  'user_prompt',
+  'clarification.request'
+]);
+
+function sanitizeWorkspaceEvent(evt = {}) {
+  const clean = {
+    type: evt.type || 'unknown',
+    agent: evt.agent || null,
+    timestamp: typeof evt.timestamp === 'number' ? evt.timestamp : Date.now() / 1000,
+  };
+  if (evt.content) clean.content = evt.content;
+  if (evt.metadata) clean.metadata = evt.metadata;
+  return clean;
 }
 
 // Helper: SSE writer for NDJSON lines
@@ -74,28 +168,39 @@ function transformToIOSEvent(adkEvent) {
 
   // Map ADK event types to iOS event types
   switch (adkEvent.type) {
-    case 'tool_started':
+    case 'tool_started': {
+      const toolName = adkEvent.name || 'tool';
+      const toolKey = `tool_${toolName}`;
+      if (shouldSuppressToolEvent(toolName)) {
+        eventStartTimes.delete(toolKey);
+        return null;
+      }
       // Track start time for duration calculation
-      const toolKey = `tool_${adkEvent.name}`;
       eventStartTimes.set(toolKey, timestamp);
       
       return {
         ...base,
         type: 'toolRunning',
         content: {
-          tool: adkEvent.name,
-          tool_name: adkEvent.name,
+          tool: toolName,
+          tool_name: toolName,
           args: adkEvent.args,
-          text: describeToolEvent(adkEvent.name, adkEvent.args)
+          text: describeToolEvent(toolName, adkEvent.args)
         },
         metadata: {
           start_time: timestamp
         }
       };
+    }
     
-    case 'tool_result':
+    case 'tool_result': {
+      const toolName = adkEvent.name || 'tool';
+      const toolResultKey = `tool_${toolName}`;
+      if (shouldSuppressToolEvent(toolName)) {
+        eventStartTimes.delete(toolResultKey);
+        return null;
+      }
       // Calculate duration if we have start time
-      const toolResultKey = `tool_${adkEvent.name}`;
       const toolStartTime = eventStartTimes.get(toolResultKey);
       const metadata = toolStartTime ? { start_time: toolStartTime } : {};
       eventStartTimes.delete(toolResultKey);
@@ -104,13 +209,14 @@ function transformToIOSEvent(adkEvent) {
         ...base,
         type: 'toolComplete',
         content: {
-          tool: adkEvent.name,
-          tool_name: adkEvent.name,
+          tool: toolName,
+          tool_name: toolName,
           result: adkEvent.summary || 'Complete',
-          text: describeToolEvent(adkEvent.name, adkEvent.args)
+          text: describeToolEvent(toolName, adkEvent.args)
         },
         metadata
       };
+    }
     
     case 'text_delta':
       return {
@@ -322,13 +428,33 @@ async function streamAgentNormalizedHandler(req, res) {
 
   const sseRaw = createSSE(res);
   const normalizer = new TextNormalizer({ markdown_policy: req.body?.markdown_policy });
+  const workspaceWrites = [];
+  let persistWorkspaceEntry = () => {};
+
+  const enqueueWorkspaceEntry = (ref, correlationId) => (event) => {
+    if (!event || !WORKSPACE_EVENT_TYPES.has(event.type)) return;
+    const record = {
+      entry: sanitizeWorkspaceEvent(event),
+      type: event.type,
+      agent: event.agent || null,
+      correlation_id: correlationId || null,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    workspaceWrites.push(
+      ref.add(record).catch((err) => {
+        logger.warn('[streamAgentNormalized] workspace entry write failed', { error: String(err?.message || err) });
+      })
+    );
+  };
 
   // Wrap SSE writer to transform ADK events to iOS StreamEvent format
   const sse = {
     write: (adkEvent) => {
       const iosEvent = transformToIOSEvent(adkEvent);
+      if (!iosEvent) return;
       logger.debug('[streamAgentNormalized] Emitting event', { type: iosEvent.type });
       sseRaw.write(iosEvent);
+      persistWorkspaceEntry(iosEvent);
     },
     close: () => sseRaw.close()
   };
@@ -342,13 +468,15 @@ async function streamAgentNormalizedHandler(req, res) {
     sse.write({ type: 'heartbeat' });
   }, 2500);
 
+  const finalizeWorkspaceWrites = () => Promise.allSettled(workspaceWrites).catch(() => {});
+
   const done = (ok = true, err) => {
     clearInterval(hb);
     if (err) {
       sse.write({ type: 'error', error: String(err.message || err) });
     }
     sse.write({ type: 'done' });
-    sse.close();
+    finalizeWorkspaceWrites().finally(() => sse.close());
   };
 
   try {
@@ -363,6 +491,14 @@ async function streamAgentNormalizedHandler(req, res) {
       done(false, new Error('canvasId is required'));
       return;
     }
+    
+    const workspaceRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('canvases')
+      .doc(canvasId)
+      .collection('workspace_entries');
+    persistWorkspaceEntry = enqueueWorkspaceEntry(workspaceRef, correlationId);
     
     // Canvas Orchestrator agent ID
     const agentId = '8723635205937561600';
@@ -474,7 +610,8 @@ async function streamAgentNormalizedHandler(req, res) {
               if (parsedResponse && Array.isArray(parsedResponse.events)) {
                 for (const evt of parsedResponse.events) {
                   if (evt && typeof evt === 'object') {
-                    sse.write(evt);
+                    const formatted = formatTelemetryEvent(evt);
+                    sse.write(formatted || evt);
                   }
                 }
               }

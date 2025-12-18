@@ -80,43 +80,6 @@ def tool_fetch_recent_sessions(*, user_id: Optional[str] = None, limit: int = 5)
     return resp.get("data") or resp.get("workouts") or []
 
 
-def tool_fetch_analytics(
-    *,
-    user_id: Optional[str] = None,
-    mode: str = "weekly",
-    weeks: int = 6,
-    week_id: Optional[str] = None,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    muscles: Optional[List[str]] = None,
-    exercise_ids: Optional[List[str]] = None,
-    days: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Fetch preprocessed analytics rollups for the active user."""
-    uid = _resolve(user_id, "user_id")
-    if not uid:
-        raise ValueError("tool_fetch_analytics requires user_id or prior context")
-    body: Dict[str, Any] = {"userId": uid}
-    if mode:
-        body["mode"] = mode
-    if weeks and mode == "weekly":
-        body["weeks"] = max(1, min(int(weeks), 52))
-    if week_id:
-        body["weekId"] = week_id
-    if start and end:
-        body["start"] = start
-        body["end"] = end
-    if isinstance(days, int) and mode == "daily":
-        body["days"] = max(1, min(days, 120))
-    if muscles:
-        body["muscles"] = muscles[:50]
-    if exercise_ids:
-        body["exerciseIds"] = exercise_ids[:50]
-    logger.info("fetch_analytics uid=%s mode=%s weeks=%s", uid, body.get("mode"), body.get("weeks"))
-    resp = _canvas_client().get_analytics_features(body)
-    return resp.get("data") or resp
-
-
 def tool_emit_agent_event(
     *,
     event_type: str,
@@ -485,7 +448,9 @@ def tool_request_clarification(
         "events": [
             {
                 "type": "clarification.request",
-                "payload": payload,
+                "agent": "orchestrator",
+                "timestamp": time.time(),
+                "content": payload,
             }
         ],
     }
@@ -502,7 +467,6 @@ router_tools = [
 analysis_tools = [
     FunctionTool(func=tool_fetch_profile),
     FunctionTool(func=tool_fetch_recent_sessions),
-    FunctionTool(func=tool_fetch_analytics),
     FunctionTool(func=tool_emit_agent_event),
 ]
 
@@ -613,36 +577,21 @@ def _maybe_auto_publish_cards(
 
 
 ANALYSIS_INSTRUCTION = """
-You are the Analysis Agent. Interpret the user’s prompt, study their history, and deliver 1‑3 high‑value insights
-grounded in the latest analytics. Use the dedicated tools before drafting any conclusions.
+You are the Analysis Agent. Interpret the user's instruction, reference their profile + recent sessions,
+derive 1-3 key insights, and package them into a structured payload.
 
-Required workflow:
-1. Fetch profile and context:
-   - `tool_fetch_profile(user_id=...)` for goals, constraints, injuries.
-   - `tool_fetch_recent_sessions(user_id=..., limit=5)` to see raw workout transcripts.
-2. Pull precomputed analytics BEFORE writing insights:
-   - Call `tool_fetch_analytics(user_id=..., mode="weekly", weeks=6-8)` to retrieve `intensity.*`, `summary.muscle_groups`,
-     `summary.muscles`, and (optionally) per-muscle or per-exercise series. Reference these fields explicitly when
-     describing trends (“Back load averaged 5.0 load units, with hamstrings at 4.9 and posterior delts at 1.9”).
-   - Interpret `fatigue.muscles[muscle].acwr` as an acute:chronic ratio: >1.3 = spike/reintroduction, <0.7 = detraining.
-     Highlight spikes and drop-offs, but ALWAYS mention the longer-term trend (“single-week spike after reintroducing deadlifts”)
-     rather than sounding alarms without context.
-   - You can pass `muscles=["glutes","hamstrings"]` or `exercise_ids=[...]` when you need deeper cuts.
-3. Synthesize up to three insights plus concrete actions. Focus on progression, readiness, adherence, or plan/actual deltas.
-4. When ready to publish, TRANSFER to CardAgentAnalysis with:
+Workflow:
+1. Call tool_fetch_profile / tool_fetch_recent_sessions to gather context.
+2. Reason about trends, issues, or opportunities. Keep explanations concise, actionable, and science-backed.
+3. When you're ready to present, TRANSFER to CardAgentAnalysis and include JSON payload:
    {
      "task": "analysis",
-     "insights": [
-       {"title": "...", "summary": "...", "metrics": [...], "recommendation": "..."}
-     ],
-     "visuals": [
-       {"type": "chart|stat|table", "title": "...", "data": {...}}
-     ],
-     "recommendations": ["..."]
+     "insights": [...],
+     "visuals": [...],
+     "recommendations": [...]
    }
-5. Use `tool_emit_agent_event` for any important telemetry (e.g., “analysis.started”, “analysis.completed”).
-
-Never call tool_publish_cards; the CardAgent handles rendering.
+4. Emit events via tool_emit_agent_event as needed.
+Never publish cards yourself; CardAgent handles formatting.
 """
 
 PLANNER_INSTRUCTION = """
@@ -808,4 +757,3 @@ __all__ = [
     "CardAgentGeneral",
     "GeneralistAgent",
 ]
-

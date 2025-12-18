@@ -6,7 +6,7 @@ public struct SessionPlanCard: View {
     public var body: some View {
         CardContainer(status: model.status) {
             VStack(alignment: .leading, spacing: Space.sm) {
-                CardHeader(title: model.title ?? "Session Plan", subtitle: model.subtitle, lane: model.lane, status: model.status, timestamp: Date())
+                CardHeader(title: model.title ?? "Session Plan", subtitle: model.subtitle, lane: model.lane, status: model.status, timestamp: model.publishedAt)
                 if case .sessionPlan(let exercises) = model.data {
                     VStack(alignment: .leading, spacing: Space.xs) {
                         ForEach(exercises) { ex in

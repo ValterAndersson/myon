@@ -96,16 +96,19 @@ public enum CanvasMapper {
             case "session_plan":
                 let blocks = (content?["blocks"] as? [[String: Any]]) ?? []
                 let exercises: [PlanExercise] = blocks.compactMap { blk in
-                    let exName = blk["exercise_name"] as? String
+                    let exName = (blk["name"] as? String) ?? (blk["exercise_name"] as? String)
                     let exId = blk["exercise_id"] as? String
                     var setCount = 0
                     if let setsArr = blk["sets"] as? [[String: Any]] {
                         setCount = setsArr.count
                     } else if let setsInt = blk["sets"] as? Int {
                         setCount = setsInt
+                    } else if let setCountValue = blk["set_count"] as? Int {
+                        setCount = setCountValue
                     }
                     let label = exName ?? exId
-                    return label.map { PlanExercise(name: $0, sets: setCount) }
+                    guard let name = label else { return nil }
+                    return PlanExercise(id: exId ?? UUID().uuidString, name: name, sets: max(setCount, 1))
                 }
                 return .sessionPlan(exercises: exercises)
             case "proposal-group":
@@ -187,6 +190,9 @@ public enum CanvasMapper {
             }
         }()
 
+        let publishedAt = (data["created_at"] as? Timestamp)?.dateValue()
+            ?? (data["updated_at"] as? Timestamp)?.dateValue()
+        
         return CanvasCardModel(
             id: doc.documentID,
             type: cardType,
@@ -198,7 +204,8 @@ public enum CanvasMapper {
             width: width,
             actions: actions,
             menuItems: menuItems,
-            meta: meta
+            meta: meta,
+            publishedAt: publishedAt
         )
     }
 
@@ -214,5 +221,3 @@ public enum CanvasMapper {
         }
     }
 }
-
-

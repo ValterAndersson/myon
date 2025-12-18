@@ -32,6 +32,7 @@ async function purgeCanvas(req, res) {
     const dropEvents = Boolean(req.body?.dropEvents || false);
     const dropState = Boolean(req.body?.dropState || false);
     const dropIdem = Boolean(req.body?.dropIdempotency || false);
+    const dropWorkspace = req.body?.dropWorkspace !== false;
     if (!uid || !canvasId) return fail(res, 'INVALID_ARGUMENT', 'userId and canvasId are required', null, 400);
 
     const basePath = `users/${uid}/canvases/${canvasId}`;
@@ -42,6 +43,7 @@ async function purgeCanvas(req, res) {
     const deletedUpNext = await purgeCollection(db.collection(`${basePath}/up_next`));
     let deletedEvents = 0;
     let deletedIdem = 0;
+    let deletedWorkspace = 0;
 
     if (dropEvents) {
       deletedEvents = await purgeCollection(db.collection(`${basePath}/events`));
@@ -49,11 +51,14 @@ async function purgeCanvas(req, res) {
     if (dropIdem) {
       deletedIdem = await purgeCollection(db.collection(`${basePath}/idempotency`));
     }
+    if (dropWorkspace) {
+      deletedWorkspace = await purgeCollection(db.collection(`${basePath}/workspace_entries`));
+    }
     if (dropState) {
       await db.doc(basePath).set({ state: { version: 0, phase: 'planning' } }, { merge: true });
     }
 
-    return ok(res, { deleted: { cards: deletedCards, up_next: deletedUpNext, events: deletedEvents, idempotency: deletedIdem } });
+    return ok(res, { deleted: { cards: deletedCards, up_next: deletedUpNext, events: deletedEvents, idempotency: deletedIdem, workspace_entries: deletedWorkspace } });
   } catch (e) {
     console.error('purgeCanvas error:', e);
     return fail(res, 'INTERNAL', 'Failed to purge canvas', { message: e?.message }, 500);

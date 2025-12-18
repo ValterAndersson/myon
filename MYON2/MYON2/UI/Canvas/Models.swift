@@ -111,6 +111,7 @@ public struct CanvasCardModel: Identifiable, Equatable {
     public let actions: [CardAction]
     public let menuItems: [CardAction]
     public let meta: CardMeta?
+    public let publishedAt: Date?
     public init(
         id: String = UUID().uuidString,
         type: CardType,
@@ -122,7 +123,8 @@ public struct CanvasCardModel: Identifiable, Equatable {
         width: CardWidth = .full,
         actions: [CardAction] = [],
         menuItems: [CardAction] = [],
-        meta: CardMeta? = nil
+        meta: CardMeta? = nil,
+        publishedAt: Date? = nil
     ) {
         self.id = id
         self.type = type
@@ -135,6 +137,7 @@ public struct CanvasCardModel: Identifiable, Equatable {
         self.actions = actions
         self.menuItems = menuItems
         self.meta = meta
+        self.publishedAt = publishedAt
     }
 }
 

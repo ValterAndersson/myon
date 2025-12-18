@@ -101,6 +101,7 @@ const { emitEvent } = require('./canvas/emit-event');
 const { checkPendingResponse } = require('./canvas/check-pending-response');
 const { respondToAgent } = require('./canvas/respond-to-agent');
 const { purgeCanvas } = require('./canvas/purge-canvas');
+const { initializeSessionHandler } = require('./canvas/initialize-session');
 
 // Analytics
 const { runAnalyticsForUser } = require('./analytics/controller');
@@ -216,6 +217,7 @@ exports.emitEvent = functions.https.onRequest((req, res) => withApiKey(emitEvent
 exports.checkPendingResponse = functions.https.onRequest((req, res) => withApiKey(checkPendingResponse)(req, res));
 exports.respondToAgent = functions.https.onRequest((req, res) => requireFlexibleAuth(respondToAgent)(req, res));
 exports.purgeCanvas = functions.https.onRequest((req, res) => requireFlexibleAuth(purgeCanvas)(req, res));
+exports.initializeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(initializeSessionHandler)(req, res));
 exports.runAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(runAnalyticsForUser)(req, res));
 exports.compactAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(compactAnalyticsForUser)(req, res));
 exports.publishWeeklyJob = functions.https.onRequest((req, res) => requireFlexibleAuth(publishWeeklyJob)(req, res));

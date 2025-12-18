@@ -39,7 +39,8 @@ class DirectStreamingService: ObservableObject {
         userId: String,
         canvasId: String,
         message: String,
-        correlationId: String
+        correlationId: String,
+        sessionId: String?
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -69,8 +70,9 @@ class DirectStreamingService: ObservableObject {
                         "userId": userId,
                         "canvasId": canvasId,
                         "message": message,
-                        "correlationId": correlationId
-                    ]
+                        "correlationId": correlationId,
+                        "sessionId": sessionId as Any
+                    ].compactMapValues { $0 }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     
                     print("[DirectStreaming] Sending SSE request to streamAgentNormalized...")
