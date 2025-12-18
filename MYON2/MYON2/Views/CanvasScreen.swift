@@ -206,6 +206,43 @@ extension CanvasScreen {
                         at: 0
                     )
                 }
+            // MARK: - Plan Card Actions
+            case "accept_plan":
+                if let cid = vm.canvasId ?? canvasId {
+                    Task { await vm.applyAction(canvasId: cid, type: "ACCEPT_PROPOSAL", cardId: card.id) }
+                    toastText = "Plan accepted"
+                }
+            case "adjust_plan":
+                if let instruction = action.payload?["instruction"],
+                   let currentPlan = action.payload?["current_plan"] {
+                    let prompt = """
+                    User adjustment request: \(instruction)
+                    
+                    Current plan:
+                    \(currentPlan)
+                    
+                    Please update the plan accordingly and publish the revised workout.
+                    """
+                    firePrompt(prompt, resetCards: false)
+                }
+            case "swap_exercise":
+                if let instruction = action.payload?["instruction"],
+                   let currentPlan = action.payload?["current_plan"] {
+                    let prompt = """
+                    User swap request: \(instruction)
+                    
+                    Current plan (with any user modifications):
+                    \(currentPlan)
+                    
+                    Please swap the exercise and publish the updated plan.
+                    """
+                    firePrompt(prompt, resetCards: false)
+                }
+            case "learn_exercise":
+                if let name = action.payload?["name"] {
+                    let prompt = "Tell me about the exercise: \(name) - how to perform it, key cues, and common mistakes."
+                    firePrompt(prompt, resetCards: false)
+                }
             default:
                 break
             }
@@ -250,5 +287,3 @@ private extension CanvasScreen {
         workspaceClarificationPrompt ?? syntheticClarificationPrompt
     }
 }
-
-

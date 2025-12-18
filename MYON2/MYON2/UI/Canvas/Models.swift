@@ -23,11 +23,67 @@ public enum CardWidth: String, Codable, CaseIterable {
 }
 
 public struct PlanExercise: Identifiable, Equatable, Codable {
-    public let id: String
+    public let id: String              // Card-local UUID
+    public let exerciseId: String?     // Reference to exercises/{id} catalog
     public let name: String
-    public let sets: Int
-    public init(id: String = UUID().uuidString, name: String, sets: Int) {
-        self.id = id; self.name = name; self.sets = sets
+    public var sets: Int               // 1-10 (editable)
+    public var reps: Int               // 1-30 target (editable)
+    public var rir: Int?               // 0-5 (editable, optional)
+    public var weight: Double?         // kg (editable, optional)
+    public let primaryMuscles: [String]?
+    public let equipment: String?
+    public var coachNote: String?      // Guidance text
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case exerciseId = "exercise_id"
+        case name
+        case sets
+        case reps
+        case rir
+        case weight
+        case primaryMuscles = "primary_muscles"
+        case equipment
+        case coachNote = "coach_note"
+    }
+    
+    public init(
+        id: String = UUID().uuidString,
+        exerciseId: String? = nil,
+        name: String,
+        sets: Int,
+        reps: Int = 8,
+        rir: Int? = nil,
+        weight: Double? = nil,
+        primaryMuscles: [String]? = nil,
+        equipment: String? = nil,
+        coachNote: String? = nil
+    ) {
+        self.id = id
+        self.exerciseId = exerciseId
+        self.name = name
+        self.sets = sets
+        self.reps = reps
+        self.rir = rir
+        self.weight = weight
+        self.primaryMuscles = primaryMuscles
+        self.equipment = equipment
+        self.coachNote = coachNote
+    }
+    
+    // Backwards compatibility: decode from old format (sets only, no reps)
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId)
+        name = try container.decode(String.self, forKey: .name)
+        sets = try container.decode(Int.self, forKey: .sets)
+        reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 8
+        rir = try container.decodeIfPresent(Int.self, forKey: .rir)
+        weight = try container.decodeIfPresent(Double.self, forKey: .weight)
+        primaryMuscles = try container.decodeIfPresent([String].self, forKey: .primaryMuscles)
+        equipment = try container.decodeIfPresent(String.self, forKey: .equipment)
+        coachNote = try container.decodeIfPresent(String.self, forKey: .coachNote)
     }
 }
 
@@ -187,5 +243,3 @@ public struct ToolCall: Identifiable, Equatable, Codable {
         self.duration = duration
     }
 }
-
-
