@@ -150,7 +150,9 @@ def tool_search_exercises(
         limit=limit,
     )
     
-    items = resp.get("items") or []
+    # Response is wrapped in data.items
+    data = resp.get("data") or resp
+    items = data.get("items") or []
     
     # Return simplified exercise data for the agent
     return [
@@ -527,35 +529,39 @@ Parse `(context: canvas_id=XYZ user_id=ABC corr=...)` and call `tool_set_context
 ALWAYS use `tool_search_exercises(...)` to find real exercises from our database.
 This is CRITICAL - exercises must have valid IDs from the catalog.
 
-Search parameters:
-- `split`: "push", "pull", "legs", "upper", "lower", "full"
-- `muscle_group`: "chest", "back", "legs", "shoulders", "arms"
-- `primary_muscle`: "quadriceps", "chest", "lats", "hamstrings", etc.
+**IMPORTANT: Use muscle_group for body part searches:**
+- `muscle_group`: "legs", "chest", "back", "shoulders", "arms", "core"
+- `split`: "upper", "lower" (NOT "legs" or "push"/"pull")
+- `primary_muscle`: "quadriceps", "hamstrings", "glutes", "chest", "lats", etc.
 - `category`: "compound", "isolation"
 - `equipment`: "barbell", "dumbbell", "cable", "machine", "bodyweight"
 
-Example searches:
-- Leg day: `tool_search_exercises(split="legs", limit=8)`
-- Push day: `tool_search_exercises(split="push", limit=8)`
-- Back exercises: `tool_search_exercises(muscle_group="back", limit=6)`
+**Working search examples:**
+- Leg exercises: `tool_search_exercises(muscle_group="legs", limit=10)`
+- Chest exercises: `tool_search_exercises(muscle_group="chest", limit=10)`
+- Back exercises: `tool_search_exercises(muscle_group="back", limit=10)`
+- Upper body: `tool_search_exercises(split="upper", limit=10)`
+- Lower body: `tool_search_exercises(split="lower", limit=10)`
 
 ## STEP 3: Create and Publish Plan
 Use the EXACT `id` and `name` from search results in `tool_create_workout_plan`.
 
 ## FLOW:
 1. `tool_set_context(...)`
-2. `tool_search_exercises(split="...", limit=8)` - get real exercises
+2. `tool_search_exercises(muscle_group="...", limit=10)` - get real exercises
 3. Pick 5 exercises from results, use their `id` as `exercise_id`
 4. `tool_create_workout_plan(title="...", exercises=[{exercise_id: "...", name: "...", sets: 3, reps: 8}])`
 5. `tool_publish_workout_plan()`
 
 ## REQUEST MAPPINGS:
-- "Plan a workout" / "I want to train" → search split="full", pick 5
-- "Leg day" / "leg workout" → search split="legs", pick 5
-- "Upper body" → search split="upper", pick 5
-- "Push day" → search split="push", pick 5
-- "Pull day" / "back workout" → search split="pull", pick 5
-- "Chest and triceps" → search muscle_group="chest", then muscle_group="triceps"
+- "Plan a workout" / "I want to train" → search with no filter, pick variety
+- "Leg day" / "leg workout" → search muscle_group="legs"
+- "Upper body" → search split="upper"
+- "Lower body" → search split="lower"
+- "Push" / "chest" → search muscle_group="chest"
+- "Pull" / "back" → search muscle_group="back"
+- "Arms" → search muscle_group="arms"
+- "Shoulders" → search muscle_group="shoulders"
 
 ## DEFAULTS:
 - Sets: 3
@@ -568,7 +574,7 @@ Use the EXACT `id` and `name` from search results in `tool_create_workout_plan`.
 - ALWAYS search exercises first - never invent exercise names
 - Use the `id` field from search results as `exercise_id` in the plan
 - Use the exact `name` from search results
-- If search returns no results, try a broader search (remove filters)
+- If search returns empty, try broader search (e.g., just query="" with limit=20)
 
 DO NOT:
 - Make up exercise names - they won't exist in database
