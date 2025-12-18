@@ -108,6 +108,68 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 5) -
 
 
 # ============================================================================
+# EXERCISE CATALOG TOOLS
+# ============================================================================
+
+def tool_search_exercises(
+    *,
+    primary_muscle: Optional[str] = None,
+    muscle_group: Optional[str] = None,
+    split: Optional[str] = None,
+    category: Optional[str] = None,
+    equipment: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    """
+    Search the exercise catalog from Firestore to get REAL exercises with their IDs.
+    ALWAYS use this to find exercises before creating workout plans.
+    
+    Args:
+        primary_muscle: Filter by primary muscle (e.g., "quadriceps", "chest", "lats")
+        muscle_group: Filter by muscle category (e.g., "legs", "chest", "back")
+        split: Filter by workout split (e.g., "push", "pull", "legs", "upper", "lower")
+        category: Filter by movement category (e.g., "compound", "isolation")
+        equipment: Filter by equipment (e.g., "barbell", "dumbbell", "cable", "bodyweight")
+        query: Text search (matches name, muscles, etc.)
+        limit: Max results (default 10)
+    
+    Returns:
+        List of exercises with id, name, muscles, equipment, etc.
+    """
+    logger.info("search_exercises muscle=%s group=%s split=%s query=%s", 
+                primary_muscle, muscle_group, split, query)
+    
+    resp = _canvas_client().search_exercises(
+        primary_muscle=primary_muscle,
+        muscle_group=muscle_group,
+        split=split,
+        category=category,
+        equipment=equipment,
+        query=query,
+        limit=limit,
+    )
+    
+    items = resp.get("items") or []
+    
+    # Return simplified exercise data for the agent
+    return [
+        {
+            "id": ex.get("id"),
+            "name": ex.get("name"),
+            "category": ex.get("category"),
+            "primary_muscles": ex.get("muscles", {}).get("primary", []),
+            "secondary_muscles": ex.get("muscles", {}).get("secondary", []),
+            "equipment": ex.get("equipment", []),
+            "level": ex.get("metadata", {}).get("level"),
+            "movement_type": ex.get("movement", {}).get("type"),
+            "split": ex.get("movement", {}).get("split"),
+        }
+        for ex in items
+    ]
+
+
+# ============================================================================
 # CLARIFICATION TOOLS
 # ============================================================================
 
@@ -441,6 +503,7 @@ all_tools = [
     FunctionTool(func=tool_set_context),
     FunctionTool(func=tool_get_user_profile),
     FunctionTool(func=tool_get_recent_workouts),
+    FunctionTool(func=tool_search_exercises),
     FunctionTool(func=tool_ask_user),
     FunctionTool(func=tool_record_user_info),
     FunctionTool(func=tool_create_workout_plan),
@@ -455,60 +518,63 @@ all_tools = [
 # ============================================================================
 
 UNIFIED_INSTRUCTION = """
-You are the Myon Fitness Coach Agent. Your job is to CREATE WORKOUT PLANS FAST.
+You are the Myon Fitness Coach Agent. Your job is to CREATE WORKOUT PLANS FAST using REAL exercises from the catalog.
 
 ## STEP 1: Set Context (REQUIRED)
 Parse `(context: canvas_id=XYZ user_id=ABC corr=...)` and call `tool_set_context(...)`.
 
-## STEP 2: Get Profile (OPTIONAL - only if truly needed)
-Call `tool_get_user_profile()` only if user mentions profile/goals.
+## STEP 2: Search Exercises from Catalog (REQUIRED)
+ALWAYS use `tool_search_exercises(...)` to find real exercises from our database.
+This is CRITICAL - exercises must have valid IDs from the catalog.
 
-## STEP 3: JUST CREATE THE PLAN
+Search parameters:
+- `split`: "push", "pull", "legs", "upper", "lower", "full"
+- `muscle_group`: "chest", "back", "legs", "shoulders", "arms"
+- `primary_muscle`: "quadriceps", "chest", "lats", "hamstrings", etc.
+- `category`: "compound", "isolation"
+- `equipment`: "barbell", "dumbbell", "cable", "machine", "bodyweight"
 
-### NEVER ASK CLARIFICATION FOR THESE - JUST PLAN:
-- "Plan a workout" → Full body, intermediate, 45 min
-- "Plan a leg workout" → Squats, RDL, leg press, lunges, leg curls
-- "Create a training program" → Full body, 3 days/week, progressive
-- "Propose a program for me" → Full body, balanced, compound-focused  
-- "Look at my profile and suggest a program" → Just plan based on profile data
-- "I want to train" → Full body workout NOW
-- "Upper body" → Bench, rows, OHP, curls, triceps
-- "Back and biceps" → Rows, pulldowns, curls, face pulls
+Example searches:
+- Leg day: `tool_search_exercises(split="legs", limit=8)`
+- Push day: `tool_search_exercises(split="push", limit=8)`
+- Back exercises: `tool_search_exercises(muscle_group="back", limit=6)`
 
-### ONLY ASK IF USER GIVES ZERO CONTEXT:
-- "Hello" → Ask what they want to train
-- "Hi" → Ask what they want to work on
+## STEP 3: Create and Publish Plan
+Use the EXACT `id` and `name` from search results in `tool_create_workout_plan`.
 
-## DEFAULTS (use when profile is missing):
-- Level: Intermediate
-- Equipment: Full gym
-- Goal: Build muscle
+## FLOW:
+1. `tool_set_context(...)`
+2. `tool_search_exercises(split="...", limit=8)` - get real exercises
+3. Pick 5 exercises from results, use their `id` as `exercise_id`
+4. `tool_create_workout_plan(title="...", exercises=[{exercise_id: "...", name: "...", sets: 3, reps: 8}])`
+5. `tool_publish_workout_plan()`
+
+## REQUEST MAPPINGS:
+- "Plan a workout" / "I want to train" → search split="full", pick 5
+- "Leg day" / "leg workout" → search split="legs", pick 5
+- "Upper body" → search split="upper", pick 5
+- "Push day" → search split="push", pick 5
+- "Pull day" / "back workout" → search split="pull", pick 5
+- "Chest and triceps" → search muscle_group="chest", then muscle_group="triceps"
+
+## DEFAULTS:
+- Sets: 3
+- Reps: 8
+- RIR: 2
 - Duration: 45 minutes
 - Exercises: 5
-- Sets: 3-4
-- Reps: 8-12
-- RIR: 2
 
-## FLOW - FAST PATH:
-1. `tool_set_context(...)` 
-2. `tool_create_workout_plan(...)` with 5 exercises
-3. `tool_publish_workout_plan()`
-4. One sentence summary
-
-## EXAMPLE RESPONSE TIME: Under 15 seconds
-
-## EXERCISES BY MUSCLE GROUP:
-- Legs: Squat, RDL, Leg Press, Lunges, Leg Curls, Calf Raises
-- Push: Bench Press, OHP, Incline DB Press, Tricep Pushdowns, Lateral Raises
-- Pull: Barbell Row, Lat Pulldown, Face Pulls, Bicep Curls, Rear Delt Flies
-- Full: Squat, Bench, Row, OHP, RDL
+## CRITICAL RULES:
+- ALWAYS search exercises first - never invent exercise names
+- Use the `id` field from search results as `exercise_id` in the plan
+- Use the exact `name` from search results
+- If search returns no results, try a broader search (remove filters)
 
 DO NOT:
-- Ask about goals if they said "plan a workout"
-- Ask about equipment unless they mentioned home gym
-- Ask about experience level - assume intermediate
-- Ask about time - assume 45 min
-- Have long conversations - just plan
+- Make up exercise names - they won't exist in database
+- Skip the search step
+- Use hardcoded exercise lists
+- Ask clarifying questions unless user says only "Hello" or "Hi"
 """
 
 UnifiedAgent = Agent(

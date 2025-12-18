@@ -90,4 +90,34 @@ class CanvasFunctionsClient:
             body["correlationId"] = correlation_id
         return self._http.post("emitEvent", body, headers=headers or None)
 
-
+    def search_exercises(
+        self,
+        *,
+        query: Optional[str] = None,
+        primary_muscle: Optional[str] = None,
+        muscle_group: Optional[str] = None,
+        category: Optional[str] = None,
+        equipment: Optional[str] = None,
+        split: Optional[str] = None,
+        movement_type: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Search the exercises catalog from Firestore."""
+        params = []
+        if query:
+            params.append(f"query={query}")
+        if primary_muscle:
+            params.append(f"primaryMuscle={primary_muscle}")
+        if muscle_group:
+            params.append(f"muscleGroup={muscle_group}")
+        if category:
+            params.append(f"category={category}")
+        if equipment:
+            params.append(f"equipment={equipment}")
+        if split:
+            params.append(f"split={split}")
+        if movement_type:
+            params.append(f"movementType={movement_type}")
+        params.append(f"limit={limit}")
+        query_string = "&".join(params)
+        return self._http.get(f"searchExercises?{query_string}")
