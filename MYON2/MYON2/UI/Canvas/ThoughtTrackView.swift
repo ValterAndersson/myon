@@ -334,14 +334,16 @@ extension ThoughtTrack {
     
     private static func humanReadableToolName(_ name: String) -> String {
         switch name {
-        case "tool_set_context": return "Setting context"
+        case "tool_set_context": return "Setting up"
+        case "tool_search_exercises": return "Searching exercises"
         case "tool_get_user_profile", "tool_fetch_profile": return "Reviewing profile"
-        case "tool_get_recent_workouts", "tool_fetch_recent_sessions": return "Checking workouts"
+        case "tool_get_recent_workouts", "tool_fetch_recent_sessions": return "Checking history"
         case "tool_ask_user", "tool_request_clarification": return "Asking question"
         case "tool_create_workout_plan": return "Creating plan"
-        case "tool_publish_workout_plan", "tool_publish_cards": return "Publishing"
+        case "tool_publish_workout_plan", "tool_publish_cards": return "Publishing plan"
         case "tool_record_user_info": return "Recording info"
         case "tool_emit_status", "tool_emit_agent_event": return "Logging"
+        case "tool_send_message": return "Sending message"
         default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }

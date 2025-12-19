@@ -98,17 +98,69 @@ public enum CanvasMapper {
                 let exercises: [PlanExercise] = blocks.compactMap { blk in
                     let exName = (blk["name"] as? String) ?? (blk["exercise_name"] as? String)
                     let exId = blk["exercise_id"] as? String
-                    var setCount = 0
+                    
+                    // Build sets array
+                    var planSets: [PlanSet] = []
+                    
                     if let setsArr = blk["sets"] as? [[String: Any]] {
-                        setCount = setsArr.count
-                    } else if let setsInt = blk["sets"] as? Int {
-                        setCount = setsInt
-                    } else if let setCountValue = blk["set_count"] as? Int {
-                        setCount = setCountValue
+                        // New format: explicit per-set array
+                        planSets = setsArr.map { setDict in
+                            // Handle both direct format and target-wrapped format
+                            let target = (setDict["target"] as? [String: Any]) ?? setDict
+                            
+                            let typeStr = (target["type"] as? String) ?? (setDict["type"] as? String)
+                            let setType: SetType? = typeStr.flatMap { SetType(rawValue: $0) }
+                            let reps = (target["reps"] as? Int) ?? 8
+                            let rir = target["rir"] as? Int
+                            let weight = (target["weight"] as? Double) 
+                                ?? (target["weight_kg"] as? Double)
+                                ?? (target["weight"] as? Int).map { Double($0) }
+                            let setId = (setDict["id"] as? String) ?? UUID().uuidString
+                            
+                            return PlanSet(
+                                id: setId,
+                                type: setType ?? .working,
+                                reps: reps,
+                                weight: weight,
+                                rir: rir
+                            )
+                        }
+                    } else {
+                        // Legacy format: sets as Int with separate reps/rir/weight
+                        var setCount = 3
+                        if let setsInt = blk["sets"] as? Int {
+                            setCount = setsInt
+                        } else if let setCountValue = blk["set_count"] as? Int {
+                            setCount = setCountValue
+                        }
+                        
+                        let reps = (blk["reps"] as? Int) ?? 8
+                        let rir = blk["rir"] as? Int
+                        let weight: Double? = (blk["weight"] as? Double) ?? (blk["weight"] as? Int).map { Double($0) }
+                        
+                        // Expand to identical working sets
+                        planSets = (0..<max(setCount, 1)).map { _ in
+                            PlanSet(type: .working, reps: reps, weight: weight, rir: rir)
+                        }
                     }
+                    
+                    // Extract primary muscles and equipment
+                    let primaryMuscles = (blk["primary_muscles"] as? [String]) ?? (blk["primaryMuscles"] as? [String])
+                    let equipment = blk["equipment"] as? String
+                    let coachNote = blk["notes"] as? String ?? blk["coach_note"] as? String
+                    
                     let label = exName ?? exId
                     guard let name = label else { return nil }
-                    return PlanExercise(id: exId ?? UUID().uuidString, name: name, sets: max(setCount, 1))
+                    
+                    return PlanExercise(
+                        id: (blk["id"] as? String) ?? UUID().uuidString,
+                        exerciseId: exId,
+                        name: name,
+                        sets: planSets,
+                        primaryMuscles: primaryMuscles,
+                        equipment: equipment,
+                        coachNote: coachNote
+                    )
                 }
                 return .sessionPlan(exercises: exercises)
             case "proposal-group":

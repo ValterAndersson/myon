@@ -444,8 +444,19 @@ class ChatService: ObservableObject {
     
     // Helper methods for formatting (borrowed from DirectStreamingService logic)
     private func getHumanReadableFunctionName(_ name: String) -> String {
-        // This should match the logic in DirectStreamingService
         switch name {
+        // New unified agent tools
+        case "tool_set_context": return "Setting up"
+        case "tool_search_exercises": return "Searching exercises"
+        case "tool_get_user_profile", "tool_fetch_profile": return "Reviewing profile"
+        case "tool_get_recent_workouts", "tool_fetch_recent_sessions": return "Checking history"
+        case "tool_ask_user", "tool_request_clarification": return "Asking question"
+        case "tool_create_workout_plan": return "Creating plan"
+        case "tool_publish_workout_plan", "tool_publish_cards": return "Publishing plan"
+        case "tool_record_user_info": return "Recording info"
+        case "tool_emit_status", "tool_emit_agent_event": return "Logging"
+        case "tool_send_message": return "Sending message"
+        // Legacy tools
         case "get_user": return "Loading user profile"
         case "get_user_workouts": return "Loading workout history"
         case "get_workout": return "Getting workout details"
@@ -468,7 +479,7 @@ class ChatService: ObservableObject {
         case "get_my_user_id": return "Checking user session"
         case "store_important_fact": return "Remembering important information"
         case "get_important_facts": return "Recalling stored information"
-        default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+        default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
     
@@ -517,4 +528,4 @@ class ChatService: ObservableObject {
         }
         return isoString
     }
-} 
+}

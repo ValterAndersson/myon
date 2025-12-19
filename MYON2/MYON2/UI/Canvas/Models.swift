@@ -22,69 +22,230 @@ public enum CardWidth: String, Codable, CaseIterable {
     }
 }
 
+// MARK: - Set Ladder Types
+
+public enum SetType: String, Codable, CaseIterable {
+    case warmup = "warmup"
+    case working = "working"
+    case dropSet = "drop_set"
+    case failureSet = "failure_set"
+}
+
+public struct PlanSet: Identifiable, Equatable, Codable {
+    public let id: String
+    public var type: SetType?          // warmup, working (nil defaults to working)
+    public var reps: Int
+    public var weight: Double?         // kg
+    public var rir: Int?               // null for warm-ups
+    public var isLinkedToBase: Bool    // true = uses base prescription (default for working sets)
+    
+    // For active workout (Phase 2)
+    public var isCompleted: Bool?
+    public var actualReps: Int?
+    public var actualWeight: Double?
+    public var actualRir: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, type, reps, weight, rir
+        case isLinkedToBase = "is_linked_to_base"
+        case isCompleted = "is_completed"
+        case actualReps = "actual_reps"
+        case actualWeight = "actual_weight"
+        case actualRir = "actual_rir"
+    }
+    
+    public init(
+        id: String = UUID().uuidString,
+        type: SetType? = .working,
+        reps: Int = 8,
+        weight: Double? = nil,
+        rir: Int? = nil,
+        isLinkedToBase: Bool = true,  // Working sets default linked
+        isCompleted: Bool? = nil,
+        actualReps: Int? = nil,
+        actualWeight: Double? = nil,
+        actualRir: Int? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.reps = reps
+        self.weight = weight
+        self.rir = rir
+        self.isLinkedToBase = type != .warmup ? isLinkedToBase : false  // Warm-ups not linked
+        self.isCompleted = isCompleted
+        self.actualReps = actualReps
+        self.actualWeight = actualWeight
+        self.actualRir = actualRir
+    }
+    
+    // Flexible decoding: handle weight_kg or weight
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Try id first, generate if missing
+        if let decodedId = try container.decodeIfPresent(String.self, forKey: .id) {
+            id = decodedId
+        } else {
+            id = UUID().uuidString
+        }
+        
+        type = try container.decodeIfPresent(SetType.self, forKey: .type)
+        reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 8
+        
+        // Handle both "weight" and "weight_kg" keys
+        if let w = try container.decodeIfPresent(Double.self, forKey: .weight) {
+            weight = w
+        } else {
+            // Try alternate key via additional container
+            let altContainer = try decoder.container(keyedBy: AlternateSetKeys.self)
+            weight = try altContainer.decodeIfPresent(Double.self, forKey: .weightKg)
+        }
+        
+        rir = try container.decodeIfPresent(Int.self, forKey: .rir)
+        // Default linked to base for working sets, unlinked for warm-ups
+        let decodedType = type
+        let decodedLinked = try container.decodeIfPresent(Bool.self, forKey: .isLinkedToBase)
+        isLinkedToBase = decodedLinked ?? (decodedType != .warmup)
+        isCompleted = try container.decodeIfPresent(Bool.self, forKey: .isCompleted)
+        actualReps = try container.decodeIfPresent(Int.self, forKey: .actualReps)
+        actualWeight = try container.decodeIfPresent(Double.self, forKey: .actualWeight)
+        actualRir = try container.decodeIfPresent(Int.self, forKey: .actualRir)
+    }
+    
+    private enum AlternateSetKeys: String, CodingKey {
+        case weightKg = "weight_kg"
+    }
+    
+    // Computed: is this a warmup set?
+    public var isWarmup: Bool { type == .warmup }
+}
+
+// MARK: - Plan Exercise
+
 public struct PlanExercise: Identifiable, Equatable, Codable {
     public let id: String              // Card-local UUID
     public let exerciseId: String?     // Reference to exercises/{id} catalog
     public let name: String
-    public var sets: Int               // 1-10 (editable)
-    public var reps: Int               // 1-30 target (editable)
-    public var rir: Int?               // 0-5 (editable, optional)
-    public var weight: Double?         // kg (editable, optional)
+    public var sets: [PlanSet]         // Explicit per-set array
     public let primaryMuscles: [String]?
     public let equipment: String?
     public var coachNote: String?      // Guidance text
+    public var position: Int?          // For ordering
+    public var restBetweenSets: Int?   // Seconds
     
     enum CodingKeys: String, CodingKey {
         case id
         case exerciseId = "exercise_id"
         case name
         case sets
-        case reps
-        case rir
-        case weight
         case primaryMuscles = "primary_muscles"
         case equipment
         case coachNote = "coach_note"
+        case position
+        case restBetweenSets = "rest_between_sets"
+    }
+    
+    // Legacy keys for decoding only (not used for encoding)
+    private enum LegacyCodingKeys: String, CodingKey {
+        case setCount = "set_count"
+        case reps
+        case rir
+        case weight
     }
     
     public init(
         id: String = UUID().uuidString,
         exerciseId: String? = nil,
         name: String,
-        sets: Int,
-        reps: Int = 8,
-        rir: Int? = nil,
-        weight: Double? = nil,
+        sets: [PlanSet],
         primaryMuscles: [String]? = nil,
         equipment: String? = nil,
-        coachNote: String? = nil
+        coachNote: String? = nil,
+        position: Int? = nil,
+        restBetweenSets: Int? = nil
     ) {
         self.id = id
         self.exerciseId = exerciseId
         self.name = name
         self.sets = sets
-        self.reps = reps
-        self.rir = rir
-        self.weight = weight
         self.primaryMuscles = primaryMuscles
         self.equipment = equipment
         self.coachNote = coachNote
+        self.position = position
+        self.restBetweenSets = restBetweenSets
     }
     
-    // Backwards compatibility: decode from old format (sets only, no reps)
+    // Backwards compatibility: decode from old format (sets as Int) or new format (sets as [PlanSet])
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId)
         name = try container.decode(String.self, forKey: .name)
-        sets = try container.decode(Int.self, forKey: .sets)
-        reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 8
-        rir = try container.decodeIfPresent(Int.self, forKey: .rir)
-        weight = try container.decodeIfPresent(Double.self, forKey: .weight)
         primaryMuscles = try container.decodeIfPresent([String].self, forKey: .primaryMuscles)
         equipment = try container.decodeIfPresent(String.self, forKey: .equipment)
         coachNote = try container.decodeIfPresent(String.self, forKey: .coachNote)
+        position = try container.decodeIfPresent(Int.self, forKey: .position)
+        restBetweenSets = try container.decodeIfPresent(Int.self, forKey: .restBetweenSets)
+        
+        // Try new format first: sets as [PlanSet]
+        if let planSets = try? container.decode([PlanSet].self, forKey: .sets) {
+            sets = planSets
+        } else {
+            // Legacy format: sets as Int, with separate reps/rir/weight
+            let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            
+            // Try to get set count from either key
+            let setsFromMain = try? container.decode(Int.self, forKey: .sets)
+            let setsFromLegacy = try? legacyContainer.decode(Int.self, forKey: .setCount)
+            let setCount = setsFromMain ?? setsFromLegacy ?? 3
+            
+            let reps = (try? legacyContainer.decode(Int.self, forKey: .reps)) ?? 8
+            let rir = try? legacyContainer.decode(Int.self, forKey: .rir)
+            let weight = try? legacyContainer.decode(Double.self, forKey: .weight)
+            
+            // Expand to array of identical working sets
+            sets = (0..<setCount).map { _ in
+                PlanSet(type: .working, reps: reps, weight: weight, rir: rir)
+            }
+        }
     }
+    
+    // MARK: - Computed Properties for Summary
+    
+    public var warmupSets: [PlanSet] { sets.filter { $0.type == .warmup } }
+    public var workingSets: [PlanSet] { sets.filter { $0.type == .working || $0.type == nil } }
+    public var totalSetCount: Int { sets.count }
+    public var workingWeight: Double? { workingSets.first?.weight }
+    
+    /// Summary line: "WU: 2 set ramp · Work: 4 × 8 @ RIR 2 · 60kg target"
+    public var summaryLine: String {
+        var parts: [String] = []
+        
+        // Warm-up summary
+        if !warmupSets.isEmpty {
+            parts.append("WU: \(warmupSets.count) set ramp")
+        }
+        
+        // Working sets summary
+        if !workingSets.isEmpty {
+            let repText = "Work: \(workingSets.count) × \(workingSets.first?.reps ?? 8)"
+            if let lastRir = workingSets.last?.rir {
+                parts.append("\(repText) @ RIR \(lastRir)")
+            } else {
+                parts.append(repText)
+            }
+        }
+        
+        // Weight target
+        if let w = workingWeight, w > 0 {
+            parts.append("\(Int(w))kg target")
+        }
+        
+        return parts.isEmpty ? "\(sets.count) sets" : parts.joined(separator: " · ")
+    }
+    
+    // Legacy compatibility: setCount for old code
+    public var setCount: Int { sets.count }
 }
 
 public struct AgentStreamStep: Identifiable, Equatable, Codable {

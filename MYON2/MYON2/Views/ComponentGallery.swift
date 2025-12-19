@@ -157,8 +157,18 @@ struct ComponentGallery: View {
                     CanvasCardModel(type: .visualization, title: "Squat 6m", subtitle: "Volume", data: .visualization(title: "Squat", subtitle: "6 months")),
                     CanvasCardModel(type: .coach_proposal, title: "Increase load +2.5 kg", data: .suggestion(title: "Adjust Load", rationale: "RIR ≤ 1 last set")),
                     CanvasCardModel(type: .session_plan, lane: .workout, title: "Session Plan", data: .sessionPlan(exercises: [
-                        PlanExercise(name: "Bench Press", sets: 4),
-                        PlanExercise(name: "Seated Row", sets: 4)
+                        PlanExercise(name: "Bench Press", sets: [
+                            PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                            PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                            PlanSet(type: .working, reps: 8, weight: 60, rir: 1),
+                            PlanSet(type: .working, reps: 8, weight: 60, rir: 1)
+                        ]),
+                        PlanExercise(name: "Seated Row", sets: [
+                            PlanSet(type: .working, reps: 10, weight: 45, rir: 2),
+                            PlanSet(type: .working, reps: 10, weight: 45, rir: 2),
+                            PlanSet(type: .working, reps: 10, weight: 45, rir: 1),
+                            PlanSet(type: .working, reps: 10, weight: 45, rir: 1)
+                        ])
                     ])),
                     CanvasCardModel(type: .analysis_task, title: "Instruction", data: .chat(lines: ["Analyze squats last 6 months", "Show volume trend"]))
                 ]
@@ -177,5 +187,3 @@ struct ComponentGallery_Previews: PreviewProvider {
     }
 }
 #endif
-
-

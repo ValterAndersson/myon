@@ -41,8 +41,17 @@ public struct ListCardWithExpandableOptions: View {
 struct ListCardWithExpandableOptions_Previews: PreviewProvider {
     static var previews: some View {
         let card = CanvasCardModel(type: .session_plan, title: "Upper Body Focus", data: .programDay(title: "Day 1", exercises: [
-            PlanExercise(name: "Bench Press", sets: 4),
-            PlanExercise(name: "Pull Ups", sets: 3)
+            PlanExercise(name: "Bench Press", sets: [
+                PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                PlanSet(type: .working, reps: 8, weight: 60, rir: 1),
+                PlanSet(type: .working, reps: 8, weight: 60, rir: 1)
+            ]),
+            PlanExercise(name: "Pull Ups", sets: [
+                PlanSet(type: .working, reps: 10, rir: 1),
+                PlanSet(type: .working, reps: 10, rir: 1),
+                PlanSet(type: .working, reps: 10, rir: 0)
+            ])
         ]))
         let opts = [
             ListOption(title: "Bench Press", subtitle: "4 sets of 8-10 reps", iconSystemName: "dumbbell"),
@@ -52,5 +61,3 @@ struct ListCardWithExpandableOptions_Previews: PreviewProvider {
     }
 }
 #endif
-
-

@@ -104,7 +104,21 @@ struct WorkspaceTimelineView: View {
     }
     
     private var hasActiveThinking: Bool {
-        events.contains { $0.event.eventType == .thinking || $0.event.eventType == .toolRunning }
+        // Check if stream is done (no active thinking if done event exists)
+        let hasDone = events.contains { $0.event.eventType == .done }
+        if hasDone { return false }
+        
+        // Check if last few events indicate active work
+        let recentEvents = events.suffix(5)
+        let hasRecentThinking = recentEvents.contains { $0.event.eventType == .thinking }
+        let hasRecentToolRunning = recentEvents.contains { $0.event.eventType == .toolRunning }
+        let hasRecentCompletion = recentEvents.contains { 
+            $0.event.eventType == .thought || 
+            $0.event.eventType == .toolComplete ||
+            $0.event.eventType == .agentResponse
+        }
+        
+        return (hasRecentThinking || hasRecentToolRunning) && !hasRecentCompletion
     }
     
     private var thinkingIndicator: some View {
@@ -515,10 +529,10 @@ struct WorkspaceTimelineView: View {
                 ))
             }
             
-            // Add tool steps
-            for tool in tools {
+            // Add tool steps (with index to prevent ID collision when same tool called multiple times)
+            for (index, tool) in tools.enumerated() {
                 steps.append(ThoughtStep(
-                    id: "\(entry.id)-\(tool)",
+                    id: "\(entry.id)-\(tool)-\(index)",
                     kind: .tool,
                     text: humanReadableToolName(tool),
                     detail: nil,
@@ -665,14 +679,19 @@ struct WorkspaceTimelineView: View {
             }
         }
         
+        // Check if stream is complete (done event received)
+        let hasDoneEvent = events.contains { $0.event.eventType == .done }
+        
         // Flush any remaining pending state at the end
         if thinkingDuration > 0 || !completedTools.isEmpty || !toolsInFlight.isEmpty {
             let allTools = completedTools + toolsInFlight.map { $0.name }
+            // If done event exists, mark as complete regardless of pending state
+            let isStillInProgress = !hasDoneEvent && (!toolsInFlight.isEmpty || pendingThinking != nil)
             let summaryEvent = createThinkingSummary(
                 duration: thinkingDuration,
                 tools: allTools,
                 timestamp: sortedEntries.last?.createdAt,
-                isInProgress: !toolsInFlight.isEmpty || pendingThinking != nil
+                isInProgress: isStillInProgress
             )
             result.append(summaryEvent)
         }
@@ -740,20 +759,27 @@ struct WorkspaceTimelineView: View {
     
     private func humanReadableToolName(_ name: String) -> String {
         switch name {
+        // New unified agent tools
+        case "tool_set_context": return "Setting up"
+        case "tool_search_exercises": return "Searching exercises"
+        case "tool_get_user_profile", "tool_fetch_profile": return "Reviewing profile"
+        case "tool_get_recent_workouts", "tool_fetch_recent_sessions": return "Checking history"
+        case "tool_ask_user", "tool_request_clarification": return "Asking question"
+        case "tool_create_workout_plan": return "Creating plan"
+        case "tool_publish_workout_plan", "tool_publish_cards": return "Publishing plan"
+        case "tool_record_user_info": return "Recording info"
+        case "tool_emit_status", "tool_emit_agent_event": return "Logging"
+        case "tool_send_message": return "Sending message"
+        // Legacy tools
         case "tool_set_canvas_context": return "Setting context"
-        case "tool_fetch_profile": return "Reviewing your profile"
-        case "tool_fetch_recent_sessions": return "Checking recent workouts"
-        case "tool_emit_agent_event": return "Logging"
-        case "tool_request_clarification": return "Asking question"
         case "tool_format_workout_plan_cards": return "Formatting plan"
         case "tool_format_analysis_cards": return "Formatting analysis"
-        case "tool_publish_cards": return "Publishing"
         case "get_user_workouts": return "Loading workout history"
         case "get_user_routines": return "Loading routines"
         case "list_exercises", "search_exercises": return "Searching exercises"
         case "get_user_templates": return "Loading templates"
         case "get_active_workout": return "Checking active workout"
-        default: return name.replacingOccurrences(of: "_", with: " ").capitalized
+        default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
     

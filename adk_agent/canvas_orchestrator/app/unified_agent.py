@@ -40,6 +40,27 @@ _context: Dict[str, Any] = {
     "gathered_info": {},  # Store info gathered from clarifications
 }
 _client: Optional[CanvasFunctionsClient] = None
+_context_parsed_for_message: Optional[str] = None  # Track if we've parsed context for this message
+
+
+def _auto_parse_context(message: str) -> None:
+    """Auto-parse context from message prefix to avoid needing tool_set_context calls."""
+    global _context_parsed_for_message
+    
+    # Only parse once per unique message
+    if _context_parsed_for_message == message:
+        return
+    
+    # Parse: (context: canvas_id=XYZ user_id=ABC corr=DEF)
+    match = re.search(r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)\)', message)
+    if match:
+        _context["canvas_id"] = match.group(1).strip()
+        _context["user_id"] = match.group(2).strip()
+        corr = match.group(3).strip()
+        _context["correlation_id"] = corr if corr != "none" else None
+        _context_parsed_for_message = message
+        logger.info("auto_parse_context canvas=%s user=%s corr=%s",
+                    _context.get("canvas_id"), _context.get("user_id"), _context.get("correlation_id"))
 
 
 def _canvas_client() -> CanvasFunctionsClient:
@@ -282,56 +303,108 @@ def tool_create_workout_plan(
     coach_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Create a workout plan with specific exercises.
+    Create a workout plan with specific exercises and explicit per-set arrays.
     
     Args:
         title: Name of the workout (e.g., "Leg Day", "Upper Body Strength")
         exercises: List of exercises, each with:
             - name: Exercise name
             - exercise_id: Optional catalog ID
-            - sets: Number of sets (int) OR list of set targets
+            - sets: Number of working sets (int) OR list of explicit set objects
             - reps: Target reps per set
-            - rir: Reps in reserve (default 2)
-            - weight_kg: Optional suggested weight
+            - rir: Target RIR for the LAST set (earlier sets have higher RIR)
+            - weight_kg: Target weight for working sets
+            - warmup_sets: Number of warmup sets (0-3, default based on category)
             - notes: Optional exercise-specific notes
         focus: Short description of the workout focus
         duration_minutes: Estimated duration
         coach_notes: Explanation of why this plan fits the user
     
     Returns:
-        Formatted workout plan ready for publishing
+        Formatted workout plan with explicit per-set arrays
     """
     blocks: List[Dict[str, Any]] = []
     
-    for ex in exercises:
+    for idx, ex in enumerate(exercises):
         if not isinstance(ex, dict):
             continue
             
         name = ex.get("name") or ex.get("exercise_name") or "Exercise"
         exercise_id = ex.get("exercise_id") or ex.get("id") or _slugify(name)
         
-        # Handle sets
+        # Get base prescription
+        reps = _extract_reps(ex.get("reps"), 8)
+        final_rir = _coerce_int(ex.get("rir"), 2)  # RIR for the LAST working set
+        weight = ex.get("weight_kg") or ex.get("weight")
+        if weight is not None:
+            try:
+                weight = float(weight)
+            except (TypeError, ValueError):
+                weight = None
+        
+        # Get category to determine warmup needs
+        category = ex.get("category", "").lower()
+        is_compound = category == "compound" or idx == 0  # First exercise often compound
+        
+        # Build explicit sets array
+        sets: List[Dict[str, Any]] = []
         raw_sets = ex.get("sets", 3)
-        if isinstance(raw_sets, int):
-            reps = _extract_reps(ex.get("reps"), 8)
-            rir = _coerce_int(ex.get("rir"), 2)
-            weight = ex.get("weight_kg") or ex.get("weight")
-            sets = []
-            for _ in range(raw_sets):
-                target: Dict[str, Any] = {"reps": reps, "rir": rir}
-                if weight and isinstance(weight, (int, float)):
-                    target["weight"] = float(weight)
-                sets.append({"target": target})
-        elif isinstance(raw_sets, list):
-            sets = []
+        
+        if isinstance(raw_sets, list):
+            # Already explicit list - use as-is
             for s in raw_sets:
                 if isinstance(s, dict):
-                    target = s.get("target") or s
-                    sets.append({"target": target})
-                else:
-                    sets.append({"target": {"reps": 8, "rir": 2}})
+                    sets.append({
+                        "id": str(uuid.uuid4())[:8],
+                        "type": s.get("type", "working"),
+                        "reps": s.get("reps", reps),
+                        "weight": s.get("weight") or s.get("weight_kg") or weight,
+                        "rir": s.get("rir"),
+                    })
         else:
-            sets = [{"target": {"reps": 8, "rir": 2}} for _ in range(3)]
+            # Expand from count to explicit array
+            num_working = _coerce_int(raw_sets, 3)
+            num_warmup = ex.get("warmup_sets")
+            
+            if num_warmup is None:
+                # Auto-determine warmup sets
+                num_warmup = 2 if is_compound and weight and weight >= 40 else 0
+            else:
+                num_warmup = _coerce_int(num_warmup, 0)
+            
+            # Add warmup sets (ramping weight)
+            if num_warmup > 0 and weight:
+                warmup_weights = []
+                if num_warmup == 1:
+                    warmup_weights = [weight * 0.5]
+                elif num_warmup == 2:
+                    warmup_weights = [weight * 0.4, weight * 0.7]
+                elif num_warmup >= 3:
+                    warmup_weights = [weight * 0.3, weight * 0.5, weight * 0.7]
+                
+                for i, wu_weight in enumerate(warmup_weights[:num_warmup]):
+                    sets.append({
+                        "id": str(uuid.uuid4())[:8],
+                        "type": "warmup",
+                        "reps": 10 if i == 0 else 6,  # More reps on lighter warmups
+                        "weight": round(wu_weight / 2.5) * 2.5,  # Round to 2.5kg
+                        "rir": None,  # No RIR for warmups
+                    })
+            
+            # Add working sets with RIR progression
+            # RIR decreases towards the final set
+            for i in range(num_working):
+                # Calculate RIR for this set (higher for earlier sets)
+                sets_remaining = num_working - i - 1
+                set_rir = min(final_rir + sets_remaining, 5)  # Cap at 5
+                
+                sets.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "working",
+                    "reps": reps,
+                    "weight": weight,
+                    "rir": set_rir,
+                })
         
         # Include muscle data for swap functionality
         primary_muscles = ex.get("primary_muscles") or ex.get("primaryMuscles") or []
@@ -339,14 +412,13 @@ def tool_create_workout_plan(
         equipment_str = equipment_list[0] if isinstance(equipment_list, list) and equipment_list else None
         
         blocks.append({
+            "id": str(uuid.uuid4())[:8],
             "exercise_id": exercise_id,
             "name": name,
-            "exercise_name": name,
-            "sets": sets,
-            "set_count": len(sets),
-            "notes": ex.get("notes") or ex.get("rationale"),
+            "sets": sets,  # Now explicit per-set array
             "primary_muscles": primary_muscles,
             "equipment": equipment_str,
+            "coach_note": ex.get("notes") or ex.get("rationale"),
         })
     
     if not blocks:
@@ -367,7 +439,8 @@ def tool_create_workout_plan(
     _context["pending_plan"] = plan
     _context["conversation_state"] = "ready_to_publish"
     
-    logger.info("create_workout_plan title=%s exercises=%d", title, len(blocks))
+    logger.info("create_workout_plan title=%s exercises=%d total_sets=%d", 
+                title, len(blocks), sum(len(b.get("sets", [])) for b in blocks))
     
     return {
         "status": "plan_created",
@@ -379,13 +452,27 @@ def tool_create_workout_plan(
 def tool_publish_workout_plan(
     *,
     plan: Optional[Dict[str, Any]] = None,
+    canvas_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Publish the workout plan to the canvas so the user can see it.
     
     Args:
         plan: The workout plan (if not provided, uses the pending plan from tool_create_workout_plan)
+        canvas_id: Canvas ID from the context prefix (required if not set via tool_set_context)
+        user_id: User ID from the context prefix (required if not set via tool_set_context)
+        correlation_id: Correlation ID from the context prefix
     """
+    # Accept context from parameters (avoids need for separate tool_set_context call)
+    if canvas_id:
+        _context["canvas_id"] = canvas_id.strip()
+    if user_id:
+        _context["user_id"] = user_id.strip()
+    if correlation_id:
+        _context["correlation_id"] = correlation_id.strip() if correlation_id != "none" else None
+        
     cid = _context.get("canvas_id")
     uid = _context.get("user_id")
     corr = _context.get("correlation_id")
@@ -396,6 +483,49 @@ def tool_publish_workout_plan(
     plan_data = plan or _context.get("pending_plan")
     if not plan_data:
         return {"error": "No plan to publish. Call tool_create_workout_plan first."}
+    
+    # Transform blocks to match iOS schema
+    # Sets use flat structure: type, reps, weight, rir, is_linked_to_base
+    blocks = plan_data.get("blocks", [])
+    transformed_blocks = []
+    for block in blocks:
+        # Ensure exercise_id exists
+        exercise_id = block.get("exercise_id") or _slugify(block.get("name", "exercise"))
+        
+        # Transform sets to flat structure matching iOS PlanSet model
+        raw_sets = block.get("sets", [])
+        transformed_sets = []
+        for s in raw_sets:
+            set_type = s.get("type", "working")
+            reps = s.get("reps", 8)
+            # rir is REQUIRED by schema (0-5). Default: warmup=5, working=2
+            rir = s.get("rir")
+            if rir is None:
+                rir = 5 if set_type == "warmup" else 2
+            # Ensure rir is clamped to valid range
+            rir = max(0, min(5, int(rir)))
+            
+            # Flat structure matching iOS PlanSet
+            transformed_set = {
+                "id": s.get("id", str(uuid.uuid4())[:8]),
+                "type": set_type,
+                "reps": int(reps) if reps else 8,
+                "rir": rir if set_type != "warmup" else None,
+                "is_linked_to_base": set_type != "warmup",  # Working sets linked by default
+            }
+            if s.get("weight") is not None:
+                transformed_set["weight"] = s.get("weight")
+            transformed_sets.append(transformed_set)
+        
+        transformed_blocks.append({
+            "id": block.get("id", str(uuid.uuid4())[:8]),
+            "exercise_id": exercise_id,
+            "name": block.get("name", "Exercise"),
+            "sets": transformed_sets,
+            "primary_muscles": block.get("primary_muscles", []),
+            "equipment": block.get("equipment"),
+            "coach_note": block.get("coach_note"),
+        })
     
     # Build the session_plan card
     card = {
@@ -409,7 +539,7 @@ def tool_publish_workout_plan(
         ],
         "content": {
             "title": plan_data.get("title", "Workout"),
-            "blocks": plan_data.get("blocks", []),
+            "blocks": transformed_blocks,
             "estimated_duration_minutes": plan_data.get("duration_minutes", 45),
             "coach_notes": plan_data.get("coach_notes"),
         },
@@ -527,74 +657,63 @@ all_tools = [
 # ============================================================================
 
 UNIFIED_INSTRUCTION = """
-You are the Myon Fitness Coach Agent. Your job is to CREATE WORKOUT PLANS FAST using REAL exercises from the catalog.
+You are a strength coach. Create workout plans quickly.
 
-## STEP 1: Set Context (REQUIRED)
-Parse `(context: canvas_id=XYZ user_id=ABC corr=...)` and call `tool_set_context(...)`.
+## NEW WORKOUT FLOW
+1. `tool_search_exercises(muscle_group="...")`
+2. `tool_create_workout_plan(title="...", exercises=[...])`
+3. Brief intro: "Here's your workout:"
+4. `tool_publish_workout_plan(canvas_id="...", user_id="...")`
+5. STOP - done
 
-## STEP 2: Search Exercises from Catalog (REQUIRED)
-ALWAYS use `tool_search_exercises(...)` to find real exercises from our database.
-This is CRITICAL - exercises must have valid IDs from the catalog.
+## SWAP EXERCISE FLOW (when user asks to swap)
+If user says "swap X for another exercise":
+1. `tool_search_exercises` for target muscle/equipment
+2. Pick ONE good replacement from results
+3. Rebuild the ENTIRE plan with the swap applied
+4. `tool_create_workout_plan` with updated exercises
+5. Brief: "Swapped X for Y:"
+6. `tool_publish_workout_plan`
+7. STOP - done
 
-**IMPORTANT: Use muscle_group for body part searches:**
-- `muscle_group`: "legs", "chest", "back", "shoulders", "arms", "core"
-- `split`: "upper", "lower" (NOT "legs" or "push"/"pull")
-- `primary_muscle`: "quadriceps", "hamstrings", "glutes", "chest", "lats", etc.
-- `category`: "compound", "isolation"
-- `equipment`: "barbell", "dumbbell", "cable", "machine", "bodyweight"
+## ADJUST FLOW (shorter/harder/etc)
+Same as swap: rebuild entire plan with adjustment, publish, stop.
 
-**Working search examples:**
-- Leg exercises: `tool_search_exercises(muscle_group="legs", limit=10)`
-- Chest exercises: `tool_search_exercises(muscle_group="chest", limit=10)`
-- Back exercises: `tool_search_exercises(muscle_group="back", limit=10)`
-- Upper body: `tool_search_exercises(split="upper", limit=10)`
-- Lower body: `tool_search_exercises(split="lower", limit=10)`
+## CRITICAL
+- After `tool_publish_workout_plan` → output NOTHING
+- Do NOT list exercises in text
+- Do NOT explain after publishing
 
-## STEP 3: Create and Publish Plan
-Use the EXACT `id` and `name` from search results in `tool_create_workout_plan`.
+## PROGRAMMING
+- 4-5 exercises, compounds first
+- 3-4 sets × 8-12 reps
+- RIR 2 compounds, RIR 1 isolation
+- Include weight_kg for every exercise
 
-## FLOW:
-1. `tool_set_context(...)`
-2. `tool_search_exercises(muscle_group="...", limit=10)` - get real exercises
-3. Pick 5 exercises from results, use their `id` as `exercise_id`
-4. `tool_create_workout_plan(title="...", exercises=[{exercise_id: "...", name: "...", sets: 3, reps: 8, primary_muscles: [...]}])`
-5. `tool_publish_workout_plan()`
+## WEIGHTS
+Beginner: Bench 30kg, Squat 40kg, Row 30kg
+Intermediate: Bench 60kg, Squat 80kg, Row 60kg
+Isolation: 10-25kg
 
-IMPORTANT: Always include `primary_muscles` from search results in each exercise!
+## FORMAT
+Each exercise: exercise_id, name, sets, reps, weight_kg, rir, primary_muscles
 
-## REQUEST MAPPINGS:
-- "Plan a workout" / "I want to train" → search with no filter, pick variety
-- "Leg day" / "leg workout" → search muscle_group="legs"
-- "Upper body" → search split="upper"
-- "Lower body" → search split="lower"
-- "Push" / "chest" → search muscle_group="chest"
-- "Pull" / "back" → search muscle_group="back"
-- "Arms" → search muscle_group="arms"
-- "Shoulders" → search muscle_group="shoulders"
+## SEARCH
+- "chest"/"push" → muscle_group="chest"
+- "back"/"pull" → muscle_group="back"
+- "legs" → muscle_group="legs"
 
-## DEFAULTS:
-- Sets: 3
-- Reps: 8
-- RIR: 2
-- Duration: 45 minutes
-- Exercises: 5
+## COACH_NOTES
+1-2 sentences: focus, total sets, intensity.
 
-## CRITICAL RULES:
-- ALWAYS search exercises first - never invent exercise names
-- Use the `id` field from search results as `exercise_id` in the plan
-- Use the exact `name` from search results
-- If search returns empty, try broader search (e.g., just query="" with limit=20)
-
-DO NOT:
-- Make up exercise names - they won't exist in database
-- Skip the search step
-- Use hardcoded exercise lists
-- Ask clarifying questions unless user says only "Hello" or "Hi"
+## RULES
+- Search first, never invent exercises
+- After publish: STOP. Done.
 """
 
 UnifiedAgent = Agent(
     name="MYONCoach",
-    model=os.getenv("CANVAS_AGENT_MODEL", "gemini-2.5-pro"),
+    model=os.getenv("CANVAS_AGENT_MODEL", "gemini-2.5-flash"),
     instruction=UNIFIED_INSTRUCTION,
     tools=all_tools,
 )

@@ -10,14 +10,26 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const TOOL_LABELS = {
-  tool_set_canvas_context: 'Linking canvas context',
-  tool_fetch_profile: 'Reviewing athlete profile',
-  tool_fetch_recent_sessions: 'Reviewing recent sessions',
-  tool_emit_agent_event: 'Logging telemetry',
-  tool_request_clarification: 'Requesting clarification',
-  tool_format_workout_plan_cards: 'Formatting workout plan',
-  tool_format_analysis_cards: 'Formatting analysis cards',
-  tool_publish_cards: 'Publishing cards',
+  // New unified agent tools
+  tool_set_context: 'Setting up',
+  tool_search_exercises: 'Searching exercises',
+  tool_get_user_profile: 'Reviewing profile',
+  tool_get_recent_workouts: 'Checking workout history',
+  tool_ask_user: 'Asking question',
+  tool_record_user_info: 'Recording information',
+  tool_create_workout_plan: 'Creating workout plan',
+  tool_publish_workout_plan: 'Publishing plan',
+  tool_send_message: 'Sending message',
+  tool_emit_status: 'Logging',
+  // Legacy tools
+  tool_set_canvas_context: 'Setting up',
+  tool_fetch_profile: 'Reviewing profile',
+  tool_fetch_recent_sessions: 'Checking history',
+  tool_emit_agent_event: 'Logging',
+  tool_request_clarification: 'Asking question',
+  tool_format_workout_plan_cards: 'Formatting plan',
+  tool_format_analysis_cards: 'Formatting analysis',
+  tool_publish_cards: 'Publishing',
 };
 
 const TELEMETRY_LABELS = {
@@ -55,7 +67,75 @@ function describeToolEvent(name, args = {}) {
   if (name === 'tool_emit_agent_event' && args.event_type) {
     return `Telemetry: ${args.event_type}`;
   }
-  return TOOL_LABELS[name] || name.replace(/_/g, ' ');
+  
+  const baseLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+  
+  // Add parameter details for key tools
+  switch (name) {
+    case 'tool_search_exercises': {
+      const details = [];
+      if (args.muscle_group) details.push(args.muscle_group);
+      if (args.primary_muscle) details.push(args.primary_muscle);
+      if (args.split) details.push(args.split);
+      if (args.equipment) details.push(`with ${args.equipment}`);
+      if (args.query) details.push(`"${args.query}"`);
+      return details.length > 0 ? `${baseLabel}: ${details.join(', ')}` : baseLabel;
+    }
+    case 'tool_get_recent_workouts':
+    case 'tool_fetch_recent_sessions': {
+      const limit = args.limit || 5;
+      return `${baseLabel} (last ${limit})`;
+    }
+    case 'tool_create_workout_plan': {
+      const title = args.title || 'workout';
+      const count = Array.isArray(args.exercises) ? args.exercises.length : 0;
+      return count > 0 ? `${baseLabel}: "${title}" with ${count} exercises` : baseLabel;
+    }
+    case 'tool_ask_user':
+    case 'tool_request_clarification': {
+      return baseLabel;  // Don't expose the question in the tool event
+    }
+    default:
+      return baseLabel;
+  }
+}
+
+function describeToolResult(name, summary = '', args = {}) {
+  const baseLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+  
+  // Parse summary for item counts
+  const itemMatch = summary.match(/items?:\s*(\d+)/i);
+  const itemCount = itemMatch ? parseInt(itemMatch[1], 10) : null;
+  
+  switch (name) {
+    case 'tool_search_exercises': {
+      if (itemCount !== null) {
+        const muscle = args.muscle_group || args.primary_muscle || '';
+        return itemCount > 0 
+          ? `Found ${itemCount} ${muscle} exercises`
+          : `No ${muscle} exercises found`;
+      }
+      return 'Search complete';
+    }
+    case 'tool_get_recent_workouts':
+    case 'tool_fetch_recent_sessions': {
+      if (itemCount !== null) {
+        return itemCount > 0 
+          ? `Loaded ${itemCount} recent workouts`
+          : 'No recent workouts';
+      }
+      return 'History loaded';
+    }
+    case 'tool_get_user_profile':
+    case 'tool_fetch_profile':
+      return 'Profile loaded';
+    case 'tool_create_workout_plan':
+      return 'Plan created';
+    case 'tool_publish_workout_plan':
+      return 'Plan published';
+    default:
+      return summary || 'Complete';
+  }
 }
 
 function formatTelemetryEvent(evt) {
@@ -155,6 +235,8 @@ function fingerprint(text) {
 
 // Track event start times for duration calculation
 const eventStartTimes = new Map();
+// Track tool args for use in result description
+const toolArgsCache = new Map();
 
 // Transform ADK events to iOS-friendly StreamEvent format
 function transformToIOSEvent(adkEvent) {
@@ -173,10 +255,12 @@ function transformToIOSEvent(adkEvent) {
       const toolKey = `tool_${toolName}`;
       if (shouldSuppressToolEvent(toolName)) {
         eventStartTimes.delete(toolKey);
+        toolArgsCache.delete(toolKey);
         return null;
       }
-      // Track start time for duration calculation
+      // Track start time and args for duration/result description
       eventStartTimes.set(toolKey, timestamp);
+      toolArgsCache.set(toolKey, adkEvent.args || {});
       
       return {
         ...base,
@@ -198,12 +282,18 @@ function transformToIOSEvent(adkEvent) {
       const toolResultKey = `tool_${toolName}`;
       if (shouldSuppressToolEvent(toolName)) {
         eventStartTimes.delete(toolResultKey);
+        toolArgsCache.delete(toolResultKey);
         return null;
       }
       // Calculate duration if we have start time
       const toolStartTime = eventStartTimes.get(toolResultKey);
+      const cachedArgs = toolArgsCache.get(toolResultKey) || {};
       const metadata = toolStartTime ? { start_time: toolStartTime } : {};
       eventStartTimes.delete(toolResultKey);
+      toolArgsCache.delete(toolResultKey);
+      
+      // Use describeToolResult for richer completion text
+      const resultText = describeToolResult(toolName, adkEvent.summary || '', cachedArgs);
       
       return {
         ...base,
@@ -212,7 +302,7 @@ function transformToIOSEvent(adkEvent) {
           tool: toolName,
           tool_name: toolName,
           result: adkEvent.summary || 'Complete',
-          text: describeToolEvent(toolName, adkEvent.args)
+          text: resultText
         },
         metadata
       };
@@ -598,11 +688,17 @@ async function streamAgentNormalizedHandler(req, res) {
               let parsedResponse = null;
               try {
                 parsedResponse = typeof resp === 'string' ? JSON.parse(resp) : resp;
-                if (parsedResponse && typeof parsedResponse === 'object') {
+                // Handle various response formats
+                if (Array.isArray(parsedResponse)) {
+                  // Direct array response (e.g., tool_search_exercises returns a list)
+                  summary = `items: ${parsedResponse.length}`;
+                } else if (parsedResponse && typeof parsedResponse === 'object') {
                   if (Array.isArray(parsedResponse.data)) summary = `items: ${parsedResponse.data.length}`;
+                  else if (Array.isArray(parsedResponse.items)) summary = `items: ${parsedResponse.items.length}`;
                   else if (Array.isArray(parsedResponse.sessions)) summary = `sessions: ${parsedResponse.sessions.length}`;
                   else if (Array.isArray(parsedResponse.templates)) summary = `templates: ${parsedResponse.templates.length}`;
                   else if (Array.isArray(parsedResponse.workouts)) summary = `workouts: ${parsedResponse.workouts.length}`;
+                  else if (Array.isArray(parsedResponse.exercises)) summary = `items: ${parsedResponse.exercises.length}`;
                 }
               } catch (_) {}
               sse.write({ type: 'tool_result', name, summary });
@@ -708,5 +804,3 @@ async function streamAgentNormalizedHandler(req, res) {
 }
 
 module.exports = { streamAgentNormalizedHandler };
-
-

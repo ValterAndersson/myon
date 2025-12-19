@@ -33,7 +33,7 @@ public struct CanvasGridView: View {
         case .sessionPlan: SessionPlanCard(model: card)
         case .programDay(_, let exercises):
             let options = exercises.map { ex in
-                ListOption(title: ex.name, subtitle: "x\(ex.sets) sets", iconSystemName: "dumbbell")
+                ListOption(title: ex.name, subtitle: "\(ex.setCount) sets", iconSystemName: "dumbbell")
             }
             ListCardWithExpandableOptions(model: card, options: options)
         case .agentStream: AgentStreamCard(model: card)
@@ -73,7 +73,7 @@ private struct EquatableCardHost: View, Equatable {
         case .sessionPlan: SessionPlanCard(model: card)
         case .programDay(_, let exercises):
             let options = exercises.map { ex in
-                ListOption(title: ex.name, subtitle: "x\(ex.sets) sets", iconSystemName: "dumbbell")
+                ListOption(title: ex.name, subtitle: "\(ex.setCount) sets", iconSystemName: "dumbbell")
             }
             ListCardWithExpandableOptions(model: card, options: options)
         case .agentStream: AgentStreamCard(model: card)
@@ -103,8 +103,18 @@ struct CanvasGridView_Previews: PreviewProvider {
             CanvasCardModel(type: .summary, title: "Today", data: .text("Upper body focus")),
             CanvasCardModel(type: .visualization, title: "Squat 6m", data: .visualization(title: "Squat", subtitle: "6 months")),
             CanvasCardModel(type: .session_plan, data: .sessionPlan(exercises: [
-                PlanExercise(name: "Bench Press", sets: 4),
-                PlanExercise(name: "Row", sets: 4)
+                PlanExercise(name: "Bench Press", sets: [
+                    PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                    PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
+                    PlanSet(type: .working, reps: 8, weight: 60, rir: 1),
+                    PlanSet(type: .working, reps: 8, weight: 60, rir: 1)
+                ]),
+                PlanExercise(name: "Row", sets: [
+                    PlanSet(type: .working, reps: 8, weight: 40, rir: 2),
+                    PlanSet(type: .working, reps: 8, weight: 40, rir: 2),
+                    PlanSet(type: .working, reps: 8, weight: 40, rir: 1),
+                    PlanSet(type: .working, reps: 8, weight: 40, rir: 1)
+                ])
             ])),
             CanvasCardModel(type: .coach_proposal, title: "Increase load +2.5kg", data: .suggestion(title: "Adjust Load", rationale: "RIR ≤ 1 last set"))
         ]
@@ -112,5 +122,3 @@ struct CanvasGridView_Previews: PreviewProvider {
     }
 }
 #endif
-
-

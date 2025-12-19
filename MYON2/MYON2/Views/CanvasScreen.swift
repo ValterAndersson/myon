@@ -15,11 +15,14 @@ struct CanvasScreen: View {
     @State private var didInvokeAgent: Bool = false
     @State private var composerText: String = ""
     @State private var answeredClarifications: Set<String> = []
+    @State private var composerExpanded: Bool = true
     
     private typealias ClarificationPrompt = TimelineClarificationPrompt
 
     var body: some View {
-        let embeddedCards = vm.cards.sorted {
+        // Filter to only show the latest session_plan card (others can accumulate)
+        let dedupedCards = deduplicateSessionPlans(vm.cards)
+        let embeddedCards = dedupedCards.sorted {
             ($0.publishedAt ?? Date.distantPast) < ($1.publishedAt ?? Date.distantPast)
         }
         let pendingClarification = activeClarificationPrompt
@@ -100,27 +103,64 @@ private extension Optional where Wrapped == String {
     var orEmpty: String { self ?? "" }
 }
 
-// MARK: - Demo seeding (disabled; live data now)
+// MARK: - Compose Bar
 extension CanvasScreen {
+    /// Check if there's an active proposed plan (makes it the focal element)
+    private var hasProposedPlan: Bool {
+        vm.cards.contains { (card: CanvasCardModel) -> Bool in
+            card.type == .session_plan && card.status == .proposed
+        }
+    }
+    
     private func composeBar(pendingClarification: ClarificationPrompt?) -> some View {
         let placeholder = pendingClarification?.question ?? "Ask anything…"
-        return HStack(spacing: Space.sm) {
-            TextField(placeholder, text: $composerText, axis: .vertical)
-                .lineLimit(1...4)
-                .padding(Space.sm)
-                .background(ColorsToken.Surface.default.opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
-            Button(action: sendComposerMessage) {
-                Image(systemName: "paperplane.fill")
-                    .foregroundColor(.white)
-                    .padding(Space.sm)
-                    .background(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
-                    .clipShape(Circle())
+        
+        // When a plan is focal, show collapsed composer unless expanded
+        let showCollapsed = hasProposedPlan && !composerExpanded && composerText.isEmpty
+        
+        return VStack(spacing: 0) {
+            if showCollapsed {
+                // Minimal "Ask / Adjust" button
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        composerExpanded = true
+                    }
+                } label: {
+                    HStack(spacing: Space.sm) {
+                        Image(systemName: "bubble.left")
+                            .font(.system(size: 13))
+                        Text("Ask or adjust...")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, 10)
+                    .background(ColorsToken.Surface.default.opacity(0.6))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.bottom, Space.md)
+            } else {
+                // Full composer
+                HStack(spacing: Space.sm) {
+                    TextField(placeholder, text: $composerText, axis: .vertical)
+                        .lineLimit(1...4)
+                        .padding(Space.sm)
+                        .background(ColorsToken.Surface.default.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
+                    Button(action: sendComposerMessage) {
+                        Image(systemName: "paperplane.fill")
+                            .foregroundColor(.white)
+                            .padding(Space.sm)
+                            .background(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
+                            .clipShape(Circle())
+                    }
+                    .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.md)
             }
-            .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(.horizontal, Space.lg)
-        .padding(.bottom, Space.md)
     }
     
     private func sendComposerMessage() {
@@ -128,10 +168,12 @@ extension CanvasScreen {
         guard !trimmed.isEmpty else { return }
         if let pending = activeClarificationPrompt {
             composerText = ""
+            composerExpanded = false  // Collapse after sending
             handleClarificationSubmit(id: pending.id, question: pending.question, answer: trimmed)
             return
         }
         composerText = ""
+        composerExpanded = false  // Collapse after sending
         firePrompt(trimmed)
     }
     
@@ -260,6 +302,26 @@ extension CanvasScreen {
 }
 
 private extension CanvasScreen {
+    /// Deduplicate session_plan cards - only show the latest one
+    /// Other card types pass through as-is
+    func deduplicateSessionPlans(_ cards: [CanvasCardModel]) -> [CanvasCardModel] {
+        // Find all session_plan cards sorted by publishedAt (newest first)
+        let sessionPlans = cards
+            .filter { $0.type == .session_plan }
+            .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+        
+        // Keep only the latest session_plan
+        let latestPlanId = sessionPlans.first?.id
+        
+        // Return all cards except older session_plans
+        return cards.filter { card in
+            if card.type == .session_plan {
+                return card.id == latestPlanId
+            }
+            return true
+        }
+    }
+    
     private var workspaceClarificationPrompt: ClarificationPrompt? {
         for entry in vm.workspaceEvents.reversed() {
             guard entry.event.eventType == .clarificationRequest,
