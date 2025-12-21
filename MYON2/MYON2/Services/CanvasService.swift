@@ -8,11 +8,46 @@ struct InitializeSessionResponse: Codable {
     let error: String?
 }
 
+/// Combined response from openCanvas - returns both canvasId and sessionId in one call
+struct OpenCanvasResponse: Codable {
+    let success: Bool
+    let canvasId: String?
+    let sessionId: String?
+    let isNewSession: Bool?
+    let resumeState: ResumeState?
+    let timing: TimingInfo?
+    let error: String?
+    
+    struct ResumeState: Codable {
+        let cards: [AnyCodable]?
+        let lastEntryCursor: String?
+        let cardCount: Int?
+    }
+    
+    struct TimingInfo: Codable {
+        let totalMs: Int?
+    }
+}
+
+/// Response from preWarmSession - warms the session before canvas is opened
+struct PreWarmResponse: Codable {
+    let success: Bool
+    let sessionId: String?
+    let isNew: Bool?
+    let error: String?
+}
+
 protocol CanvasServiceProtocol {
     func applyAction(_ req: ApplyActionRequestDTO) async throws -> ApplyActionResponseDTO
     func bootstrapCanvas(for userId: String, purpose: String) async throws -> String
     func purgeCanvas(userId: String, canvasId: String, dropEvents: Bool, dropState: Bool, dropWorkspace: Bool) async throws
     func initializeSession(canvasId: String, purpose: String, forceNew: Bool) async throws -> String
+    
+    /// New combined endpoint - creates canvas and session in a single call
+    func openCanvas(userId: String, purpose: String) async throws -> (canvasId: String, sessionId: String)
+    
+    /// Pre-warm the session before the canvas is opened (call on app launch or Home screen)
+    func preWarmSession(userId: String, purpose: String) async throws -> String
 }
 
 extension CanvasServiceProtocol {
@@ -95,6 +130,53 @@ final class CanvasService: CanvasServiceProtocol {
         }
         
         let message = response.error ?? "Failed to initialize session"
+        throw NSError(domain: "CanvasService", code: 500, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    
+    // MARK: - Optimized Endpoints
+    
+    /// Combined endpoint that creates canvas + session in ONE call (saves 1-2 network round trips)
+    func openCanvas(userId: String, purpose: String) async throws -> (canvasId: String, sessionId: String) {
+        struct Req: Codable { let userId: String; let purpose: String }
+        
+        DebugLogger.log(.canvas, "⏱️ openCanvas: user=\(userId) purpose=\(purpose)")
+        let startTime = Date()
+        
+        let response: OpenCanvasResponse = try await ApiClient.shared.postJSON("openCanvas", body: Req(userId: userId, purpose: purpose))
+        
+        let elapsed = Date().timeIntervalSince(startTime)
+        if DebugLogger.enabled {
+            DebugLogger.debug(.canvas, "⏱️ openCanvas completed in \(Int(elapsed * 1000))ms - success=\(response.success) canvas=\(response.canvasId ?? "-") session=\(response.sessionId ?? "-") newSession=\(response.isNewSession ?? true)")
+        }
+        
+        if response.success, let canvasId = response.canvasId, let sessionId = response.sessionId {
+            return (canvasId, sessionId)
+        }
+        
+        let message = response.error ?? "Failed to open canvas"
+        throw NSError(domain: "CanvasService", code: 500, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    
+    /// Pre-warm the session before the canvas is opened (call on app launch or when user navigates to Home)
+    /// This reduces latency when the user actually opens the canvas
+    func preWarmSession(userId: String, purpose: String) async throws -> String {
+        struct Req: Codable { let userId: String; let purpose: String }
+        
+        DebugLogger.log(.canvas, "⏱️ preWarmSession: user=\(userId) purpose=\(purpose)")
+        let startTime = Date()
+        
+        let response: PreWarmResponse = try await ApiClient.shared.postJSON("preWarmSession", body: Req(userId: userId, purpose: purpose))
+        
+        let elapsed = Date().timeIntervalSince(startTime)
+        if DebugLogger.enabled {
+            DebugLogger.debug(.canvas, "⏱️ preWarmSession completed in \(Int(elapsed * 1000))ms - success=\(response.success) session=\(response.sessionId ?? "-") isNew=\(response.isNew ?? true)")
+        }
+        
+        if response.success, let sessionId = response.sessionId {
+            return sessionId
+        }
+        
+        let message = response.error ?? "Failed to pre-warm session"
         throw NSError(domain: "CanvasService", code: 500, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }

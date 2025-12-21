@@ -49,6 +49,9 @@ final class CanvasViewModel: ObservableObject {
 
     func start(userId: String, canvasId: String) {
         streamTask?.cancel()
+        let startTime = Date()
+        DebugLogger.log(.canvas, "⏱️ Canvas start BEGIN (existing canvas) - canvasId=\(canvasId)")
+        
         streamTask = Task { [weak self] in
             guard let self = self else { return }
             do {
@@ -56,38 +59,65 @@ final class CanvasViewModel: ObservableObject {
                 self.canvasId = canvasId
                 await MainActor.run { CanvasRepository.shared.currentCanvasId = canvasId }
                 
-                // Initialize session (will reuse existing if valid)
-                do {
-                    let sessionId = try await self.service.initializeSession(canvasId: canvasId, purpose: "general")
-                    await MainActor.run { self.currentSessionId = sessionId }
-                    DebugLogger.log(.canvas, "Session initialized: \(sessionId)")
-                } catch {
-                    DebugLogger.error(.canvas, "initializeSession failed: \(error.localizedDescription) - will create new on first message")
-                }
-                
-                do {
-                    try await self.service.purgeCanvas(userId: userId, canvasId: canvasId, dropEvents: true, dropState: false, dropWorkspace: true)
-                } catch {
-                    DebugLogger.error(.canvas, "purgeCanvas failed: \(error.localizedDescription)")
-                }
-                self.isReady = false
+                // PHASE 1 OPTIMIZATION: Clear UI state and attach listeners IMMEDIATELY
                 await MainActor.run {
                     self.cards = []
                     self.upNext = []
                     self.pendingClarificationCue = nil
                 }
+                
+                // Attach listeners right away (don't wait for session)
                 self.attachEventsListener(userId: userId, canvasId: canvasId)
                 self.attachWorkspaceEntriesListener(userId: userId, canvasId: canvasId)
-                DebugLogger.log(.canvas, "subscribe: user=\(userId) canvas=\(canvasId)")
+                DebugLogger.log(.canvas, "⏱️ Listeners attached (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                
+                // PHASE 1 OPTIMIZATION: Start session initialization in parallel
+                // Use forceNew: false to enable session reuse
+                let sessionTask = Task<String?, Never> {
+                    let sessionStart = Date()
+                    do {
+                        let sessionId = try await self.service.initializeSession(canvasId: canvasId, purpose: "general", forceNew: false)
+                        let sessionDuration = Date().timeIntervalSince(sessionStart)
+                        DebugLogger.log(.canvas, "⏱️ initializeSession: \(String(format: "%.2f", sessionDuration))s (reuse enabled)")
+                        return sessionId
+                    } catch {
+                        DebugLogger.error(.canvas, "initializeSession failed: \(error.localizedDescription) - will create new on first message")
+                        return nil
+                    }
+                }
+                
+                // PHASE 1 OPTIMIZATION: Skip purgeCanvas
+                // Purging workspace_entries on every open adds latency and loses conversation history
+                DebugLogger.log(.canvas, "⏱️ Skipping purgeCanvas (optimization)")
+                
+                DebugLogger.log(.canvas, "⏱️ Starting subscription (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                
+                // Subscribe to canvas updates
+                var firstSnapshotReceived = false
                 for try await snap in self.repo.subscribe(userId: userId, canvasId: canvasId) {
+                    if !firstSnapshotReceived {
+                        firstSnapshotReceived = true
+                        DebugLogger.log(.canvas, "⏱️ First snapshot received (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                    }
+                    
                     DebugLogger.debug(.canvas, "snapshot: v=\(snap.version) cards=\(snap.cards.count) upNext=\(snap.upNext.count)")
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
-                    if self.isReady == false { self.isReady = true }
-                    // Removed duplicate invocation - handled in CanvasScreen.onChange
+                    
+                    // Mark ready on first snapshot
+                    if self.isReady == false {
+                        self.isReady = true
+                        DebugLogger.log(.canvas, "⏱️ Canvas READY (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                    }
                 }
+                
+                // Resolve session in background (don't block UI)
+                if let sessionId = await sessionTask.value {
+                    await MainActor.run { self.currentSessionId = sessionId }
+                }
+                
             } catch {
                 self.errorMessage = error.localizedDescription
                 DebugLogger.error(.canvas, "subscribe error: \(error.localizedDescription)")
@@ -97,50 +127,63 @@ final class CanvasViewModel: ObservableObject {
 
     func start(userId: String, purpose: String) {
         streamTask?.cancel()
+        let startTime = Date()
+        DebugLogger.log(.canvas, "⏱️ Canvas start BEGIN - purpose=\(purpose)")
+        
         streamTask = Task { [weak self] in
             guard let self = self else { return }
             do {
                 self.currentUserId = userId
-                let cid = try await self.service.bootstrapCanvas(for: userId, purpose: purpose)
+                
+                // PHASE 2 OPTIMIZATION: Use combined openCanvas endpoint (1 call instead of 2)
+                // This creates canvas + session in parallel on the server, saving a network round trip
+                let openStart = Date()
+                let (cid, sessionId) = try await self.service.openCanvas(userId: userId, purpose: purpose)
+                let openDuration = Date().timeIntervalSince(openStart)
+                DebugLogger.log(.canvas, "⏱️ openCanvas (combined): \(String(format: "%.2f", openDuration))s - canvas=\(cid) session=\(sessionId)")
+                
                 self.canvasId = cid
+                self.currentSessionId = sessionId
                 await MainActor.run { CanvasRepository.shared.currentCanvasId = cid }
                 
-                // Initialize session - FORCE NEW for fresh planning sessions
-                // This avoids conversation history contamination from old prompts
-                do {
-                    let sessionId = try await self.service.initializeSession(canvasId: cid, purpose: purpose, forceNew: true)
-                    await MainActor.run { self.currentSessionId = sessionId }
-                    DebugLogger.log(.canvas, "Session initialized (forceNew): \(sessionId)")
-                } catch {
-                    DebugLogger.error(.canvas, "initializeSession failed: \(error.localizedDescription) - will create new on first message")
-                }
-                
-                do {
-                    try await self.service.purgeCanvas(userId: userId, canvasId: cid, dropEvents: true, dropState: false, dropWorkspace: true)
-                } catch {
-                    DebugLogger.error(.canvas, "purgeCanvas failed: \(error.localizedDescription)")
-                }
-                self.isReady = false
+                // Clear UI state and attach listeners IMMEDIATELY
                 await MainActor.run {
                     self.cards = []
                     self.upNext = []
                     self.pendingClarificationCue = nil
                 }
+                
+                // Attach listeners right away
                 self.attachEventsListener(userId: userId, canvasId: cid)
                 self.attachWorkspaceEntriesListener(userId: userId, canvasId: cid)
-                DebugLogger.log(.canvas, "bootstrapped canvas id=\(cid) purpose=\(purpose)")
+                DebugLogger.log(.canvas, "⏱️ Listeners attached (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                
+                DebugLogger.log(.canvas, "⏱️ Starting subscription (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                
+                // Subscribe to canvas updates
+                var firstSnapshotReceived = false
                 for try await snap in self.repo.subscribe(userId: userId, canvasId: cid) {
+                    if !firstSnapshotReceived {
+                        firstSnapshotReceived = true
+                        DebugLogger.log(.canvas, "⏱️ First snapshot received (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                    }
+                    
                     DebugLogger.debug(.canvas, "snapshot: v=\(snap.version) cards=\(snap.cards.count) upNext=\(snap.upNext.count)")
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
-                    if self.isReady == false { self.isReady = true }
-                    // Removed duplicate invocation - handled in CanvasScreen.onChange
+                    
+                    // Mark ready on first snapshot
+                    if self.isReady == false {
+                        self.isReady = true
+                        DebugLogger.log(.canvas, "⏱️ Canvas READY (elapsed: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s)")
+                    }
                 }
+                
             } catch {
                 self.errorMessage = error.localizedDescription
-                DebugLogger.error(.canvas, "bootstrap/subscribe error: \(error.localizedDescription)")
+                DebugLogger.error(.canvas, "openCanvas/subscribe error: \(error.localizedDescription)")
             }
         }
     }
@@ -180,7 +223,8 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func startSSEStream(userId: String, canvasId: String, message: String, correlationId: String) {
-        DebugLogger.log(.canvas, "startSSEStream: user=\(userId) canvas=\(canvasId) corr=\(correlationId)")
+        let streamStartTime = Date()
+        DebugLogger.log(.canvas, "⏱️ SSE stream BEGIN: corr=\(correlationId) sessionId=\(currentSessionId ?? "nil")")
         sseStreamTask?.cancel()
         sseStreamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -200,6 +244,8 @@ final class CanvasViewModel: ObservableObject {
             var lastMeaningfulEventTime = Date()
             let streamTimeoutSeconds: TimeInterval = 30 // Timeout after 30s of only heartbeats
             var receivedDoneEvent = false
+            var firstThinkingEventTime: Date? = nil
+            var firstCardEventTime: Date? = nil
             
             do {
                 // Seed log with user prompt
