@@ -102,6 +102,7 @@ const { checkPendingResponse } = require('./canvas/check-pending-response');
 const { respondToAgent } = require('./canvas/respond-to-agent');
 const { purgeCanvas } = require('./canvas/purge-canvas');
 const { initializeSessionHandler } = require('./canvas/initialize-session');
+const { openCanvas, preWarmSession } = require('./canvas/open-canvas');
 
 // Analytics
 const { runAnalyticsForUser } = require('./analytics/controller');
@@ -218,6 +219,9 @@ exports.checkPendingResponse = functions.https.onRequest((req, res) => withApiKe
 exports.respondToAgent = functions.https.onRequest((req, res) => requireFlexibleAuth(respondToAgent)(req, res));
 exports.purgeCanvas = functions.https.onRequest((req, res) => requireFlexibleAuth(purgeCanvas)(req, res));
 exports.initializeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(initializeSessionHandler)(req, res));
+// Optimized canvas initialization (combines bootstrap + session in one call, with min instances)
+exports.openCanvas = openCanvas;
+exports.preWarmSession = preWarmSession;
 exports.runAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(runAnalyticsForUser)(req, res));
 exports.compactAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(compactAnalyticsForUser)(req, res));
 exports.publishWeeklyJob = functions.https.onRequest((req, res) => requireFlexibleAuth(publishWeeklyJob)(req, res));

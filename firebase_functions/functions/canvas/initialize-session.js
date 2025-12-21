@@ -1,5 +1,8 @@
 /**
- * Initialize Session - Creates/reuses Vertex AI session for a canvas
+ * Initialize Session - Creates/reuses Vertex AI session
+ * 
+ * OPTIMIZATION: Sessions are now reused at USER level, not canvas level.
+ * This means a new canvas can still benefit from an existing warm session.
  * 
  * Best practice: MINIMAL state. Let the agent call tools for data.
  * Speed comes from session reuse, not pre-loading data.
@@ -37,30 +40,45 @@ async function initializeSessionHandler(req, res) {
   const startTime = Date.now();
 
   try {
-    const canvasRef = db.collection('users').doc(userId).collection('canvases').doc(canvasId);
-    const canvasDoc = await canvasRef.get();
-    const canvasData = canvasDoc.data() || {};
+    // USER-LEVEL session reuse: Check for any recent session from this user
+    // This allows new canvases to benefit from warm sessions
+    const userSessionRef = db.collection('users').doc(userId).collection('agent_sessions').doc(purpose);
+    const userSessionDoc = await userSessionRef.get();
+    const userSessionData = userSessionDoc.data() || {};
     
-    const existingSessionId = canvasData.sessionId;
-    const lastActivity = canvasData.lastActivity?.toDate?.() || new Date(0);
+    const existingSessionId = userSessionData.sessionId;
+    const lastActivity = userSessionData.lastActivity?.toDate?.() || new Date(0);
     const sessionAge = Date.now() - lastActivity.getTime();
 
     // Reuse session if valid, recent, and not forcing new
     if (!forceNew && existingSessionId && sessionAge < SESSION_TTL_MS) {
-      logger.info('[initializeSession] Reusing session', {
+      logger.info('[initializeSession] Reusing USER-LEVEL session', {
         sessionId: existingSessionId,
-        ageSeconds: Math.round(sessionAge / 1000)
+        ageSeconds: Math.round(sessionAge / 1000),
+        purpose
       });
       
-      // Update last activity
-      await canvasRef.update({
-        lastActivity: admin.firestore.FieldValue.serverTimestamp()
+      // Update last activity and link to this canvas
+      const batch = db.batch();
+      batch.update(userSessionRef, {
+        lastActivity: admin.firestore.FieldValue.serverTimestamp(),
+        currentCanvasId: canvasId
       });
+      
+      // Also update canvas with session info
+      const canvasRef = db.collection('users').doc(userId).collection('canvases').doc(canvasId);
+      batch.set(canvasRef, {
+        sessionId: existingSessionId,
+        lastActivity: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      
+      await batch.commit();
 
       return res.json({
         success: true,
         sessionId: existingSessionId,
         isReused: true,
+        reuseLevel: 'user',
         latencyMs: Date.now() - startTime
       });
     }
@@ -80,15 +98,26 @@ async function initializeSessionHandler(req, res) {
       'canvas:purpose': purpose
     });
     
-    logger.info('[initializeSession] Created session', { sessionId });
+    logger.info('[initializeSession] Created new session', { sessionId });
 
-    // Persist session info
-    await canvasRef.set({
+    // Persist session info at USER level (for future reuse across canvases)
+    const batch = db.batch();
+    batch.set(userSessionRef, {
       sessionId,
       lastActivity: admin.firestore.FieldValue.serverTimestamp(),
       sessionCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      currentCanvasId: canvasId,
       purpose
+    });
+    
+    // Also update canvas with session info
+    const canvasRef = db.collection('users').doc(userId).collection('canvases').doc(canvasId);
+    batch.set(canvasRef, {
+      sessionId,
+      lastActivity: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
+    
+    await batch.commit();
 
     const latencyMs = Date.now() - startTime;
     logger.info('[initializeSession] Complete', { sessionId, latencyMs });

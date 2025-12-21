@@ -1,6 +1,13 @@
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
 
+/**
+ * Bootstrap Canvas - ALWAYS creates a new canvas for each conversation
+ * 
+ * Each new conversation gets its own canvas. Users can return to previous
+ * canvases from the home screen. Sessions are reused at the USER level
+ * (handled in initializeSession) for speed.
+ */
 async function bootstrapCanvas(req, res) {
   try {
     if (req.method !== 'POST') {
@@ -13,44 +20,35 @@ async function bootstrapCanvas(req, res) {
 
     const userId = (req.body && req.body.userId) || req.query.userId || callerUid;
     const purpose = (req.body && req.body.purpose) || req.query.purpose;
+    // Allow optional title for the canvas
+    const title = (req.body && req.body.title) || null;
     if (!userId || !purpose) return fail(res, 'INVALID_ARGUMENT', 'userId and purpose are required', null, 400);
 
     const db = admin.firestore();
     const canvasesCol = db.collection(`users/${userId}/canvases`);
 
-    // Find existing by purpose
-    const existingSnap = await canvasesCol.where('state.purpose', '==', purpose).limit(1).get();
-    if (!existingSnap.empty) {
-      const canvasId = existingSnap.docs[0].id;
-      
-      // Purge old cards and up_next entries from the canvas
-      try {
-        const cardsRef = db.collection(`users/${userId}/canvases/${canvasId}/cards`);
-        const cardSnap = await cardsRef.get();
-        const batch = db.batch();
-        cardSnap.docs.forEach(doc => batch.delete(doc.ref));
-        
-        const upNextRef = db.collection(`users/${userId}/canvases/${canvasId}/up_next`);
-        const upNextSnap = await upNextRef.get();
-        upNextSnap.docs.forEach(doc => batch.delete(doc.ref));
-        
-        await batch.commit();
-        console.log('bootstrapCanvas: purged old cards', { userId, canvasId, deletedCards: cardSnap.size, deletedUpNext: upNextSnap.size });
-      } catch (e) {
-        console.warn('bootstrapCanvas: purge failed', { error: String(e?.message || e), userId, canvasId });
-      }
-      
-      return ok(res, { canvasId });
-    }
-
-    // Create new canvas
+    // ALWAYS create a new canvas - no reuse of existing canvases
+    // Users can return to previous canvases from the home screen
     const { FieldValue } = require('firebase-admin/firestore');
     const now = FieldValue.serverTimestamp();
     const docRef = canvasesCol.doc();
-    const state = { phase: 'planning', version: 0, purpose, lanes: ['workout', 'analysis', 'system'], created_at: now, updated_at: now };
-    const meta = { user_id: userId };
+    const state = { 
+      phase: 'planning', 
+      version: 0, 
+      purpose, 
+      lanes: ['workout', 'analysis', 'system'], 
+      created_at: now, 
+      updated_at: now 
+    };
+    const meta = { 
+      user_id: userId,
+      title: title || null,  // Can be set later from first message
+      created_at: now
+    };
     await docRef.set({ state, meta });
-    return ok(res, { canvasId: docRef.id });
+    
+    console.log('bootstrapCanvas: created new canvas', { userId, canvasId: docRef.id, purpose });
+    return ok(res, { canvasId: docRef.id, isNew: true });
   } catch (err) {
     console.error('bootstrapCanvas error:', err);
     return fail(res, 'INTERNAL', 'Failed to bootstrap canvas', { message: err?.message }, 500);
@@ -58,5 +56,3 @@ async function bootstrapCanvas(req, res) {
 }
 
 module.exports = { bootstrapCanvas };
-
-
