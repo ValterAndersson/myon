@@ -640,5 +640,85 @@ Sources
 - `firebase_functions/functions/utils/idempotency.js`
 - `firebase_functions/functions/canvas/apply-action.js` (canvas-scoped usage)
 
+---
 
+## Self-Healing Validation Responses for Agents
 
+Schema-validated endpoints can return rich error responses that enable AI agents to self-correct when validation fails. This pattern is implemented via a shared utility and currently deployed on `proposeCards`.
+
+### Error Response Format
+
+When validation fails, the endpoint returns:
+
+```json
+{
+  "success": false,
+  "error": "Schema validation failed",
+  "details": {
+    "attempted": { /* the exact payload the agent sent */ },
+    "errors": [
+      {
+        "path": "/cards/0/content/blocks/0/sets/0",
+        "message": "must have required property 'target'",
+        "keyword": "required",
+        "params": { "missingProperty": "target" }
+      }
+    ],
+    "hint": "Missing required property 'target' at /cards/0/content/blocks/0/sets/0",
+    "expected_schema": { /* the actual JSON Schema that defines valid input */ }
+  }
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `attempted` | Object | The original request body (truncated if >2KB with summary) |
+| `errors` | Array | AJV validation errors with path, message, keyword, params |
+| `hint` | String | Human-readable explanation of what went wrong |
+| `expected_schema` | Object | The JSON Schema that defines valid input structure |
+
+### Agent Self-Correction Flow
+
+1. Agent sends a request that fails schema validation
+2. Endpoint returns the error response with `attempted` + `expected_schema`
+3. Agent compares what it sent vs. what the schema expects
+4. Agent fixes the discrepancy and retries
+
+### Shared Utility
+
+Location: `firebase_functions/functions/utils/validation-response.js`
+
+```javascript
+const { formatValidationResponse } = require('../utils/validation-response');
+
+// In your endpoint:
+if (!validationResult.valid) {
+  const schema = SCHEMAS[cardType] || null;
+  const details = formatValidationResponse(req.body, validationResult.errors, schema);
+  return fail(res, 'INVALID_ARGUMENT', 'Schema validation failed', details, 400);
+}
+```
+
+### Exported Functions
+
+- `formatValidationResponse(input, errors, schema)` - Formats the full error response
+- `getHintForErrors(errors)` - Generates human-readable hints from AJV errors
+- `summarizeInput(input)` - Creates a summary for truncated inputs
+
+### Currently Deployed On
+
+- `proposeCards` - Canvas card proposal endpoint (session_plan schema)
+
+### Future Rollout
+
+This pattern can be extended to any schema-validated endpoint:
+1. Import the shared utility
+2. Load the relevant JSON schema
+3. Call `formatValidationResponse()` when validation fails
+
+Sources
+- `firebase_functions/functions/utils/validation-response.js` (shared utility)
+- `firebase_functions/functions/canvas/propose-cards.js` (implementation example)
+- `firebase_functions/functions/canvas/schemas/card_types/session_plan.schema.json` (example schema)
