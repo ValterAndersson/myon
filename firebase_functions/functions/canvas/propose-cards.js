@@ -1,7 +1,13 @@
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { formatValidationResponse } = require('../utils/validation-response');
 const { validateProposeCardsRequest } = require('./validators');
 
+// Load JSON schemas for self-healing agents (map card type -> schema)
+const CARD_SCHEMAS = {
+  session_plan: require('./schemas/card_types/session_plan.schema.json'),
+  // Add more card type schemas as needed
+};
 
 async function proposeCards(req, res) {
   try {
@@ -19,7 +25,15 @@ async function proposeCards(req, res) {
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing X-User-Id', null, 400);
 
     const v = validateProposeCardsRequest(req.body || {});
-    if (!v.valid) return fail(res, 'INVALID_ARGUMENT', 'Invalid request', v.errors, 400);
+    if (!v.valid) {
+      // Extract card type and get the corresponding schema for self-healing
+      const cards = req.body?.cards || [];
+      const cardType = cards[0]?.type || 'unknown';
+      const schema = CARD_SCHEMAS[cardType] || null;
+      const details = formatValidationResponse(req.body, v.errors, schema);
+      console.error('[proposeCards] validation failed', { uid, cardType, errorCount: v.errors.length });
+      return fail(res, 'INVALID_ARGUMENT', 'Schema validation failed', details, 400);
+    }
 
     const { canvasId, cards } = v.data;
     // Correlation (from header preferred; fallback to body if provided by clients)
@@ -111,5 +125,3 @@ async function proposeCards(req, res) {
 }
 
 module.exports = { proposeCards };
-
-
