@@ -1,17 +1,94 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const admin = require('firebase-admin');
+
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 const db = new FirestoreHelper();
+const firestore = admin.firestore();
+
+// ============================================================================
+// USER PROFILE CACHE (24-hour TTL)
+// Memory cache for hot path, Firestore cache for persistence
+// ============================================================================
+const PROFILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MEMORY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (function instance lifetime)
+
+// In-memory cache (per function instance)
+const profileCache = new Map();
+
+async function getCachedProfile(userId) {
+  // Layer 1: Memory cache (fastest)
+  const memoryCached = profileCache.get(userId);
+  if (memoryCached && Date.now() < memoryCached.expiresAt) {
+    console.log('[ProfileCache] Memory hit', { userId });
+    return { data: memoryCached.data, source: 'memory' };
+  }
+  
+  // Layer 2: Firestore cache
+  try {
+    const cacheDoc = await firestore.collection('cache').doc(`profile_${userId}`).get();
+    if (cacheDoc.exists) {
+      const cached = cacheDoc.data();
+      const cachedAt = cached.cachedAt?.toMillis?.() || 0;
+      const age = Date.now() - cachedAt;
+      
+      if (age < PROFILE_CACHE_TTL_MS) {
+        console.log('[ProfileCache] Firestore hit', { userId, age: Math.round(age / 1000) + 's' });
+        // Warm memory cache
+        profileCache.set(userId, {
+          data: cached.data,
+          expiresAt: Date.now() + MEMORY_CACHE_TTL_MS
+        });
+        return { data: cached.data, source: 'firestore' };
+      }
+    }
+  } catch (e) {
+    console.warn('[ProfileCache] Firestore read error:', e.message);
+  }
+  
+  return null; // Cache miss
+}
+
+async function setCachedProfile(userId, data) {
+  // Set memory cache
+  profileCache.set(userId, {
+    data,
+    expiresAt: Date.now() + MEMORY_CACHE_TTL_MS
+  });
+  
+  // Set Firestore cache (async, don't await)
+  firestore.collection('cache').doc(`profile_${userId}`).set({
+    data,
+    userId,
+    cachedAt: admin.firestore.FieldValue.serverTimestamp()
+  }).catch(e => console.warn('[ProfileCache] Firestore write error:', e.message));
+}
+
+// Export cache invalidation helper for use by update-user.js
+async function invalidateProfileCache(userId) {
+  profileCache.delete(userId);
+  try {
+    await firestore.collection('cache').doc(`profile_${userId}`).delete();
+    console.log('[ProfileCache] Cache invalidated', { userId });
+  } catch (e) {
+    console.warn('[ProfileCache] Cache invalidation error:', e.message);
+  }
+}
+exports.invalidateProfileCache = invalidateProfileCache;
 
 /**
- * Firebase Function: Get User Profile
+ * Firebase Function: Get User Profile (with caching)
  * 
  * Description: Retrieves comprehensive user profile data including fitness preferences,
  * recent activity context, and statistics for AI analysis
  */
 async function getUserHandler(req, res) {
   const userId = req.query.userId || req.body?.userId;
+  const skipCache = req.query.skipCache || req.body?.skipCache;
   
   if (!userId) {
     return res.status(400).json({
@@ -22,6 +99,22 @@ async function getUserHandler(req, res) {
   }
 
   try {
+    // Check cache first (unless skipCache=true)
+    if (String(skipCache).toLowerCase() !== 'true') {
+      const cached = await getCachedProfile(userId);
+      if (cached) {
+        return res.status(200).json({
+          ...cached.data,
+          metadata: {
+            ...cached.data.metadata,
+            source: cached.source,
+            cachedAt: new Date().toISOString()
+          }
+        });
+      }
+    }
+    console.log('[ProfileCache] Cache miss, querying Firestore...');
+    
     // Get user data
     const user = await db.getDocument('users', userId);
     if (!user) {
@@ -111,6 +204,11 @@ async function getUserHandler(req, res) {
       response.metadata.requestedBy = req.auth.email;
     }
 
+    // Cache the results for future requests (async, don't wait)
+    response.metadata.source = 'fresh';
+    setCachedProfile(userId, response);
+    console.log('[ProfileCache] Cached profile', { userId });
+
     return res.status(200).json(response);
 
   } catch (error) {
@@ -126,4 +224,4 @@ async function getUserHandler(req, res) {
 }
 
 // Export Firebase Function
-exports.getUser = onRequest(requireFlexibleAuth(getUserHandler)); 
+exports.getUser = onRequest(requireFlexibleAuth(getUserHandler));

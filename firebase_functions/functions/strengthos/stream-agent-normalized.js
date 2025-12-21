@@ -9,19 +9,42 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
+// ============================================================================
+// GCP AUTH TOKEN CACHE (1hr TTL - tokens are valid for ~1hr)
+// ============================================================================
+let cachedGcpToken = null;
+let tokenExpiresAt = 0;
+const TOKEN_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 min before expiry
+
+async function getGcpAuthToken() {
+  const now = Date.now();
+  if (cachedGcpToken && now < tokenExpiresAt - TOKEN_BUFFER_MS) {
+    logger.debug('[Auth] Using cached GCP token');
+    return cachedGcpToken;
+  }
+  
+  logger.info('[Auth] Fetching new GCP token...');
+  const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+  cachedGcpToken = await auth.getAccessToken();
+  tokenExpiresAt = now + (55 * 60 * 1000); // ~55 min (conservative)
+  logger.info('[Auth] GCP token cached');
+  return cachedGcpToken;
+}
+
 const TOOL_LABELS = {
-  // New unified agent tools
-  tool_set_context: 'Setting up',
-  tool_search_exercises: 'Searching exercises',
+  // Unified agent v2.0 tools (6 tools)
   tool_get_user_profile: 'Reviewing profile',
   tool_get_recent_workouts: 'Checking workout history',
+  tool_search_exercises: 'Searching exercises',
+  tool_propose_workout: 'Creating workout plan',
   tool_ask_user: 'Asking question',
+  tool_send_message: 'Sending message',
+  // Legacy tools (v1.0 - deprecated)
+  tool_set_context: 'Setting up',
   tool_record_user_info: 'Recording information',
   tool_create_workout_plan: 'Creating workout plan',
   tool_publish_workout_plan: 'Publishing plan',
-  tool_send_message: 'Sending message',
   tool_emit_status: 'Logging',
-  // Legacy tools
   tool_set_canvas_context: 'Setting up',
   tool_fetch_profile: 'Reviewing profile',
   tool_fetch_recent_sessions: 'Checking history',
@@ -129,6 +152,8 @@ function describeToolResult(name, summary = '', args = {}) {
     case 'tool_get_user_profile':
     case 'tool_fetch_profile':
       return 'Profile loaded';
+    case 'tool_propose_workout':
+      return 'Workout published';
     case 'tool_create_workout_plan':
       return 'Plan created';
     case 'tool_publish_workout_plan':
@@ -595,10 +620,9 @@ async function streamAgentNormalizedHandler(req, res) {
     const projectId = VERTEX_AI_CONFIG.projectId;
     const location = VERTEX_AI_CONFIG.location;
 
-    // Auth to Vertex
+    // Auth to Vertex (uses cached token)
     logger.info('[streamAgentNormalized] Getting Vertex AI auth token...');
-    const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-    const token = await auth.getAccessToken();
+    const token = await getGcpAuthToken();
     logger.info('[streamAgentNormalized] Got Vertex AI auth token');
 
     // If no session, create one first

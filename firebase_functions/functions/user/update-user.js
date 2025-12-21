@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { invalidateProfileCache } = require('./get-user');
 
 const db = new FirestoreHelper();
 
@@ -64,6 +65,9 @@ async function updateUserHandler(req, res) {
     // Update user
     await db.updateDocument('users', userId, sanitizedData);
     
+    // Invalidate the profile cache so next read gets fresh data
+    await invalidateProfileCache(userId);
+    
     // Get updated user data
     const updatedUser = await db.getDocument('users', userId);
 
@@ -93,4 +97,4 @@ async function updateUserHandler(req, res) {
 }
 
 // Export Firebase Function
-exports.updateUser = onRequest(requireFlexibleAuth(updateUserHandler)); 
+exports.updateUser = onRequest(requireFlexibleAuth(updateUserHandler));
