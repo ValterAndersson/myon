@@ -121,3 +121,125 @@ class CanvasFunctionsClient:
         params.append(f"limit={limit}")
         query_string = "&".join(params)
         return self._http.get(f"searchExercises?{query_string}")
+
+    # ============================================================================
+    # Routine & Template APIs (added for continuous programming)
+    # ============================================================================
+
+    def get_planning_context(
+        self,
+        user_id: str,
+        *,
+        include_templates: bool = True,
+        include_template_exercises: bool = True,
+        include_recent_workouts: bool = True,
+        workout_limit: int = 5,
+    ) -> Dict[str, Any]:
+        """Get composite planning context: user, routine, next workout, templates."""
+        return self._http.post("getPlanningContext", {
+            "userId": user_id,
+            "includeTemplates": include_templates,
+            "includeTemplateExercises": include_template_exercises,
+            "includeRecentWorkouts": include_recent_workouts,
+            "workoutLimit": workout_limit,
+        })
+
+    def get_next_workout(self, user_id: str) -> Dict[str, Any]:
+        """Get deterministic next workout template from active routine."""
+        return self._http.post("getNextWorkout", {"userId": user_id})
+
+    def get_template(self, user_id: str, template_id: str) -> Dict[str, Any]:
+        """Get a specific template with full exercise details."""
+        return self._http.post("getTemplate", {
+            "userId": user_id,
+            "templateId": template_id,
+        })
+
+    def get_user_templates(self, user_id: str) -> Dict[str, Any]:
+        """Get all templates for a user."""
+        return self._http.post("getUserTemplates", {"userId": user_id})
+
+    def create_template_from_plan(
+        self,
+        user_id: str,
+        *,
+        mode: str,  # "create" or "update"
+        plan: Dict[str, Any],
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        target_template_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Convert a session_plan to a template (create new or update existing)."""
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "mode": mode,
+            "plan": plan,
+        }
+        if name:
+            body["name"] = name
+        if description:
+            body["description"] = description
+        if target_template_id:
+            body["targetTemplateId"] = target_template_id
+        if idempotency_key:
+            body["idempotencyKey"] = idempotency_key
+        return self._http.post("createTemplateFromPlan", body)
+
+    def patch_template(
+        self,
+        user_id: str,
+        template_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        exercises: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Patch a template with narrow allowlist fields."""
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "templateId": template_id,
+        }
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if exercises is not None:
+            body["exercises"] = exercises
+        return self._http.post("patchTemplate", body)
+
+    def patch_routine(
+        self,
+        user_id: str,
+        routine_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        frequency: Optional[int] = None,
+        template_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Patch a routine with narrow allowlist fields."""
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "routineId": routine_id,
+        }
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if frequency is not None:
+            body["frequency"] = frequency
+        if template_ids is not None:
+            body["templateIds"] = template_ids
+        return self._http.post("patchRoutine", body)
+
+    def get_routine(self, user_id: str, routine_id: str) -> Dict[str, Any]:
+        """Get a specific routine."""
+        return self._http.post("getRoutine", {
+            "userId": user_id,
+            "routineId": routine_id,
+        })
+
+    def get_active_routine(self, user_id: str) -> Dict[str, Any]:
+        """Get the user's active routine."""
+        return self._http.post("getActiveRoutine", {"userId": user_id})

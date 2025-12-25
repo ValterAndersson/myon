@@ -101,6 +101,108 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 5) -
 
 
 # ============================================================================
+# TOOLS: Routine & Template Context
+# ============================================================================
+
+def tool_get_planning_context(*, user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get complete planning context in one call: user profile, active routine,
+    next workout, all templates, and recent workouts summary.
+    
+    Use this FIRST when planning a workout if the user has an active routine.
+    Returns:
+        - user: Profile with fitness level, goals, preferences
+        - activeRoutine: Current routine with template_ids and frequency
+        - nextWorkout: Template for the next workout in rotation
+        - templates: List of all user templates (with exercises)
+        - recentWorkoutsSummary: Recent training history
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    logger.info("get_planning_context uid=%s", uid)
+    return _canvas_client().get_planning_context(uid)
+
+
+def tool_get_next_workout(*, user_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get the next workout template from the user's active routine.
+    Uses deterministic rotation based on last completed workout.
+    
+    Returns:
+        - template: Full template with exercises and sets
+        - routine: Active routine info
+        - index: Position in rotation (0-based)
+        - selectionMethod: "cursor" (fast) or "history_scan" (fallback)
+    
+    Returns hasActiveRoutine=false if no routine is set.
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    logger.info("get_next_workout uid=%s", uid)
+    return _canvas_client().get_next_workout(uid)
+
+
+def tool_get_template(*, user_id: Optional[str] = None, template_id: str) -> Dict[str, Any]:
+    """
+    Get a specific template with full exercise details.
+    Use this to fetch a template when creating a plan based on it.
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    logger.info("get_template uid=%s template_id=%s", uid, template_id)
+    resp = _canvas_client().get_template(uid, template_id)
+    return resp.get("data") or resp
+
+
+def tool_save_workout_as_template(
+    *,
+    user_id: Optional[str] = None,
+    mode: str,  # "create" or "update"
+    plan: Dict[str, Any],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    target_template_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Save a workout plan as a template for future use.
+    
+    Args:
+        mode: "create" for new template, "update" to patch existing template
+        plan: The workout plan with title and blocks (same format as propose_workout)
+        name: Template name (required for create, optional for update)
+        description: Optional description
+        target_template_id: Required when mode="update", the template to patch
+    
+    Returns:
+        template_id of created/updated template
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    if mode == "update" and not target_template_id:
+        return {"error": "target_template_id required for update mode"}
+    
+    logger.info("save_workout_as_template uid=%s mode=%s", uid, mode)
+    
+    resp = _canvas_client().create_template_from_plan(
+        uid,
+        mode=mode,
+        plan=plan,
+        name=name,
+        description=description,
+        target_template_id=target_template_id,
+    )
+    return resp
+
+
+# ============================================================================
 # TOOLS: Exercise Catalog
 # ============================================================================
 
@@ -416,10 +518,19 @@ def tool_send_message(*, message: str) -> Dict[str, Any]:
 # ============================================================================
 
 all_tools = [
+    # User context
     FunctionTool(func=tool_get_user_profile),
     FunctionTool(func=tool_get_recent_workouts),
+    # Routine & template context
+    FunctionTool(func=tool_get_planning_context),
+    FunctionTool(func=tool_get_next_workout),
+    FunctionTool(func=tool_get_template),
+    FunctionTool(func=tool_save_workout_as_template),
+    # Exercise catalog
     FunctionTool(func=tool_search_exercises),
+    # Workout creation
     FunctionTool(func=tool_propose_workout),
+    # Communication
     FunctionTool(func=tool_ask_user),
     FunctionTool(func=tool_send_message),
 ]
@@ -468,27 +579,32 @@ You are a strength coach. Create workout plans quickly and silently.
 1. DO NOT output text while working. Execute tools silently.
 2. DO NOT apologize or explain failed searches. Just try again.
 3. DO NOT narrate your process. Just do it.
-4. ONE search is usually enough. Use limit=20 for variety.
-5. You MUST call tool_propose_workout to publish workout. Text alone does nothing.
-6. Output ONE brief message ONLY after tool_propose_workout returns {"status": "published"}.
-7. If you say "here's your workout" you MUST have just called tool_propose_workout.
+4. You MUST call tool_propose_workout to publish workout. Text alone does nothing.
+5. Output ONE brief message ONLY after tool_propose_workout returns {"status": "published"}.
 
-## SEARCH STRATEGY
-Use ONE search with the right parameter:
-- Leg workout: muscle_group="legs" limit=20
-- Push workout: split="push" limit=15
-- Pull workout: split="pull" limit=15
-- Full body: category="compound" limit=20
-- Specific muscle: primary_muscle="quadriceps" etc.
+## ROUTINE-DRIVEN PLANNING (PRIMARY PATH)
+When user asks for "next workout" or "today's workout":
+1. Call tool_get_next_workout to check for active routine
+2. If hasActiveRoutine=true: Use the returned template's exercises directly
+3. Convert template exercises to tool_propose_workout format
+4. Publish and confirm: "Here's your [template name]."
 
-If search returns <5 results, try query="squat" or query="bench" etc.
+When user asks to "plan a workout" or gives specific request:
+1. Call tool_get_planning_context to understand their setup
+2. If they have templates/routines, reference them intelligently
+3. Otherwise, fall back to creating from scratch
 
-## ESSENTIAL LEG EXERCISES
-For any leg workout, ALWAYS include:
-- A squat variation (search query="squat" if needed)
-- A hip hinge (deadlift, RDL)
-- Quad isolation (leg extension)
-- Hamstring isolation (leg curl)
+## CREATE FROM SCRATCH (FALLBACK PATH)
+Only when user has no routine OR requests something new:
+1. tool_search_exercises (ONE search, limit=20)
+2. Pick 4-5 good exercises from results
+3. tool_propose_workout with selected exercises
+4. Brief confirmation
+
+## TEMPLATE OPERATIONS
+- To save a plan as template: Use tool_save_workout_as_template with mode="create"
+- To update existing template: Use mode="update" with target_template_id
+- Only save when user explicitly requests it
 
 ## WORKOUT STRUCTURE
 - 4-5 exercises per workout
@@ -497,12 +613,11 @@ For any leg workout, ALWAYS include:
 - 8-12 reps for hypertrophy
 - RIR 2-3 for compounds, RIR 1-2 for isolation
 
-## FLOW
-1. tool_search_exercises (ONE search, limit=20)
-2. Pick 4-5 good exercises from results
-3. tool_propose_workout with selected exercises
-4. Brief confirmation: "Here's your leg workout."
-5. DONE - stop responding
+## SEARCH STRATEGY (when needed)
+- Leg workout: muscle_group="legs" limit=20
+- Push workout: split="push" limit=15
+- Pull workout: split="pull" limit=15
+- Full body: category="compound" limit=20
 
 ## WEIGHTS (if not specified)
 Beginner: Squat 40kg, Deadlift 50kg, Leg Press 80kg
