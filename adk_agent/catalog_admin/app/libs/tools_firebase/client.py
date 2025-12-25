@@ -24,6 +24,16 @@ class FirebaseFunctionsClient:
             timeout_seconds=self.timeout_seconds,
         )
 
+    @staticmethod
+    def _apply_safety_fields(body: Dict[str, Any], idempotency_key: Optional[str] = None, plan_hash: Optional[str] = None, lock_token: Optional[str] = None) -> Dict[str, Any]:
+        if idempotency_key:
+            body["idempotency_key"] = idempotency_key
+        if plan_hash:
+            body["plan_hash"] = plan_hash
+        if lock_token:
+            body["lock_token"] = lock_token
+        return body
+
     # --- Health ---
     def health(self) -> Dict[str, Any]:
         return self._http.get("health")
@@ -110,8 +120,10 @@ class FirebaseFunctionsClient:
             body["slug"] = slug
         return self._http.post("getExercise", body)
 
-    def upsert_exercise(self, exercise: Dict[str, Any]) -> Dict[str, Any]:
-        return self._http.post("upsertExercise", {"exercise": exercise})
+    def upsert_exercise(self, exercise: Dict[str, Any], *, idempotency_key: Optional[str] = None, plan_hash: Optional[str] = None, lock_token: Optional[str] = None) -> Dict[str, Any]:
+        body = {"exercise": exercise}
+        body = self._apply_safety_fields(body, idempotency_key=idempotency_key, plan_hash=plan_hash, lock_token=lock_token)
+        return self._http.post("upsertExercise", body)
 
     def ensure_exercise_exists(self, name: str, **extra: Any) -> Dict[str, Any]:
         payload = {"name": name}
@@ -125,14 +137,17 @@ class FirebaseFunctionsClient:
         return self._http.get("listFamilies", params=query)
 
     # --- Aliases ---
-    def upsert_alias(self, alias_slug: str, exercise_id: str, family_slug: Optional[str] = None) -> Dict[str, Any]:
+    def upsert_alias(self, alias_slug: str, exercise_id: str, family_slug: Optional[str] = None, *, idempotency_key: Optional[str] = None, plan_hash: Optional[str] = None, lock_token: Optional[str] = None) -> Dict[str, Any]:
         body: Dict[str, Any] = {"alias_slug": alias_slug, "exercise_id": exercise_id}
         if family_slug:
             body["family_slug"] = family_slug
+        body = self._apply_safety_fields(body, idempotency_key=idempotency_key, plan_hash=plan_hash, lock_token=lock_token)
         return self._http.post("upsertAlias", body)
 
-    def delete_alias(self, alias_slug: str) -> Dict[str, Any]:
-        return self._http.post("deleteAlias", {"alias_slug": alias_slug})
+    def delete_alias(self, alias_slug: str, *, idempotency_key: Optional[str] = None, plan_hash: Optional[str] = None, lock_token: Optional[str] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"alias_slug": alias_slug}
+        body = self._apply_safety_fields(body, idempotency_key=idempotency_key, plan_hash=plan_hash, lock_token=lock_token)
+        return self._http.post("deleteAlias", body)
 
     def search_aliases(self, q: str) -> Dict[str, Any]:
         return self._http.get("searchAliases", params={"q": q})
@@ -143,6 +158,63 @@ class FirebaseFunctionsClient:
         if startAfterName:
             body["startAfterName"] = startAfterName
         return self._http.post("normalizeCatalogPage", body)
+
+    # --- Media ---
+    def generate_motion_gif(
+        self,
+        exercise_id: str,
+        prompt: str,
+        *,
+        style_tag: str,
+        seed: Optional[str] = None,
+        storage_prefix: Optional[str] = None,
+        lane: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "exercise_id": exercise_id,
+            "prompt": prompt,
+            "style_tag": style_tag,
+        }
+        if seed:
+            body["seed"] = seed
+        if storage_prefix:
+            body["storage_prefix"] = storage_prefix
+        if lane:
+            body["lane"] = lane
+        body = self._apply_safety_fields(body, idempotency_key=idempotency_key)
+        return self._http.post("generateExerciseGif", body)
+
+    # --- Catalog Safety (locks, tasks, journal) ---
+    def acquire_lock(self, family_slug: str, ttl_seconds: int = 300, holder: Optional[str] = None) -> Dict[str, Any]:
+        body = {"family_slug": family_slug, "ttl_seconds": ttl_seconds, "holder": holder or self.user_id}
+        return self._http.post("acquireCatalogLock", body)
+
+    def renew_lock(self, family_slug: str, token: str, ttl_seconds: int = 300) -> Dict[str, Any]:
+        body = {"family_slug": family_slug, "token": token, "ttl_seconds": ttl_seconds}
+        return self._http.post("renewCatalogLock", body)
+
+    def release_lock(self, family_slug: str, token: str) -> Dict[str, Any]:
+        body = {"family_slug": family_slug, "token": token}
+        return self._http.post("releaseCatalogLock", body)
+
+    def enqueue_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        return self._http.post("enqueueCatalogTask", task)
+
+    def lease_task(self, worker_id: str) -> Dict[str, Any]:
+        return self._http.post("leaseCatalogTask", {"worker_id": worker_id})
+
+    def complete_task(self, task_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        return self._http.post("completeCatalogTask", {"task_id": task_id, "result": result})
+
+    def fail_task(self, task_id: str, error: Dict[str, Any], retry_at: Optional[str] = None) -> Dict[str, Any]:
+        body: Dict[str, Any] = {"task_id": task_id, "error": error}
+        if retry_at:
+            body["retry_at"] = retry_at
+        return self._http.post("failCatalogTask", body)
+
+    def journal_change(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        return self._http.post("catalogJournal", entry)
 
     # --- StrengthOS / Streaming ---
     def stream_agent_normalized_url(self) -> str:
