@@ -5,7 +5,7 @@ import json
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationError, validator
 
 
 class Lane(str, Enum):
@@ -141,3 +141,35 @@ def compute_idempotency_key(lane: Lane, target: Target, action: Dict[str, Any]) 
         "after": action.get("after"),
     }
     return compute_plan_hash(material)[:32]
+
+
+def validate_action_plan_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a raw action plan payload and return machine-actionable feedback.
+
+    The payload is not mutated. On success, the parsed plan object is returned for
+    downstream execution. On failure, callers receive:
+      - the attempted payload (for debugging/telemetry)
+      - the ActionPlan JSON schema (so an LLM can regenerate in the correct format)
+      - structured error entries containing path, message, type, and offending input
+    """
+
+    try:
+        plan = ActionPlan.model_validate(payload)
+        return {"ok": True, "plan": plan}
+    except ValidationError as err:
+        errors = []
+        for e in err.errors():
+            errors.append(
+                {
+                    "loc": ".".join(str(part) for part in e.get("loc", [])),
+                    "message": e.get("msg"),
+                    "error_type": e.get("type"),
+                    "input": e.get("input"),
+                }
+            )
+        return {
+            "ok": False,
+            "expected_schema": ActionPlan.model_json_schema(),
+            "received": payload,
+            "errors": errors,
+        }

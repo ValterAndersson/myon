@@ -36,6 +36,11 @@ Key guardrails:
 - `risk_tier` must match `op_type` (see `OPERATION_RISK_TIERS`).
 - `noop` is valid and expected when no lint improvement is possible.
 
+Schema validation feedback:
+- `validate_action_plan_payload` (in `app/action_schema.py`) turns any raw plan payload into either a parsed `ActionPlan` or a
+  structured error object that echoes the attempted payload, the expected JSON schema, and machine-readable validation errors
+  (path, message, type, offending input). This lets upstream LLM steps regenerate a compliant plan when they drift off schema.
+
 ## Policy middleware
 `PolicyMiddleware` enforces:
 - Lane allowlists for tiers (realtime: 0/1, batch: 0/1; tier2/3 feature flagged).
