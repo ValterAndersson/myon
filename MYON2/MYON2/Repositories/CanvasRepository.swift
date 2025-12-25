@@ -40,12 +40,15 @@ final class CanvasRepository: CanvasRepositoryProtocol {
                 }
             }
 
+            var hasReceivedServerCards = false
             let cardsListener = cardsRef.addSnapshotListener { snap, err in
                 if let err { continuation.finish(throwing: err); return }
                 guard let snap else { return }
-                if snap.metadata.isFromCache {
+                // Only skip cache on FIRST load (before server data arrives)
+                if snap.metadata.isFromCache && !hasReceivedServerCards {
                     return
                 }
+                hasReceivedServerCards = true
                 let docs = snap.documents
                 var nextCards: [String: CanvasCardModel] = [:]
                 for doc in docs {
@@ -72,5 +75,3 @@ final class CanvasRepository: CanvasRepositoryProtocol {
         }
     }
 }
-
-

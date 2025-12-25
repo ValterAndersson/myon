@@ -31,6 +31,13 @@ async function getGcpAuthToken() {
   return cachedGcpToken;
 }
 
+// Invalidate cached token on auth errors (401/403)
+function invalidateTokenCache() {
+  logger.info('[Auth] Invalidating cached GCP token');
+  cachedGcpToken = null;
+  tokenExpiresAt = 0;
+}
+
 const TOOL_LABELS = {
   // Unified agent v2.0 tools (6 tools)
   tool_get_user_profile: 'Reviewing profile',
@@ -528,6 +535,56 @@ class TextNormalizer {
   nextSeq() { this.seq += 1; return this.seq; }
 }
 
+// Create a fresh Vertex AI session (bypassing cache)
+async function createFreshSession(userId, purpose, token, agentId, projectId, location) {
+  const createUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:query`;
+  
+  logger.info('[createFreshSession] Creating new Vertex AI session...');
+  const response = await axios.post(createUrl, {
+    class_method: 'create_session',
+    input: { user_id: userId, state: { 'user:id': userId } },
+  }, { 
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    timeout: 30000 
+  });
+  
+  const sessionId = response.data?.output?.id || response.data?.output?.session_id || response.data?.id;
+  if (!sessionId) {
+    throw new Error('Failed to create Vertex AI session - no ID returned');
+  }
+  
+  // Store the new session in Firestore
+  const sessionDocRef = db.collection('users').doc(userId).collection('agent_sessions').doc(purpose || 'default');
+  await sessionDocRef.set({
+    sessionId,
+    purpose: purpose || 'default',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastUsedAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+  
+  logger.info('[createFreshSession] Created new session', { sessionId });
+  return sessionId;
+}
+
+// Invalidate all cached sessions for a user
+async function invalidateUserSessions(userId) {
+  try {
+    const sessionsRef = db.collection('users').doc(userId).collection('agent_sessions');
+    const sessions = await sessionsRef.get();
+    if (sessions.empty) return 0;
+    
+    const deleteBatch = db.batch();
+    sessions.docs.forEach(doc => deleteBatch.delete(doc.ref));
+    await deleteBatch.commit();
+    
+    logger.info('[invalidateUserSessions] Deleted stale sessions', { userId, count: sessions.size });
+    return sessions.size;
+  } catch (err) {
+    logger.warn('[invalidateUserSessions] Failed to delete sessions', { error: String(err) });
+    return 0;
+  }
+}
+
 async function streamAgentNormalizedHandler(req, res) {
   // CORS preflight handled by outer middleware when wrapped
   if (req.method !== 'POST') {
@@ -655,30 +712,68 @@ async function streamAgentNormalizedHandler(req, res) {
     logger.info('[streamAgentNormalized] Sending stream request to Vertex AI', { 
       agentId, 
       sessionId: sessionToUse,
-      messageLength: finalMessage.length
+      messageLength: finalMessage.length,
+      url,
     });
 
     // Request as a stream
-    const response = await axios({
-      method: 'post',
-      url,
-      data: payload,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      responseType: 'stream',
-      timeout: 60000,
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      validateStatus: (status) => status >= 200 && status < 500,
+    let response;
+    try {
+      response = await axios({
+        method: 'post',
+        url,
+        data: payload,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        responseType: 'stream',
+        timeout: 60000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        validateStatus: (status) => status >= 200 && status < 500,
+      });
+    } catch (axiosErr) {
+      logger.error('[streamAgentNormalized] Axios request failed', { 
+        error: String(axiosErr?.message || axiosErr),
+        response: axiosErr?.response?.data ? String(axiosErr.response.data).slice(0, 500) : null,
+        status: axiosErr?.response?.status,
+      });
+      throw axiosErr;
+    }
+    
+    logger.info('[streamAgentNormalized] Got response from Vertex AI', { 
+      status: response.status,
+      headers: response.headers ? Object.keys(response.headers) : null,
     });
     
-    logger.info('[streamAgentNormalized] Got response from Vertex AI', { status: response.status });
+    // Check for non-200 status
+    if (response.status >= 400) {
+      const errorBody = await new Promise((resolve) => {
+        let data = '';
+        response.data.on('data', (chunk) => { data += chunk.toString(); });
+        response.data.on('end', () => { resolve(data); });
+        response.data.on('error', () => { resolve(data); });
+      });
+      logger.error('[streamAgentNormalized] Vertex AI returned error', { status: response.status, body: errorBody.slice(0, 1000) });
+      
+      // Invalidate token cache on auth errors (401/403)
+      if (response.status === 401 || response.status === 403) {
+        invalidateTokenCache();
+      }
+      
+      sse.write({ type: 'error', error: `Vertex AI error: ${response.status} - ${errorBody.slice(0, 200)}` });
+      done(false, new Error(`Vertex AI returned ${response.status}`));
+      return;
+    }
 
     // Line-by-line reader with state tracking
     let partial = '';
     let isCurrentlyThinking = false;
     let hasEmittedThinkingEvent = false;
+    let lineCount = 0;
+    let dataChunkCount = 0;
     
     response.data.on('data', (chunk) => {
+      dataChunkCount++;
+      logger.debug('[streamAgentNormalized] Received data chunk', { chunkNum: dataChunkCount, length: chunk.length });
       partial += chunk.toString('utf8');
       const lines = partial.split('\n');
       partial = lines.pop();
@@ -808,12 +903,42 @@ async function streamAgentNormalizedHandler(req, res) {
       }
     });
 
-    response.data.on('end', () => {
+    response.data.on('end', async () => {
+      logger.info('[streamAgentNormalized] Vertex AI stream ended', { 
+        dataChunks: dataChunkCount, 
+        bufferLength: normalizer.buffer.length,
+        sessionId: sessionToUse
+      });
+      
       // Flush remaining buffer
       const pre = normalizer.preprocess(normalizer.buffer);
       if (pre) {
         sse.write({ type: 'text_commit', text: pre });
       }
+      
+      // If no data chunks received, the session is likely corrupted/stale
+      if (dataChunkCount === 0) {
+        logger.warn('[streamAgentNormalized] Stream ended with NO data - invalidating session', { 
+          sessionId: sessionToUse 
+        });
+        
+        // Invalidate the cached session so a fresh one is created next time
+        // The session is stored at: users/{userId}/agent_sessions/{purpose}
+        try {
+          // Delete all agent sessions for this user to force refresh
+          const sessionsRef = db.collection('users').doc(userId).collection('agent_sessions');
+          const sessions = await sessionsRef.get();
+          const deleteBatch = db.batch();
+          sessions.docs.forEach(doc => deleteBatch.delete(doc.ref));
+          await deleteBatch.commit();
+          logger.info('[streamAgentNormalized] Deleted stale sessions for user', { userId, count: sessions.size });
+        } catch (err) {
+          logger.warn('[streamAgentNormalized] Failed to delete stale sessions', { error: String(err) });
+        }
+        
+        sse.write({ type: 'error', error: 'Session expired. Please try again.' });
+      }
+      
       done(true);
     });
 

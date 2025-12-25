@@ -152,31 +152,41 @@ public struct SessionPlanCard: View {
     // MARK: - Title Row
     
     private var titleRow: some View {
-        HStack(alignment: .center, spacing: Space.sm) {
-            // Title
-            Text(model.title ?? "Workout")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
-            
-            // Status pill
-            Text(statusText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(statusColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(statusColor.opacity(0.12))
-                .clipShape(Capsule())
-            
-            Spacer()
-            
-            // Minimal overflow (only for destructive/rare actions)
-            Button { showingActionsSheet = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary)
-                    .frame(width: 28, height: 28)
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            HStack(alignment: .center, spacing: Space.sm) {
+                // Title
+                Text(model.title ?? "Workout")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(ColorsToken.Text.primary)
+                
+                // Status pill
+                Text(statusText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(statusColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(statusColor.opacity(0.12))
+                    .clipShape(Capsule())
+                
+                Spacer()
+                
+                // Minimal overflow (only for destructive/rare actions)
+                Button { showingActionsSheet = true } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
+            
+            // Coach narrative caption (one line, plain text - NOT italic)
+            if let coachNotes = model.meta?.notes, !coachNotes.isEmpty {
+                Text(coachNotes)
+                    .font(.system(size: 13))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .lineLimit(1)
+            }
         }
     }
     
@@ -199,24 +209,62 @@ public struct SessionPlanCard: View {
             .foregroundColor(ColorsToken.Text.secondary)
     }
     
-    // MARK: - Iteration Actions (visible, not in menu)
+    // MARK: - Iteration Actions (Restrained: 2 visible + Coach menu)
     
     private var iterationActions: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Space.sm) {
-                iterationPill("Shorter", icon: "minus.circle") {
-                    fireAdjustment("Make this session shorter - reduce total sets or exercises")
-                }
-                iterationPill("Harder", icon: "flame") {
-                    fireAdjustment("Make this session more challenging - increase intensity or volume")
-                }
-                iterationPill("Swap Focus", icon: "arrow.triangle.2.circlepath") {
-                    fireAdjustment("Change the muscle focus of this workout")
-                }
-                iterationPill("Regenerate", icon: "sparkles") {
-                    fireAdjustment("Regenerate this workout plan with different exercises")
-                }
+        HStack(spacing: Space.sm) {
+            // Visible: 2 most common quick actions
+            iterationPill("Shorter", icon: "minus.circle") {
+                fireAdjustment("Make this session shorter - reduce total sets or exercises")
             }
+            iterationPill("Harder", icon: "flame") {
+                fireAdjustment("Make this session more challenging - increase intensity or volume")
+            }
+            
+            // Coach menu: Less common actions
+            Menu {
+                Button {
+                    fireAdjustment("Change the muscle focus of this workout")
+                } label: {
+                    Label("Swap Focus", systemImage: "arrow.triangle.2.circlepath")
+                }
+                
+                Button {
+                    fireAdjustment("Regenerate this workout plan with different exercises")
+                } label: {
+                    Label("Regenerate Plan", systemImage: "sparkles")
+                }
+                
+                Divider()
+                
+                Button {
+                    fireAdjustment("Balance the volume more evenly across muscle groups")
+                } label: {
+                    Label("Balance Volume", systemImage: "scale.3d")
+                }
+                
+                Button {
+                    fireAdjustment("Adjust for limited equipment availability")
+                } label: {
+                    Label("Equipment Limits", systemImage: "wrench.adjustable")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11))
+                    Text("Coach")
+                        .font(.system(size: 12, weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                }
+                .foregroundColor(ColorsToken.Brand.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .clipShape(Capsule())
+            }
+            
+            Spacer()
         }
     }
     

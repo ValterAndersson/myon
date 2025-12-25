@@ -38,8 +38,9 @@ async function getGcpAuthToken() {
   return cachedGcpToken;
 }
 
-// Session TTL: 30 minutes of inactivity
-const SESSION_TTL_MS = 30 * 60 * 1000;
+// Session TTL: 10 minutes of inactivity (reduced from 30 to prevent stale session issues)
+// Vertex AI agent sessions can become corrupted/stuck, so shorter TTL is safer
+const SESSION_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Get or create a Vertex AI session for the user

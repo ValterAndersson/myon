@@ -31,6 +31,7 @@ struct WorkspaceTimelineView: View {
     let answeredClarifications: Set<String>
     let onClarificationSubmit: (String, String, String) -> Void
     let onClarificationSkip: (String, String) -> Void
+    var hideThinkingEvents: Bool = false  // Hide old SRE stream when showing new skeleton
     
     @State private var autoScroll = true
     @State private var scrollProxy: ScrollViewProxy?
@@ -507,6 +508,8 @@ struct WorkspaceTimelineView: View {
             return .userMessage(text: text)
             
         case .thinking, .thought:
+            // Skip thinking events when hideThinkingEvents is true (showing new skeleton instead)
+            if hideThinkingEvents { return nil }
             // Build a ThoughtTrack from this summarized event
             let text = entry.event.content?["text"]?.value as? String ?? ""
             let duration = entry.event.content?["duration_s"]?.value as? Double ?? 0

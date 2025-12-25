@@ -26,6 +26,9 @@ final class CanvasViewModel: ObservableObject {
     @Published var showStreamOverlay: Bool = false
     @Published var workspaceEvents: [WorkspaceEvent] = []
     @Published var pendingClarificationCue: ClarificationCue? = nil
+    
+    // Monotonic progress tracking (Phase 1 UX Polish)
+    @Published var progressState = AgentProgressState()
 
     private let repo: CanvasRepositoryProtocol
     private let service: CanvasServiceProtocol
@@ -238,6 +241,9 @@ final class CanvasViewModel: ObservableObject {
                 self.messageBuffer = ""
                 self.thoughtStartAt = Date().timeIntervalSince1970
                 self.toolStartByName.removeAll()
+                // Reset progress state for new work (Phase 1 UX Polish)
+                self.progressState.reset()
+                self.progressState.advance(to: .understanding)
             }
             
             // Track last meaningful event time for timeout detection
@@ -330,6 +336,8 @@ final class CanvasViewModel: ObservableObject {
             isAgentThinking = true
             let toolName = (event.content?["tool"]?.value as? String) ?? (event.content?["tool_name"]?.value as? String) ?? "tool"
             toolStartByName[toolName] = event.timestamp ?? now
+            // Advance progress state based on tool (Phase 1 UX Polish)
+            progressState.advance(with: toolName)
             // Replace text with humanized label
             let human = humanReadableToolName(toolName)
             let text = "Looking at \(human)"
@@ -388,6 +396,9 @@ final class CanvasViewModel: ObservableObject {
             showStreamOverlay = false
             isAgentThinking = false
         case .done:
+            // Mark progress complete (Phase 1 UX Polish)
+            progressState.complete()
+            
             // Close any ongoing thinking period
             if let start = thoughtStartAt {
                 let secs = max(0, (event.timestamp ?? now) - start)

@@ -37,8 +37,21 @@ struct CanvasScreen: View {
                 syntheticClarification: syntheticClarificationPrompt,
                 answeredClarifications: answeredClarifications,
                 onClarificationSubmit: handleClarificationSubmit,
-                onClarificationSkip: handleClarificationSkip
+                onClarificationSkip: handleClarificationSkip,
+                hideThinkingEvents: vm.isAgentThinking && !hasSessionPlanCard  // Hide old SRE stream when showing skeleton
             )
+            
+            // Show skeleton loader when agent is working and no plan card exists yet
+            if vm.isAgentThinking && !hasSessionPlanCard {
+                VStack(spacing: Space.sm) {
+                    AgentProgressIndicator(progressState: vm.progressState)
+                    PlanCardSkeleton()
+                }
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.sm)
+                .transition(.opacity)
+            }
+            
             composeBar(pendingClarification: pendingClarification)
         }
         .environment(\.cardActionHandler, handleCardAction)
@@ -105,6 +118,11 @@ private extension Optional where Wrapped == String {
 
 // MARK: - Compose Bar
 extension CanvasScreen {
+    /// Check if there's any session plan card
+    private var hasSessionPlanCard: Bool {
+        vm.cards.contains { $0.type == .session_plan }
+    }
+    
     /// Check if there's an active proposed plan (makes it the focal element)
     private var hasProposedPlan: Bool {
         vm.cards.contains { (card: CanvasCardModel) -> Bool in

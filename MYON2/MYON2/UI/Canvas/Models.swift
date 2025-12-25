@@ -295,8 +295,22 @@ public struct CardMeta: Equatable, Codable {
     public let groupId: String?
     public let pinned: Bool?
     public let dismissible: Bool?
-    public init(context: String? = nil, groupId: String? = nil, pinned: Bool? = nil, dismissible: Bool? = nil) {
-        self.context = context; self.groupId = groupId; self.pinned = pinned; self.dismissible = dismissible
+    public let notes: String?  // Coach narrative caption for plan cards
+    
+    enum CodingKeys: String, CodingKey {
+        case context
+        case groupId = "group_id"
+        case pinned
+        case dismissible
+        case notes
+    }
+    
+    public init(context: String? = nil, groupId: String? = nil, pinned: Bool? = nil, dismissible: Bool? = nil, notes: String? = nil) {
+        self.context = context
+        self.groupId = groupId
+        self.pinned = pinned
+        self.dismissible = dismissible
+        self.notes = notes
     }
 }
 

@@ -1,7 +1,46 @@
 import SwiftUI
+import UIKit
 
 /// Centralized design tokens for spacing, typography, colors, motion, and elevation.
 /// These tokens aim to be stable and composable; components should consume tokens rather than hard-coded values.
+
+// MARK: - Light/Dark Mode Color Helper
+
+public extension Color {
+    /// Initialize a color that adapts to light/dark mode
+    init(light: Color, dark: Color) {
+        self.init(UIColor { traitCollection in
+            traitCollection.userInterfaceStyle == .dark 
+                ? UIColor(dark) 
+                : UIColor(light)
+        })
+    }
+    
+    /// Initialize from hex string
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
 public enum Space {
     public static let zero: CGFloat = 0
     public static let xxs: CGFloat = 2
@@ -113,10 +152,60 @@ public enum ColorsToken {
         public static var raised: Color { Color.white }
         /// Plain card surface
         public static var card: Color { Color.white }
+        
+        // MARK: - Semantic Selection Surfaces (Light/Dark Ready)
+        
+        /// Selected/focused row background - NOT brand-derived for dark mode compatibility
+        public static var focusedRow: Color { 
+            Color(
+                light: Color(hex: "E8F0FE"),   // Soft blue tint in light mode
+                dark: Color(hex: "1A3352")     // Deep blue for dark mode
+            )
+        }
+        
+        /// Row being actively edited
+        public static var editingRow: Color { 
+            Color(
+                light: Color(hex: "F1F5F9"),   // Neutral slate
+                dark: Color(hex: "1E293B")     // Slate dark
+            )
+        }
+        
+        /// Grid header row background
+        public static var headerBar: Color {
+            Color(
+                light: ColorsToken.Neutral.n100,
+                dark: Color(hex: "1E1E1E")
+            )
+        }
+        
+        /// Alternating row for tables/grids
+        public static var alternateRow: Color {
+            Color(
+                light: ColorsToken.Neutral.n50.opacity(0.5),
+                dark: Color(hex: "252525").opacity(0.5)
+            )
+        }
     }
     public enum Border {
         public static var `default`: Color { ColorsToken.Neutral.n300 }
         public static var subtle: Color { ColorsToken.Neutral.n200 }
+    }
+    
+    /// Separator/divider colors with dark mode support
+    public enum Separator {
+        public static var hairline: Color {
+            Color(
+                light: ColorsToken.Neutral.n200,
+                dark: Color(hex: "333333")
+            )
+        }
+        public static var `default`: Color {
+            Color(
+                light: ColorsToken.Neutral.n300,
+                dark: Color(hex: "404040")
+            )
+        }
     }
     public enum Text {
         public static var primary: Color { ColorsToken.Neutral.n900 }
@@ -157,5 +246,3 @@ public extension View {
         shadow(color: style.color, radius: style.blur, x: style.x, y: style.y)
     }
 }
-
-
