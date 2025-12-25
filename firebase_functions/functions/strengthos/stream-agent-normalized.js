@@ -754,9 +754,15 @@ async function streamAgentNormalizedHandler(req, res) {
       });
       logger.error('[streamAgentNormalized] Vertex AI returned error', { status: response.status, body: errorBody.slice(0, 1000) });
       
-      // Invalidate token cache on auth errors (401/403)
+      // Invalidate token cache AND session on auth errors (401/403)
+      // 401 often means the session was created with an old agent version
       if (response.status === 401 || response.status === 403) {
         invalidateTokenCache();
+        // Also invalidate the session - it was likely created with old agent
+        await invalidateUserSessions(userId);
+        sse.write({ type: 'error', error: 'Session expired after agent update. Please try again.', text: 'Session expired after agent update. Please try again.' });
+        done(false, new Error(`Vertex AI returned ${response.status}`));
+        return;
       }
       
       sse.write({ type: 'error', error: `Vertex AI error: ${response.status} - ${errorBody.slice(0, 200)}` });
