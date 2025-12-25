@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum MainTab {
-    case chat, components, canvas
+    case chat, routines, templates, canvas, components
 }
 
 struct MainTabsView: View {
@@ -16,12 +16,15 @@ struct MainTabsView: View {
             .tabItem { Label("Chat", systemImage: "message") }
             .tag(MainTab.chat)
 
-            // Components Gallery
-            NavigationStack {
-                ComponentGallery()
-            }
-            .tabItem { Label("Components", systemImage: "rectangle.3.offgrid") }
-            .tag(MainTab.components)
+            // Routines
+            RoutinesListView()
+                .tabItem { Label("Routines", systemImage: "figure.run") }
+                .tag(MainTab.routines)
+
+            // Templates
+            TemplatesListView()
+                .tabItem { Label("Templates", systemImage: "doc.text") }
+                .tag(MainTab.templates)
 
             // Canvas
             Group {
@@ -33,6 +36,15 @@ struct MainTabsView: View {
             }
             .tabItem { Label("Canvas", systemImage: "square.grid.2x2") }
             .tag(MainTab.canvas)
+
+            // Components Gallery (Development only)
+            #if DEBUG
+            NavigationStack {
+                ComponentGallery()
+            }
+            .tabItem { Label("Dev", systemImage: "rectangle.3.offgrid") }
+            .tag(MainTab.components)
+            #endif
         }
     }
 }
@@ -42,5 +54,3 @@ struct MainTabsView_Previews: PreviewProvider {
     static var previews: some View { MainTabsView() }
 }
 #endif
-
-

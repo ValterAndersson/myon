@@ -10,6 +10,10 @@ struct Routine: Codable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
     
+    // Cursor fields for deterministic next workout selection
+    var lastCompletedTemplateId: String?
+    var lastCompletedAt: Date?
+    
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -19,6 +23,8 @@ struct Routine: Codable, Identifiable {
         case frequency
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case lastCompletedTemplateId = "last_completed_template_id"
+        case lastCompletedAt = "last_completed_at"
     }
 }
 
@@ -366,4 +372,4 @@ struct StimulusCalculator {
         
         return recommendations
     }
-} 
+}
