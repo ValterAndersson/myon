@@ -47,20 +47,21 @@ Rejected actions return machine-readable reasons. No tool call bypasses this lay
 
 ## Locking, idempotency, and journaling
 - The Firebase client now accepts `idempotency_key`, `plan_hash`, and `lock_token` for exercise and alias mutations. Server-side enforcement is expected on the Functions boundary.
-- `LockManager` acquires per-family leases via Functions (`acquireCatalogLock`, `renewCatalogLock`, `releaseCatalogLock`).
-- `JournalWriter` emits structured change records through `catalogJournal`.
+- `LockManager` acquires per-family leases via Functions (`acquireCatalogLock`, `renewCatalogLock`, `releaseCatalogLock`) and the runner now acquires the same lock for alias upserts/deletes to avoid cross-family collisions.
+- `JournalWriter` emits structured change records through `catalogJournal`, including the mutated `field_path` for downstream cooldown tracking.
 
 ## Task queue and runners
 - `TaskQueue` wraps Functions endpoints to enqueue/lease/complete catalog tasks.
-- `DeterministicShardScheduler` enqueues N shard tasks for the daily batch run.
+- `DeterministicShardScheduler` enqueues N shard tasks for the daily batch run using a stable SHA-256 hash of `family_slug` to keep shards sticky across runs.
 - `runner.py` provides:
   - `run_worker()` to pull tasks, generate action plans, apply policy, and execute mutations with locks and journaling.
   - `enqueue_realtime_task(exercise_id)` for Firestore triggers to push new exercises.
   - `schedule_daily_shards()` for cron-style daily scheduling.
+  - Shard fetches bypass cache (`skipCache=true`) to avoid stale slices and request a broader page to reduce missed entities per shard.
 
 ## Linting and cooldown
 - `lint.py` provides deterministic scoring of required fields, banned phrases, and cue richness.
-- `CooldownTracker` records per-field timestamps to block style churn across runs.
+- `CooldownTracker` records per-field timestamps to block style churn across and within runs; the runner updates cooldown state after successful mutations so later tasks in the same loop see the block immediately.
 
 ## Defaults and feature flags
 - Batch lane defaults to dry run; enable apply via `ENABLE_BATCH_APPLY=1`.

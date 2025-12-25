@@ -14,7 +14,7 @@ class ActionPlanner:
 
     def _build_upsert_action(self, target: Target, before: Dict[str, Any], patch: Dict[str, Any]) -> Action:
         after = {**before, **patch}
-        plan_hash = compute_plan_hash({"before": before})
+        plan_hash = compute_plan_hash({"before": before, "after": after})
         action_dict = {
             "op_type": OperationType.upsert_exercise,
             "risk_tier": 0,

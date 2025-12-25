@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import random
@@ -27,7 +28,8 @@ def _client() -> FirebaseFunctionsClient:
 
 
 def _hash_family(name: str, total: int) -> int:
-    return hash(name) % total
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return int(digest, 16) % total
 
 
 def fetch_exercise_snapshot(client: FirebaseFunctionsClient, exercise_id: str) -> Dict[str, Any]:
@@ -38,29 +40,73 @@ def fetch_exercise_snapshot(client: FirebaseFunctionsClient, exercise_id: str) -
     return resp.get("exercise") if isinstance(resp, dict) else {}
 
 
-def fetch_shard(client: FirebaseFunctionsClient, shard_index: int, shard_total: int, page_size: int = 200) -> List[Dict[str, Any]]:
-    resp = client.search_exercises(limit=page_size, canonicalOnly=True)  # type: ignore[arg-type]
+def fetch_shard(
+    client: FirebaseFunctionsClient, shard_index: int, shard_total: int, page_size: int = 200
+) -> List[Dict[str, Any]]:
+    configured_page_size = int(os.getenv("SHARD_PAGE_SIZE", str(page_size)))
+    resp = client.search_exercises(limit=configured_page_size, canonicalOnly=True, skipCache=True)  # type: ignore[arg-type]
     items = resp.get("data", {}).get("items", []) if isinstance(resp, dict) else []
     return [ex for ex in items if _hash_family(str(ex.get("family_slug")), shard_total) == shard_index]
 
 
-def apply_actions(plan: ActionPlan, actions, client: FirebaseFunctionsClient, lock_manager: LockManager, journal: JournalWriter) -> List[Dict[str, Any]]:  # type: ignore[no-untyped-def]
+def _lock_key_for_action(action) -> str | None:  # type: ignore[no-untyped-def]
+    before = action.before if isinstance(action.before, dict) else {}
+    after = action.after if isinstance(action.after, dict) else {}
+    return (
+        after.get("family_slug")
+        or before.get("family_slug")
+        or after.get("exercise_id")
+        or before.get("exercise_id")
+    )
+
+
+def apply_actions(
+    plan: ActionPlan,
+    actions,
+    client: FirebaseFunctionsClient,
+    lock_manager: LockManager,
+    journal: JournalWriter,
+    tracker: CooldownTracker,
+) -> List[Dict[str, Any]]:  # type: ignore[no-untyped-def]
     results: List[Dict[str, Any]] = []
     for action in actions:
         if plan.mode == Mode.dry_run:
             results.append({"status": "skipped", "reason": "dry_run", "action": action.op_type.value})
             continue
-        if action.op_type.value.startswith("upsert_exercise"):
-            lock = lock_manager.acquire(action.after.get("family_slug") or action.after.get("id", "unknown"))
-            if not lock:
-                results.append({"status": "deferred", "reason": "lock_unavailable", "action": action.op_type.value})
+        lock = None
+        lock_key = _lock_key_for_action(action)
+        try:
+            if lock_key:
+                lock = lock_manager.acquire(lock_key)
+                if not lock:
+                    results.append({"status": "deferred", "reason": "lock_unavailable", "action": action.op_type.value})
+                    continue
+            if action.op_type.value.startswith("upsert_exercise"):
+                resp = client.upsert_exercise(
+                    action.after,
+                    idempotency_key=action.idempotency_key,
+                    plan_hash=action.plan_hash,
+                    lock_token=lock.token if lock else None,
+                )
+            elif action.op_type == action.op_type.upsert_alias:
+                resp = client.upsert_alias(
+                    action.after.get("alias_slug"),
+                    action.after.get("exercise_id"),
+                    action.after.get("family_slug"),
+                    idempotency_key=action.idempotency_key,
+                    plan_hash=action.plan_hash,
+                    lock_token=lock.token if lock else None,
+                )
+            elif action.op_type == action.op_type.delete_alias:
+                resp = client.delete_alias(
+                    action.before.get("alias_slug") or action.after.get("alias_slug"),
+                    idempotency_key=action.idempotency_key,
+                    plan_hash=action.plan_hash,
+                    lock_token=lock.token if lock else None,
+                )
+            else:
+                results.append({"status": "noop", "action": action.op_type.value})
                 continue
-            resp = client.upsert_exercise(
-                action.after,
-                idempotency_key=action.idempotency_key,
-                plan_hash=action.plan_hash,
-                lock_token=lock.token,
-            )
             journal.write(
                 {
                     "action": action.op_type.value,
@@ -71,52 +117,14 @@ def apply_actions(plan: ActionPlan, actions, client: FirebaseFunctionsClient, lo
                     "mode": plan.mode.value,
                     "before": action.before,
                     "after": action.after,
+                    "field_path": action.field_path,
                 }
             )
-            lock_manager.release(lock)
+            tracker.record(action.field_path)
             results.append(resp)
-        elif action.op_type == action.op_type.upsert_alias:
-            resp = client.upsert_alias(
-                action.after.get("alias_slug"),
-                action.after.get("exercise_id"),
-                action.after.get("family_slug"),
-                idempotency_key=action.idempotency_key,
-                plan_hash=action.plan_hash,
-            )
-            journal.write(
-                {
-                    "action": action.op_type.value,
-                    "target": plan.target.model_dump(mode="json"),
-                    "idempotency_key": action.idempotency_key,
-                    "plan_hash": action.plan_hash,
-                    "lane": plan.lane.value,
-                    "mode": plan.mode.value,
-                    "before": action.before,
-                    "after": action.after,
-                }
-            )
-            results.append(resp)
-        elif action.op_type == action.op_type.delete_alias:
-            resp = client.delete_alias(
-                action.before.get("alias_slug") or action.after.get("alias_slug"),
-                idempotency_key=action.idempotency_key,
-                plan_hash=action.plan_hash,
-            )
-            journal.write(
-                {
-                    "action": action.op_type.value,
-                    "target": plan.target.model_dump(mode="json"),
-                    "idempotency_key": action.idempotency_key,
-                    "plan_hash": action.plan_hash,
-                    "lane": plan.lane.value,
-                    "mode": plan.mode.value,
-                    "before": action.before,
-                    "after": action.after,
-                }
-            )
-            results.append(resp)
-        else:
-            results.append({"status": "noop", "action": action.op_type.value})
+        finally:
+            if lock:
+                lock_manager.release(lock)
     return results
 
 
@@ -136,7 +144,7 @@ def process_task(task: CatalogTask, client: FirebaseFunctionsClient, policy: Pol
         exercise = fetch_exercise_snapshot(client, target.id)
         plan = planner.build_plan_for_exercise(target, exercise, mode=mode)
         policy_result = policy.enforce_batch_dampening(plan, tracker)
-        applied = apply_actions(plan, policy_result.approved_actions, client, lock_manager, journal)
+        applied = apply_actions(plan, policy_result.approved_actions, client, lock_manager, journal, tracker)
         return {
             "plan": plan.model_dump(mode="json"),
             "approved": [a.model_dump(mode="json") for a in policy_result.approved_actions],
@@ -151,7 +159,7 @@ def process_task(task: CatalogTask, client: FirebaseFunctionsClient, policy: Pol
             sub_target = Target(type=TargetType.exercise, id=str(ex.get("id")))
             sub_plan = planner.build_plan_for_exercise(sub_target, ex, mode=mode)
             policy_result = policy.enforce_batch_dampening(sub_plan, tracker)
-            applied = apply_actions(sub_plan, policy_result.approved_actions, client, lock_manager, journal)
+            applied = apply_actions(sub_plan, policy_result.approved_actions, client, lock_manager, journal, tracker)
             shard_results.append(
                 {
                     "exercise_id": ex.get("id"),
@@ -165,7 +173,7 @@ def process_task(task: CatalogTask, client: FirebaseFunctionsClient, policy: Pol
     exercise = fetch_exercise_snapshot(client, target.id)
     plan = planner.build_plan_for_exercise(target, exercise, mode=mode)
     policy_result = policy.enforce_batch_dampening(plan, tracker)
-    applied = apply_actions(plan, policy_result.approved_actions, client, lock_manager, journal)
+    applied = apply_actions(plan, policy_result.approved_actions, client, lock_manager, journal, tracker)
     return {
         "plan": plan.model_dump(mode="json"),
         "approved": [a.model_dump(mode="json") for a in policy_result.approved_actions],
