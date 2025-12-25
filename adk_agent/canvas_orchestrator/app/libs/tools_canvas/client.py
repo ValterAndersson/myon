@@ -243,3 +243,66 @@ class CanvasFunctionsClient:
     def get_active_routine(self, user_id: str) -> Dict[str, Any]:
         """Get the user's active routine."""
         return self._http.post("getActiveRoutine", {"userId": user_id})
+
+    def get_user_routines(self, user_id: str) -> Dict[str, Any]:
+        """Get all routines for a user."""
+        return self._http.post("getUserRoutines", {"userId": user_id})
+
+    def create_routine(
+        self,
+        user_id: str,
+        name: str,
+        template_ids: List[str],
+        *,
+        description: Optional[str] = None,
+        frequency: int = 3,
+    ) -> Dict[str, Any]:
+        """Create a new routine."""
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "name": name,
+            "templateIds": template_ids,
+            "frequency": frequency,
+        }
+        if description:
+            body["description"] = description
+        return self._http.post("createRoutine", body)
+
+    def update_routine(
+        self,
+        user_id: str,
+        routine_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        template_ids: Optional[List[str]] = None,
+        frequency: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update a routine (full update)."""
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "routineId": routine_id,
+        }
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if template_ids is not None:
+            body["templateIds"] = template_ids
+        if frequency is not None:
+            body["frequency"] = frequency
+        return self._http.post("updateRoutine", body)
+
+    def delete_routine(self, user_id: str, routine_id: str) -> Dict[str, Any]:
+        """Delete a routine."""
+        return self._http.post("deleteRoutine", {
+            "userId": user_id,
+            "routineId": routine_id,
+        })
+
+    def set_active_routine(self, user_id: str, routine_id: str) -> Dict[str, Any]:
+        """Set the user's active routine."""
+        return self._http.post("setActiveRoutine", {
+            "userId": user_id,
+            "routineId": routine_id,
+        })

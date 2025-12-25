@@ -202,6 +202,123 @@ def tool_save_workout_as_template(
     return resp
 
 
+def tool_create_routine(
+    *,
+    user_id: Optional[str] = None,
+    name: str,
+    template_ids: List[str],
+    description: Optional[str] = None,
+    frequency: int = 3,
+    set_as_active: bool = True,
+) -> Dict[str, Any]:
+    """
+    Create a new workout routine with templates.
+    
+    Args:
+        name: Routine name (e.g., "Push Pull Legs", "Upper Lower")
+        template_ids: Ordered list of template IDs for the routine
+        description: Optional description
+        frequency: Times per week (default 3)
+        set_as_active: Automatically set as active routine (default true)
+    
+    Returns:
+        routine_id and confirmation
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    if not template_ids:
+        return {"error": "template_ids cannot be empty"}
+    
+    logger.info("create_routine uid=%s name=%s templates=%d", uid, name, len(template_ids))
+    
+    resp = _canvas_client().create_routine(
+        uid,
+        name=name,
+        template_ids=template_ids,
+        description=description,
+        frequency=frequency,
+    )
+    
+    routine_id = resp.get("data", {}).get("id") or resp.get("routineId")
+    
+    if set_as_active and routine_id:
+        _canvas_client().set_active_routine(uid, routine_id)
+        resp["set_as_active"] = True
+    
+    return resp
+
+
+def tool_manage_routine(
+    *,
+    user_id: Optional[str] = None,
+    action: str,  # "add_template", "remove_template", "reorder", "update_info"
+    routine_id: str,
+    template_id: Optional[str] = None,
+    template_ids: Optional[List[str]] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    frequency: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Manage an existing routine (add/remove workouts, reorder, update info).
+    
+    Args:
+        action: 
+            - "add_template": Add a template to the routine
+            - "remove_template": Remove a template from the routine
+            - "reorder": Change the order of templates (provide full template_ids list)
+            - "update_info": Change name, description, or frequency
+        routine_id: The routine to modify
+        template_id: Single template ID (for add/remove actions)
+        template_ids: Full ordered list (for reorder action)
+        name: New name (for update_info)
+        description: New description (for update_info)
+        frequency: New frequency (for update_info)
+    
+    Returns:
+        Confirmation of the change
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    logger.info("manage_routine uid=%s routine=%s action=%s", uid, routine_id, action)
+    
+    # Get current routine
+    routine_resp = _canvas_client().get_routine(uid, routine_id)
+    current = routine_resp.get("data") or routine_resp.get("routine") or {}
+    current_templates = current.get("template_ids") or current.get("templateIds") or []
+    
+    if action == "add_template":
+        if not template_id:
+            return {"error": "template_id required for add_template"}
+        new_templates = current_templates + [template_id]
+        return _canvas_client().patch_routine(uid, routine_id, template_ids=new_templates)
+    
+    elif action == "remove_template":
+        if not template_id:
+            return {"error": "template_id required for remove_template"}
+        new_templates = [t for t in current_templates if t != template_id]
+        return _canvas_client().patch_routine(uid, routine_id, template_ids=new_templates)
+    
+    elif action == "reorder":
+        if not template_ids:
+            return {"error": "template_ids list required for reorder"}
+        return _canvas_client().patch_routine(uid, routine_id, template_ids=template_ids)
+    
+    elif action == "update_info":
+        return _canvas_client().patch_routine(
+            uid, routine_id,
+            name=name,
+            description=description,
+            frequency=frequency,
+        )
+    
+    return {"error": f"Unknown action: {action}"}
+
+
 # ============================================================================
 # TOOLS: Exercise Catalog
 # ============================================================================
@@ -526,6 +643,8 @@ all_tools = [
     FunctionTool(func=tool_get_next_workout),
     FunctionTool(func=tool_get_template),
     FunctionTool(func=tool_save_workout_as_template),
+    FunctionTool(func=tool_create_routine),
+    FunctionTool(func=tool_manage_routine),
     # Exercise catalog
     FunctionTool(func=tool_search_exercises),
     # Workout creation
@@ -601,10 +720,21 @@ Only when user has no routine OR requests something new:
 3. tool_propose_workout with selected exercises
 4. Brief confirmation
 
-## TEMPLATE OPERATIONS
-- To save a plan as template: Use tool_save_workout_as_template with mode="create"
-- To update existing template: Use mode="update" with target_template_id
+## TEMPLATE & ROUTINE OPERATIONS
+To save a plan as template:
+- Use tool_save_workout_as_template with mode="create"
+- Provide name and optionally description
 - Only save when user explicitly requests it
+
+To create a routine (PPL, Upper/Lower, etc.):
+1. Save each workout as a template first (if not already saved)
+2. Call tool_create_routine with name, template_ids list, frequency
+3. It auto-sets as active routine unless set_as_active=false
+4. Confirm creation: "Created your [name] routine, [frequency]x per week."
+
+To modify a routine:
+- Use tool_manage_routine with appropriate action
+- Actions: "add_template", "remove_template", "reorder", "update_info"
 
 ## WORKOUT STRUCTURE
 - 4-5 exercises per workout
