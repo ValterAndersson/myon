@@ -288,7 +288,7 @@ class RoutineDetailViewModel: ObservableObject {
         self.authService = authService
     }
     
-    private var userId: String? { authService.currentUserId }
+    private var userId: String? { authService.currentUser?.uid }
     
     func loadTemplates() async {
         guard let userId = userId else { return }

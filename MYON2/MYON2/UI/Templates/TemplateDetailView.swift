@@ -393,7 +393,7 @@ class TemplateDetailViewModel: ObservableObject {
         self.authService = authService
     }
     
-    private var userId: String? { authService.currentUserId }
+    private var userId: String? { authService.currentUser?.uid }
     
     func deleteExercise(at index: Int) {
         guard exercises.indices.contains(index) else { return }

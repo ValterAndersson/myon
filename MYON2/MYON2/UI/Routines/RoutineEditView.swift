@@ -99,7 +99,7 @@ struct RoutineEditView: View {
     }
     
     private func saveRoutine() {
-        guard let userId = authService.currentUserId else { return }
+        guard let userId = authService.currentUser?.uid else { return }
         
         isSaving = true
         
@@ -302,7 +302,7 @@ class TemplatePickerViewModel: ObservableObject {
     }
     
     func loadTemplates() async {
-        guard let userId = authService.currentUserId else { return }
+        guard let userId = authService.currentUser?.uid else { return }
         
         isLoading = true
         do {

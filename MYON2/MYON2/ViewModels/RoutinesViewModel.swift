@@ -24,7 +24,7 @@ class RoutinesViewModel: ObservableObject {
     }
     
     var userId: String? {
-        authService.currentUserId
+        authService.currentUser?.uid
     }
     
     // MARK: - Load Data
