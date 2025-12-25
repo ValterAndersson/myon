@@ -1,4 +1,4 @@
-const functions = require('firebase-functions');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 
 const firestore = admin.firestore();
@@ -21,11 +21,11 @@ const firestore = admin.firestore();
  * - User might log an ad-hoc workout not from any routine
  * - The source_routine_id captures the routine context at workout start time
  */
-exports.onWorkoutCreatedUpdateRoutineCursor = functions.firestore
-  .document('users/{userId}/workouts/{workoutId}')
-  .onCreate(async (snap, context) => {
-    const { userId, workoutId } = context.params;
-    const workout = snap.data();
+exports.onWorkoutCreatedUpdateRoutineCursor = onDocumentCreated(
+  'users/{userId}/workouts/{workoutId}',
+  async (event) => {
+    const { userId, workoutId } = event.params;
+    const workout = event.data.data();
 
     // Only process if this workout has routine and template attribution
     if (!workout.source_routine_id || !workout.source_template_id) {
@@ -77,4 +77,5 @@ exports.onWorkoutCreatedUpdateRoutineCursor = functions.firestore
       // Don't throw - cursor update is best-effort, shouldn't fail workout creation
       return null;
     }
-  });
+  }
+);
