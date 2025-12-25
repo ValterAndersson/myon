@@ -47,12 +47,14 @@ module.exports = {
 };
 
 // Template & Routine schemas (minimal)
+// Note: weight is nullable to support bodyweight exercises and unset values
+// Analytics treats null weight as non-load-bearing (zero volume contribution)
 const TemplateSetSchema = z.object({
   id: z.string().optional(),
   reps: z.number().int().min(0),
   rir: z.number().int().min(0).max(5),
   type: z.string().default('Working Set'),
-  weight: z.number().nonnegative(),
+  weight: z.number().nonnegative().nullable(),
   duration: z.number().int().optional(),
 });
 
@@ -116,5 +118,3 @@ const ExerciseUpsertSchema = z.object({
 });
 
 module.exports.ExerciseUpsertSchema = ExerciseUpsertSchema;
-
-
