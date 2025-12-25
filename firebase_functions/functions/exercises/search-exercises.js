@@ -123,21 +123,41 @@ async function searchExercisesHandler(req, res) {
       }
     }
     console.log('[ExerciseCache] Cache miss, querying Firestore...');
+    
+    // IMPORTANT: Firestore only allows ONE array-contains/array-contains-any per query.
+    // We'll use the FIRST array filter in the Firestore query, and apply the rest in-memory.
     const where = [];
+    const memoryFilters = []; // Filters to apply in-memory after Firestore query
+    let hasArrayFilter = false;
+    
+    // Helper to add array filter (only first one goes to Firestore)
+    function addArrayFilter(field, value, isArray = false) {
+      if (!hasArrayFilter) {
+        hasArrayFilter = true;
+        if (isArray) {
+          where.push({ field, operator: 'array-contains-any', value });
+        } else {
+          where.push({ field, operator: 'array-contains', value });
+        }
+      } else {
+        // Subsequent array filters go to memory filtering
+        memoryFilters.push({ field, value, isArray });
+      }
+    }
+    
     if (muscleGroup) {
-      // Field path per model: muscles.category: string[]
-      where.push({ field: 'muscles.category', operator: 'array-contains', value: muscleGroup });
+      addArrayFilter('muscles.category', muscleGroup, false);
     }
     if (equipment) {
       const equipArr = String(equipment).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       if (equipArr.length > 1) {
-        where.push({ field: 'equipment', operator: 'array-contains-any', value: equipArr });
+        addArrayFilter('equipment', equipArr, true);
       } else if (equipArr.length === 1) {
-        where.push({ field: 'equipment', operator: 'array-contains', value: equipArr[0] });
+        addArrayFilter('equipment', equipArr[0], false);
       }
     }
     if (difficulty) {
-      // Per model: metadata.level
+      // Per model: metadata.level (not an array field)
       where.push({ field: 'metadata.level', operator: '==', value: difficulty });
     }
     if (category) {
@@ -161,33 +181,33 @@ async function searchExercisesHandler(req, res) {
     if (primaryMuscle) {
       const arr = String(primaryMuscle).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       if (arr.length > 1) {
-        where.push({ field: 'muscles.primary', operator: 'array-contains-any', value: arr });
+        addArrayFilter('muscles.primary', arr, true);
       } else if (arr.length === 1) {
-        where.push({ field: 'muscles.primary', operator: 'array-contains', value: arr[0] });
+        addArrayFilter('muscles.primary', arr[0], false);
       }
     }
     if (secondaryMuscle) {
       const arr = String(secondaryMuscle).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       if (arr.length > 1) {
-        where.push({ field: 'muscles.secondary', operator: 'array-contains-any', value: arr });
+        addArrayFilter('muscles.secondary', arr, true);
       } else if (arr.length === 1) {
-        where.push({ field: 'muscles.secondary', operator: 'array-contains', value: arr[0] });
+        addArrayFilter('muscles.secondary', arr[0], false);
       }
     }
     if (stimulusTag) {
       const arr = String(stimulusTag).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       if (arr.length > 1) {
-        where.push({ field: 'stimulus_tags', operator: 'array-contains-any', value: arr });
+        addArrayFilter('stimulus_tags', arr, true);
       } else if (arr.length === 1) {
-        where.push({ field: 'stimulus_tags', operator: 'array-contains', value: arr[0] });
+        addArrayFilter('stimulus_tags', arr[0], false);
       }
     }
     if (programmingUseCase) {
       const arr = String(programmingUseCase).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       if (arr.length > 1) {
-        where.push({ field: 'programming_use_cases', operator: 'array-contains-any', value: arr });
+        addArrayFilter('programming_use_cases', arr, true);
       } else if (arr.length === 1) {
-        where.push({ field: 'programming_use_cases', operator: 'array-contains', value: arr[0] });
+        addArrayFilter('programming_use_cases', arr[0], false);
       }
     }
     const parsedLimit = parseInt(limit) || 50;
@@ -240,6 +260,31 @@ async function searchExercisesHandler(req, res) {
           programming.includes(searchTerm) ||
           tags.some(t => t.includes(searchTerm))
         );
+      });
+    }
+
+    // Apply in-memory array filters that couldn't be in Firestore query
+    if (memoryFilters.length > 0) {
+      console.log('[ExerciseCache] Applying', memoryFilters.length, 'in-memory filters');
+      exercises = exercises.filter(ex => {
+        return memoryFilters.every(filter => {
+          // Navigate to nested field (e.g., 'muscles.category' -> ex.muscles.category)
+          const fieldParts = filter.field.split('.');
+          let fieldValue = ex;
+          for (const part of fieldParts) {
+            fieldValue = fieldValue?.[part];
+          }
+          
+          if (!Array.isArray(fieldValue)) return false;
+          
+          if (filter.isArray) {
+            // array-contains-any: at least one value must match
+            return filter.value.some(v => fieldValue.includes(v));
+          } else {
+            // array-contains: single value must match
+            return fieldValue.includes(filter.value);
+          }
+        });
       });
     }
 
