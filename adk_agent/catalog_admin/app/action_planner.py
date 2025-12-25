@@ -2,15 +2,30 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from .action_schema import Action, ActionPlan, Lane, Mode, OperationType, Target, PlanSummary, EvidenceTag, compute_idempotency_key, compute_plan_hash
+from .action_schema import (
+    Action,
+    ActionPlan,
+    EvidenceTag,
+    Lane,
+    Mode,
+    OperationType,
+    PlanSummary,
+    Target,
+    compute_idempotency_key,
+    compute_plan_hash,
+)
 from .lint import lint_exercise
+
+if TYPE_CHECKING:
+    from .media_agent import MotionGifAgent
 
 
 class ActionPlanner:
-    def __init__(self, lane: Lane):
+    def __init__(self, lane: Lane, media_agent: Optional["MotionGifAgent"] = None):
         self.lane = lane
+        self.media_agent = media_agent
 
     def _build_upsert_action(self, target: Target, before: Dict[str, Any], patch: Dict[str, Any]) -> Action:
         after = {**before, **patch}
@@ -28,6 +43,24 @@ class ActionPlanner:
         action_dict["idempotency_key"] = compute_idempotency_key(self.lane, target, action_dict)
         return Action(**action_dict)
 
+    def _build_media_action(self, target: Target, before: Dict[str, Any], asset: Dict[str, Any]) -> Action:
+        media = dict(before.get("media") or {})
+        media["motion_gif"] = asset
+        after = {**before, "media": media}
+        plan_hash = compute_plan_hash({"before": before, "after": after, "asset": asset})
+        action_dict = {
+            "op_type": OperationType.attach_motion_gif,
+            "risk_tier": 0,
+            "field_path": "media.motion_gif",
+            "before": before,
+            "after": after,
+            "evidence_tag": EvidenceTag.template,
+            "confidence": 0.85,
+            "plan_hash": plan_hash,
+        }
+        action_dict["idempotency_key"] = compute_idempotency_key(self.lane, target, action_dict)
+        return Action(**action_dict)
+
     def build_plan_for_exercise(self, target: Target, exercise: Dict[str, Any], mode: Mode = Mode.dry_run) -> ActionPlan:
         lint_before = lint_exercise(exercise)
         actions: List[Action] = []
@@ -40,7 +73,12 @@ class ActionPlanner:
                 patch["variant_key"] = f"equipment:{str(eq[0]).lower()}"
         if patch:
             actions.append(self._build_upsert_action(target, exercise, patch))
-        else:
+        media_asset = None
+        if self.media_agent:
+            media_asset = self.media_agent.generate_motion_gif(exercise, lane=self.lane)
+        if media_asset:
+            actions.append(self._build_media_action(target, exercise, media_asset))
+        if not actions:
             actions.append(
                 Action(
                     op_type=OperationType.noop,

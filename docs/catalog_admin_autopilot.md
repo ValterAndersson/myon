@@ -64,6 +64,16 @@ Rejected actions return machine-readable reasons. No tool call bypasses this lay
   - `schedule_daily_shards()` for cron-style daily scheduling.
   - Shard fetches bypass cache (`skipCache=true`) to avoid stale slices and request a broader page to reduce missed entities per shard.
 
+## Motion GIF generation lane
+- `MotionGifAgent` (opt-in via `ENABLE_MEDIA_AGENT=1`) requests a moving GIF from the Google image LLMs through the Functions boundary (`generateExerciseGif`).
+- Deterministic knobs:
+  - Stable prompt scaffold built from exercise name, movement type, and coaching cues.
+  - Fixed style tag (`MEDIA_STYLE_TAG`, default `studio-motion`).
+  - Seed derived from exercise id + style to keep frames consistent across reruns.
+  - Storage prefix (`MEDIA_STORAGE_PREFIX`) sent to Functions so assets land in a predictable bucket path.
+- Allowed lanes are restricted to batch by default; set `MEDIA_AGENT_REALTIME=1` to allow realtime lane generation.
+- When a GIF is missing, the planner appends an `attach_motion_gif` action that simply upserts the returned asset metadata into the exercise while preserving the plan hash/idempotency guardrails.
+
 ## Linting and cooldown
 - `lint.py` provides deterministic scoring of required fields, banned phrases, and cue richness.
 - `CooldownTracker` records per-field timestamps to block style churn across and within runs; the runner updates cooldown state after successful mutations so later tasks in the same loop see the block immediately.

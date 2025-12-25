@@ -30,6 +30,7 @@ class OperationType(str, Enum):
     upsert_alias = "upsert_alias"
     delete_alias = "delete_alias"
     normalize_page = "normalize_page"
+    attach_motion_gif = "attach_motion_gif"
     noop = "noop"
 
 
@@ -58,6 +59,7 @@ ALLOWED_FIELD_PATHS = {
     "programming_use_cases",
     "suitability_notes",
     "stimulus_tags",
+    "media.motion_gif",
 }
 
 
@@ -65,6 +67,7 @@ OPERATION_RISK_TIERS = {
     OperationType.noop: 0,
     OperationType.normalize_page: 0,
     OperationType.upsert_exercise: 0,
+    OperationType.attach_motion_gif: 0,
     OperationType.upsert_alias: 1,
     OperationType.delete_alias: 2,
 }

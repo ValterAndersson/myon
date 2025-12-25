@@ -159,6 +159,32 @@ class FirebaseFunctionsClient:
             body["startAfterName"] = startAfterName
         return self._http.post("normalizeCatalogPage", body)
 
+    # --- Media ---
+    def generate_motion_gif(
+        self,
+        exercise_id: str,
+        prompt: str,
+        *,
+        style_tag: str,
+        seed: Optional[str] = None,
+        storage_prefix: Optional[str] = None,
+        lane: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "exercise_id": exercise_id,
+            "prompt": prompt,
+            "style_tag": style_tag,
+        }
+        if seed:
+            body["seed"] = seed
+        if storage_prefix:
+            body["storage_prefix"] = storage_prefix
+        if lane:
+            body["lane"] = lane
+        body = self._apply_safety_fields(body, idempotency_key=idempotency_key)
+        return self._http.post("generateExerciseGif", body)
+
     # --- Catalog Safety (locks, tasks, journal) ---
     def acquire_lock(self, family_slug: str, ttl_seconds: int = 300, holder: Optional[str] = None) -> Dict[str, Any]:
         body = {"family_slug": family_slug, "ttl_seconds": ttl_seconds, "holder": holder or self.user_id}

@@ -5,13 +5,14 @@ import logging
 import os
 import random
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .action_planner import ActionPlanner
-from .action_schema import ActionPlan, Lane, Mode, Target, TargetType
+from .action_schema import ActionPlan, Lane, Mode, OperationType, Target, TargetType
 from .cooldown import CooldownTracker
 from .journal import JournalWriter
 from .locks import LockManager
+from .media_agent import MotionGifAgent
 from .policy_middleware import PolicyConfig, PolicyMiddleware
 from .tasks import CatalogTask, DeterministicShardScheduler, TaskQueue
 from .libs.tools_firebase.client import FirebaseFunctionsClient
@@ -81,14 +82,14 @@ def apply_actions(
                 if not lock:
                     results.append({"status": "deferred", "reason": "lock_unavailable", "action": action.op_type.value})
                     continue
-            if action.op_type.value.startswith("upsert_exercise"):
+            if action.op_type in {OperationType.upsert_exercise, OperationType.attach_motion_gif}:
                 resp = client.upsert_exercise(
                     action.after,
                     idempotency_key=action.idempotency_key,
                     plan_hash=action.plan_hash,
                     lock_token=lock.token if lock else None,
                 )
-            elif action.op_type == action.op_type.upsert_alias:
+            elif action.op_type == OperationType.upsert_alias:
                 resp = client.upsert_alias(
                     action.after.get("alias_slug"),
                     action.after.get("exercise_id"),
@@ -97,7 +98,7 @@ def apply_actions(
                     plan_hash=action.plan_hash,
                     lock_token=lock.token if lock else None,
                 )
-            elif action.op_type == action.op_type.delete_alias:
+            elif action.op_type == OperationType.delete_alias:
                 resp = client.delete_alias(
                     action.before.get("alias_slug") or action.after.get("alias_slug"),
                     idempotency_key=action.idempotency_key,
@@ -128,7 +129,14 @@ def apply_actions(
     return results
 
 
-def process_task(task: CatalogTask, client: FirebaseFunctionsClient, policy: PolicyMiddleware, lock_manager: LockManager, journal: JournalWriter) -> Dict[str, Any]:
+def process_task(
+    task: CatalogTask,
+    client: FirebaseFunctionsClient,
+    policy: PolicyMiddleware,
+    lock_manager: LockManager,
+    journal: JournalWriter,
+    media_agent: Optional[MotionGifAgent] = None,
+) -> Dict[str, Any]:
     lane = Lane(task.lane)
     mode = Mode(task.mode)
     target = Target(
@@ -137,7 +145,7 @@ def process_task(task: CatalogTask, client: FirebaseFunctionsClient, policy: Pol
         shard_index=(task.shard or {}).get("index"),
         shard_total=(task.shard or {}).get("total"),
     )
-    planner = ActionPlanner(lane)
+    planner = ActionPlanner(lane, media_agent=media_agent if media_agent and media_agent.is_lane_allowed(lane) else None)
     tracker = CooldownTracker(policy.config.cooldown_days)
 
     if target.type == TargetType.exercise:
@@ -187,6 +195,17 @@ def run_worker(loop: bool = False, sleep_seconds: int = 5) -> None:
     queue = TaskQueue(client)
     lock_manager = LockManager(client)
     journal = JournalWriter(client)
+    media_agent: Optional[MotionGifAgent] = None
+    if os.getenv("ENABLE_MEDIA_AGENT", "0") == "1":
+        allowed_lanes = [Lane.batch]
+        if os.getenv("MEDIA_AGENT_REALTIME", "0") == "1":
+            allowed_lanes.append(Lane.realtime)
+        media_agent = MotionGifAgent(
+            client,
+            style_tag=os.getenv("MEDIA_STYLE_TAG", "studio-motion"),
+            storage_prefix=os.getenv("MEDIA_STORAGE_PREFIX", "catalog/motion_gif"),
+            allowed_lanes=allowed_lanes,
+        )
     policy = PolicyMiddleware(
         PolicyConfig(
             enable_batch_apply=os.getenv("ENABLE_BATCH_APPLY", "0") == "1",
@@ -205,7 +224,7 @@ def run_worker(loop: bool = False, sleep_seconds: int = 5) -> None:
             time.sleep(sleep_seconds)
             continue
         try:
-            result = process_task(task, client, policy, lock_manager, journal)
+            result = process_task(task, client, policy, lock_manager, journal, media_agent)
             queue.complete(task.task_id, result)
         except Exception as e:  # pragma: no cover - safety net
             logger.exception({"task": task.task_id, "error": str(e)})
