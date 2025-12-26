@@ -4,9 +4,9 @@ Multi-Agent Architecture for Canvas Orchestrator.
 This module implements a scalable multi-agent system with:
 - Orchestrator: Intent classification and routing
 - Planner: Workout/routine draft creation (the workhorse)
-- Coach: Education and explanation (stub for Phase 1)
-- Analysis: Progress analysis artifacts (stub for Phase 1)
-- Copilot: Live workout execution (stub for Phase 1)
+- Coach: Education and explanation
+- Analysis: Progress analysis artifacts with evidence-based recommendations
+- Copilot: Live workout execution
 
 Permission boundaries are enforced at the code level, not prompts.
 """

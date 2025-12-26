@@ -288,14 +288,20 @@ adk_agent/canvas_orchestrator/app/
 | `CANVAS_ANALYSIS_MODEL` | `gemini-2.5-flash` | Model for Analysis agent |
 | `CANVAS_COPILOT_MODEL` | `gemini-2.5-flash` | Model for Copilot agent |
 
-## Routing Validation (Stub Behavior)
+## Routing Validation
 
-The stub agents (Coach, Analysis, Copilot) echo routing metadata for debugging:
+The stub agents (Coach, Copilot) echo routing metadata for debugging. Planner and Analysis are fully implemented with production tools.
 
+For stub agents:
 ```
 "I am the Coach Agent. You landed here because orchestrator 
 classified intent as: COACH_GENERAL."
 ```
+
+For production agents (Planner, Analysis):
+- Execute tool calls normally
+- Publish canvas artifacts
+- Emit structured telemetry
 
 This allows validation of:
 1. **Routing correctness**: Does the right agent receive the message?

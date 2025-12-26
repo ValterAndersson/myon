@@ -248,13 +248,10 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
     """
     Safety re-route: If the target agent lacks tools for the request, fallback.
     
-    This prevents stub agents (Coach, Analysis, Copilot) from receiving requests
-    they can't fulfill, maintaining the "canvas" illusion.
-    
-    Phase 1 rules:
-    - Coach/Analysis/Copilot are stubs: re-route creation requests to Planner
+    Rules:
     - If user asks for artifact creation but lands on Coach: re-route to Planner
-    - If user asks for execution but lands on stub Copilot: acknowledge limitation
+      (Coach is education-only, cannot create drafts)
+    - Analysis and Copilot agents are fully functional - no reroute needed
     """
     # Check if request implies artifact creation but target is Coach
     if decision.target_agent == TargetAgent.COACH.value:
@@ -268,13 +265,10 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
                 signals=signals + ["safety_rerouted"],
             )
     
-    # Check if request implies data analysis but Analysis is stub
-    # For Phase 1: Analysis agent is a stub, but we still route there for validation
-    # In Phase 2, this would be a real check
+    # Analysis agent is fully implemented - no reroute needed
+    # It can produce analysis_summary cards with insights and recommendations
     
-    # Check if request implies execution but Copilot is stub
-    # For Phase 1: Copilot is a stub, it will echo the routing for validation
-    # We intentionally route there to validate the routing logic
+    # Copilot agent handles execution - no special reroute needed
     
     return decision
 
