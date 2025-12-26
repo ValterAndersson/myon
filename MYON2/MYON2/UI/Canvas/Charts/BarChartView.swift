@@ -28,53 +28,38 @@ public struct BarChartView: View {
     
     @ViewBuilder
     private func chartContent(series: [ChartSeries]) -> some View {
+        let xLabel = spec.data?.xAxis?.label ?? "Category"
+        let yLabel = spec.data?.yAxis?.label ?? "Value"
+        
         Chart {
             ForEach(series) { s in
                 ForEach(s.points) { point in
                     BarMark(
-                        x: .value(spec.data?.xAxis?.label ?? "Category", point.label ?? String(Int(point.x))),
-                        y: .value(spec.data?.yAxis?.label ?? "Value", point.y)
+                        x: .value(xLabel, point.label ?? String(Int(point.x))),
+                        y: .value(yLabel, point.y)
                     )
                     .foregroundStyle(s.color.color.gradient)
                     .cornerRadius(CornerRadiusToken.small)
-                }
-            }
-            
-            // Threshold annotation
-            if let annotations = spec.annotations {
-                ForEach(annotations) { annotation in
-                    if annotation.type == "threshold", let value = annotation.value {
-                        RuleMark(y: .value("Threshold", value))
-                            .foregroundStyle((annotation.color ?? .neutral).color.opacity(0.6))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 5]))
-                            .annotation(position: .top, alignment: .leading) {
-                                if let label = annotation.label {
-                                    Text(label)
-                                        .font(TypographyToken.caption2)
-                                        .foregroundStyle(ColorsToken.Text.secondary)
-                                }
-                            }
-                    }
                 }
             }
         }
         .chartXAxisLabel(spec.data?.xAxis?.label ?? "")
         .chartYAxisLabel(spec.data?.yAxis?.label ?? "")
         .chartXAxis {
-            AxisMarks(values: .automatic) { value in
+            AxisMarks(values: .automatic) { _ in
                 AxisValueLabel()
-                    .font(TypographyToken.caption2)
+                    .font(TypographyToken.caption)
                     .foregroundStyle(ColorsToken.Text.secondary)
             }
         }
         .chartYAxis {
-            AxisMarks(values: .automatic(desiredCount: 5)) { value in
+            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(ColorsToken.Border.subtle)
                 AxisTick(stroke: StrokeStyle(lineWidth: 0.5))
                     .foregroundStyle(ColorsToken.Border.subtle)
                 AxisValueLabel()
-                    .font(TypographyToken.caption2)
+                    .font(TypographyToken.caption)
                     .foregroundStyle(ColorsToken.Text.secondary)
             }
         }
@@ -101,14 +86,17 @@ public struct BarChartView: View {
     }
     
     private var emptyState: some View {
-        RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-            .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
-            .background(ColorsToken.Neutral.n50)
-            .frame(minHeight: 160)
-            .overlay(
-                MyonText(spec.emptyState ?? "No data available", style: .callout, color: ColorsToken.Text.secondary, align: .center)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            )
+        ZStack {
+            RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
+                .fill(ColorsToken.Neutral.n50)
+            RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
+                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+            Text(spec.emptyState ?? "No data available")
+                .font(TypographyToken.callout)
+                .foregroundStyle(ColorsToken.Text.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(minHeight: 160)
     }
 }
 
