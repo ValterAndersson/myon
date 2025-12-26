@@ -8,7 +8,7 @@ public struct IterationActionsRow: View {
     
     public enum Context {
         case workout  // Single workout (SessionPlanCard)
-        case routineDay(index: Int, title: String)  // Workout day in routine
+        case routineDay(day: Int, title: String)  // Workout day in routine (use actual day number, not array index)
     }
     
     public var body: some View {
@@ -18,8 +18,8 @@ public struct IterationActionsRow: View {
                 switch context {
                 case .workout:
                     onAdjust("Make this session shorter - reduce total sets or exercises")
-                case .routineDay(let index, let title):
-                    onAdjust("Make Day \(index + 1) (\(title)) shorter - reduce exercises or sets")
+                case .routineDay(let day, let title):
+                    onAdjust("Make Day \(day) (\(title)) shorter - reduce exercises or sets")
                 }
             }
             
@@ -27,8 +27,8 @@ public struct IterationActionsRow: View {
                 switch context {
                 case .workout:
                     onAdjust("Make this session more challenging - increase intensity or volume")
-                case .routineDay(let index, let title):
-                    onAdjust("Make Day \(index + 1) (\(title)) harder - more volume or intensity")
+                case .routineDay(let day, let title):
+                    onAdjust("Make Day \(day) (\(title)) harder - more volume or intensity")
                 }
             }
             
@@ -38,8 +38,8 @@ public struct IterationActionsRow: View {
                     switch context {
                     case .workout:
                         onAdjust("Change the muscle focus of this workout")
-                    case .routineDay(let index, let title):
-                        onAdjust("Change the muscle focus of Day \(index + 1) (\(title))")
+                    case .routineDay(let day, let title):
+                        onAdjust("Change the muscle focus of Day \(day) (\(title))")
                     }
                 } label: {
                     Label("Swap Focus", systemImage: "arrow.triangle.2.circlepath")
@@ -49,8 +49,8 @@ public struct IterationActionsRow: View {
                     switch context {
                     case .workout:
                         onAdjust("Regenerate this workout plan with different exercises")
-                    case .routineDay(let index, let title):
-                        onAdjust("Regenerate Day \(index + 1) (\(title)) with different exercises")
+                    case .routineDay(let day, let title):
+                        onAdjust("Regenerate Day \(day) (\(title)) with different exercises")
                     }
                 } label: {
                     Label("Regenerate", systemImage: "sparkles")

@@ -229,11 +229,16 @@ public enum CanvasMapper {
                 // Parse workouts array
                 let workoutsArr = (content?["workouts"] as? [[String: Any]]) ?? []
                 let workouts: [RoutineWorkoutSummary] = workoutsArr.enumerated().map { (idx, workout) in
-                    RoutineWorkoutSummary(
-                        id: (workout["card_id"] as? String) ?? UUID().uuidString,
-                        day: (workout["day"] as? Int) ?? (idx + 1),
-                        title: (workout["title"] as? String) ?? "Day \(idx + 1)",
-                        cardId: workout["card_id"] as? String,
+                    let day = (workout["day"] as? Int) ?? (idx + 1)
+                    let cardId = workout["card_id"] as? String
+                    // Derive stable ID from draftId+day when card_id is absent to prevent edit loss on re-parse
+                    let stableId = cardId ?? (draftId.map { "\($0)-day\(day)" } ?? "workout-day\(day)")
+                    
+                    return RoutineWorkoutSummary(
+                        id: stableId,
+                        day: day,
+                        title: (workout["title"] as? String) ?? "Day \(day)",
+                        cardId: cardId,
                         estimatedDuration: (workout["estimated_duration"] as? Int) ?? (workout["estimatedDuration"] as? Int),
                         exerciseCount: (workout["exercise_count"] as? Int) ?? (workout["exerciseCount"] as? Int),
                         muscleGroups: workout["muscle_groups"] as? [String]

@@ -303,7 +303,7 @@ public struct RoutineSummaryCard: View {
             
             // Quick actions using shared IterationActionsRow
             IterationActionsRow(
-                context: .routineDay(index: index, title: workout.title),
+                context: .routineDay(day: workout.day, title: workout.title),
                 onAdjust: { instruction in
                     handleAdjustWorkout(index: index, instruction: instruction)
                 }

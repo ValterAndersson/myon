@@ -417,8 +417,8 @@ public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
         estimatedDuration = try container.decodeIfPresent(Int.self, forKey: .estimatedDuration)
         exerciseCount = try container.decodeIfPresent(Int.self, forKey: .exerciseCount)
         muscleGroups = try container.decodeIfPresent([String].self, forKey: .muscleGroups)
-        // Use cardId as id if available, otherwise generate
-        id = cardId ?? UUID().uuidString
+        // Use cardId as id if available, derive stable fallback from day to prevent edit loss on re-parse
+        id = cardId ?? "workout-day\(day)"
     }
 }
 

@@ -39,7 +39,6 @@ struct WorkspaceTimelineView: View {
     @State private var scrollProxy: ScrollViewProxy?
     @State private var responses: [String: String] = [:]
     @State private var collapsedTools = true
-    @State private var lastContentHash = 0  // Track content changes
     
     typealias ClarificationPrompt = TimelineClarificationPrompt
     
@@ -564,13 +563,6 @@ struct WorkspaceTimelineView: View {
         
         // Sort by timestamp
         return items.sorted { $0.timestamp < $1.timestamp }
-    }
-    
-    /// Computed count of items that should trigger scrolling
-    /// Counts ALL visible items to ensure scroll follows streaming activity
-    private var scrollTriggerCount: Int {
-        // Count all timeline items - this ensures scroll triggers whenever content changes
-        return timelineItems.count + embeddedCards.count
     }
     
     private func mapEventToKind(_ entry: WorkspaceEvent) -> TimelineItemKind? {
