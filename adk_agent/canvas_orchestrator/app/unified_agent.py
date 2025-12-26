@@ -1064,12 +1064,16 @@ Equipment handling:
 Name searches:
 - Use query/name search only when the user asks for a specific exercise by name.
 
-## ROUTINE RULES
-If creating or editing a routine:
-- Build all days first, then call tool_propose_routine EXACTLY ONCE.
-- NEVER call tool_propose_routine multiple times. One call = one complete routine.
-- Never propose one day at a time.
-- If user already has a workout card, include it and generate missing days.
+## ROUTINE RULES (CRITICAL)
+If creating or editing a routine (user asks for "routine", "program", "split", "PPL", etc.):
+- NEVER call tool_propose_workout when building a routine. Use tool_propose_routine ONLY.
+- Build ALL days locally (in memory), then call tool_propose_routine EXACTLY ONCE with all workouts.
+- NEVER propose days one at a time via tool_propose_workout. One tool_propose_routine call = complete routine.
+- If user already has a workout card on canvas and wants to expand it into a routine:
+  1) Extract the exercises from the existing card conceptually (read them from context)
+  2) Build the missing days by searching for new exercises
+  3) Call tool_propose_routine ONCE with all days (existing + new)
+  The routine proposal will include the original day AND the new days together.
 
 ## DEFAULT TRAINING PARAMETERS (IF NO HISTORY)
 Hypertrophy default:
