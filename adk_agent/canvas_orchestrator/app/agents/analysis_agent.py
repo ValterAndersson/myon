@@ -398,6 +398,8 @@ def tool_propose_analysis_group(
         "type": "analysis_summary",
         "lane": "analysis",
         "priority": 95,
+        "title": "Progress Analysis",
+        "subtitle": f"Last {period_weeks} weeks",
         "content": {
             "headline": headline,
             "period": {

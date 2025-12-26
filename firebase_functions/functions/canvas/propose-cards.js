@@ -161,6 +161,8 @@ async function proposeCards(req, res) {
         type: card.type,
         status: 'proposed',
         lane: d.lane,
+        title: card.title || null,
+        subtitle: card.subtitle || null,
         content: card.content || {},
         refs: d.refs,
         layout: d.layout,
