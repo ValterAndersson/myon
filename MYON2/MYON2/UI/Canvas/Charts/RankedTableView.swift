@@ -30,7 +30,7 @@ public struct RankedTableView: View {
                 }
             }
         }
-        .background(ColorsToken.Surface.primary)
+        .background(ColorsToken.Surface.default)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
@@ -53,7 +53,7 @@ public struct RankedTableView: View {
                 if let sublabel = row.sublabel {
                     Text(sublabel)
                         .font(TypographyToken.caption)
-                        .foregroundStyle(ColorsToken.Text.tertiary)
+                        .foregroundStyle(ColorsToken.Text.muted)
                 }
             }
             
@@ -63,7 +63,8 @@ public struct RankedTableView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: Space.xs) {
                     Text(row.value)
-                        .font(TypographyToken.bodyBold)
+                        .font(TypographyToken.body)
+                        .fontWeight(.semibold)
                         .foregroundStyle(ColorsToken.Text.primary)
                     
                     if let unit = spec.data?.yAxis?.unit {
@@ -90,7 +91,8 @@ public struct RankedTableView: View {
     @ViewBuilder
     private func rankBadge(rank: Int) -> some View {
         Text("\(rank)")
-            .font(TypographyToken.caption2Bold)
+            .font(TypographyToken.caption)
+            .fontWeight(.bold)
             .foregroundStyle(rank <= 3 ? ColorsToken.Text.inverse : ColorsToken.Text.secondary)
             .frame(width: 24, height: 24)
             .background(
@@ -111,8 +113,8 @@ public struct RankedTableView: View {
     @ViewBuilder
     private func deltaLabel(delta: Double, trend: TrendDirection?) -> some View {
         let isPositive = delta >= 0
-        let color = trend == .up ? ColorsToken.Status.success : 
-                   (trend == .down ? ColorsToken.Status.error : ColorsToken.Text.tertiary)
+        let color = trend == .up ? ColorsToken.State.success : 
+                   (trend == .down ? ColorsToken.State.error : ColorsToken.Text.muted)
         
         HStack(spacing: 2) {
             Text(isPositive ? "+" : "")
@@ -131,13 +133,13 @@ public struct RankedTableView: View {
         switch trend {
         case .up:
             icon = "arrow.up.right"
-            color = ColorsToken.Status.success
+            color = ColorsToken.State.success
         case .down:
             icon = "arrow.down.right"
-            color = ColorsToken.Status.error
+            color = ColorsToken.State.error
         case .flat:
             icon = "arrow.right"
-            color = ColorsToken.Text.tertiary
+            color = ColorsToken.Text.muted
         }
         
         Image(systemName: icon)
@@ -152,7 +154,10 @@ public struct RankedTableView: View {
             .background(ColorsToken.Neutral.n50)
             .frame(minHeight: 120)
             .overlay(
-                MyonText(spec.emptyState ?? "No data available", style: .callout, color: ColorsToken.Text.secondary, align: .center)
+                Text(spec.emptyState ?? "No data available")
+                    .font(TypographyToken.callout)
+                    .foregroundStyle(ColorsToken.Text.secondary)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
     }
