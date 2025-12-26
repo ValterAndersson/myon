@@ -36,7 +36,7 @@ public struct AnalysisSummaryCard: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.primary)
+        .background(ColorsToken.Surface.default)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous)
@@ -63,7 +63,7 @@ public struct AnalysisSummaryCard: View {
                 // Period badge
                 if let period = data.period {
                     Text("\(period.weeks) weeks")
-                        .font(TypographyToken.caption2)
+                        .font(TypographyToken.caption)
                         .padding(.horizontal, Space.xs)
                         .padding(.vertical, 2)
                         .background(ColorsToken.Neutral.n100)
@@ -73,7 +73,7 @@ public struct AnalysisSummaryCard: View {
             }
             
             Text(data.headline)
-                .font(TypographyToken.headlineBold)
+                .font(TypographyToken.headline)
                 .foregroundStyle(ColorsToken.Text.primary)
         }
     }
@@ -84,7 +84,8 @@ public struct AnalysisSummaryCard: View {
     private var insightsSection: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text("Insights")
-                .font(TypographyToken.captionBold)
+                .font(TypographyToken.caption)
+                .fontWeight(.semibold)
                 .foregroundStyle(ColorsToken.Text.secondary)
             
             ForEach(data.insights.prefix(5)) { insight in
@@ -106,8 +107,8 @@ public struct AnalysisSummaryCard: View {
                     .foregroundStyle(ColorsToken.Text.primary)
                 
                 Text(insight.category.replacingOccurrences(of: "_", with: " ").capitalized)
-                    .font(TypographyToken.caption2)
-                    .foregroundStyle(ColorsToken.Text.tertiary)
+                    .font(TypographyToken.caption)
+                    .foregroundStyle(ColorsToken.Text.muted)
             }
             
             Spacer()
@@ -119,9 +120,9 @@ public struct AnalysisSummaryCard: View {
     private func trendIcon(_ trend: String) -> some View {
         let (icon, color): (String, Color) = {
             switch trend {
-            case "improving": return ("arrow.up.circle.fill", ColorsToken.Status.success)
-            case "declining": return ("arrow.down.circle.fill", ColorsToken.Status.error)
-            case "insufficient_data": return ("questionmark.circle.fill", ColorsToken.Text.tertiary)
+            case "improving": return ("arrow.up.circle.fill", ColorsToken.State.success)
+            case "declining": return ("arrow.down.circle.fill", ColorsToken.State.error)
+            case "insufficient_data": return ("questionmark.circle.fill", ColorsToken.Text.muted)
             default: return ("equal.circle.fill", ColorsToken.Text.secondary)
             }
         }()
@@ -137,7 +138,8 @@ public struct AnalysisSummaryCard: View {
     private var recommendationsSection: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text("Recommendations")
-                .font(TypographyToken.captionBold)
+                .font(TypographyToken.caption)
+                .fontWeight(.semibold)
                 .foregroundStyle(ColorsToken.Text.secondary)
             
             ForEach(data.recommendations.prefix(5)) { rec in
@@ -173,7 +175,7 @@ public struct AnalysisSummaryCard: View {
     @ViewBuilder
     private func priorityBadge(_ priority: Int) -> some View {
         Text("P\(priority)")
-            .font(TypographyToken.caption2)
+            .font(TypographyToken.caption)
             .fontWeight(.bold)
             .foregroundStyle(priority <= 2 ? Color.white : ColorsToken.Text.secondary)
             .frame(width: 24, height: 24)
@@ -183,8 +185,8 @@ public struct AnalysisSummaryCard: View {
     
     private func priorityColor(_ priority: Int) -> Color {
         switch priority {
-        case 1: return ColorsToken.Status.error
-        case 2: return ColorsToken.Status.warning
+        case 1: return ColorsToken.State.error
+        case 2: return ColorsToken.State.warning
         case 3: return ColorsToken.Text.secondary
         default: return ColorsToken.Neutral.n300
         }
@@ -199,10 +201,10 @@ public struct AnalysisSummaryCard: View {
                 .font(.system(size: 12))
             
             Text("\(dq.workoutsAnalyzed) workouts · \(dq.weeksWithData) weeks")
-                .font(TypographyToken.caption2)
+                .font(TypographyToken.caption)
             
             Text(dq.confidence.capitalized)
-                .font(TypographyToken.caption2)
+                .font(TypographyToken.caption)
                 .fontWeight(.medium)
         }
         .foregroundStyle(confidenceColor(dq.confidence))
@@ -219,9 +221,9 @@ public struct AnalysisSummaryCard: View {
     
     private func confidenceColor(_ confidence: String) -> Color {
         switch confidence {
-        case "high": return ColorsToken.Status.success
+        case "high": return ColorsToken.State.success
         case "medium": return ColorsToken.Text.secondary
-        default: return ColorsToken.Status.warning
+        default: return ColorsToken.State.warning
         }
     }
     
@@ -262,7 +264,7 @@ public struct AnalysisSummaryCard: View {
     private func actionBackground(style: CardActionStyle?) -> Color {
         switch style {
         case .primary: return ColorsToken.Brand.primary
-        case .destructive: return ColorsToken.Status.error
+        case .destructive: return ColorsToken.State.error
         case .ghost, .none: return ColorsToken.Neutral.n100
         default: return ColorsToken.Neutral.n200
         }
