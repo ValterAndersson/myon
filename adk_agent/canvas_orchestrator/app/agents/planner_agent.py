@@ -1,33 +1,13 @@
 """
-DEPRECATED: This file is maintained for backwards compatibility.
-Use app.agents.planner_agent.PlannerAgent instead.
+Planner Agent - Workout and routine draft creation.
 
-The Planner Agent has been moved to the multi-agent architecture:
-- agents/planner_agent.py - The renamed and updated version of this file
-- agents/orchestrator.py - Intent classification and routing
-- agents/coach_agent.py - Education (stub)
-- agents/analysis_agent.py - Progress analysis (stub)
-- agents/copilot_agent.py - Live workout execution (stub)
+Part of the multi-agent architecture. This agent:
+- Creates and edits workout drafts (session_plan cards)
+- Creates and edits routine drafts (routine_summary + session_plan cards)
+- Searches exercises and builds plans
+- Does NOT manipulate active workouts (that's Copilot's job)
 
-This file will be removed in a future release.
-"""
-
-import warnings
-warnings.warn(
-    "unified_agent.py is deprecated. Use app.agents.planner_agent.PlannerAgent instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
-# Original docstring for reference:
-"""
-Unified Canvas Agent v2.0 - Evidence-based strength coaching with autonomous reasoning.
-
-Design principles:
-- Knowledge over procedures: Agent understands WHY, not just WHAT
-- Minimal tools: Each tool has a clear purpose
-- Adaptive behavior: Uses context intelligently
-- Efficient output: Brief, actionable communication
+Permission boundary: Can write draft artifacts, cannot write activeWorkout.
 """
 
 from __future__ import annotations
@@ -1124,15 +1104,17 @@ After proposing, output exactly one short sentence describing the update (eg “
 # AGENT DEFINITION
 # ============================================================================
 
-UnifiedAgent = Agent(
-    name="MYONCoach",
-    model=os.getenv("CANVAS_AGENT_MODEL", "gemini-2.5-flash"),
+PlannerAgent = Agent(
+    name="PlannerAgent",
+    model=os.getenv("CANVAS_PLANNER_MODEL", "gemini-2.5-flash"),
     instruction=UNIFIED_INSTRUCTION,
     tools=all_tools,
     before_tool_callback=_before_tool_callback,
     before_model_callback=_before_model_callback,
 )
 
-root_agent = UnifiedAgent
+# For backwards compatibility
+UnifiedAgent = PlannerAgent
+root_agent = PlannerAgent
 
-__all__ = ["root_agent", "UnifiedAgent"]
+__all__ = ["root_agent", "PlannerAgent", "UnifiedAgent"]
