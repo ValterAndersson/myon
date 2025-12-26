@@ -286,6 +286,63 @@ public enum CanvasMapper {
                     revision: revision
                 )
                 return .routineSummary(summaryData)
+            case "analysis_summary":
+                // Parse analysis summary for progress insights from Analysis Agent
+                let headline = (content?["headline"] as? String) ?? "Progress Analysis"
+                
+                // Parse period
+                let period: AnalysisPeriod? = {
+                    guard let periodDict = content?["period"] as? [String: Any] else { return nil }
+                    let weeks = (periodDict["weeks"] as? Int) ?? 8
+                    let end = periodDict["end"] as? String
+                    return AnalysisPeriod(weeks: weeks, end: end)
+                }()
+                
+                // Parse insights
+                let insightsArr = (content?["insights"] as? [[String: Any]]) ?? []
+                let insights: [AnalysisInsight] = insightsArr.enumerated().map { (idx, i) in
+                    AnalysisInsight(
+                        id: (i["id"] as? String) ?? "insight-\(idx)",
+                        category: (i["category"] as? String) ?? "general",
+                        signal: (i["signal"] as? String) ?? "",
+                        trend: (i["trend"] as? String) ?? "stable",
+                        metricKey: i["metric_key"] as? String,
+                        value: i["value"] as? Double,
+                        confidence: i["confidence"] as? String
+                    )
+                }
+                
+                // Parse recommendations
+                let recsArr = (content?["recommendations"] as? [[String: Any]]) ?? []
+                let recommendations: [AnalysisRecommendation] = recsArr.enumerated().map { (idx, r) in
+                    AnalysisRecommendation(
+                        id: (r["id"] as? String) ?? "rec-\(idx)",
+                        priority: (r["priority"] as? Int) ?? 3,
+                        action: (r["action"] as? String) ?? "",
+                        rationale: (r["rationale"] as? String) ?? "",
+                        category: r["category"] as? String
+                    )
+                }
+                
+                // Parse data quality
+                let dataQuality: AnalysisDataQuality? = {
+                    guard let dq = content?["data_quality"] as? [String: Any] else { return nil }
+                    return AnalysisDataQuality(
+                        weeksWithData: (dq["weeks_with_data"] as? Int) ?? 0,
+                        workoutsAnalyzed: (dq["workouts_analyzed"] as? Int) ?? 0,
+                        confidence: (dq["confidence"] as? String) ?? "low",
+                        caveats: dq["caveats"] as? [String]
+                    )
+                }()
+                
+                let summaryData = AnalysisSummaryData(
+                    headline: headline,
+                    period: period,
+                    insights: insights,
+                    recommendations: recommendations,
+                    dataQuality: dataQuality
+                )
+                return .analysisSummary(summaryData)
             case "analysis_task":
                 if let steps = (content?["steps"] as? [[String: Any]]) {
                     let parsed: [AgentStreamStep] = steps.map { s in

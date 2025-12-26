@@ -22,6 +22,7 @@ public enum CardType: String, Codable, CaseIterable {
     case instruction, analysis_task, visualization, table, summary, followup_prompt
     case session_plan, current_exercise, set_target, set_result, note, coach_proposal
     case routine_summary  // Multi-day routine draft anchor
+    case analysis_summary  // Analysis Agent progress insights
 }
 
 public enum CardWidth: String, Codable, CaseIterable {
@@ -346,6 +347,7 @@ public enum CanvasCardData: Equatable {
     case routineOverview(split: String, days: Int, notes: String?)
     case agentMessage(AgentMessage)
     case routineSummary(RoutineSummaryData)  // Multi-day routine draft
+    case analysisSummary(AnalysisSummaryData)  // Analysis Agent progress insights
 }
 
 // MARK: - Routine Summary Types
@@ -509,5 +511,153 @@ public struct ToolCall: Identifiable, Equatable, Codable {
         self.name = name
         self.displayName = displayName
         self.duration = duration
+    }
+}
+
+// MARK: - Analysis Summary Types (Analysis Agent)
+
+public struct AnalysisSummaryData: Equatable, Codable {
+    public let headline: String
+    public let period: AnalysisPeriod?
+    public let insights: [AnalysisInsight]
+    public let recommendations: [AnalysisRecommendation]
+    public let dataQuality: AnalysisDataQuality?
+    
+    enum CodingKeys: String, CodingKey {
+        case headline
+        case period
+        case insights
+        case recommendations
+        case dataQuality = "data_quality"
+    }
+    
+    public init(
+        headline: String,
+        period: AnalysisPeriod? = nil,
+        insights: [AnalysisInsight] = [],
+        recommendations: [AnalysisRecommendation] = [],
+        dataQuality: AnalysisDataQuality? = nil
+    ) {
+        self.headline = headline
+        self.period = period
+        self.insights = insights
+        self.recommendations = recommendations
+        self.dataQuality = dataQuality
+    }
+}
+
+public struct AnalysisPeriod: Equatable, Codable {
+    public let weeks: Int
+    public let end: String?
+    
+    public init(weeks: Int, end: String? = nil) {
+        self.weeks = weeks
+        self.end = end
+    }
+}
+
+public struct AnalysisInsight: Identifiable, Equatable, Codable {
+    public let id: String
+    public let category: String  // "progressive_overload" | "volume" | "frequency" | "laggard" | "consistency" | "goal_alignment"
+    public let signal: String    // Human-readable insight text
+    public let trend: String     // "improving" | "stable" | "declining" | "insufficient_data"
+    public let metricKey: String?
+    public let value: Double?
+    public let confidence: String?  // "high" | "medium" | "low"
+    
+    enum CodingKeys: String, CodingKey {
+        case id, category, signal, trend
+        case metricKey = "metric_key"
+        case value, confidence
+    }
+    
+    public init(
+        id: String = UUID().uuidString,
+        category: String,
+        signal: String,
+        trend: String = "stable",
+        metricKey: String? = nil,
+        value: Double? = nil,
+        confidence: String? = nil
+    ) {
+        self.id = id
+        self.category = category
+        self.signal = signal
+        self.trend = trend
+        self.metricKey = metricKey
+        self.value = value
+        self.confidence = confidence
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        category = try container.decode(String.self, forKey: .category)
+        signal = try container.decode(String.self, forKey: .signal)
+        trend = (try? container.decode(String.self, forKey: .trend)) ?? "stable"
+        metricKey = try container.decodeIfPresent(String.self, forKey: .metricKey)
+        value = try container.decodeIfPresent(Double.self, forKey: .value)
+        confidence = try container.decodeIfPresent(String.self, forKey: .confidence)
+    }
+}
+
+public struct AnalysisRecommendation: Identifiable, Equatable, Codable {
+    public let id: String
+    public let priority: Int  // 1-5 (1 = highest)
+    public let action: String
+    public let rationale: String
+    public let category: String?  // "volume" | "frequency" | "exercise_selection" | "progression" | "recovery"
+    
+    public init(
+        id: String = UUID().uuidString,
+        priority: Int = 3,
+        action: String,
+        rationale: String,
+        category: String? = nil
+    ) {
+        self.id = id
+        self.priority = priority
+        self.action = action
+        self.rationale = rationale
+        self.category = category
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        priority = (try? container.decode(Int.self, forKey: .priority)) ?? 3
+        action = try container.decode(String.self, forKey: .action)
+        rationale = try container.decode(String.self, forKey: .rationale)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, priority, action, rationale, category
+    }
+}
+
+public struct AnalysisDataQuality: Equatable, Codable {
+    public let weeksWithData: Int
+    public let workoutsAnalyzed: Int
+    public let confidence: String  // "high" | "medium" | "low"
+    public let caveats: [String]?
+    
+    enum CodingKeys: String, CodingKey {
+        case weeksWithData = "weeks_with_data"
+        case workoutsAnalyzed = "workouts_analyzed"
+        case confidence
+        case caveats
+    }
+    
+    public init(
+        weeksWithData: Int,
+        workoutsAnalyzed: Int,
+        confidence: String = "medium",
+        caveats: [String]? = nil
+    ) {
+        self.weeksWithData = weeksWithData
+        self.workoutsAnalyzed = workoutsAnalyzed
+        self.confidence = confidence
+        self.caveats = caveats
     }
 }

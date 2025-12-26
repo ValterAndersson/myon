@@ -56,6 +56,8 @@ public struct CanvasGridView: View {
             AgentMessageCard(model: card)
         case .routineSummary(let data):
             RoutineSummaryCard(model: card, data: data)
+        case .analysisSummary(let data):
+            AnalysisSummaryCard(model: card, data: data)
         }
     }
 }
@@ -109,6 +111,8 @@ private struct EquatableCardHost: View, Equatable {
             AgentMessageCard(model: card)
         case .routineSummary(let data):
             RoutineSummaryCard(model: card, data: data)
+        case .analysisSummary(let data):
+            AnalysisSummaryCard(model: card, data: data)
         }
     }
 }
