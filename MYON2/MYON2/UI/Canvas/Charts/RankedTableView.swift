@@ -149,17 +149,17 @@ public struct RankedTableView: View {
     }
     
     private var emptyState: some View {
-        RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-            .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
-            .background(ColorsToken.Neutral.n50)
-            .frame(minHeight: 120)
-            .overlay(
-                Text(spec.emptyState ?? "No data available")
-                    .font(TypographyToken.callout)
-                    .foregroundStyle(ColorsToken.Text.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            )
+        ZStack {
+            RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
+                .fill(ColorsToken.Neutral.n50)
+            RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
+                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+            Text(spec.emptyState ?? "No data available")
+                .font(TypographyToken.callout)
+                .foregroundStyle(ColorsToken.Text.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(minHeight: 120)
     }
 }
 
