@@ -50,9 +50,11 @@ struct ThoughtTrack: Identifiable, Equatable {
         let toolSteps = steps.filter { $0.kind == .tool && $0.isComplete }
         if let lastTool = toolSteps.last {
             let text = lastTool.text
-            // Check for publish/workout/routine to make meaningful summary
+            // Check for publish/workout/routine/analysis to make meaningful summary
             if text.lowercased().contains("routine") {
                 return String(format: "Crafted routine (%.1fs)", totalDuration)
+            } else if text.lowercased().contains("insights") || text.lowercased().contains("analysis") {
+                return String(format: "Analyzed progress (%.1fs)", totalDuration)
             } else if text.lowercased().contains("workout") || text.lowercased().contains("publish") {
                 return String(format: "Crafted workout (%.1fs)", totalDuration)
             }
@@ -389,6 +391,9 @@ extension ThoughtTrack {
         case "tool_save_workout_as_template": return "Saving template"
         case "tool_create_routine": return "Creating routine"
         case "tool_manage_routine": return "Managing routine"
+        // Analysis Agent tools
+        case "tool_get_analytics_features": return "Analyzing workout data"
+        case "tool_propose_analysis_group": return "Publishing insights"
         default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -463,6 +468,28 @@ extension ThoughtTrack {
             
         case "tool_get_planning_context":
             return "Loaded"
+        
+        // Analysis Agent tools
+        case "tool_get_analytics_features":
+            if let dict = result as? [String: Any] {
+                if let dq = dict["data_quality"] as? [String: Any] {
+                    let weeks = dq["weeks_with_data"] as? Int ?? 0
+                    let workouts = dq["total_workouts"] as? Int ?? 0
+                    return "\(workouts) workouts over \(weeks) weeks"
+                }
+            }
+            return "Data loaded"
+            
+        case "tool_propose_analysis_group":
+            if let dict = result as? [String: Any] {
+                if let msg = dict["message"] as? String {
+                    return msg
+                }
+                if let status = dict["status"] as? String, status == "published" {
+                    return "Published"
+                }
+            }
+            return "Published"
             
         default:
             return "Complete"
