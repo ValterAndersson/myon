@@ -13,7 +13,7 @@ public struct CanvasGridView: View {
     public var body: some View {
         Grid(alignment: .leading, horizontalSpacing: Space.lg, verticalSpacing: Space.lg) {
             ForEach(cards) { card in
-                EquatableCardHost(card: card, onAccept: { onAccept(card.id) }, onReject: { onReject(card.id) })
+                EquatableCardHost(card: card, allCards: cards, onAccept: { onAccept(card.id) }, onReject: { onReject(card.id) })
                     .newItemHighlight()
                     .gridCellColumns(card.width.columns)
             }
@@ -53,6 +53,8 @@ public struct CanvasGridView: View {
             RoutineOverviewCard(model: card)
         case .agentMessage:
             AgentMessageCard(model: card)
+        case .routineSummary(let data):
+            RoutineSummaryCard(model: card, data: data)
         }
     }
 }
@@ -60,10 +62,21 @@ public struct CanvasGridView: View {
 // MARK: - Equatable host to avoid unnecessary redraws
 private struct EquatableCardHost: View, Equatable {
     let card: CanvasCardModel
+    let allCards: [CanvasCardModel]
     let onAccept: () -> Void
     let onReject: () -> Void
-    static func == (lhs: EquatableCardHost, rhs: EquatableCardHost) -> Bool { lhs.card == rhs.card }
+    
+    static func == (lhs: EquatableCardHost, rhs: EquatableCardHost) -> Bool { 
+        lhs.card == rhs.card && lhs.allCards.count == rhs.allCards.count
+    }
+    
     var body: some View {
+        cardContent
+            .environment(\.canvasCards, allCards)
+    }
+    
+    @ViewBuilder
+    private var cardContent: some View {
         switch card.data {
         case .text: SmallContentCard(model: card)
         case .visualization: VisualCard(model: card)
@@ -92,6 +105,8 @@ private struct EquatableCardHost: View, Equatable {
             RoutineOverviewCard(model: card)
         case .agentMessage:
             AgentMessageCard(model: card)
+        case .routineSummary(let data):
+            RoutineSummaryCard(model: card, data: data)
         }
     }
 }

@@ -16,12 +16,17 @@ async function startActiveWorkoutHandler(req, res) {
     if (!userId) return fail(res, 'UNAUTHENTICATED', 'Unauthorized', null, 401);
 
     const plan = req.body?.plan || null;
+    // Accept source_template_id and source_routine_id from request
+    // These capture the routine context at workout start time
+    const sourceTemplateId = req.body?.source_template_id || null;
+    const sourceRoutineId = req.body?.source_routine_id || null;
 
     const workout = {
       id: null,
       user_id: userId,
       status: 'in_progress',
-      source_template_id: null,
+      source_template_id: sourceTemplateId,
+      source_routine_id: sourceRoutineId,  // Added for routine cursor tracking
       notes: null,
       plan: plan || null,
       current: null,
@@ -42,5 +47,3 @@ async function startActiveWorkoutHandler(req, res) {
 }
 
 exports.startActiveWorkout = onRequest(requireFlexibleAuth(startActiveWorkoutHandler));
-
-

@@ -1,11 +1,27 @@
 import SwiftUI
 
+// MARK: - Environment Key for Card Lookup
+
+public struct CanvasCardsKey: EnvironmentKey {
+    public static let defaultValue: [CanvasCardModel] = []
+}
+
+public extension EnvironmentValues {
+    var canvasCards: [CanvasCardModel] {
+        get { self[CanvasCardsKey.self] }
+        set { self[CanvasCardsKey.self] = newValue }
+    }
+}
+
+// MARK: - Card Types
+
 public enum CardLane: String, Codable, CaseIterable { case workout, analysis, system }
 public enum CardStatus: String, Codable, CaseIterable { case proposed, active, accepted, rejected, expired, completed }
 
 public enum CardType: String, Codable, CaseIterable {
     case instruction, analysis_task, visualization, table, summary, followup_prompt
     case session_plan, current_exercise, set_target, set_result, note, coach_proposal
+    case routine_summary  // Multi-day routine draft anchor
 }
 
 public enum CardWidth: String, Codable, CaseIterable {
@@ -328,6 +344,82 @@ public enum CanvasCardData: Equatable {
     case clarifyQuestions([ClarifyQuestion])
     case routineOverview(split: String, days: Int, notes: String?)
     case agentMessage(AgentMessage)
+    case routineSummary(RoutineSummaryData)  // Multi-day routine draft
+}
+
+// MARK: - Routine Summary Types
+
+public struct RoutineSummaryData: Equatable, Codable {
+    public let name: String
+    public let description: String?
+    public let frequency: Int
+    public let workouts: [RoutineWorkoutSummary]
+    public let draftId: String?
+    public let revision: Int?
+    
+    public init(
+        name: String,
+        description: String? = nil,
+        frequency: Int,
+        workouts: [RoutineWorkoutSummary],
+        draftId: String? = nil,
+        revision: Int? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.frequency = frequency
+        self.workouts = workouts
+        self.draftId = draftId
+        self.revision = revision
+    }
+}
+
+public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
+    public let id: String  // Uses card_id for identity
+    public let day: Int
+    public let title: String
+    public let cardId: String?
+    public let estimatedDuration: Int?
+    public let exerciseCount: Int?
+    public let muscleGroups: [String]?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, day, title
+        case cardId = "card_id"
+        case estimatedDuration = "estimated_duration"
+        case exerciseCount = "exercise_count"
+        case muscleGroups = "muscle_groups"
+    }
+    
+    public init(
+        id: String = UUID().uuidString,
+        day: Int,
+        title: String,
+        cardId: String? = nil,
+        estimatedDuration: Int? = nil,
+        exerciseCount: Int? = nil,
+        muscleGroups: [String]? = nil
+    ) {
+        self.id = id
+        self.day = day
+        self.title = title
+        self.cardId = cardId
+        self.estimatedDuration = estimatedDuration
+        self.exerciseCount = exerciseCount
+        self.muscleGroups = muscleGroups
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        day = try container.decode(Int.self, forKey: .day)
+        title = try container.decode(String.self, forKey: .title)
+        cardId = try container.decodeIfPresent(String.self, forKey: .cardId)
+        estimatedDuration = try container.decodeIfPresent(Int.self, forKey: .estimatedDuration)
+        exerciseCount = try container.decodeIfPresent(Int.self, forKey: .exerciseCount)
+        muscleGroups = try container.decodeIfPresent([String].self, forKey: .muscleGroups)
+        // Use cardId as id if available, derive stable fallback from day to prevent edit loss on re-parse
+        id = cardId ?? "workout-day\(day)"
+    }
 }
 
 public struct CanvasCardModel: Identifiable, Equatable {

@@ -46,13 +46,23 @@ struct ThoughtTrack: Identifiable, Equatable {
         if let summary = summary, !summary.isEmpty {
             return summary
         }
-        // Auto-generate from steps
-        let toolNames = steps.filter { $0.kind == .tool && $0.isComplete }.map { $0.text }
-        if toolNames.isEmpty {
-            return String(format: "Thought for %.1fs", totalDuration)
+        // Auto-generate from steps - find meaningful action
+        let toolSteps = steps.filter { $0.kind == .tool && $0.isComplete }
+        if let lastTool = toolSteps.last {
+            let text = lastTool.text
+            // Check for publish/workout/routine to make meaningful summary
+            if text.lowercased().contains("routine") {
+                return String(format: "Crafted routine (%.1fs)", totalDuration)
+            } else if text.lowercased().contains("workout") || text.lowercased().contains("publish") {
+                return String(format: "Crafted workout (%.1fs)", totalDuration)
+            }
         }
-        let joined = toolNames.prefix(3).joined(separator: " • ")
-        return String(format: "%.1fs • %@", totalDuration, joined)
+        // Fallback to step count
+        let stepCount = steps.filter { $0.isComplete }.count
+        if stepCount > 1 {
+            return String(format: "Completed %d steps (%.1fs)", stepCount, totalDuration)
+        }
+        return String(format: "Thought for %.1fs", totalDuration)
     }
 }
 
@@ -283,34 +293,61 @@ extension ThoughtTrack {
                 }
                 
             case .toolRunning:
-                let toolName = event.event.content?["tool"]?.value as? String ?? "tool"
+                let toolName = event.event.content?["tool"]?.value as? String 
+                    ?? event.event.content?["tool_name"]?.value as? String 
+                    ?? "tool"
+                let args = event.event.content?["args"]?.value
+                let argsDetail = formatToolArgs(toolName, args: args)
+                
                 steps.append(ThoughtStep(
                     id: event.id,
                     kind: .tool,
                     text: humanReadableToolName(toolName),
-                    detail: nil,
+                    detail: argsDetail,
                     duration: nil,
                     isComplete: false,
                     timestamp: timestamp
                 ))
                 
             case .toolComplete:
-                let toolName = event.event.content?["tool"]?.value as? String ?? "tool"
+                let toolName = event.event.content?["tool"]?.value as? String 
+                    ?? event.event.content?["tool_name"]?.value as? String 
+                    ?? "tool"
                 let duration = event.event.content?["duration_s"]?.value as? Double
-                let result = event.event.content?["result"]?.value as? String
+                let result = event.event.content?["result"]?.value
+                let resultDetail = formatToolResult(toolName, result: result)
                 
                 // Find and update the matching toolRunning step
-                if let idx = steps.lastIndex(where: { $0.kind == .tool && $0.text == humanReadableToolName(toolName) && !$0.isComplete }) {
+                let humanName = humanReadableToolName(toolName)
+                if let idx = steps.lastIndex(where: { $0.kind == .tool && $0.text == humanName && !$0.isComplete }) {
                     let old = steps[idx]
+                    // Build combined detail with args and result
+                    var detail = old.detail ?? ""
+                    if let rd = resultDetail, !rd.isEmpty {
+                        if !detail.isEmpty { detail += " → " }
+                        detail += rd
+                    }
                     steps[idx] = ThoughtStep(
                         id: old.id,
                         kind: .tool,
                         text: old.text,
-                        detail: result,
+                        detail: detail.isEmpty ? nil : detail,
                         duration: duration,
                         isComplete: true,
                         timestamp: timestamp
                     )
+                } else {
+                    // No matching running step found - add as completed directly
+                    // This handles race conditions where toolComplete arrives before/without toolRunning
+                    steps.append(ThoughtStep(
+                        id: event.id,
+                        kind: .tool,
+                        text: humanName,
+                        detail: resultDetail,
+                        duration: duration,
+                        isComplete: true,
+                        timestamp: timestamp
+                    ))
                 }
                 
             default:
@@ -344,7 +381,91 @@ extension ThoughtTrack {
         case "tool_record_user_info": return "Recording info"
         case "tool_emit_status", "tool_emit_agent_event": return "Logging"
         case "tool_send_message": return "Sending message"
+        case "tool_get_planning_context": return "Loading context"
+        case "tool_propose_workout": return "Proposing workout"
+        case "tool_propose_routine": return "Proposing routine"
+        case "tool_get_next_workout": return "Getting next workout"
+        case "tool_get_template": return "Loading template"
+        case "tool_save_workout_as_template": return "Saving template"
+        case "tool_create_routine": return "Creating routine"
+        case "tool_manage_routine": return "Managing routine"
         default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+    
+    /// Format tool arguments for user-facing display
+    private static func formatToolArgs(_ toolName: String, args: Any?) -> String? {
+        guard let args = args else { return nil }
+        
+        switch toolName {
+        case "tool_search_exercises":
+            // Extract meaningful search params
+            var parts: [String] = []
+            if let dict = args as? [String: Any] {
+                if let split = dict["split"] as? String { parts.append("split=\"\(split)\"") }
+                if let muscle = dict["muscle_group"] as? String { parts.append("muscle=\"\(muscle)\"") }
+                if let movement = dict["movement_type"] as? String { parts.append("movement=\"\(movement)\"") }
+                if let category = dict["category"] as? String { parts.append("category=\"\(category)\"") }
+                if let query = dict["query"] as? String { parts.append("query=\"\(query)\"") }
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+            
+        case "tool_get_template":
+            if let dict = args as? [String: Any], let templateId = dict["template_id"] as? String {
+                return "template: \(templateId.prefix(8))..."
+            }
+            
+        default:
+            return nil
+        }
+        return nil
+    }
+    
+    /// Format tool result for user-facing display
+    private static func formatToolResult(_ toolName: String, result: Any?) -> String? {
+        guard let result = result else { return nil }
+        
+        switch toolName {
+        case "tool_search_exercises":
+            // Try to get exercise count from result
+            if let arr = result as? [[String: Any]] {
+                return "Found \(arr.count) exercises"
+            }
+            if let dict = result as? [String: Any] {
+                if let items = dict["items"] as? [[String: Any]] {
+                    return "Found \(items.count) exercises"
+                }
+                if let count = dict["count"] as? Int {
+                    return "Found \(count) exercises"
+                }
+            }
+            // Try parsing from string representation
+            if let str = result as? String {
+                if str.contains("exercise") {
+                    return "Complete"
+                }
+            }
+            return "Complete"
+            
+        case "tool_propose_workout", "tool_propose_routine":
+            if let dict = result as? [String: Any] {
+                if let status = dict["status"] as? String, status == "published" {
+                    if let count = dict["exercises"] as? Int {
+                        return "Published (\(count) exercises)"
+                    }
+                    if let count = dict["workout_count"] as? Int {
+                        return "Published (\(count) workouts)"
+                    }
+                    return "Published"
+                }
+            }
+            return "Complete"
+            
+        case "tool_get_planning_context":
+            return "Loaded"
+            
+        default:
+            return "Complete"
         }
     }
 }

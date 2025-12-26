@@ -64,6 +64,7 @@ async function completeActiveWorkoutHandler(req, res) {
     const archived = {
       user_id: userId,
       source_template_id: active.source_template_id || null,
+      source_routine_id: active.source_routine_id || null,  // Added for routine cursor tracking
       created_at: active.created_at || new Date(),
       start_time: active.start_time || new Date(),
       end_time: new Date(),
@@ -82,5 +83,3 @@ async function completeActiveWorkoutHandler(req, res) {
 }
 
 exports.completeActiveWorkout = onRequest(requireFlexibleAuth(completeActiveWorkoutHandler));
-
-

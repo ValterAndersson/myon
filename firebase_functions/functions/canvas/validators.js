@@ -11,6 +11,7 @@ const listSchema = require('./schemas/card_types/list.schema.json');
 const inlineInfoSchema = require('./schemas/card_types/inline_info.schema.json');
 const proposalGroupSchema = require('./schemas/card_types/proposal_group.schema.json');
 const routineOverviewSchema = require('./schemas/card_types/routine_overview.schema.json');
+const routineSummarySchema = require('./schemas/card_types/routine_summary.schema.json');
 ajv.addSchema(sessionPlanSchema);
 ajv.addSchema(coachProposalSchema);
 ajv.addSchema(visualizationSchema);
@@ -21,6 +22,7 @@ ajv.addSchema(listSchema);
 ajv.addSchema(inlineInfoSchema);
 ajv.addSchema(proposalGroupSchema);
 ajv.addSchema(routineOverviewSchema);
+ajv.addSchema(routineSummarySchema);
 
 // --- Action schema (Phase 1 supported types) ---
 const actionSchema = {
@@ -31,7 +33,13 @@ const actionSchema = {
   properties: {
     type: {
       type: 'string',
-      enum: ['ADD_INSTRUCTION', 'ACCEPT_PROPOSAL', 'REJECT_PROPOSAL', 'ACCEPT_ALL', 'REJECT_ALL', 'ADD_NOTE', 'LOG_SET', 'EDIT_SET', 'SWAP', 'ADJUST_LOAD', 'REORDER_SETS', 'PAUSE', 'RESUME', 'COMPLETE', 'UNDO'],
+      enum: [
+        'ADD_INSTRUCTION', 'ACCEPT_PROPOSAL', 'REJECT_PROPOSAL', 'ACCEPT_ALL', 'REJECT_ALL',
+        'ADD_NOTE', 'LOG_SET', 'EDIT_SET', 'SWAP', 'ADJUST_LOAD', 'REORDER_SETS',
+        'PAUSE', 'RESUME', 'COMPLETE', 'UNDO',
+        // Routine draft actions
+        'SAVE_ROUTINE', 'PIN_DRAFT', 'DISMISS_DRAFT'
+      ],
     },
     card_id: { type: 'string' },
     payload: { type: ['object', 'null'] },
@@ -194,6 +202,19 @@ const actionSchema = {
         },
       },
     },
+    // Routine draft actions - require card_id pointing to routine_summary
+    {
+      if: { properties: { type: { const: 'SAVE_ROUTINE' } } },
+      then: { required: ['card_id'] },
+    },
+    {
+      if: { properties: { type: { const: 'PIN_DRAFT' } } },
+      then: { required: ['card_id'] },
+    },
+    {
+      if: { properties: { type: { const: 'DISMISS_DRAFT' } } },
+      then: { required: ['card_id'] },
+    },
   ],
 };
 
@@ -281,6 +302,11 @@ const cardInputSchema = {
       if: { properties: { type: { const: 'routine-overview' } } },
       then: { properties: { content: { $ref: routineOverviewSchema.$id } } }
     }
+    ,
+    {
+      if: { properties: { type: { const: 'routine_summary' } } },
+      then: { properties: { content: { $ref: routineSummarySchema.$id } } }
+    }
   ]
 };
 
@@ -310,5 +336,3 @@ module.exports = {
   validateApplyActionRequest: (data) => validateOrErrors(validateApplyActionRequest, data),
   validateProposeCardsRequest: (data) => validateOrErrors(validateProposeCardsRequest, data),
 };
-
-

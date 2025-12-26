@@ -21,18 +21,30 @@ async function deleteTemplateHandler(req, res) {
     if (!template) return fail(res, 'NOT_FOUND', 'Template not found', null, 404);
 
     // Check for routine references and clean them up
+    // READ BOTH fields for backward compatibility: template_ids (canonical) and templateIds (legacy)
     const routines = await db.getDocumentsFromSubcollection('users', userId, 'routines');
-    const routinesToUpdate = routines.filter(routine => 
-      routine.templateIds && routine.templateIds.includes(templateId)
-    );
+    const routinesToUpdate = routines.filter(routine => {
+      const templateIds = routine.template_ids || routine.templateIds || [];
+      return templateIds.includes(templateId);
+    });
 
     // Update routines to remove template reference
+    // WRITE ONLY canonical field: template_ids
     for (const routine of routinesToUpdate) {
-      const updatedTemplateIds = routine.templateIds.filter(id => id !== templateId);
-      await db.updateDocumentInSubcollection('users', userId, 'routines', routine.id, {
-        templateIds: updatedTemplateIds
-        // Remove manual timestamp - FirestoreHelper handles this
-      });
+      const currentIds = routine.template_ids || routine.templateIds || [];
+      const updatedTemplateIds = currentIds.filter(id => id !== templateId);
+      
+      // Also clear cursor if this was the last completed template
+      const updateData = {
+        template_ids: updatedTemplateIds
+      };
+      
+      if (routine.last_completed_template_id === templateId) {
+        updateData.last_completed_template_id = null;
+        updateData.last_completed_at = null;
+      }
+      
+      await db.updateDocumentInSubcollection('users', userId, 'routines', routine.id, updateData);
     }
 
     // Delete template
@@ -47,4 +59,4 @@ async function deleteTemplateHandler(req, res) {
 }
 
 // Export Firebase Function
-exports.deleteTemplate = onRequest(requireFlexibleAuth(deleteTemplateHandler)); 
+exports.deleteTemplate = onRequest(requireFlexibleAuth(deleteTemplateHandler));

@@ -27,13 +27,15 @@ private struct TimelineItem: Identifiable {
 struct WorkspaceTimelineView: View {
     let events: [WorkspaceEvent]
     let embeddedCards: [CanvasCardModel]
+    let allCards: [CanvasCardModel]  // All cards including hidden routine-linked ones (for drill-down lookup)
     let syntheticClarification: TimelineClarificationPrompt?
     let answeredClarifications: Set<String>
     let onClarificationSubmit: (String, String, String) -> Void
     let onClarificationSkip: (String, String) -> Void
     var hideThinkingEvents: Bool = false  // Hide old SRE stream when showing new skeleton
     
-    @State private var autoScroll = true
+    // Sticky bottom scroll: user stays glued to bottom unless they scroll up
+    @State private var isUserNearBottom = true  // Tracks if user is at/near bottom
     @State private var scrollProxy: ScrollViewProxy?
     @State private var responses: [String: String] = [:]
     @State private var collapsedTools = true
@@ -69,16 +71,37 @@ struct WorkspaceTimelineView: View {
                 .padding(.bottom, Space.xxl)
             }
             .background(ColorsToken.Background.primary)
-            .onAppear { scrollProxy = proxy }
-            .onChange(of: timelineItems.count) { _ in
-                guard autoScroll, let id = timelineItems.last?.id else { return }
-                withAnimation(.easeOut(duration: 0.3)) {
-                    proxy.scrollTo(id, anchor: .bottom)
+            .onAppear {
+                scrollProxy = proxy
+                // Initial scroll to bottom
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let lastItem = timelineItems.last {
+                        proxy.scrollTo(lastItem.id, anchor: .bottom)
+                    }
                 }
             }
-            .gesture(DragGesture().onChanged { _ in autoScroll = false })
+            // STICKY BOTTOM: Scroll to bottom whenever content changes IF user is near bottom
+            .onChange(of: contentHash) { _ in
+                guard isUserNearBottom else { return }
+                scrollToBottom(proxy: proxy)
+            }
+            // Also scroll when thinking starts
+            .onChange(of: hasActiveThinking) { isActive in
+                guard isUserNearBottom, isActive else { return }
+                scrollToBottom(proxy: proxy)
+            }
+            // HIGH-VELOCITY scroll detection only (not slow browse)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        // Only detach if scrolling UP significantly (positive translation = up)
+                        if value.translation.height > 50 {
+                            isUserNearBottom = false
+                        }
+                    }
+            )
             .overlay(alignment: .bottomTrailing) {
-                if !autoScroll {
+                if !isUserNearBottom {
                     jumpToLatestButton
                 }
             }
@@ -138,9 +161,11 @@ struct WorkspaceTimelineView: View {
     
     private var jumpToLatestButton: some View {
         Button {
-            autoScroll = true
+            isUserNearBottom = true
             if let id = timelineItems.last?.id {
-                withAnimation { scrollProxy?.scrollTo(id, anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.3)) {
+                    scrollProxy?.scrollTo(id, anchor: .bottom)
+                }
             }
         } label: {
             HStack(spacing: Space.xs) {
@@ -156,6 +181,39 @@ struct WorkspaceTimelineView: View {
             .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         }
         .padding(Space.md)
+    }
+    
+    // MARK: - Scroll Helpers
+    
+    /// A hash that changes when content changes (triggers scroll)
+    private var contentHash: Int {
+        var hasher = Hasher()
+        hasher.combine(events.count)
+        hasher.combine(embeddedCards.count)
+        // Add last event ID for more granular updates
+        if let lastEvent = events.last {
+            hasher.combine(lastEvent.id)
+        }
+        // Add last card ID
+        if let lastCard = embeddedCards.last {
+            hasher.combine(lastCard.id)
+        }
+        // Count of in-progress events for live updates
+        let inProgressCount = events.filter { $0.event.eventType == .thinking || $0.event.eventType == .toolRunning }.count
+        hasher.combine(inProgressCount)
+        return hasher.finalize()
+    }
+    
+    /// Scroll to bottom with animation
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if let lastItem = timelineItems.last {
+            // Small delay to allow content to render
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(lastItem.id, anchor: .bottom)
+                }
+            }
+        }
     }
     
     // MARK: - Timeline Item View
@@ -317,6 +375,7 @@ struct WorkspaceTimelineView: View {
     private func artifactIcon(for card: CanvasCardModel) -> String {
         switch card.data {
         case .sessionPlan: return "figure.strengthtraining.traditional"
+        case .routineSummary: return "calendar.badge.clock"
         case .visualization: return "chart.bar"
         case .list: return "list.bullet"
         case .agentStream: return "brain"
@@ -328,6 +387,7 @@ struct WorkspaceTimelineView: View {
     private func artifactLabel(for card: CanvasCardModel) -> String {
         switch card.data {
         case .sessionPlan: return "Workout Plan"
+        case .routineSummary: return "Training Program"
         case .visualization: return "Analysis"
         case .list: return "Recommendations"
         case .inlineInfo: return "Note"
@@ -442,6 +502,10 @@ struct WorkspaceTimelineView: View {
         switch card.data {
         case .sessionPlan:
             SessionPlanCard(model: card)
+        case .routineSummary(let data):
+            // Pass ALL cards to environment so RoutineSummaryCard can look up linked session_plans
+            RoutineSummaryCard(model: card, data: data)
+                .environment(\.canvasCards, allCards)
         case .inlineInfo(let text):
             CardContainer(status: card.status) {
                 VStack(alignment: .leading, spacing: Space.xs) {
@@ -502,15 +566,76 @@ struct WorkspaceTimelineView: View {
     }
     
     private func mapEventToKind(_ entry: WorkspaceEvent) -> TimelineItemKind? {
+        let eventType = entry.event.type
+        
         switch entry.event.eventType {
         case .userPrompt, .userResponse:
             let text = entry.event.content?["text"]?.value as? String ?? ""
             return .userMessage(text: text)
             
+        default:
+            break
+        }
+        
+        // Handle synthetic thought_track / thinking_track events
+        if eventType == "thought_track" || eventType == "thinking_track" {
+            let isInProgress = entry.event.content?["is_in_progress"]?.value as? Bool ?? (eventType == "thinking_track")
+            let summary = entry.event.content?["summary"]?.value as? String
+            let totalDuration = entry.event.content?["total_duration"]?.value as? Double ?? 0
+            let timestamp = entry.createdAt ?? Date()
+            
+            // Parse steps from content
+            var steps: [ThoughtStep] = []
+            if let stepsData = entry.event.content?["steps"]?.value as? [[String: Any]] {
+                for stepData in stepsData {
+                    let id = stepData["id"] as? String ?? UUID().uuidString
+                    let text = stepData["text"] as? String ?? "Step"
+                    let duration = stepData["duration"] as? Double
+                    let isComplete = stepData["isComplete"] as? Bool ?? true
+                    
+                    steps.append(ThoughtStep(
+                        id: id,
+                        kind: text.contains("→") ? .tool : .thinking,
+                        text: text,
+                        detail: nil,
+                        duration: duration,
+                        isComplete: isComplete,
+                        timestamp: timestamp
+                    ))
+                }
+            }
+            
+            // Fallback if no steps parsed
+            if steps.isEmpty {
+                steps.append(ThoughtStep(
+                    id: entry.id,
+                    kind: .thinking,
+                    text: isInProgress ? "Working..." : (summary ?? "Done"),
+                    detail: nil,
+                    duration: isInProgress ? nil : totalDuration,
+                    isComplete: !isInProgress,
+                    timestamp: timestamp
+                ))
+            }
+            
+            if isInProgress {
+                return .liveThoughtTrack(steps)
+            } else {
+                let track = ThoughtTrack(
+                    id: entry.id,
+                    steps: steps,
+                    isComplete: true,
+                    summary: summary,
+                    totalDuration: totalDuration
+                )
+                return .thoughtTrack(track)
+            }
+        }
+        
+        // Legacy thinking/thought handling (for backward compat with old events)
+        switch entry.event.eventType {
         case .thinking, .thought:
-            // Skip thinking events when hideThinkingEvents is true (showing new skeleton instead)
             if hideThinkingEvents { return nil }
-            // Build a ThoughtTrack from this summarized event
             let text = entry.event.content?["text"]?.value as? String ?? ""
             let duration = entry.event.content?["duration_s"]?.value as? Double ?? 0
             let tools = entry.event.content?["tools"]?.value as? [String] ?? []
@@ -519,7 +644,6 @@ struct WorkspaceTimelineView: View {
             var steps: [ThoughtStep] = []
             let timestamp = entry.createdAt ?? Date()
             
-            // Add thinking step if duration > 0
             if duration > 0.5 {
                 steps.append(ThoughtStep(
                     id: "\(entry.id)-thought",
@@ -532,7 +656,6 @@ struct WorkspaceTimelineView: View {
                 ))
             }
             
-            // Add tool steps (with index to prevent ID collision when same tool called multiple times)
             for (index, tool) in tools.enumerated() {
                 steps.append(ThoughtStep(
                     id: "\(entry.id)-\(tool)-\(index)",
@@ -546,7 +669,6 @@ struct WorkspaceTimelineView: View {
             }
             
             if steps.isEmpty {
-                // Fallback for simple thinking events
                 steps.append(ThoughtStep(
                     id: entry.id,
                     kind: .thinking,
@@ -596,79 +718,28 @@ struct WorkspaceTimelineView: View {
     
     private var renderedEvents: [WorkspaceEvent] {
         var result: [WorkspaceEvent] = []
-        var pendingThinking: WorkspaceEvent?
-        var toolsInFlight: [(name: String, start: Double)] = []
-        var completedTools: [String] = []
-        var thinkingDuration: Double = 0
-        var lastThinkingStart: Double?
+        var activeSteps: [AgentStep] = []
+        var sessionStartTime: Double?
         
         let sortedEntries = events.sorted(by: { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) })
         
         for entry in sortedEntries {
             let eventType = entry.event.eventType
+            let ts = entry.event.timestamp ?? entry.createdAt?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
             
-            // Skip heartbeats and status events in rendering
-            if eventType == .heartbeat || eventType == .status {
+            // Skip heartbeats
+            if eventType == .heartbeat {
                 continue
             }
             
-            // Track thinking duration
-            if eventType == .thinking {
-                if lastThinkingStart == nil {
-                    lastThinkingStart = entry.event.timestamp ?? entry.createdAt?.timeIntervalSince1970
-                }
-                pendingThinking = entry
-                continue
-            }
-            
-            // Thought closes a thinking block - accumulate duration
-            if eventType == .thought {
-                if let start = lastThinkingStart {
-                    let end = entry.event.timestamp ?? entry.createdAt?.timeIntervalSince1970 ?? start
-                    thinkingDuration += (end - start)
-                }
-                lastThinkingStart = nil
-                pendingThinking = nil
-                continue
-            }
-            
-            // Tool running - track it
-            if eventType == .toolRunning {
-                let toolName = entry.event.content?["tool"]?.value as? String ?? "tool"
-                let startTime = entry.event.timestamp ?? entry.createdAt?.timeIntervalSince1970 ?? 0
-                // Only track if not already in flight
-                if !toolsInFlight.contains(where: { $0.name == toolName }) {
-                    toolsInFlight.append((name: toolName, start: startTime))
-                }
-                continue
-            }
-            
-            // Tool complete - move to completed
-            if eventType == .toolComplete {
-                let toolName = entry.event.content?["tool"]?.value as? String ?? "tool"
-                toolsInFlight.removeAll { $0.name == toolName }
-                if !completedTools.contains(toolName) {
-                    completedTools.append(toolName)
-                }
-                continue
-            }
-            
-            // For user messages, agent responses, clarifications - flush pending thinking summary first
-            if eventType == .userPrompt || eventType == .userResponse || 
-               eventType == .agentResponse || eventType == .message ||
-               eventType == .clarificationRequest {
-                
-                // Create a condensed thinking summary if we have data
-                if thinkingDuration > 0 || !completedTools.isEmpty {
-                    let summaryEvent = createThinkingSummary(
-                        duration: thinkingDuration,
-                        tools: completedTools,
-                        timestamp: entry.createdAt
-                    )
-                    result.append(summaryEvent)
-                    thinkingDuration = 0
-                    completedTools = []
-                    toolsInFlight = []
+            // User messages - flush any pending thought track and add
+            if eventType == .userPrompt || eventType == .userResponse {
+                // Flush pending steps as completed track
+                if !activeSteps.isEmpty {
+                    let trackEvent = createStepTrackEvent(steps: activeSteps, isComplete: true, timestamp: entry.createdAt)
+                    result.append(trackEvent)
+                    activeSteps = []
+                    sessionStartTime = nil
                 }
                 
                 // Deduplicate consecutive identical text
@@ -677,29 +748,400 @@ struct WorkspaceTimelineView: View {
                    last.event.agent == entry.event.agent {
                     continue
                 }
-                
                 result.append(entry)
+                continue
+            }
+            
+            // Thinking start - add thinking step
+            if eventType == .thinking {
+                if sessionStartTime == nil {
+                    sessionStartTime = ts
+                }
+                let text = entry.event.content?["text"]?.value as? String ?? "Thinking"
+                let intent = extractIntent(from: text)
+                activeSteps.append(AgentStep(
+                    id: entry.id,
+                    kind: .thinking,
+                    label: intent,
+                    detail: nil,
+                    startTime: ts,
+                    endTime: nil,
+                    isComplete: false
+                ))
+                continue
+            }
+            
+            // Thought complete - close the last thinking step
+            if eventType == .thought {
+                if let idx = activeSteps.lastIndex(where: { $0.kind == .thinking && !$0.isComplete }) {
+                    let duration = ts - activeSteps[idx].startTime
+                    let resultText = entry.event.content?["text"]?.value as? String
+                    activeSteps[idx] = AgentStep(
+                        id: activeSteps[idx].id,
+                        kind: .thinking,
+                        label: activeSteps[idx].label,
+                        detail: resultText != nil && !resultText!.isEmpty ? "Thought for \(String(format: "%.1f", duration))s" : nil,
+                        startTime: activeSteps[idx].startTime,
+                        endTime: ts,
+                        isComplete: true
+                    )
+                }
+                continue
+            }
+            
+            // Tool running - add tool step
+            if eventType == .toolRunning {
+                if sessionStartTime == nil {
+                    sessionStartTime = ts
+                }
+                let toolName = entry.event.content?["tool"]?.value as? String 
+                    ?? entry.event.content?["tool_name"]?.value as? String 
+                    ?? "tool"
+                let intent = entry.event.content?["intent"]?.value as? String
+                let args = entry.event.content?["args"]?.value
+                
+                // Build label with search query if available
+                var label = intent ?? humanReadableToolName(toolName)
+                if let argsDetail = extractToolArgsForDisplay(toolName, args: args) {
+                    label = "\(humanReadableToolName(toolName)) \(argsDetail)"
+                }
+                
+                activeSteps.append(AgentStep(
+                    id: entry.id,
+                    kind: .tool(name: toolName),
+                    label: label,
+                    detail: nil,
+                    startTime: ts,
+                    endTime: nil,
+                    isComplete: false
+                ))
+                continue
+            }
+            
+            // Tool complete - update the tool step with result
+            if eventType == .toolComplete {
+                let toolName = entry.event.content?["tool"]?.value as? String ?? "tool"
+                if let idx = activeSteps.lastIndex(where: {
+                    if case .tool(let name) = $0.kind, name == toolName, !$0.isComplete {
+                        return true
+                    }
+                    return false
+                }) {
+                    let duration = ts - activeSteps[idx].startTime
+                    let result = extractToolResult(entry.event.content)
+                    activeSteps[idx] = AgentStep(
+                        id: activeSteps[idx].id,
+                        kind: activeSteps[idx].kind,
+                        label: activeSteps[idx].label,
+                        detail: result,
+                        startTime: activeSteps[idx].startTime,
+                        endTime: ts,
+                        isComplete: true,
+                        duration: duration
+                    )
+                }
+                continue
+            }
+            
+            // Agent response - flush steps and add response
+            if eventType == .agentResponse || eventType == .message {
+                let text = entry.event.content?["text"]?.value as? String ?? ""
+                guard !text.isEmpty else { continue }
+                
+                // Flush pending steps as completed track
+                if !activeSteps.isEmpty {
+                    let trackEvent = createStepTrackEvent(steps: activeSteps, isComplete: true, timestamp: entry.createdAt)
+                    result.append(trackEvent)
+                    activeSteps = []
+                    sessionStartTime = nil
+                }
+                
+                // Deduplicate
+                if let last = result.last,
+                   normalizedText(for: entry) == normalizedText(for: last) {
+                    continue
+                }
+                result.append(entry)
+                continue
+            }
+            
+            // Clarification
+            if eventType == .clarificationRequest {
+                if !activeSteps.isEmpty {
+                    let trackEvent = createStepTrackEvent(steps: activeSteps, isComplete: true, timestamp: entry.createdAt)
+                    result.append(trackEvent)
+                    activeSteps = []
+                    sessionStartTime = nil
+                }
+                result.append(entry)
+                continue
+            }
+            
+            // Status events
+            if eventType == .status {
+                // Add as a step in the current track
+                let text = entry.event.content?["text"]?.value as? String ?? entry.event.displayText
+                activeSteps.append(AgentStep(
+                    id: entry.id,
+                    kind: .status,
+                    label: text,
+                    detail: nil,
+                    startTime: ts,
+                    endTime: ts,
+                    isComplete: true
+                ))
+                continue
+            }
+            
+            // Error events
+            if eventType == .error {
+                result.append(entry)
+                continue
             }
         }
         
-        // Check if stream is complete (done event received)
+        // Check if stream is complete
         let hasDoneEvent = events.contains { $0.event.eventType == .done }
         
-        // Flush any remaining pending state at the end
-        if thinkingDuration > 0 || !completedTools.isEmpty || !toolsInFlight.isEmpty {
-            let allTools = completedTools + toolsInFlight.map { $0.name }
-            // If done event exists, mark as complete regardless of pending state
-            let isStillInProgress = !hasDoneEvent && (!toolsInFlight.isEmpty || pendingThinking != nil)
-            let summaryEvent = createThinkingSummary(
-                duration: thinkingDuration,
-                tools: allTools,
-                timestamp: sortedEntries.last?.createdAt,
-                isInProgress: isStillInProgress
+        // Flush remaining steps - mark all as complete if done
+        if !activeSteps.isEmpty {
+            // If done, mark all incomplete steps as complete
+            let finalSteps: [AgentStep]
+            if hasDoneEvent {
+                finalSteps = activeSteps.map { step in
+                    if step.isComplete {
+                        return step
+                    }
+                    // Mark incomplete step as complete
+                    return AgentStep(
+                        id: step.id,
+                        kind: step.kind,
+                        label: step.label,
+                        detail: step.detail ?? "Complete",
+                        startTime: step.startTime,
+                        endTime: step.endTime ?? Date().timeIntervalSince1970,
+                        isComplete: true,
+                        duration: step.duration ?? 0.1  // Small duration for steps that completed instantly
+                    )
+                }
+            } else {
+                finalSteps = activeSteps
+            }
+            
+            let trackEvent = createStepTrackEvent(
+                steps: finalSteps,
+                isComplete: hasDoneEvent,
+                timestamp: sortedEntries.last?.createdAt
             )
-            result.append(summaryEvent)
+            result.append(trackEvent)
         }
         
         return result
+    }
+    
+    // MARK: - Agent Step Model
+    
+    private struct AgentStep {
+        let id: String
+        let kind: StepKind
+        let label: String
+        let detail: String?
+        let startTime: Double
+        let endTime: Double?
+        let isComplete: Bool
+        var duration: Double?
+        
+        enum StepKind: Equatable {
+            case thinking
+            case tool(name: String)
+            case status
+            case publishing
+        }
+        
+        init(id: String, kind: StepKind, label: String, detail: String?, startTime: Double, endTime: Double?, isComplete: Bool, duration: Double? = nil) {
+            self.id = id
+            self.kind = kind
+            self.label = label
+            self.detail = detail
+            self.startTime = startTime
+            self.endTime = endTime
+            self.isComplete = isComplete
+            self.duration = duration ?? (endTime.map { $0 - startTime })
+        }
+    }
+    
+    private func extractIntent(from text: String) -> String {
+        // Extract semantic intent from thinking text
+        let lower = text.lowercased()
+        if lower.contains("planning") || lower.contains("plan") {
+            return "Planning approach"
+        } else if lower.contains("analyzing") || lower.contains("review") {
+            return "Analyzing request"
+        } else if lower.contains("search") {
+            return "Preparing search"
+        } else if lower.contains("creating") || lower.contains("building") {
+            return "Building workout"
+        } else if lower.contains("routine") {
+            return "Designing routine"
+        } else if !text.isEmpty && text.count < 50 {
+            return text
+        }
+        return "Thinking"
+    }
+    
+    /// Extract search args for display (e.g., "with split=upper")
+    private func extractToolArgsForDisplay(_ toolName: String, args: Any?) -> String? {
+        guard let args = args else { return nil }
+        
+        // Handle search_exercises tool
+        if toolName.contains("search") || toolName.contains("exercise") {
+            var parts: [String] = []
+            
+            if let dict = args as? [String: Any] {
+                if let split = dict["split"] as? String { parts.append("split=\(split)") }
+                if let muscle = dict["muscle_group"] as? String { parts.append("muscle=\(muscle)") }
+                if let movement = dict["movement_type"] as? String { parts.append("movement=\(movement)") }
+                if let category = dict["category"] as? String { parts.append("category=\(category)") }
+                if let query = dict["query"] as? String { parts.append("query=\"\(query)\"") }
+            }
+            
+            if !parts.isEmpty {
+                return "with \(parts.joined(separator: ", "))"
+            }
+        }
+        
+        return nil
+    }
+    
+    private func extractToolResult(_ content: [String: AnyCodable]?) -> String? {
+        guard let content = content else { return nil }
+        
+        // Check for specific result patterns
+        if let count = content["result_count"]?.value as? Int {
+            let tool = content["tool"]?.value as? String ?? ""
+            if tool.contains("exercise") || tool.contains("search") {
+                return "Found \(count) exercises"
+            }
+            return "Found \(count) items"
+        }
+        
+        // Try to parse result array/dict for exercise count
+        if let result = content["result"]?.value {
+            // If it's an array, count items
+            if let arr = result as? [Any] {
+                let tool = content["tool"]?.value as? String ?? ""
+                if tool.contains("exercise") || tool.contains("search") {
+                    return "Found \(arr.count) exercises"
+                }
+                return "Found \(arr.count) items"
+            }
+            
+            // If it's a dict with items array
+            if let dict = result as? [String: Any], let items = dict["items"] as? [Any] {
+                let tool = content["tool"]?.value as? String ?? ""
+                if tool.contains("exercise") || tool.contains("search") {
+                    return "Found \(items.count) exercises"
+                }
+                return "Found \(items.count) items"
+            }
+            
+            // If it's a string
+            if let str = result as? String, !str.isEmpty {
+                // Truncate long results
+                if str.count > 60 {
+                    return String(str.prefix(57)) + "..."
+                }
+                return str
+            }
+        }
+        
+        if let summary = content["summary"]?.value as? String, !summary.isEmpty {
+            return summary
+        }
+        
+        return nil
+    }
+    
+    private func createStepTrackEvent(steps: [AgentStep], isComplete: Bool, timestamp: Date?) -> WorkspaceEvent {
+        var thoughtSteps: [ThoughtStep] = []
+        var totalDuration: Double = 0
+        
+        for step in steps {
+            let stepKind: ThoughtStep.Kind
+            switch step.kind {
+            case .thinking: stepKind = .thinking
+            case .tool: stepKind = .tool
+            case .status: stepKind = .insight
+            case .publishing: stepKind = .tool
+            }
+            
+            let duration = step.duration
+            if let d = duration {
+                totalDuration += d
+            }
+            
+            // Format the display text with result
+            var displayLabel = step.label
+            if let detail = step.detail, !detail.isEmpty {
+                displayLabel = "\(step.label) → \(detail)"
+            }
+            
+            thoughtSteps.append(ThoughtStep(
+                id: step.id,
+                kind: stepKind,
+                text: displayLabel,
+                detail: nil,
+                duration: duration,
+                isComplete: step.isComplete,
+                timestamp: Date(timeIntervalSince1970: step.startTime)
+            ))
+        }
+        
+        // Build summary for collapsed view
+        let summary = buildTrackSummary(steps: steps, totalDuration: totalDuration)
+        
+        let content: [String: AnyCodable] = [
+            "steps": AnyCodable(thoughtSteps.map { ["id": $0.id, "text": $0.text, "duration": $0.duration ?? 0, "isComplete": $0.isComplete] }),
+            "summary": AnyCodable(summary),
+            "total_duration": AnyCodable(totalDuration),
+            "is_in_progress": AnyCodable(!isComplete)
+        ]
+        
+        let streamEvent = StreamEvent(
+            type: isComplete ? "thought_track" : "thinking_track",
+            agent: "orchestrator",
+            content: content,
+            timestamp: timestamp?.timeIntervalSince1970,
+            metadata: nil
+        )
+        
+        return WorkspaceEvent(id: UUID().uuidString, event: streamEvent, createdAt: timestamp)
+    }
+    
+    private func buildTrackSummary(steps: [AgentStep], totalDuration: Double) -> String {
+        // Find the most meaningful completed action
+        let meaningfulSteps = steps.filter { step in
+            if case .tool(let name) = step.kind {
+                return name.contains("propose") || name.contains("publish") || name.contains("workout") || name.contains("routine")
+            }
+            return false
+        }
+        
+        if let lastMeaningful = meaningfulSteps.last {
+            if lastMeaningful.label.lowercased().contains("routine") {
+                return String(format: "Crafted routine (%.1fs)", totalDuration)
+            } else {
+                return String(format: "Crafted workout (%.1fs)", totalDuration)
+            }
+        }
+        
+        // Fallback to tool count summary
+        let toolCount = steps.filter { if case .tool = $0.kind { return true }; return false }.count
+        if toolCount > 0 {
+            return String(format: "Completed %d steps (%.1fs)", toolCount, totalDuration)
+        }
+        
+        return String(format: "Thought for %.1fs", totalDuration)
     }
     
     private func createThinkingSummary(duration: Double, tools: [String], timestamp: Date?, isInProgress: Bool = false) -> WorkspaceEvent {
@@ -820,6 +1262,7 @@ struct WorkspaceTimelineView_Previews: PreviewProvider {
         WorkspaceTimelineView(
             events: [],
             embeddedCards: [],
+            allCards: [],
             syntheticClarification: TimelineClarificationPrompt(id: "test", question: "What muscle groups do you want to focus on?"),
             answeredClarifications: [],
             onClarificationSubmit: { _, _, _ in },

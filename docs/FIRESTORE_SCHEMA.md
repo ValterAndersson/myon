@@ -58,7 +58,8 @@ Subcollections:
    - Query patterns: order by `end_time`, filter by `end_time` range, collectionGroup from triggers.
    - Fields:
      - `user_id: string`
-     - `source_template_id?: string`
+     - `source_template_id?: string` (template used to generate this workout)
+     - `source_routine_id?: string` (routine this workout belongs to; used for cursor updates)
      - `created_at: Timestamp`
      - `start_time: Timestamp`
      - `end_time: Timestamp` (presence indicates completion)
@@ -138,9 +139,16 @@ Subcollections:
      - `user_id: string`
      - `name: string`
      - `description?: string`
-     - `template_ids: string[]` (template IDs under this user)
+     - `template_ids: string[]` (template IDs under this user; canonical field)
+     - `templateIds?: string[]` (legacy camelCase mirror; read for backward compat, writes go to template_ids)
      - `frequency: number` (workouts per week)
+     - `last_completed_template_id?: string` (cursor: ID of last completed template from this routine)
+     - `last_completed_at?: Timestamp` (cursor: when last workout from this routine was completed)
      - `created_at, updated_at: Timestamp`
+   - Cursor semantics:
+     - Updated by `onWorkoutCreatedUpdateRoutineCursor` trigger when a workout with matching `source_routine_id` is archived.
+     - `getNextWorkout` uses cursor for O(1) next-template selection; falls back to history scan if cursor missing/invalid.
+     - Cursor cleared when `last_completed_template_id` is removed from `template_ids` via `patchRoutine`.
 
 7) progress_reports/{reportId}
    - StrengthOS progress reports written by service endpoints (API key auth).
@@ -155,7 +163,8 @@ Subcollections:
    - Fields:
      - `user_id: string`
      - `status: 'in_progress' | 'completed'`
-     - `source_template_id?: string`
+     - `source_template_id?: string` (template this workout is based on)
+     - `source_routine_id?: string` (routine this workout belongs to; copied to archived workout for cursor updates)
      - `plan?: any` (structured blocks used to initialize)
      - `current?: any`
      - `exercises: any[]` (app-managed during session)
@@ -371,6 +380,66 @@ Implications:
 - Active workout analytics and totals may be partial until archived; triggers compute workout analytics post-write if missing.
 - Canvas card `content` is type-specific; JSON Schemas live under `firebase_functions/functions/canvas/schemas`. Clients should validate against these when relevant.
 - Exercise alias resolution uses both `alias_slugs` on exercises and `exercise_aliases` registry; conflicts are handled with best-effort reservation and may log conflicts.
+
+---
+
+## Routine Draft System (Canvas-Based)
+
+This section describes the routine draft architecture for creating and editing multi-workout routines through the canvas system.
+
+### Card Types for Routines
+
+**routine_summary** - The anchor card for a routine draft:
+- `type: 'routine_summary'`
+- `status: 'proposed' | 'active' | 'accepted' | 'rejected'`
+- `lane: 'workout'`
+- `content.name: string` - Routine name
+- `content.frequency: number` - Workouts per week
+- `content.workouts: Array<{ day, title, card_id, estimated_duration?, exercise_count?, generate? }>`
+- `meta.draft: true` - Marks this as a draft anchor
+- `meta.draftId: string` - Stable UUID across revisions
+- `meta.revision: number` - Incremented on major rewrites
+- `meta.groupId: string` - Links all cards in this draft group
+- `meta.sourceRoutineId?: string` - If imported from existing routine
+
+**session_plan** (within routine draft):
+- Existing `session_plan` cards with additional meta fields:
+- `meta.groupId: string` - Same as routine_summary.meta.groupId
+- `meta.sourceTemplateId?: string` - If derived from existing template
+
+### Lifecycle States
+
+```
+Agent proposes → All cards status='proposed' (TTL sweep eligible)
+                        ↓
+User touches (PIN_DRAFT) → All cards status='active' (TTL exempt)
+                        ↓
+User saves (SAVE_ROUTINE) → All cards status='accepted', routine/templates created
+         OR
+User dismisses (DISMISS_DRAFT) → All cards status='rejected'
+```
+
+### Canvas Actions for Routines
+
+- `PIN_DRAFT` - Flip all cards in group to `status='active'` (idempotent)
+- `SAVE_ROUTINE` - Create routine + templates from draft, mark cards accepted
+- `DISMISS_DRAFT` - Mark all cards in group as `rejected`, remove from up_next
+
+### up_next Behavior
+
+- Only the `routine_summary` anchor card goes into `up_next`
+- Day cards (`session_plan`) are referenced by `content.workouts[].card_id` but not queued
+- This prevents multi-day routines from consuming multiple queue slots
+
+### Server-Generated IDs
+
+When `proposeCards` receives a batch containing `routine_summary`:
+- `meta.draftId` - Generated server-side (UUID)
+- `meta.groupId` - Generated server-side, shared by all cards
+- `meta.revision` - Set to 1 initially
+- `content.workouts[].card_id` - Set to actual Firestore doc IDs after card creation
+
+Agents should NOT set these fields; they are generated by the backend.
 
 ---
 
@@ -613,16 +682,28 @@ Sources
 - Template lifecycle
   - `createTemplate` writes `users/{uid}/templates/{templateId}` and then backfills `id` field; when the caller is an agent (`auth.source='third_party_agent'`) and no `analytics` exist, analytics are computed and stored.
   - `updateTemplate` merges updates; when an agent updates exercises, analytics are recalculated.
-  - `deleteTemplate` removes the template and attempts to remove `templateId` references from routines that track it (cleanup currently targets camelCase `templateIds` for backward compatibility, while the canonical routine field is `template_ids`).
+  - `patchTemplate` (new) narrow allowlist patch for `name`, `description`, `exercises` with optional concurrency check via `expected_updated_at`. Clears analytics on exercise change to trigger recompute.
+  - `createTemplateFromPlan` (new) converts a `session_plan` card to a template with idempotency. Supports `create` (new template) and `update` (patch existing template's exercises) modes.
+  - `deleteTemplate` removes the template and removes references from routines (reads both `template_ids` and `templateIds`, writes only canonical `template_ids`). Clears routine cursor if the deleted template was `last_completed_template_id`.
 - Routines
   - `createRoutine`/`updateRoutine`/`deleteRoutine` manage `users/{uid}/routines/{routineId}` with canonical `template_ids` and timestamps. `setActiveRoutine` writes `users/{uid}.activeRoutineId`.
+  - `patchRoutine` (new) narrow allowlist patch for `name`, `description`, `frequency`, `template_ids`. Validates all templates exist (parallel reads). Clears cursor if `last_completed_template_id` is removed from `template_ids`.
+  - `getNextWorkout` (new) deterministic next-template selection. Uses cursor (`last_completed_template_id`) for O(1) lookup; falls back to history scan if cursor missing/invalid. Returns template, routine, index, and selection method.
+- Routine cursor updates (trigger)
+  - `onWorkoutCreatedUpdateRoutineCursor` updates `routines/{routineId}.last_completed_template_id` and `last_completed_at` when a workout with `source_routine_id` is archived. Uses `source_routine_id` from workout (not current `activeRoutineId`) to handle routine changes mid-workout.
+- Planning context (agent composite read)
+  - `getPlanningContext` (new) returns user profile, active routine, next workout selection, templates (metadata or full), and recent workouts summary in one call. Flag-driven payload control: `includeTemplates`, `includeTemplateExercises`, `includeRecentWorkouts`, `workoutLimit`.
 
 Data impacted over time
-- Template analytics become populated/recalculated; routines maintain references to templates and the user’s `activeRoutineId` may change.
+- Template analytics become populated/recalculated; routines maintain references to templates and the user's `activeRoutineId` may change.
+- Routine cursor fields (`last_completed_template_id`, `last_completed_at`) updated by trigger on workout completion.
+- Idempotency keys under `users/{uid}/idempotency/{key}` created by `createTemplateFromPlan` with 24h TTL.
 
 Sources
-- Templates: `firebase_functions/functions/templates/create-template.js`, `.../update-template.js`, `.../delete-template.js`, `.../get-template.js`, `.../get-user-templates.js`
-- Routines: `firebase_functions/functions/routines/create-routine.js`, `.../update-routine.js`, `.../delete-routine.js`, `.../get-routine.js`, `.../get-user-routines.js`, `.../get-active-routine.js`, `.../set-active-routine.js`
+- Templates: `firebase_functions/functions/templates/create-template.js`, `.../update-template.js`, `.../delete-template.js`, `.../get-template.js`, `.../get-user-templates.js`, `.../create-template-from-plan.js`, `.../patch-template.js`
+- Routines: `firebase_functions/functions/routines/create-routine.js`, `.../update-routine.js`, `.../delete-routine.js`, `.../get-routine.js`, `.../get-user-routines.js`, `.../get-active-routine.js`, `.../set-active-routine.js`, `.../get-next-workout.js`, `.../patch-routine.js`
+- Trigger: `firebase_functions/functions/triggers/workout-routine-cursor.js` (onWorkoutCreatedUpdateRoutineCursor)
+- Agent: `firebase_functions/functions/agents/get-planning-context.js`
 
 ### StrengthOS Progress Reports (service writes)
 - `strengthos/progress-reports.js`

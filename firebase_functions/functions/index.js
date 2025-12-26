@@ -39,6 +39,8 @@ const { getTemplate } = require('./templates/get-template');
 const { createTemplate } = require('./templates/create-template');
 const { updateTemplate } = require('./templates/update-template');
 const { deleteTemplate } = require('./templates/delete-template');
+const { createTemplateFromPlan } = require('./templates/create-template-from-plan');
+const { patchTemplate } = require('./templates/patch-template');
 
 // Routine Operations
 const { getUserRoutines } = require('./routines/get-user-routines');
@@ -48,6 +50,8 @@ const { updateRoutine } = require('./routines/update-routine');
 const { deleteRoutine } = require('./routines/delete-routine');
 const { getActiveRoutine } = require('./routines/get-active-routine');
 const { setActiveRoutine } = require('./routines/set-active-routine');
+const { getNextWorkout } = require('./routines/get-next-workout');
+const { patchRoutine } = require('./routines/patch-routine');
 
 // Exercise Operations
 const { getExercises } = require('./exercises/get-exercises');
@@ -112,6 +116,7 @@ const { getAnalyticsFeatures } = require('./analytics/get-features');
 const { recalculateWeeklyForUser } = require('./analytics/recalculate-weekly-for-user');
 // Agents
 const { invokeCanvasOrchestrator } = require('./agents/invoke-canvas-orchestrator');
+const { getPlanningContext } = require('./agents/get-planning-context');
 
 // Firestore Triggers
 const {
@@ -128,6 +133,7 @@ const {
   onWorkoutCreatedWeekly,
   onWorkoutFinalizedForUser
 } = require('./triggers/weekly-analytics');
+const { onWorkoutCreatedUpdateRoutineCursor } = require('./triggers/workout-routine-cursor');
 
 // Export all functions as Firebase HTTPS functions
 exports.health = functions.https.onRequest(health);
@@ -150,6 +156,8 @@ exports.getTemplate = functions.https.onRequest((req, res) => withApiKey(getTemp
 exports.createTemplate = functions.https.onRequest((req, res) => withApiKey(createTemplate)(req, res));
 exports.updateTemplate = functions.https.onRequest((req, res) => withApiKey(updateTemplate)(req, res));
 exports.deleteTemplate = functions.https.onRequest((req, res) => withApiKey(deleteTemplate)(req, res));
+exports.createTemplateFromPlan = functions.https.onRequest((req, res) => requireFlexibleAuth(createTemplateFromPlan)(req, res));
+exports.patchTemplate = functions.https.onRequest((req, res) => requireFlexibleAuth(patchTemplate)(req, res));
 
 // Routine Operations
 exports.getUserRoutines = functions.https.onRequest((req, res) => withApiKey(getUserRoutines)(req, res));
@@ -159,11 +167,14 @@ exports.updateRoutine = functions.https.onRequest((req, res) => withApiKey(updat
 exports.deleteRoutine = functions.https.onRequest((req, res) => withApiKey(deleteRoutine)(req, res));
 exports.getActiveRoutine = functions.https.onRequest((req, res) => withApiKey(getActiveRoutine)(req, res));
 exports.setActiveRoutine = functions.https.onRequest((req, res) => withApiKey(setActiveRoutine)(req, res));
+exports.getNextWorkout = getNextWorkout;
+exports.patchRoutine = functions.https.onRequest((req, res) => requireFlexibleAuth(patchRoutine)(req, res));
 
 // Exercise Operations
 exports.getExercises = functions.https.onRequest((req, res) => withApiKey(getExercises)(req, res));
 exports.getExercise = functions.https.onRequest((req, res) => withApiKey(getExercise)(req, res));
-exports.searchExercises = functions.https.onRequest((req, res) => withApiKey(searchExercises)(req, res));
+// searchExercises is already a v2 onRequest function from search-exercises.js
+exports.searchExercises = searchExercises;
 exports.upsertExercise = functions.https.onRequest((req, res) => withApiKey(upsertExercise)(req, res));
 exports.approveExercise = functions.https.onRequest((req, res) => withApiKey(approveExercise)(req, res));
 exports.ensureExerciseExists = functions.https.onRequest((req, res) => withApiKey(ensureExerciseExists)(req, res));
@@ -229,6 +240,7 @@ exports.getAnalyticsFeatures = functions.https.onRequest((req, res) => requireFl
 exports.recalculateWeeklyForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(recalculateWeeklyForUser)(req, res));
 // Agents
 exports.invokeCanvasOrchestrator = functions.https.onRequest((req, res) => requireFlexibleAuth(invokeCanvasOrchestrator)(req, res));
+exports.getPlanningContext = functions.https.onRequest((req, res) => requireFlexibleAuth(getPlanningContext)(req, res));
 
 // Auth Operations
 exports.getServiceToken = getServiceToken;
@@ -242,6 +254,7 @@ exports.onWorkoutCompleted = onWorkoutCompleted;
 exports.onWorkoutDeleted = onWorkoutDeleted;
 exports.onWorkoutCreatedWeekly = onWorkoutCreatedWeekly;
 exports.onWorkoutFinalizedForUser = onWorkoutFinalizedForUser;
+exports.onWorkoutCreatedUpdateRoutineCursor = onWorkoutCreatedUpdateRoutineCursor;
 
 // Scheduled Functions
 exports.weeklyStatsRecalculation = weeklyStatsRecalculation;

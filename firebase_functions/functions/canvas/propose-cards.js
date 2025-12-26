@@ -2,12 +2,21 @@ const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
 const { formatValidationResponse } = require('../utils/validation-response');
 const { validateProposeCardsRequest } = require('./validators');
+const crypto = require('crypto');
 
 // Load JSON schemas for self-healing agents (map card type -> schema)
 const CARD_SCHEMAS = {
   session_plan: require('./schemas/card_types/session_plan.schema.json'),
-  // Add more card type schemas as needed
+  routine_summary: require('./schemas/card_types/routine_summary.schema.json'),
 };
+
+/**
+ * Generate a short unique ID for server-generated fields.
+ */
+function generateId(prefix = '') {
+  const id = crypto.randomBytes(6).toString('hex');
+  return prefix ? `${prefix}-${id}` : id;
+}
 
 async function proposeCards(req, res) {
   try {
@@ -55,21 +64,97 @@ async function proposeCards(req, res) {
       gid = gid.replace(/^-|-$/g, '');
       return gid;
     }
-    function buildDefaults(card) {
+    function buildDefaults(card, overrideMeta = {}) {
       const lane = card.lane || 'analysis';
       const layout = card.layout || { width: lane === 'workout' ? 'full' : 'oneHalf' };
       const actions = Array.isArray(card.actions) ? card.actions : [];
       const menuItems = Array.isArray(card.menuItems) ? card.menuItems : [];
       const metaIn = typeof card.meta === 'object' && card.meta !== null ? { ...card.meta } : {};
+      // Merge in server-generated meta fields
+      Object.assign(metaIn, overrideMeta);
       if (typeof metaIn.groupId === 'string') {
         metaIn.groupId = normalizeGroupId(metaIn.groupId);
       }
       const refs = typeof card.refs === 'object' && card.refs !== null ? card.refs : {};
       return { lane, layout, actions, menuItems, meta: metaIn, refs };
     }
-    for (const card of cards) {
-      const d = buildDefaults(card);
+
+    // =========================================================================
+    // ROUTINE PROPOSAL HANDLING
+    // Detect if this is a routine proposal (contains routine_summary card).
+    // If so, generate server-side IDs (draft_id, group_id) and link all cards.
+    // Only the anchor (routine_summary) goes into up_next; day cards are referenced.
+    // =========================================================================
+    const hasRoutineSummary = cards.some(c => c.type === 'routine_summary');
+    let serverGroupId = null;
+    let serverDraftId = null;
+    let summaryCardDocId = null;
+    
+    if (hasRoutineSummary) {
+      serverGroupId = generateId('grp');
+      serverDraftId = generateId('draft');
+      console.log('[proposeCards] routine proposal detected', { serverDraftId, serverGroupId, cardCount: cards.length });
+    }
+
+    // First pass: create all cards (need doc IDs before we can update workouts[].card_id)
+    const cardRefs = [];
+    const cardDataList = [];
+    
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const isRoutineSummary = card.type === 'routine_summary';
+      const isGroupedDayCard = hasRoutineSummary && card.type === 'session_plan';
+      
+      // Server-generated meta for routine proposals
+      const serverMeta = {};
+      if (hasRoutineSummary) {
+        serverMeta.groupId = serverGroupId;
+        if (isRoutineSummary) {
+          serverMeta.draft = true;
+          serverMeta.draftId = serverDraftId;
+          serverMeta.revision = 1;
+        }
+      }
+      
+      const d = buildDefaults(card, serverMeta);
       const ref = db.collection(`${canvasPath}/cards`).doc();
+      
+      if (isRoutineSummary) {
+        summaryCardDocId = ref.id;
+      }
+      
+      cardRefs.push({ ref, card, d, isRoutineSummary, isGroupedDayCard });
+    }
+
+    // Second pass: for routine proposals, update workouts[].card_id references in the summary
+    if (hasRoutineSummary && summaryCardDocId) {
+      // Build a map of day index -> card_id for session_plan cards
+      const dayCardMap = new Map(); // day index (0-based from order in array) -> doc id
+      let sessionPlanIndex = 0;
+      
+      for (const { ref, card, isRoutineSummary, isGroupedDayCard } of cardRefs) {
+        if (isGroupedDayCard) {
+          dayCardMap.set(sessionPlanIndex, ref.id);
+          sessionPlanIndex++;
+        }
+      }
+      
+      // Find the summary and update its content.workouts[].card_id
+      for (const entry of cardRefs) {
+        if (entry.isRoutineSummary && entry.card.content?.workouts) {
+          const workouts = [...entry.card.content.workouts];
+          for (let i = 0; i < workouts.length; i++) {
+            if (dayCardMap.has(i)) {
+              workouts[i] = { ...workouts[i], card_id: dayCardMap.get(i) };
+            }
+          }
+          entry.card = { ...entry.card, content: { ...entry.card.content, workouts } };
+        }
+      }
+    }
+
+    // Third pass: write all cards to batch
+    for (const { ref, card, d, isRoutineSummary, isGroupedDayCard } of cardRefs) {
       batch.set(ref, {
         type: card.type,
         status: 'proposed',
@@ -85,12 +170,19 @@ async function proposeCards(req, res) {
         created_at: now,
         updated_at: now,
       });
-      const upRef = db.collection(`${canvasPath}/up_next`).doc();
-      let priority = typeof card.priority === 'number' ? card.priority : 100;
-      if (!Number.isFinite(priority)) priority = 100;
-      if (priority > 1000) priority = 1000;
-      if (priority < -1000) priority = -1000;
-      batch.set(upRef, { card_id: ref.id, priority, inserted_at: now });
+      
+      // up_next logic: Skip grouped day cards (only anchor goes into up_next)
+      const skipUpNext = isGroupedDayCard;
+      
+      if (!skipUpNext) {
+        const upRef = db.collection(`${canvasPath}/up_next`).doc();
+        let priority = typeof card.priority === 'number' ? card.priority : 100;
+        if (!Number.isFinite(priority)) priority = 100;
+        if (priority > 1000) priority = 1000;
+        if (priority < -1000) priority = -1000;
+        batch.set(upRef, { card_id: ref.id, priority, inserted_at: now });
+      }
+      
       created.push(ref.id);
     }
     await batch.commit();

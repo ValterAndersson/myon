@@ -45,18 +45,17 @@ class DirectStreamingService: ObservableObject {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    print("[DirectStreaming] Starting stream for canvas=\(canvasId) correlation=\(correlationId)")
+                    // Start structured logging session
+                    AgentEventLogger.startSession(canvasId: canvasId, correlationId: correlationId)
                     
-                    // Get Firebase ID token - same approach as legacy streamQuery
+                    // Get Firebase ID token
                     guard let currentUser = AuthService.shared.currentUser else {
-                        print("[DirectStreaming] ERROR: No authenticated user")
+                        AgentEventLogger.logError(StreamingError.notAuthenticated)
                         continuation.finish(throwing: StreamingError.notAuthenticated)
                         return
                     }
                     
-                    print("[DirectStreaming] Getting Firebase ID token for user: \(currentUser.uid)...")
                     let idToken = try await currentUser.getIDToken()
-                    print("[DirectStreaming] Got Firebase ID token (length: \(idToken.count))")
                     
                     // Use streamAgentNormalized endpoint
                     let url = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/streamAgentNormalized")!
@@ -75,52 +74,28 @@ class DirectStreamingService: ObservableObject {
                     ].compactMapValues { $0 }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     
-                    print("[DirectStreaming] Sending SSE request to streamAgentNormalized...")
-                    print("[DirectStreaming] Request body: \(String(data: request.httpBody ?? Data(), encoding: .utf8) ?? "nil")")
-                    
                     // Stream the response
                     let (asyncBytes, response) = try await session.bytes(for: request)
                     
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        print("[DirectStreaming] ERROR: Response is not HTTPURLResponse")
                         throw NSError(domain: "DirectStreamingService", code: -1,
                                     userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
                     }
                     
-                    print("[DirectStreaming] Got response, status: \(httpResponse.statusCode)")
-                    print("[DirectStreaming] Response headers: \(httpResponse.allHeaderFields)")
-                    
                     guard httpResponse.statusCode == 200 else {
-                        print("[DirectStreaming] ERROR: Non-200 status code: \(httpResponse.statusCode)")
                         throw NSError(domain: "DirectStreamingService", code: httpResponse.statusCode,
                                     userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"])
                     }
                     
                     // Parse SSE stream
-                    print("[DirectStreaming] Starting to parse SSE lines...")
-                    var buffer = ""
-                    var lineCount = 0
-                    var hasReceivedData = false
+                    var eventCount = 0
                     
                     for try await line in asyncBytes.lines {
-                        lineCount += 1
-                        hasReceivedData = true
-                        
-                        if lineCount == 1 || lineCount % 10 == 0 {
-                            print("[DirectStreaming] Processed \(lineCount) lines...")
-                        }
-                        
-                        // Log every line for debugging
-                        if lineCount <= 5 {
-                            print("[DirectStreaming] Line \(lineCount): \(line)")
-                        }
-                        
                         if line.hasPrefix("data: ") {
                             let jsonStr = String(line.dropFirst(6))
-                            print("[DirectStreaming] Received SSE data: \(jsonStr.prefix(100))...")
                             
                             if jsonStr == "[DONE]" {
-                                print("[DirectStreaming] Stream done")
+                                AgentEventLogger.endSession(eventCount: eventCount)
                                 continuation.finish()
                                 break
                             }
@@ -128,33 +103,41 @@ class DirectStreamingService: ObservableObject {
                             if let data = jsonStr.data(using: .utf8),
                                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                                 
+                                // Parse content with proper AnyCodable handling
+                                var contentDict: [String: AnyCodable]? = nil
+                                if let rawContent = json["content"] as? [String: Any] {
+                                    contentDict = rawContent.mapValues { AnyCodable($0) }
+                                }
+                                
+                                var metadataDict: [String: AnyCodable]? = nil
+                                if let rawMeta = json["metadata"] as? [String: Any] {
+                                    metadataDict = rawMeta.mapValues { AnyCodable($0) }
+                                }
+                                
                                 // Parse the event
                                 let event = StreamEvent(
                                     type: json["type"] as? String ?? "unknown",
                                     agent: json["agent"] as? String,
-                                    content: json["content"] as? [String: AnyCodable],
+                                    content: contentDict,
                                     timestamp: json["timestamp"] as? Double,
-                                    metadata: json["metadata"] as? [String: AnyCodable]
+                                    metadata: metadataDict
                                 )
                                 
-                                print("[DirectStreaming] Yielding event type=\(event.type)")
+                                eventCount += 1
+                                
+                                // Log with structured formatter
+                                AgentEventLogger.logEvent(event)
+                                
                                 continuation.yield(event)
-                            } else {
-                                print("[DirectStreaming] WARNING: Failed to parse JSON: \(jsonStr)")
                             }
-                        } else if !line.isEmpty {
-                            print("[DirectStreaming] Non-data line: \(line)")
                         }
                     }
                     
-                    print("[DirectStreaming] SSE stream ended normally (received \(lineCount) lines)")
-                    if !hasReceivedData {
-                        print("[DirectStreaming] WARNING: Stream ended but no data was received!")
-                    }
+                    AgentEventLogger.endSession(eventCount: eventCount)
                     continuation.finish()
                     
                 } catch {
-                    print("[DirectStreaming] Stream error: \(error)")
+                    AgentEventLogger.logError(error)
                     continuation.finish(throwing: error)
                 }
             }
@@ -1036,4 +1019,4 @@ enum StreamingError: LocalizedError {
             return "HTTP error: \(statusCode)"
         }
     }
-} 
+}

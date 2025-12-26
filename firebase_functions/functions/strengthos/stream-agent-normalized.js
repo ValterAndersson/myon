@@ -39,11 +39,18 @@ function invalidateTokenCache() {
 }
 
 const TOOL_LABELS = {
-  // Unified agent v2.0 tools (6 tools)
+  // Unified agent v2.0 tools
   tool_get_user_profile: 'Reviewing profile',
   tool_get_recent_workouts: 'Checking workout history',
   tool_search_exercises: 'Searching exercises',
   tool_propose_workout: 'Creating workout plan',
+  tool_propose_routine: 'Creating routine',
+  tool_get_planning_context: 'Loading context',
+  tool_get_next_workout: 'Finding next workout',
+  tool_get_template: 'Loading template',
+  tool_save_workout_as_template: 'Saving template',
+  tool_create_routine: 'Creating routine',
+  tool_manage_routine: 'Updating routine',
   tool_ask_user: 'Asking question',
   tool_send_message: 'Sending message',
   // Legacy tools (v1.0 - deprecated)
@@ -161,6 +168,20 @@ function describeToolResult(name, summary = '', args = {}) {
       return 'Profile loaded';
     case 'tool_propose_workout':
       return 'Workout published';
+    case 'tool_propose_routine':
+      return 'Routine published';
+    case 'tool_get_planning_context':
+      return 'Context loaded';
+    case 'tool_get_next_workout':
+      return 'Found next workout';
+    case 'tool_get_template':
+      return 'Template loaded';
+    case 'tool_save_workout_as_template':
+      return 'Template saved';
+    case 'tool_create_routine':
+      return 'Routine created';
+    case 'tool_manage_routine':
+      return 'Routine updated';
     case 'tool_create_workout_plan':
       return 'Plan created';
     case 'tool_publish_workout_plan':
@@ -754,9 +775,15 @@ async function streamAgentNormalizedHandler(req, res) {
       });
       logger.error('[streamAgentNormalized] Vertex AI returned error', { status: response.status, body: errorBody.slice(0, 1000) });
       
-      // Invalidate token cache on auth errors (401/403)
+      // Invalidate token cache AND session on auth errors (401/403)
+      // 401 often means the session was created with an old agent version
       if (response.status === 401 || response.status === 403) {
         invalidateTokenCache();
+        // Also invalidate the session - it was likely created with old agent
+        await invalidateUserSessions(userId);
+        sse.write({ type: 'error', error: 'Session expired after agent update. Please try again.', text: 'Session expired after agent update. Please try again.' });
+        done(false, new Error(`Vertex AI returned ${response.status}`));
+        return;
       }
       
       sse.write({ type: 'error', error: `Vertex AI error: ${response.status} - ${errorBody.slice(0, 200)}` });
