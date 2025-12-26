@@ -389,6 +389,7 @@ struct WorkspaceTimelineView: View {
         case .sessionPlan: return "Workout Plan"
         case .routineSummary: return "Training Program"
         case .visualization: return "Analysis"
+        case .analysisSummary: return "Progress Insights"
         case .list: return "Recommendations"
         case .inlineInfo: return "Note"
         case .agentStream: return "Processing"
@@ -506,6 +507,10 @@ struct WorkspaceTimelineView: View {
             // Pass ALL cards to environment so RoutineSummaryCard can look up linked session_plans
             RoutineSummaryCard(model: card, data: data)
                 .environment(\.canvasCards, allCards)
+        case .analysisSummary(let data):
+            AnalysisSummaryCard(model: card, data: data)
+        case .visualization(let spec):
+            VisualizationCard(spec: spec, cardId: card.id, actions: card.actions)
         case .inlineInfo(let text):
             CardContainer(status: card.status) {
                 VStack(alignment: .leading, spacing: Space.xs) {
