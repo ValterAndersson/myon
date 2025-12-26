@@ -976,7 +976,7 @@ struct WorkspaceTimelineView: View {
         if lower.contains("planning") || lower.contains("plan") {
             return "Planning approach"
         } else if lower.contains("analyzing") || lower.contains("review") {
-            return "Analyzing request"
+            return "Thinking about next steps"
         } else if lower.contains("search") {
             return "Preparing search"
         } else if lower.contains("creating") || lower.contains("building") {
@@ -1204,6 +1204,9 @@ struct WorkspaceTimelineView: View {
     
     private func humanReadableToolName(_ name: String) -> String {
         switch name {
+        // Multi-agent routing tools
+        case "tool_echo_routing": return "Understanding query"
+        case "tool_route_to_agent": return "Understanding query"
         // New unified agent tools
         case "tool_set_context": return "Setting up"
         case "tool_search_exercises": return "Searching exercises"
