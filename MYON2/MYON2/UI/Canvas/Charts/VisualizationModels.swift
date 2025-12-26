@@ -24,9 +24,9 @@ public enum ChartColorToken: String, Codable {
         switch self {
         case .primary: return ColorsToken.Brand.primary
         case .secondary: return ColorsToken.Brand.secondary
-        case .success: return ColorsToken.Status.success
-        case .warning: return ColorsToken.Status.warning
-        case .danger: return ColorsToken.Status.error
+        case .success: return ColorsToken.State.success
+        case .warning: return ColorsToken.State.warning
+        case .danger: return ColorsToken.State.error
         case .neutral: return ColorsToken.Neutral.n500
         }
     }
