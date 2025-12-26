@@ -156,12 +156,24 @@ def tool_get_analytics_features(
     else:
         confidence = "low"
     
+    # Build caveats for data quality issues
+    caveats = []
+    if weeks_with_data < MIN_WEEKS_FOR_SLOPE:
+        caveats.append(f"Only {weeks_with_data} weeks of data (minimum {MIN_WEEKS_FOR_SLOPE} for trend analysis)")
+    elif len(rollups) > 0 and weeks_with_data < len(rollups) * 0.7:
+        # More than 30% of weeks have zero workouts
+        gap_count = len(rollups) - weeks_with_data
+        caveats.append(f"{gap_count} weeks with no workouts in analysis window")
+    if total_workouts < 8:
+        caveats.append(f"Limited workout history ({total_workouts} workouts)")
+    
     data_quality = {
         "weeks_requested": weeks,
         "weeks_with_data": weeks_with_data,
         "total_workouts": total_workouts,
         "confidence": confidence,
         "sufficient_for_slopes": weeks_with_data >= MIN_WEEKS_FOR_SLOPE,
+        "caveats": caveats,
     }
     
     # Compute derived metrics from rollups
@@ -226,16 +238,23 @@ def _compute_analysis_metrics(
     for ex_id, data in series_exercise.items():
         if isinstance(data, dict) and "e1rm_slope" in data:
             slope = data.get("e1rm_slope") or 0
+            data_points = data.get("data_points") or data.get("count") or 0
+            
+            # Gate on minimum data points for reliable ranking
+            if data_points < MIN_DATA_POINTS_FOR_RANKING:
+                continue
+                
             if abs(slope) > 0.1:  # Only include meaningful changes
                 movers.append({
                     "exercise_id": ex_id,
                     "e1rm_slope": round(slope, 2),
                     "vol_slope": round(data.get("vol_slope") or 0, 2),
                     "direction": "up" if slope > 0 else "down",
+                    "data_points": data_points,
                 })
     
-    # Sort by absolute slope magnitude
-    movers.sort(key=lambda x: -abs(x["e1rm_slope"]))
+    # Sort with stable tie-breakers: slope magnitude → data points → alphabetical ID
+    movers.sort(key=lambda x: (-abs(x["e1rm_slope"]), -x.get("data_points", 0), x["exercise_id"]))
     metrics["exercise_movers"] = movers[:10]
     
     # Consistency metrics
@@ -257,6 +276,30 @@ def _simple_slope(values: List[float]) -> float:
     if len(values) < 2:
         return 0.0
     return (values[-1] - values[0]) / (len(values) - 1)
+
+
+def _is_visualization_data_empty(chart_type: str, data: Dict[str, Any]) -> bool:
+    """Check if visualization data is empty (for graceful iOS empty_state rendering)."""
+    if not data:
+        return True
+    
+    if chart_type == "line":
+        # Line chart needs series with data points
+        series = data.get("series") or []
+        return not series or all(
+            not (s.get("values") or s.get("data_points") or []) for s in series
+        )
+    elif chart_type == "bar":
+        # Bar chart needs categories and values
+        categories = data.get("categories") or data.get("labels") or []
+        values = data.get("values") or data.get("series") or []
+        return not categories or not values
+    elif chart_type == "table":
+        # Table needs rows
+        rows = data.get("rows") or []
+        return not rows
+    
+    return False
 
 
 # ============================================================================
@@ -390,6 +433,11 @@ def tool_propose_analysis_group(
         if not chart_type or not title:
             continue
         
+        vis_data = vis.get("data", {})
+        
+        # Check if data is empty and add empty_state for graceful iOS rendering
+        is_empty = _is_visualization_data_empty(chart_type, vis_data)
+        
         vis_card = {
             "type": "visualization",
             "lane": "analysis",
@@ -398,11 +446,18 @@ def tool_propose_analysis_group(
                 "chart_type": chart_type,
                 "title": title,
                 "subtitle": vis.get("subtitle"),
-                "data": vis.get("data", {}),
+                "data": vis_data,
                 "annotations": vis.get("annotations", []),
                 "metric_key": vis.get("metric_key"),
             },
         }
+        
+        # Add empty_state when data is insufficient
+        if is_empty:
+            vis_card["content"]["empty_state"] = {
+                "message": vis.get("empty_message", "Insufficient data to display this chart")
+            }
+        
         cards.append(vis_card)
     
     logger.info("🎯 PROPOSE_ANALYSIS_GROUP: canvas=%s insights=%d recs=%d vis=%d",
