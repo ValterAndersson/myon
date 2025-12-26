@@ -127,24 +127,20 @@ public struct RankedTableView: View {
     
     @ViewBuilder
     private func trendIndicator(trend: TrendDirection) -> some View {
-        let icon: String
-        let color: Color
+        let iconAndColor: (icon: String, color: Color) = {
+            switch trend {
+            case .up:
+                return ("arrow.up.right", ColorsToken.State.success)
+            case .down:
+                return ("arrow.down.right", ColorsToken.State.error)
+            case .flat:
+                return ("arrow.right", ColorsToken.Text.muted)
+            }
+        }()
         
-        switch trend {
-        case .up:
-            icon = "arrow.up.right"
-            color = ColorsToken.State.success
-        case .down:
-            icon = "arrow.down.right"
-            color = ColorsToken.State.error
-        case .flat:
-            icon = "arrow.right"
-            color = ColorsToken.Text.muted
-        }
-        
-        Image(systemName: icon)
+        Image(systemName: iconAndColor.icon)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(color)
+            .foregroundStyle(iconAndColor.color)
             .frame(width: 20)
     }
     
