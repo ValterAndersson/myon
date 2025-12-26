@@ -144,25 +144,51 @@ The Coach provides education and explanations about training principles. It answ
 
 ### AnalysisAgent (`analysis_agent.py`)
 
-The Analysis agent produces longitudinal progress insights as canvas artifacts. It reads workout history and progression data to identify trends and opportunities.
+The Analysis agent produces longitudinal progress insights as canvas artifacts. It reads workout history and progression data to identify trends, laggards, and opportunities. Output is exclusively canvas artifacts (analysis_summary + visualization cards), not chat.
 
 **Permission Boundary:**
 - ✅ Can read all workout data
-- ✅ Can write analysis artifacts (charts, tables)
-- ❌ Cannot create workout or routine drafts
-- ❌ Cannot modify active workouts
+- ✅ Can read analytics features (weekly rollups, muscle series, exercise trends)
+- ✅ Can write analysis artifacts (`analysis_summary`, `visualization` cards)
+- ❌ Cannot create workout or routine drafts (that's Planner's job)
+- ❌ Cannot modify active workouts (that's Copilot's job)
 
-**Current Tools (Stub for Routing Validation):**
+**Analysis Focus Areas:**
+1. **Progressive overload quality**: Are loads, reps, or e1RM proxies improving at similar volume?
+2. **Laggards**: Muscles and exercises with flat or negative trends given sufficient exposure
+3. **Goal alignment**: Volume and effort distribution vs stated goals
+4. **Consistency**: Adherence and training frequency trends
+5. **Smallest effective intervention**: Minimal changes likely to unlock progress
+
+**Current Tools (Fully Implemented):**
 | Tool | Purpose |
 |------|---------|
-| `tool_echo_routing` | Debug: Echo routing decision metadata |
+| `tool_get_analytics_features` | Fetch weekly rollups, muscle series, exercise trends with computed metrics |
+| `tool_get_user_profile` | Read user fitness profile for goal context |
+| `tool_get_recent_workouts` | Read recent workout history (extended limit 50) |
+| `tool_propose_analysis_group` | Publish analysis_summary + visualization cards to canvas |
 
-**Planned Tools:**
-- `tool_get_user_profile` (read)
-- `tool_get_recent_workouts` (read, extended limit)
-- `tool_get_progression_data` (read exercise-level trends)
-- `tool_get_volume_distribution` (read muscle group volumes)
-- `tool_propose_analysis` (write analysis_summary cards)
+**Data Sufficiency Rules:**
+- Default analysis window: 8 weeks
+- Minimum 4 weeks of data before computing trend slopes
+- Confidence levels: high (8+ weeks), medium (4-7), low (<4)
+- Stable tie-breakers for ranking: magnitude → exposure → recency → alphabetical
+
+**Output Card Types:**
+| Card Type | Schema | Purpose |
+|-----------|--------|---------|
+| `analysis_summary` | `analysis_summary.schema.json` | Anchor card with headline, insights, recommendations |
+| `visualization` | `visualization.schema.json` | Line/bar/table charts with native data spec |
+
+**Visualization Types:**
+- **Line chart**: Time series (e1RM trends, weekly volume, workout frequency)
+- **Bar chart**: Comparisons (current vs baseline, muscle group distribution)
+- **Table**: Ranked lists (movers and laggards by slope)
+
+Default is 1-3 visuals per request. Agent selects appropriate chart type based on data shape.
+
+**Planner Handoff:**
+Recommendations include structured `apply_payload` for direct handoff to Planner without re-interpretation.
 
 ### CopilotAgent (`copilot_agent.py`)
 
@@ -236,7 +262,7 @@ adk_agent/canvas_orchestrator/app/
 │   ├── orchestrator.py         # Intent classifier + router
 │   ├── planner_agent.py        # Workout/routine planning (fully implemented)
 │   ├── coach_agent.py          # Education (stub)
-│   ├── analysis_agent.py       # Progress analysis (stub)
+│   ├── analysis_agent.py       # Progress analysis (fully implemented)
 │   ├── copilot_agent.py        # Live execution (stub)
 │   │
 │   └── tools/
