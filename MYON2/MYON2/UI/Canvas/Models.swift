@@ -332,7 +332,8 @@ public struct CardMeta: Equatable, Codable {
 
 public enum CanvasCardData: Equatable {
     case text(String)
-    case visualization(title: String, subtitle: String?)
+    case visualization(spec: VisualizationSpec)
+    case visualizationLegacy(title: String, subtitle: String?)  // For backwards compat
     case chat(lines: [String])
     case suggestion(title: String, rationale: String?)
     case sessionPlan(exercises: [PlanExercise])

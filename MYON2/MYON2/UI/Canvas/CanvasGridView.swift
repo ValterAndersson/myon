@@ -26,7 +26,8 @@ public struct CanvasGridView: View {
     @ViewBuilder private func cardView(_ card: CanvasCardModel) -> some View {
         switch card.data {
         case .text: SmallContentCard(model: card)
-        case .visualization: VisualCard(model: card)
+        case .visualization(let spec): VisualizationCard(spec: spec, cardId: card.id, actions: card.actions)
+        case .visualizationLegacy: VisualCard(model: card)
         case .chat: ChatCard(model: card)
         case .suggestion:
             SuggestionCard(model: card, onAccept: { onAccept(card.id) }, onReject: { onReject(card.id) })
@@ -79,7 +80,8 @@ private struct EquatableCardHost: View, Equatable {
     private var cardContent: some View {
         switch card.data {
         case .text: SmallContentCard(model: card)
-        case .visualization: VisualCard(model: card)
+        case .visualization(let spec): VisualizationCard(spec: spec, cardId: card.id, actions: card.actions)
+        case .visualizationLegacy: VisualCard(model: card)
         case .chat: ChatCard(model: card)
         case .suggestion:
             SuggestionCard(model: card, onAccept: onAccept, onReject: onReject)
@@ -114,9 +116,25 @@ private struct EquatableCardHost: View, Equatable {
 #if DEBUG
 struct CanvasGridView_Previews: PreviewProvider {
     static var previews: some View {
+        let lineChartSpec = VisualizationSpec(
+            chartType: .line,
+            title: "Squat e1RM Trend",
+            subtitle: "6 months",
+            data: ChartData(
+                series: [
+                    ChartSeries(name: "Squat", color: .primary, points: [
+                        ChartDataPoint(x: 1, y: 120),
+                        ChartDataPoint(x: 2, y: 125),
+                        ChartDataPoint(x: 3, y: 128),
+                        ChartDataPoint(x: 4, y: 130),
+                    ])
+                ]
+            )
+        )
+        
         let demo: [CanvasCardModel] = [
             CanvasCardModel(type: .summary, title: "Today", data: .text("Upper body focus")),
-            CanvasCardModel(type: .visualization, title: "Squat 6m", data: .visualization(title: "Squat", subtitle: "6 months")),
+            CanvasCardModel(type: .visualization, title: "Squat 6m", data: .visualization(spec: lineChartSpec)),
             CanvasCardModel(type: .session_plan, data: .sessionPlan(exercises: [
                 PlanExercise(name: "Bench Press", sets: [
                     PlanSet(type: .working, reps: 8, weight: 60, rir: 2),
