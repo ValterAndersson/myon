@@ -62,7 +62,8 @@ The orchestrator classifies user intent and routes to the correct specialist age
 - Classify intent using deterministic rules first
 - Use LLM classifier when rules are insufficient
 - Output structured routing decision for observability
-- Track session mode across conversation turns
+- Compute session mode per-turn (not persisted - Phase 2 will add persistence with UX signals)
+- Apply safety re-route if target agent lacks tools for request
 
 **Routing Decision Schema:**
 ```python
@@ -105,7 +106,6 @@ The Planner is the workhorse agent that creates and edits workout and routine dr
 | `tool_get_user_profile` | Read user fitness profile and preferences |
 | `tool_get_recent_workouts` | Read recent workout history |
 | `tool_get_planning_context` | Get complete context in one call |
-| `tool_get_next_workout` | Get next workout from active routine |
 | `tool_get_template` | Get specific template details |
 | `tool_save_workout_as_template` | Save plan as reusable template |
 | `tool_create_routine` | Create new routine with templates |
@@ -114,7 +114,12 @@ The Planner is the workhorse agent that creates and edits workout and routine dr
 | `tool_propose_workout` | Publish single workout draft to canvas |
 | `tool_propose_routine` | Publish complete routine draft to canvas |
 | `tool_ask_user` | Ask clarifying question |
-| `tool_send_message` | Send text message to user |
+
+**Removed Tools (enforced permission boundaries):**
+| Tool | Reason |
+|------|--------|
+| `tool_get_next_workout` | Moved to Copilot (execution context only) |
+| `tool_send_message` | Removed to prevent chat leakage - the card IS the output |
 
 ### CoachAgent (`coach_agent.py`)
 

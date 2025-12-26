@@ -5,7 +5,8 @@ Design principles:
 - Rules first, LLM fallback only when necessary
 - Structured routing decisions for observability
 - No artifact writes - routing only
-- Maintains session mode state (in-memory, per-request)
+- Maintains session mode state (computed per-turn, not persisted)
+- Safety re-route: If target agent lacks tools for request, fallback to Planner/Coach
 """
 
 from __future__ import annotations
@@ -243,22 +244,61 @@ def classify_intent_llm(message: str, signals: List[str]) -> RoutingDecision:
     )
 
 
+def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> RoutingDecision:
+    """
+    Safety re-route: If the target agent lacks tools for the request, fallback.
+    
+    This prevents stub agents (Coach, Analysis, Copilot) from receiving requests
+    they can't fulfill, maintaining the "canvas" illusion.
+    
+    Phase 1 rules:
+    - Coach/Analysis/Copilot are stubs: re-route creation requests to Planner
+    - If user asks for artifact creation but lands on Coach: re-route to Planner
+    - If user asks for execution but lands on stub Copilot: acknowledge limitation
+    """
+    # Check if request implies artifact creation but target is Coach
+    if decision.target_agent == TargetAgent.COACH.value:
+        if "has_create_verb" in signals and ("mentions_workout" in signals or "mentions_routine" in signals):
+            logger.info("Safety re-route: Coach cannot create artifacts, redirecting to Planner")
+            return RoutingDecision(
+                intent=Intent.PLAN_WORKOUT.value,
+                target_agent=TargetAgent.PLANNER.value,
+                confidence=Confidence.MEDIUM.value,
+                matched_rule="safety_reroute:coach_to_planner",
+                signals=signals + ["safety_rerouted"],
+            )
+    
+    # Check if request implies data analysis but Analysis is stub
+    # For Phase 1: Analysis agent is a stub, but we still route there for validation
+    # In Phase 2, this would be a real check
+    
+    # Check if request implies execution but Copilot is stub
+    # For Phase 1: Copilot is a stub, it will echo the routing for validation
+    # We intentionally route there to validate the routing logic
+    
+    return decision
+
+
 def classify_intent(message: str) -> RoutingDecision:
     """
     Main entry point for intent classification.
-    Tries rules first, falls back to LLM.
+    Tries rules first, falls back to LLM, then applies safety re-routes.
     """
     # Try rule-based classification first
     decision = classify_intent_rules(message)
     if decision:
         logger.info("Rule-based routing: %s -> %s (rule=%s)", 
                    decision.intent, decision.target_agent, decision.matched_rule)
+        # Apply safety re-route
+        decision = _apply_safety_reroute(decision, decision.signals)
         return decision
     
     # Fall back to LLM classification
     signals = _extract_signals(message)
     decision = classify_intent_llm(message, signals)
     logger.info("LLM-based routing: %s -> %s", decision.intent, decision.target_agent)
+    # Apply safety re-route
+    decision = _apply_safety_reroute(decision, decision.signals)
     return decision
 
 
