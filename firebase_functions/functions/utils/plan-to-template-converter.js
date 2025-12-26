@@ -165,7 +165,35 @@ function validatePlanContent(content) {
   return errors.length === 0 ? { valid: true } : { valid: false, errors };
 }
 
+/**
+ * Convert a complete session_plan to template format
+ * This is the high-level function that takes a plan object and returns a full template
+ * 
+ * @param {Object} plan - The plan with { title, blocks, estimated_duration }
+ * @returns {Object} Template with { name, exercises, estimated_duration }
+ */
+function convertPlanToTemplate(plan) {
+  const { title, blocks, estimated_duration } = plan;
+  
+  if (!title) {
+    throw new Error('Plan must have a title');
+  }
+  
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    throw new Error('Plan must have non-empty blocks array');
+  }
+  
+  const exercises = convertPlanBlocksToTemplateExercises(blocks);
+  
+  return {
+    name: title,
+    exercises,
+    estimated_duration: typeof estimated_duration === 'number' ? estimated_duration : null,
+  };
+}
+
 module.exports = {
+  convertPlanToTemplate,
   convertPlanBlocksToTemplateExercises,
   convertPlanBlockToTemplateExercise,
   convertPlanSetToTemplateSet,
