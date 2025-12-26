@@ -71,20 +71,24 @@ struct WorkspaceTimelineView: View {
             }
             .background(ColorsToken.Background.primary)
             .onAppear { scrollProxy = proxy }
-            // Smart scroll: only trigger for messages and artifacts, not thought tracks
+            // Aggressive scroll: trigger on any new content (messages, thinking, artifacts)
+            // This ensures user always sees the latest activity
             .onChange(of: scrollTriggerCount) { _ in
                 guard autoScroll else { return }
-                // Find the last important item to scroll to
-                if let lastImportant = timelineItems.last(where: { item in
-                    switch item.kind {
-                    case .userMessage, .agentResponse, .artifact, .clarification:
-                        return true
-                    default:
-                        return false
+                // Scroll to the absolute last item to always show current activity
+                if let lastItem = timelineItems.last {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        proxy.scrollTo(lastItem.id, anchor: .bottom)
                     }
-                }) {
-                    withAnimation(.easeOut(duration: 0.35)) {
-                        proxy.scrollTo(lastImportant.id, anchor: .bottom)
+                }
+            }
+            // Also scroll periodically during active streaming to keep latest visible
+            .onChange(of: hasActiveThinking) { isActive in
+                guard autoScroll, isActive else { return }
+                // When thinking starts, scroll to show the live thought track
+                if let lastItem = timelineItems.last {
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        proxy.scrollTo(lastItem.id, anchor: .bottom)
                     }
                 }
             }
@@ -519,26 +523,11 @@ struct WorkspaceTimelineView: View {
         return items.sorted { $0.timestamp < $1.timestamp }
     }
     
-    /// Computed count of "important" items that should trigger scrolling
-    /// Only counts: user messages, agent responses, artifacts, clarifications
-    /// Does NOT count: thought tracks (live or completed), status, errors
+    /// Computed count of items that should trigger scrolling
+    /// Counts ALL visible items to ensure scroll follows streaming activity
     private var scrollTriggerCount: Int {
-        var count = 0
-        
-        // Count important events
-        for event in renderedEvents {
-            let eventType = event.event.eventType
-            if eventType == .userPrompt || eventType == .userResponse ||
-               eventType == .agentResponse || eventType == .message ||
-               eventType == .clarificationRequest {
-                count += 1
-            }
-        }
-        
-        // Count cards (artifacts)
-        count += embeddedCards.count
-        
-        return count
+        // Count all timeline items - this ensures scroll triggers whenever content changes
+        return timelineItems.count + embeddedCards.count
     }
     
     private func mapEventToKind(_ entry: WorkspaceEvent) -> TimelineItemKind? {
