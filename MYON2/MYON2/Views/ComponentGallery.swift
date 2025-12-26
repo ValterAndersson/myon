@@ -154,7 +154,7 @@ struct ComponentGallery: View {
                 MyonText("Canvas Demo", style: .title2)
                 let demo: [CanvasCardModel] = [
                     CanvasCardModel(type: .summary, title: "Today", subtitle: "Upper body", data: .text("Upper body focus today.")),
-                    CanvasCardModel(type: .visualization, title: "Squat 6m", subtitle: "Volume", data: .visualization(title: "Squat", subtitle: "6 months")),
+                    CanvasCardModel(type: .visualization, title: "Squat 6m", subtitle: "Volume", data: .visualizationLegacy(title: "Squat", subtitle: "6 months")),
                     CanvasCardModel(type: .coach_proposal, title: "Increase load +2.5 kg", data: .suggestion(title: "Adjust Load", rationale: "RIR ≤ 1 last set")),
                     CanvasCardModel(type: .session_plan, lane: .workout, title: "Session Plan", data: .sessionPlan(exercises: [
                         PlanExercise(name: "Bench Press", sets: [
