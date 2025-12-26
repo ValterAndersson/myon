@@ -33,11 +33,9 @@ async function getNextWorkoutHandler(req, res) {
   try {
     // 1. Get user and check for active routine
     const user = await db.getDocument('users', userId);
-    if (!user) {
-      return fail(res, 'NOT_FOUND', 'User not found', null, 404);
-    }
-
-    if (!user.activeRoutineId) {
+    
+    // If no user doc or no activeRoutineId, return gracefully
+    if (!user || !user.activeRoutineId) {
       return ok(res, { 
         template: null, 
         routine: null,

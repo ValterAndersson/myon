@@ -93,31 +93,56 @@ class CanvasFunctionsClient:
     def search_exercises(
         self,
         *,
-        query: Optional[str] = None,
-        primary_muscle: Optional[str] = None,
         muscle_group: Optional[str] = None,
+        movement_type: Optional[str] = None,
         category: Optional[str] = None,
         equipment: Optional[str] = None,
         split: Optional[str] = None,
-        movement_type: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        query: Optional[str] = None,
         limit: int = 20,
     ) -> Dict[str, Any]:
-        """Search the exercises catalog from Firestore."""
+        """Search the exercises catalog from Firestore.
+        
+        Filterable fields (with actual values from catalog):
+        
+        muscle_group (muscles.category): Body part category - MOST RELIABLE FILTER
+            Values: "chest", "back", "legs", "shoulders", "arms", "core", "glutes",
+                    "quadriceps", "hamstrings", "biceps", "triceps", "calves", "forearms"
+        
+        movement_type (movement.type): Movement pattern - USE FOR PUSH/PULL/LEGS
+            Values: "push", "pull", "hinge", "squat", "lunge", "carry", "core", "rotation", "other"
+        
+        category: Exercise complexity
+            Values: "compound", "isolation", "bodyweight", "assistance", "olympic lift"
+        
+        equipment: Equipment required (comma-separated for multiple)
+            Values: "barbell", "dumbbell", "cable", "machine", "bodyweight", 
+                    "bench", "ez bar", "band", "pull-up bar", "trap bar"
+        
+        split (movement.split): Body region - NOT FOR PUSH/PULL (use movement_type instead)
+            Values: "upper", "lower", "core", "full"
+        
+        difficulty (metadata.level): Experience level
+            Values: "beginner", "intermediate", "advanced"
+        
+        query: Free text search (searches name, description, muscles, equipment)
+        """
         params = []
-        if query:
-            params.append(f"query={query}")
-        if primary_muscle:
-            params.append(f"primaryMuscle={primary_muscle}")
         if muscle_group:
             params.append(f"muscleGroup={muscle_group}")
+        if movement_type:
+            params.append(f"movementType={movement_type}")
         if category:
             params.append(f"category={category}")
         if equipment:
             params.append(f"equipment={equipment}")
         if split:
             params.append(f"split={split}")
-        if movement_type:
-            params.append(f"movementType={movement_type}")
+        if difficulty:
+            params.append(f"difficulty={difficulty}")
+        if query:
+            params.append(f"query={query}")
         params.append(f"limit={limit}")
         query_string = "&".join(params)
         return self._http.get(f"searchExercises?{query_string}")

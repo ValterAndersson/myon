@@ -24,6 +24,12 @@ from app.libs.tools_canvas.client import CanvasFunctionsClient
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Add a handler to ensure logs are visible
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(levelname)s | %(name)s | %(message)s'))
+    logger.addHandler(handler)
+
 # Global context for the current request
 _context: Dict[str, Any] = {
     "canvas_id": None,
@@ -325,59 +331,114 @@ def tool_manage_routine(
 
 def tool_search_exercises(
     *,
-    primary_muscle: Optional[str] = None,
     muscle_group: Optional[str] = None,
-    split: Optional[str] = None,
+    movement_type: Optional[str] = None,
     category: Optional[str] = None,
     equipment: Optional[str] = None,
+    split: Optional[str] = None,
+    difficulty: Optional[str] = None,
     query: Optional[str] = None,
-    limit: int = 10,
+    limit: int = 15,
 ) -> List[Dict[str, Any]]:
     """
-    Search the exercise catalog for real exercises with their IDs.
+    Search the exercise catalog. Returns exercises with IDs for use in workout plans.
+    
+    IMPORTANT: Use muscle_group (not primary_muscle) for body-part searches.
+    Use movement_type (not split) for push/pull/legs programming.
     
     Args:
-        primary_muscle: Target muscle (e.g., "quadriceps", "chest", "lats")
-        muscle_group: Broad category (e.g., "legs", "back", "arms")
-        split: Training split (e.g., "push", "pull", "legs", "upper", "lower")
-        category: Movement type - "compound" (multi-joint) or "isolation" (single-joint)
-        equipment: Equipment filter (e.g., "barbell", "dumbbell", "cable", "machine")
-        query: Free text search for specific exercise names
-        limit: Max results (default 10, use 15-20 for more variety)
+        muscle_group: Body part category. Case-insensitive. Most reliable filter.
+            Values: "chest", "back", "legs", "shoulders", "arms", "core", "glutes", 
+                    "quadriceps", "hamstrings", "biceps", "triceps", "calves", "forearms"
+            Examples: muscle_group="chest" for chest exercises, muscle_group="back" for back exercises
+        
+        movement_type: Movement pattern. Use for push/pull/legs splits.
+            Values: "push", "pull", "hinge", "squat", "lunge", "carry", "core", "rotation", "other"
+            Examples: movement_type="push" for bench press, shoulder press, tricep extensions
+                      movement_type="pull" for rows, pulldowns, curls
+                      movement_type="hinge" for deadlifts, RDLs, hip thrusts
+                      movement_type="squat" for squats, leg press
+        
+        category: Exercise complexity.
+            Values: "compound" (multi-joint), "isolation" (single-joint), 
+                    "bodyweight", "assistance", "olympic lift"
+            Examples: category="compound" for big lifts, category="isolation" for accessories
+        
+        equipment: Equipment required. Can be comma-separated for multiple.
+            Values: "barbell", "dumbbell", "cable", "machine", "bodyweight", 
+                    "bench", "ez bar", "band", "pull-up bar", "trap bar"
+            Examples: equipment="barbell" or equipment="barbell,dumbbell"
+        
+        split: Body region (NOT push/pull - use movement_type for that).
+            Values: "upper", "lower", "core", "full"
+            Examples: split="upper" for upper body, split="lower" for lower body
+        
+        difficulty: Experience level required.
+            Values: "beginner", "intermediate", "advanced"
+        
+        query: Free text search. Searches exercise names and descriptions.
+            Examples: query="bench press", query="deadlift", query="curl"
+        
+        limit: Max results to return (default 15, max 50)
     
     Returns:
-        List of exercises with id, name, muscles, equipment, etc.
-        If results are limited, try broader filters or different parameters.
-    """
-    logger.info("search_exercises muscle=%s group=%s split=%s category=%s query=%s", 
-                primary_muscle, muscle_group, split, category, query)
+        List of exercises with: id, name, category, primary_muscles, secondary_muscles, 
+        equipment, level, split, movement_type
     
-    resp = _canvas_client().search_exercises(
-        primary_muscle=primary_muscle,
-        muscle_group=muscle_group,
-        split=split,
-        category=category,
-        equipment=equipment,
-        query=query,
-        limit=limit,
-    )
+    Strategy Tips:
+        - For PPL routines: Use movement_type="push" / "pull" + muscle_group="legs"
+        - For Upper/Lower: Use split="upper" / split="lower"  
+        - For specific muscles: Use muscle_group (e.g., muscle_group="chest")
+        - Combine filters for precision: movement_type="push" + muscle_group="chest" + category="compound"
+        - If results are sparse, try fewer filters or use query for name search
+    """
+    logger.info("🔍 SEARCH_EXERCISES: group=%s movement=%s category=%s equipment=%s split=%s query=%s limit=%d", 
+                muscle_group, movement_type, category, equipment, split, query, limit)
+    
+    try:
+        resp = _canvas_client().search_exercises(
+            muscle_group=muscle_group,
+            movement_type=movement_type,
+            category=category,
+            equipment=equipment,
+            split=split,
+            query=query,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.error("❌ SEARCH_EXERCISES FAILED: %s", str(e))
+        return []
     
     data = resp.get("data") or resp
     items = data.get("items") or []
     
-    return [
+    logger.info("✅ SEARCH_EXERCISES: found %d exercises", len(items))
+    if len(items) == 0:
+        logger.warning("⚠️ SEARCH_EXERCISES: 0 results! Params: group=%s movement=%s split=%s query=%s",
+                       muscle_group, movement_type, split, query)
+    
+    result = [
         {
             "id": ex.get("id"),
             "name": ex.get("name"),
             "category": ex.get("category"),
             "primary_muscles": ex.get("muscles", {}).get("primary", []),
             "secondary_muscles": ex.get("muscles", {}).get("secondary", []),
+            "muscle_groups": ex.get("muscles", {}).get("category", []),
             "equipment": ex.get("equipment", []),
             "level": ex.get("metadata", {}).get("level"),
+            "movement_type": ex.get("movement", {}).get("type"),
             "split": ex.get("movement", {}).get("split"),
         }
         for ex in items
     ]
+    
+    # Log first few exercise names for debugging
+    if result:
+        names = [r.get("name", "?") for r in result[:5]]
+        logger.info("📋 SEARCH_EXERCISES: first 5 = %s", names)
+    
+    return result
 
 
 # ============================================================================
@@ -540,29 +601,37 @@ def tool_propose_workout(
     }
     
     # Publish via proposeCards
-    logger.info("propose_workout canvas=%s title=%s exercises=%d",
+    logger.info("🎯 PROPOSE_WORKOUT: canvas=%s title='%s' exercises=%d",
                 cid, title, len(blocks))
     
-    resp = _canvas_client().propose_cards(
-        canvas_id=cid,
-        cards=[card],
-        user_id=uid,
-        correlation_id=corr,
-    )
+    try:
+        resp = _canvas_client().propose_cards(
+            canvas_id=cid,
+            cards=[card],
+            user_id=uid,
+            correlation_id=corr,
+        )
+        logger.info("✅ PROPOSE_WORKOUT SUCCESS: response=%s", resp.get("success", resp.get("status", "unknown")))
+    except Exception as e:
+        logger.error("❌ PROPOSE_WORKOUT FAILED: %s", str(e))
+        return {"error": f"Failed to publish workout: {str(e)}"}
     
     # Emit telemetry
-    _canvas_client().emit_event(
-        user_id=uid,
-        canvas_id=cid,
-        event_type="plan_workout",
-        payload={
-            "task": "plan_workout",
-            "status": "published",
-            "title": title,
-            "exercise_count": len(blocks),
-        },
-        correlation_id=corr,
-    )
+    try:
+        _canvas_client().emit_event(
+            user_id=uid,
+            canvas_id=cid,
+            event_type="plan_workout",
+            payload={
+                "task": "plan_workout",
+                "status": "published",
+                "title": title,
+                "exercise_count": len(blocks),
+            },
+            correlation_id=corr,
+        )
+    except Exception as e:
+        logger.warning("⚠️ PROPOSE_WORKOUT telemetry failed: %s", str(e))
     
     return {
         "status": "published",
@@ -631,6 +700,214 @@ def tool_send_message(*, message: str) -> Dict[str, Any]:
 
 
 # ============================================================================
+# TOOLS: Routine Creation (Multi-Workout Draft)
+# ============================================================================
+
+def tool_propose_routine(
+    *,
+    name: str,
+    frequency: int,
+    workouts: List[Dict[str, Any]],
+    description: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Propose a complete routine with multiple workouts as a single draft.
+    Creates a routine_summary card + session_plan cards for each day.
+    
+    Use this when the user asks for a "routine", "program", "split", "PPL", etc.
+    
+    Args:
+        name: Routine name (e.g., "Push Pull Legs", "Upper Lower", "Full Body 3x")
+        frequency: Times per week (e.g., 3, 4, 5, 6)
+        description: Brief description of the routine's purpose
+        workouts: List of workout days, each with:
+            - title: Day name (e.g., "Push", "Pull", "Legs", "Upper A")
+            - exercises: List of exercises, each with:
+                - name: Exercise name (from search)
+                - exercise_id: Catalog ID (from search)
+                - sets: Number of working sets
+                - reps: Target reps
+                - rir: Target RIR for final set
+                - weight_kg: Target weight (optional)
+    
+    Returns:
+        Confirmation that routine was published to canvas with draft_id.
+        The user can then review, edit, and save the routine.
+    
+    Example:
+        tool_propose_routine(
+            name="Push Pull Legs",
+            frequency=6,
+            workouts=[
+                {"title": "Push", "exercises": [...]},
+                {"title": "Pull", "exercises": [...]},
+                {"title": "Legs", "exercises": [...]},
+            ]
+        )
+    """
+    cid = _context.get("canvas_id")
+    uid = _context.get("user_id")
+    corr = _context.get("correlation_id")
+    
+    if not cid or not uid:
+        return {"error": "Missing canvas_id or user_id - context not set"}
+    
+    if not workouts:
+        return {"error": "At least one workout is required"}
+    
+    cards: List[Dict[str, Any]] = []
+    
+    # Build session_plan cards for each workout day
+    workout_summaries = []
+    for idx, workout in enumerate(workouts):
+        title = workout.get("title") or f"Day {idx + 1}"
+        exercises = workout.get("exercises") or []
+        
+        # Build exercise blocks (same logic as tool_propose_workout)
+        blocks: List[Dict[str, Any]] = []
+        for ex_idx, ex in enumerate(exercises):
+            if not isinstance(ex, dict):
+                continue
+            
+            ex_name = ex.get("name") or ex.get("exercise_name") or "Exercise"
+            exercise_id = ex.get("exercise_id") or ex.get("id") or _slugify(ex_name)
+            
+            reps = _extract_reps(ex.get("reps"), 8)
+            final_rir = _coerce_int(ex.get("rir"), 2)
+            weight = ex.get("weight_kg") or ex.get("weight")
+            if weight is not None:
+                try:
+                    weight = float(weight)
+                except (TypeError, ValueError):
+                    weight = None
+            
+            num_working = _coerce_int(ex.get("sets", 3), 3)
+            
+            # Build sets array
+            sets: List[Dict[str, Any]] = []
+            for i in range(num_working):
+                sets_remaining = num_working - i - 1
+                set_rir = min(final_rir + sets_remaining, 5)
+                
+                target = {"reps": reps, "rir": set_rir}
+                if weight is not None:
+                    target["weight"] = weight
+                
+                sets.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "working",
+                    "target": target,
+                })
+            
+            blocks.append({
+                "id": str(uuid.uuid4())[:8],
+                "exercise_id": exercise_id,
+                "name": ex_name,
+                "sets": sets,
+                "primary_muscles": ex.get("primary_muscles") or [],
+                "equipment": (ex.get("equipment") or [None])[0] if isinstance(ex.get("equipment"), list) else ex.get("equipment"),
+            })
+        
+        # Estimate duration (5 min per exercise average)
+        estimated_duration = len(blocks) * 5 + 10  # +10 for warmup/cooldown
+        
+        # Create session_plan card for this day
+        day_card = {
+            "type": "session_plan",
+            "lane": "workout",
+            "content": {
+                "title": title,
+                "blocks": blocks,
+                "estimated_duration_minutes": estimated_duration,
+            },
+            "actions": [
+                {"kind": "expand", "label": "View Details", "style": "ghost"},
+            ],
+        }
+        cards.append(day_card)
+        
+        # Build summary for this day (card_id will be set by backend)
+        workout_summaries.append({
+            "day": idx + 1,
+            "title": title,
+            "card_id": None,  # Backend will set this
+            "estimated_duration": estimated_duration,
+            "exercise_count": len(blocks),
+        })
+    
+    # Create routine_summary anchor card (FIRST in array so backend knows to link)
+    summary_card = {
+        "type": "routine_summary",
+        "lane": "workout",
+        "priority": 95,  # Higher than session_plans so it appears first
+        "content": {
+            "name": name,
+            "description": description,
+            "frequency": frequency,
+            "workouts": workout_summaries,
+        },
+        "actions": [
+            {"kind": "save_routine", "label": "Save Routine", "style": "primary", "iconSystemName": "checkmark"},
+            {"kind": "dismiss_draft", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
+        ],
+    }
+    
+    # Put summary first, then day cards
+    all_cards = [summary_card] + cards
+    
+    logger.info("🎯 PROPOSE_ROUTINE: canvas=%s name='%s' workouts=%d total_exercises=%d",
+                cid, name, len(workouts), sum(len(w.get("exercises", [])) for w in workouts))
+    
+    # Publish all cards at once (backend will assign group_id, draft_id, link card_ids)
+    try:
+        resp = _canvas_client().propose_cards(
+            canvas_id=cid,
+            cards=all_cards,
+            user_id=uid,
+            correlation_id=corr,
+        )
+        # Verify the response indicates success
+        is_success = resp.get("success", False)
+        created_ids = resp.get("data", {}).get("created_card_ids") or resp.get("created_card_ids") or []
+        
+        if not is_success:
+            error_msg = resp.get("error", {}).get("message") if isinstance(resp.get("error"), dict) else str(resp.get("error", "Unknown error"))
+            logger.error("❌ PROPOSE_ROUTINE REJECTED: %s", error_msg)
+            return {"error": f"Backend rejected routine: {error_msg}"}
+        
+        logger.info("✅ PROPOSE_ROUTINE SUCCESS: cards=%d created_ids=%s", 
+                    len(all_cards), created_ids)
+    except Exception as e:
+        logger.error("❌ PROPOSE_ROUTINE FAILED: %s", str(e))
+        return {"error": f"Failed to publish routine: {str(e)}"}
+    
+    # Emit telemetry
+    try:
+        _canvas_client().emit_event(
+            user_id=uid,
+            canvas_id=cid,
+            event_type="plan_routine",
+            payload={
+                "task": "plan_routine",
+                "status": "published",
+                "name": name,
+                "workout_count": len(workouts),
+                "frequency": frequency,
+            },
+            correlation_id=corr,
+        )
+    except Exception as e:
+        logger.warning("⚠️ PROPOSE_ROUTINE telemetry failed: %s", str(e))
+    
+    return {
+        "status": "published",
+        "message": f"'{name}' routine published to canvas ({len(workouts)} workouts)",
+        "workout_count": len(workouts),
+        "total_exercises": sum(len(w.get("exercises", [])) for w in workouts),
+    }
+
+
+# ============================================================================
 # ALL TOOLS
 # ============================================================================
 
@@ -649,6 +926,7 @@ all_tools = [
     FunctionTool(func=tool_search_exercises),
     # Workout creation
     FunctionTool(func=tool_propose_workout),
+    FunctionTool(func=tool_propose_routine),  # Multi-day routine draft
     # Communication
     FunctionTool(func=tool_ask_user),
     FunctionTool(func=tool_send_message),
@@ -692,81 +970,113 @@ def _before_model_callback(callback_context, llm_request):
 
 UNIFIED_INSTRUCTION = """
 ## ROLE
-You are a strength coach. Plan workouts efficiently without unnecessary text.
+You are the Planner Agent. You plan and edit workouts and routines as canvas artifacts.
+You behave like a two-way editor, not a chatty assistant.
+
+## CANVAS PRINCIPLE
+- The card is the output. Chat text is only a control surface.
+- When the user asks “how should we modify”, you must propose an updated draft AND attach rationale inside the artifact (not as long chat prose).
 
 ## CRITICAL OUTPUT RULES
-1. DO NOT output the workout as text - only use tool_propose_workout to show it
-2. DO NOT apologize or explain when searches return few results - just try different parameters
-3. DO NOT narrate your search process - execute silently
-4. After tool_propose_workout succeeds, output only a brief acknowledgment (1 sentence max)
-5. Keep ALL text responses short and actionable
+1. Start by understanding the user's request, look over the tools you have available to you, and plan what steps to take to fulfil the request. 
+2. Once you understand what the user has asked you to do, and you know what you need to do in order to satisfy the request, give the user a one-time 1 (max 2) sentence summary before you begin the work.
+3. Never narrate searches or tool usage.
+4. Never apologize for sparse results. Adapt parameters and continue. Use exercises from whatever results you got.
+5. ALWAYS COMPLETE THE TASK: If the user asks for a workout or routine, you MUST call tool_propose_workout or tool_propose_routine. Never end the conversation without publishing an artifact.
+6. Never output full workout/routine details as chat prose. Publish via tool_propose_workout or tool_propose_routine.
+7. After a successful propose call, output at most 1 short control sentence.
+8. Never ask for template IDs or card IDs.
+9. Do not auto save.
 
-## TWO MAIN SCENARIOS
+## TOOLS
+- tool_get_planning_context: constraints + defaults
+- tool_search_exercises: exercise candidates
+- tool_propose_workout: publish single workout draft
+- tool_propose_routine: publish full routine draft in one call
+- tool_get_next_workout: next planned session from active routine
+- tool_ask_user: only under ASK POLICY
+(If history/progression tools exist in the environment, use them. If not available, fall back to conservative defaults.)
 
-### SCENARIO 1: Single Workout Request
-"plan a leg workout", "give me a push day", etc.
-→ Search exercises → tool_propose_workout → Brief confirmation
-→ NO text description of the workout - the card IS the output
+## ASK POLICY (1 QUESTION MAX, ONLY IF BLOCKING)
+Ask only if you cannot generate a safe/correct draft:
+- Missing routine frequency/days when user clearly wants a routine
+- Equipment constraints block all reasonable options
+- Injury/pain constraint is needed to avoid risky choices
+Otherwise propose a draft using defaults.
 
-### SCENARIO 2: Routine Request  
-"routine", "program", "split", "PPL", "upper/lower", etc.
-→ Ask clarifying questions FIRST
-→ Then plan each workout one at a time
-→ Routines require: frequency, split type, goals
+## INTENT PARSING (EVERY TURN)
+Classify as:
+A) Create single workout
+B) Create routine (multi-day)
+C) Edit existing workout/routine
 
-## SEARCH STRATEGY (IMPORTANT)
+Routine intent requires explicit multi-day structure or explicit frequency.
+Negative triggers: split squat, Bulgarian split squat, split stance.
 
-Use these proven search patterns:
+Default to single workout when ambiguous.
 
-**Leg workout:**
-- muscle_group="legs" limit=20
-- If few results: try category="compound" + query="squat" OR query="leg"
+## CORE WORKFLOW (MANDATORY)
+1) Fetch planning context (tool_get_planning_context) unless already fetched this turn.
+2) If request is an EDIT or OPTIMIZATION, start from the existing artifact and apply minimal deltas.
+3) Use data (history/progression) if available to decide what to change.
+4) Propose updated draft using the correct tool.
+5) Output one short control sentence.
 
-**Push workout:**
-- split="push" limit=20
-- If few results: muscle_group="chest" limit=15, then muscle_group="shoulders" limit=10
+### Inputs you should use when available
+- Past workouts and exercise history
+- Exercise-level progression (load, reps, RIR, volume)
+- Muscle-group progression deltas and volume distribution
+- Pain/injury flags + tolerated movement patterns
+- Time per session + weekly frequency
 
-**Pull workout:**
-- split="pull" limit=20  
-- If few results: muscle_group="back" limit=15, then query="row" OR query="pull"
+### Optimization levers (choose the smallest set that solves the problem)
+1) Volume: add/remove sets, reallocate weekly sets across muscles
+2) Frequency: redistribute target muscle across days without increasing total session time (if possible)
+3) Exercise selection: swap to better ROM/stability/angle/equipment fit
+4) Intensity/rep ranges: adjust ranges and target RIR
+5) Order/rest: reduce performance drop-offs on the target muscle
 
-**Arms/Biceps/Triceps:**
-- query="bicep" limit=15 OR query="tricep" limit=15
-- muscle_group="arms" limit=20
+## SEARCH STRATEGY
+The exercise catalog is small (~120 exercises). Use broad searches with high limits, then pick the most applicable exercises. 
 
-**General:**
-- Use query parameter for specific exercises: query="squat", query="bench press"
-- Use category="compound" for big movements
-- Use category="isolation" for accessories
+For routines:
+1) For each day type (Upper/Lower, Push/Pull/Legs, Fullbody), do ONE broad search:
+   - Upper: split="upper" limit=50
+   - Lower: split="lower" limit=50  
+   - Push: movement_type="push" limit=50
+   - Pull: movement_type="pull" limit=50
+   - Legs: split="lower" limit=50
+2) Pick exercises from those results based on user preferences and workout structure.
+3) NEVER search for specific exercise names like "Seated Calf Raise Machine", unless the user has asked for something specific. 
 
-DO NOT make multiple failed searches with the same parameters. If a search returns 0-2 results, try a DIFFERENT approach immediately.
+For single workouts:
+1) One broad search for the target area (limit=30-50)
+2) Pick from results
 
-## PLANNING TOOLS
+If user has equipment constraints:
+1) Add equipment filter to the broad search
+2) If results are sparse, drop equipment filter and adapt (use what's available)
 
-**tool_search_exercises** - Find exercises
-**tool_propose_workout** - Publish workout card (REQUIRED)
-**tool_get_planning_context** - Check user's setup
-**tool_get_next_workout** - Get next from active routine
-**tool_ask_user** - Ask clarifying questions
+NEVER do multiple narrow searches that each return few results. One broad search per workout type.
 
-## WORKOUT STRUCTURE
+## ROUTINE RULES
+If creating or editing a routine:
+- Build all days first, then call tool_propose_routine EXACTLY ONCE.
+- NEVER call tool_propose_routine multiple times. One call = one complete routine.
+- Never propose one day at a time.
+- If user already has a workout card, include it and generate missing days.
 
-- 4-5 exercises per workout
-- Compounds first, isolation last
-- 3-4 sets per exercise
-- 8-12 reps hypertrophy, 4-6 strength
-- RIR 2-3 compounds, RIR 1-2 isolation
+## DEFAULT TRAINING PARAMETERS (IF NO HISTORY)
+Hypertrophy default:
+- Exercises: Aim for 4-5 exercises per workout, (1-2 compounds, 2-3 isolations)
+- Compounds: 3–4 sets, 6–10 reps, RIR 1–2
+- Isolations: 2–4 sets, 10–15 reps, RIR 0–2
+- Rest: 2–3 min compounds, 60–90 sec isolations
+Progression: double progression (top of range across sets at target RIR → smallest load increase).
+If the user has a workout history, you should try to adapt to their structure (assuming it follows hypertrophy principles, otherwise challenge it), and aim to optimize. 
 
-## SAVING
-
-Saving is handled through UI buttons. Do NOT automatically save.
-Only use save tools if user explicitly asks.
-
-## NEVER DO
-- Output workout details as text (the card shows everything)
-- Apologize for search results
-- Explain what searches you're trying
-- Make multiple searches with same failing parameters
+## TEXT RESPONSE
+After proposing, output exactly one short sentence describing the update (eg “Updated your routine to focus more on your quads.”). If and when relevant to the context, you can attach a short rationale (eg "This should materially help you reach your goal of growing chunky legs."). Keep it short - Do not dump long explanations in chat.
 """
 
 # ============================================================================

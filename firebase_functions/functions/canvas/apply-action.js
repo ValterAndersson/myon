@@ -6,6 +6,7 @@ const { logSetCore } = require('../shared/active_workout/log_set_core');
 const { swapExerciseCore } = require('../shared/active_workout/swap_core');
 const { adjustLoadCore } = require('../shared/active_workout/adjust_load_core');
 const { reorderSetsCore } = require('../shared/active_workout/reorder_sets_core');
+const { createRoutineFromDraftCore } = require('../routines/create-routine-from-draft');
 
 
 const dbh = new FirestoreHelper();
@@ -28,6 +29,54 @@ async function applyAction(req, res) {
 
     const { canvasId, expected_version, action } = v.data;
     const canvasPath = `users/${uid}/canvases/${canvasId}`;
+
+    // =========================================================================
+    // SAVE_ROUTINE: Handled OUTSIDE transaction (does multiple writes)
+    // Process this BEFORE the main transaction to avoid version conflicts
+    // =========================================================================
+    if (action.type === 'SAVE_ROUTINE') {
+      if (!action.card_id) {
+        return fail(res, 'INVALID_ARGUMENT', 'card_id (routine_summary) is required', null, 400);
+      }
+      
+      // First, get the draft_id from the card
+      const summaryRef = admin.firestore().doc(`${canvasPath}/cards/${action.card_id}`);
+      const summarySnap = await summaryRef.get();
+      
+      if (!summarySnap.exists) {
+        return fail(res, 'NOT_FOUND', 'Card not found', null, 404);
+      }
+      
+      const summary = summarySnap.data();
+      if (summary.type !== 'routine_summary') {
+        return fail(res, 'INVALID_ARGUMENT', 'SAVE_ROUTINE requires a routine_summary card', null, 400);
+      }
+      
+      const draftId = summary.meta?.draftId;
+      if (!draftId) {
+        return fail(res, 'INVALID_ARGUMENT', 'Card has no draftId', null, 400);
+      }
+      
+      // Call the core function to create routine + templates
+      const setActive = action.payload?.set_active !== false; // default true
+      const result = await createRoutineFromDraftCore(uid, canvasId, draftId, { setActive });
+      
+      console.log('[applyAction] SAVE_ROUTINE complete', { 
+        uid, 
+        canvasId, 
+        routineId: result.routineId, 
+        templateCount: result.templateIds?.length,
+        isUpdate: result.isUpdate,
+        ms: Date.now() - t0 
+      });
+      
+      return ok(res, {
+        routine_id: result.routineId,
+        template_ids: result.templateIds,
+        is_update: result.isUpdate,
+        summary_card_id: result.summaryCardId,
+      });
+    }
 
       const result = await admin.firestore().runTransaction(async (tx) => {
       // Scoped idempotency under canvas
@@ -326,6 +375,94 @@ async function applyAction(req, res) {
         mutState.phase = 'analysis';
       }
 
+      // =========================================================================
+      // PIN_DRAFT: Flip all cards in a routine draft to status='active'
+      // This exempts them from TTL sweeps. Idempotent - safe to call repeatedly.
+      // =========================================================================
+      if (action.type === 'PIN_DRAFT') {
+        if (!action.card_id) throw { http: 400, code: 'INVALID_ARGUMENT', message: 'card_id (routine_summary) is required' };
+        const summaryRef = admin.firestore().doc(`${canvasPath}/cards/${action.card_id}`);
+        const summarySnap = await tx.get(summaryRef);
+        if (!summarySnap.exists) throw { http: 404, code: 'NOT_FOUND', message: 'Card not found' };
+        
+        const summary = summarySnap.data();
+        if (summary.type !== 'routine_summary') {
+          throw { http: 400, code: 'INVALID_ARGUMENT', message: 'PIN_DRAFT requires a routine_summary card' };
+        }
+        
+        // If already active, this is idempotent - just return success
+        if (summary.status === 'active') {
+          changes.cards.push({ card_id: action.card_id, status: 'active', already_pinned: true });
+        } else {
+          // Get all cards in the same group
+          const groupId = summary.meta?.groupId;
+          if (!groupId) throw { http: 400, code: 'INVALID_ARGUMENT', message: 'Draft has no groupId' };
+          
+          const groupQuery = admin.firestore().collection(`${canvasPath}/cards`)
+            .where('meta.groupId', '==', groupId);
+          const groupSnap = await tx.get(groupQuery);
+          
+          // Flip all to 'active'
+          for (const doc of groupSnap.docs) {
+            const d = doc.data();
+            if (d.status !== 'active') {
+              tx.update(doc.ref, { status: 'active', updated_at: now });
+              changes.cards.push({ card_id: doc.id, status: 'active' });
+            }
+          }
+        }
+        
+        const evtRefPin = admin.firestore().collection(`${canvasPath}/events`).doc();
+        tx.set(evtRefPin, { type: 'apply_action', payload: { action: 'PIN_DRAFT', card_id: action.card_id }, created_at: now });
+      }
+
+      // =========================================================================
+      // DISMISS_DRAFT: Mark all cards in a routine draft as 'rejected'
+      // Removes them from up_next and allows TTL to clean up.
+      // =========================================================================
+      if (action.type === 'DISMISS_DRAFT') {
+        if (!action.card_id) throw { http: 400, code: 'INVALID_ARGUMENT', message: 'card_id (routine_summary) is required' };
+        const summaryRef = admin.firestore().doc(`${canvasPath}/cards/${action.card_id}`);
+        const summarySnap = await tx.get(summaryRef);
+        if (!summarySnap.exists) throw { http: 404, code: 'NOT_FOUND', message: 'Card not found' };
+        
+        const summary = summarySnap.data();
+        if (summary.type !== 'routine_summary') {
+          throw { http: 400, code: 'INVALID_ARGUMENT', message: 'DISMISS_DRAFT requires a routine_summary card' };
+        }
+        
+        const groupId = summary.meta?.groupId;
+        if (!groupId) throw { http: 400, code: 'INVALID_ARGUMENT', message: 'Draft has no groupId' };
+        
+        // Get all cards in the group
+        const groupQuery = admin.firestore().collection(`${canvasPath}/cards`)
+          .where('meta.groupId', '==', groupId);
+        const groupSnap = await tx.get(groupQuery);
+        
+        // Pre-read up_next entries for all cards
+        const upNextRefs = [];
+        for (const doc of groupSnap.docs) {
+          const upQuery = admin.firestore().collection(`${canvasPath}/up_next`).where('card_id', '==', doc.id);
+          const upSnap = await tx.get(upQuery);
+          upSnap.forEach(u => upNextRefs.push(u.ref));
+        }
+        
+        // Mark all as 'rejected'
+        for (const doc of groupSnap.docs) {
+          tx.update(doc.ref, { status: 'rejected', updated_at: now });
+          changes.cards.push({ card_id: doc.id, status: 'rejected' });
+        }
+        
+        // Remove from up_next
+        upNextRefs.forEach(ref => {
+          tx.delete(ref);
+          changes.up_next_delta.push({ op: 'remove', card_id: ref.id });
+        });
+        
+        const evtRefDismiss = admin.firestore().collection(`${canvasPath}/events`).doc();
+        tx.set(evtRefDismiss, { type: 'apply_action', payload: { action: 'DISMISS_DRAFT', card_id: action.card_id }, created_at: now });
+      }
+
       // increment version
       const nextVersion = (mutState.version || 0) + 1;
       const newState = { ...mutState, version: nextVersion };
@@ -406,5 +543,3 @@ async function applyAction(req, res) {
 }
 
 module.exports = { applyAction };
-
-

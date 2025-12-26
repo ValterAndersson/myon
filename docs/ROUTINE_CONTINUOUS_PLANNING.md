@@ -70,6 +70,12 @@ User has no routine OR requests something new
 
 ## iOS UI Components
 
+### Canvas Cards
+- `RoutineSummaryCard`: Multi-day routine draft anchor card
+  - Displays routine name, frequency, description
+  - Lists all workout days with duration/exercise count
+  - Actions: Save Routine, Dismiss, Regenerate
+
 ### Routines Tab
 - `RoutinesListView`: List with active routine highlight
 - `RoutineDetailView`: Shows workouts in order, "NEXT" indicator
@@ -127,8 +133,12 @@ Canvas constraints enforced:
 - `UI/Routines/RoutineEditView.swift` - New
 - `UI/Templates/TemplatesListView.swift` - New
 - `UI/Templates/TemplateDetailView.swift` - New
+- `UI/Canvas/Cards/RoutineSummaryCard.swift` - New
+- `UI/Canvas/Models.swift` - Added routine_summary types
+- `UI/Canvas/CanvasGridView.swift` - Added routing for RoutineSummaryCard
 - `ViewModels/RoutinesViewModel.swift` - New
 - `Views/MainTabsView.swift` - Modified
+- `Views/CanvasScreen.swift` - Added routine action handlers
 - `Models/Routine.swift` - Modified (cursor fields)
 
 ## Testing Checklist

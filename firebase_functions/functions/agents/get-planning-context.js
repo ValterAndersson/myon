@@ -41,12 +41,9 @@ async function getPlanningContextHandler(req, res) {
       recentWorkoutsSummary: null
     };
 
-    // 1. Get user profile and attributes
+    // 1. Get user profile and attributes (handle missing user gracefully)
     const userDoc = await firestore.collection('users').doc(callerUid).get();
-    if (!userDoc.exists) {
-      return fail(res, 'NOT_FOUND', 'User not found', null, 404);
-    }
-    const user = userDoc.data();
+    const user = userDoc.exists ? userDoc.data() : {};
 
     // Get user attributes
     const attrsDoc = await firestore.collection('users').doc(callerUid).collection('user_attributes').doc(callerUid).get();

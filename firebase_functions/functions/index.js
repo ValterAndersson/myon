@@ -173,7 +173,8 @@ exports.patchRoutine = functions.https.onRequest((req, res) => requireFlexibleAu
 // Exercise Operations
 exports.getExercises = functions.https.onRequest((req, res) => withApiKey(getExercises)(req, res));
 exports.getExercise = functions.https.onRequest((req, res) => withApiKey(getExercise)(req, res));
-exports.searchExercises = functions.https.onRequest((req, res) => withApiKey(searchExercises)(req, res));
+// searchExercises is already a v2 onRequest function from search-exercises.js
+exports.searchExercises = searchExercises;
 exports.upsertExercise = functions.https.onRequest((req, res) => withApiKey(upsertExercise)(req, res));
 exports.approveExercise = functions.https.onRequest((req, res) => withApiKey(approveExercise)(req, res));
 exports.ensureExerciseExists = functions.https.onRequest((req, res) => withApiKey(ensureExerciseExists)(req, res));

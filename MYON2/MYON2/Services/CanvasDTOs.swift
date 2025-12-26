@@ -218,6 +218,37 @@ public enum CanvasMapper {
                                iconSystemName: item["iconSystemName"] as? String)
                 }
                 return .list(options: options)
+            case "routine_summary":
+                // Parse routine summary for multi-day routine drafts
+                let name = (content?["name"] as? String) ?? "Routine"
+                let description = content?["description"] as? String
+                let frequency = (content?["frequency"] as? Int) ?? 3
+                let draftId = content?["draft_id"] as? String
+                let revision = content?["revision"] as? Int
+                
+                // Parse workouts array
+                let workoutsArr = (content?["workouts"] as? [[String: Any]]) ?? []
+                let workouts: [RoutineWorkoutSummary] = workoutsArr.enumerated().map { (idx, workout) in
+                    RoutineWorkoutSummary(
+                        id: (workout["card_id"] as? String) ?? UUID().uuidString,
+                        day: (workout["day"] as? Int) ?? (idx + 1),
+                        title: (workout["title"] as? String) ?? "Day \(idx + 1)",
+                        cardId: workout["card_id"] as? String,
+                        estimatedDuration: (workout["estimated_duration"] as? Int) ?? (workout["estimatedDuration"] as? Int),
+                        exerciseCount: (workout["exercise_count"] as? Int) ?? (workout["exerciseCount"] as? Int),
+                        muscleGroups: workout["muscle_groups"] as? [String]
+                    )
+                }
+                
+                let summaryData = RoutineSummaryData(
+                    name: name,
+                    description: description,
+                    frequency: frequency,
+                    workouts: workouts,
+                    draftId: draftId,
+                    revision: revision
+                )
+                return .routineSummary(summaryData)
             case "analysis_task":
                 if let steps = (content?["steps"] as? [[String: Any]]) {
                     let parsed: [AgentStreamStep] = steps.map { s in

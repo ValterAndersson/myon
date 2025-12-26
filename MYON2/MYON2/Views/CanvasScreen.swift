@@ -34,23 +34,13 @@ struct CanvasScreen: View {
             WorkspaceTimelineView(
                 events: vm.workspaceEvents,
                 embeddedCards: embeddedCards,
+                allCards: vm.cards,  // Pass ALL cards for RoutineSummaryCard to look up linked session_plans
                 syntheticClarification: syntheticClarificationPrompt,
                 answeredClarifications: answeredClarifications,
                 onClarificationSubmit: handleClarificationSubmit,
                 onClarificationSkip: handleClarificationSkip,
-                hideThinkingEvents: vm.isAgentThinking && !hasSessionPlanCard  // Hide old SRE stream when showing skeleton
+                hideThinkingEvents: false  // Always show inline thought process
             )
-            
-            // Show skeleton loader when agent is working and no plan card exists yet
-            if vm.isAgentThinking && !hasSessionPlanCard {
-                VStack(spacing: Space.sm) {
-                    AgentProgressIndicator(progressState: vm.progressState)
-                    PlanCardSkeleton()
-                }
-                .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.sm)
-                .transition(.opacity)
-            }
             
             composeBar(pendingClarification: pendingClarification)
         }
@@ -286,17 +276,67 @@ extension CanvasScreen {
                     firePrompt(prompt, resetCards: false)
                 }
             case "swap_exercise":
-                if let instruction = action.payload?["instruction"],
-                   let currentPlan = action.payload?["current_plan"] {
+                // Swap exercise - works for both SessionPlanCard and RoutineSummaryCard
+                if let instruction = action.payload?["instruction"] {
+                    var prompt = "User swap request: \(instruction)"
+                    // If current_plan is provided (SessionPlanCard), include it
+                    if let currentPlan = action.payload?["current_plan"] {
+                        prompt = """
+                        User swap request: \(instruction)
+                        
+                        Current plan (with any user modifications):
+                        \(currentPlan)
+                        
+                        Please swap the exercise and publish the updated plan.
+                        """
+                    }
+                    firePrompt(prompt, resetCards: false)
+                }
+                
+            // MARK: - Routine Card Inline Actions
+            case "edit_set":
+                // User tapped on a set cell to edit it - send to agent for now
+                // In future, this could open an inline editor
+                if let exerciseName = action.payload?["exercise_name"],
+                   let field = action.payload?["field"],
+                   let currentValue = action.payload?["current_value"] {
                     let prompt = """
-                    User swap request: \(instruction)
+                    Please update the \(field) for '\(exerciseName)' from \(currentValue) - what should the new value be?
+                    """
+                    // For now, just log - TODO: implement inline number picker
+                    print("[CanvasScreen] edit_set: \(exerciseName) \(field)=\(currentValue)")
+                    // firePrompt(prompt, resetCards: false)  // Could ask agent, but better to do inline
+                }
+                
+            case "adjust_workout":
+                // Adjust workout (shorter, harder, swap focus, regenerate)
+                if let instruction = action.payload?["instruction"],
+                   let workoutIndex = action.payload?["workout_index"] {
+                    let prompt = """
+                    User wants to adjust workout day \(workoutIndex): \(instruction)
                     
-                    Current plan (with any user modifications):
-                    \(currentPlan)
-                    
-                    Please swap the exercise and publish the updated plan.
+                    Please update the routine accordingly and publish the revised version.
                     """
                     firePrompt(prompt, resetCards: false)
+                }
+                
+            // MARK: - Routine Draft Actions
+            case "save_routine":
+                // Save routine and templates from draft
+                // No toast with undo - save is a permanent action
+                if let cid = vm.canvasId ?? canvasId {
+                    Task { await vm.applyAction(canvasId: cid, type: "SAVE_ROUTINE", cardId: card.id) }
+                }
+            case "dismiss_draft":
+                // Dismiss entire routine draft (marks all cards rejected)
+                // No toast with undo - user explicitly chose to dismiss
+                if let cid = vm.canvasId ?? canvasId {
+                    Task { await vm.applyAction(canvasId: cid, type: "DISMISS_DRAFT", cardId: card.id) }
+                }
+            case "pin_draft":
+                // Pin routine draft (marks all cards active, exempts from TTL)
+                if let cid = vm.canvasId ?? canvasId {
+                    Task { await vm.applyAction(canvasId: cid, type: "PIN_DRAFT", cardId: card.id) }
                 }
             // learn_exercise is now handled directly in SessionPlanCard via ExerciseDetailSheet
             default:
@@ -320,22 +360,64 @@ extension CanvasScreen {
 }
 
 private extension CanvasScreen {
-    /// Deduplicate session_plan cards - only show the latest one
-    /// Other card types pass through as-is
+    /// Filter and deduplicate cards:
+    /// - Session plans that are part of a routine (have groupId matching a routine_summary) are HIDDEN
+    ///   because they will be accessed via RoutineSummaryCard expansion, not as standalone cards
+    /// - Standalone session_plans: only show the latest one (deduplicate)
+    /// - Routine summaries: only show the latest PROPOSED or ACTIVE one; hide old/rejected/expired ones
     func deduplicateSessionPlans(_ cards: [CanvasCardModel]) -> [CanvasCardModel] {
-        // Find all session_plan cards sorted by publishedAt (newest first)
-        let sessionPlans = cards
-            .filter { $0.type == .session_plan }
+        // Find groupIds that belong to routine_summary cards
+        let routineGroupIds = Set(cards.compactMap { card -> String? in
+            guard card.type == .routine_summary else { return nil }
+            return card.meta?.groupId
+        })
+        
+        // Find all STANDALONE session_plan cards (not part of a routine)
+        let standalonePlans = cards.filter { card in
+            guard card.type == .session_plan else { return false }
+            // If this card's groupId matches a routine, it's NOT standalone
+            if let groupId = card.meta?.groupId, routineGroupIds.contains(groupId) {
+                return false
+            }
+            return true
+        }.sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+        
+        // Keep only the latest STANDALONE session_plan
+        let latestStandalonePlanId = standalonePlans.first?.id
+        
+        // Find the latest PROPOSED or ACTIVE routine_summary card
+        // Hide older routine_summary cards to prevent duplicates when agent iterates
+        let routineSummaries = cards.filter { $0.type == .routine_summary }
             .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
         
-        // Keep only the latest session_plan
-        let latestPlanId = sessionPlans.first?.id
+        // Keep only the latest routine_summary that is proposed or active
+        // If none are proposed/active, keep the absolute latest
+        let latestRoutineSummaryId: String? = {
+            if let latestProposed = routineSummaries.first(where: { $0.status == .proposed || $0.status == .active }) {
+                return latestProposed.id
+            }
+            return routineSummaries.first?.id
+        }()
         
-        // Return all cards except older session_plans
+        // Return filtered cards:
+        // - HIDE session_plans that are part of a routine (accessed via RoutineSummaryCard expansion)
+        // - Deduplicate standalone session_plans (keep only latest)
+        // - Deduplicate routine_summaries (keep only latest proposed/active)
         return cards.filter { card in
             if card.type == .session_plan {
-                return card.id == latestPlanId
+                // If part of a routine, HIDE it (will be accessed via RoutineSummaryCard expansion)
+                if let groupId = card.meta?.groupId, routineGroupIds.contains(groupId) {
+                    return false
+                }
+                // Standalone: only keep the latest
+                return card.id == latestStandalonePlanId
             }
+            
+            // Deduplicate routine_summary cards - only show the latest
+            if card.type == .routine_summary {
+                return card.id == latestRoutineSummaryId
+            }
+            
             return true
         }
     }

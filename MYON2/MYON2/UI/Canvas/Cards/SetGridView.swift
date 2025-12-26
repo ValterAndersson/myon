@@ -364,6 +364,11 @@ private struct InlineEditingDock: View {
     @Binding var editScope: EditScope
     let onDismiss: () -> Void
     
+    // State for direct text input
+    @State private var isEditingText = false
+    @State private var textInputValue = ""
+    @FocusState private var textFieldFocused: Bool
+    
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if !isWarmupSet { scopeSelector }
@@ -444,12 +449,47 @@ private struct InlineEditingDock: View {
     private var weightEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: currentValue <= 0) { applyChange(currentValue - 2.5) }
-            VStack(spacing: 0) {
-                Text(currentValue > 0 ? formatWeight(currentValue) : "—")
-                    .font(.system(size: 24, weight: .bold).monospacedDigit())
-                Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+            
+            // Tappable value display / text field
+            if isEditingText {
+                VStack(spacing: 0) {
+                    TextField("", text: $textInputValue)
+                        .font(.system(size: 24, weight: .bold).monospacedDigit())
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.center)
+                        .focused($textFieldFocused)
+                        .frame(width: 80)
+                        .onSubmit { commitTextInput() }
+                        .onChange(of: textFieldFocused) { focused in
+                            if !focused { commitTextInput() }
+                        }
+                    Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                }
+                .frame(width: 90)
+            } else {
+                Button {
+                    textInputValue = currentValue > 0 ? formatWeight(currentValue) : ""
+                    isEditingText = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        textFieldFocused = true
+                    }
+                } label: {
+                    VStack(spacing: 0) {
+                        Text(currentValue > 0 ? formatWeight(currentValue) : "—")
+                            .font(.system(size: 24, weight: .bold).monospacedDigit())
+                            .foregroundColor(ColorsToken.Text.primary)
+                        Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                    }
+                    .frame(width: 80)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .frame(width: 70)
+            
             stepButton(systemName: "plus", disabled: false) { applyChange(currentValue + 2.5) }
         }
     }
@@ -457,13 +497,75 @@ private struct InlineEditingDock: View {
     private var repsEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: currentValue <= 1) { applyChange(currentValue - 1) }
-            VStack(spacing: 0) {
-                Text("\(Int(currentValue))").font(.system(size: 24, weight: .bold).monospacedDigit())
-                Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+            
+            // Tappable value display / text field
+            if isEditingText {
+                VStack(spacing: 0) {
+                    TextField("", text: $textInputValue)
+                        .font(.system(size: 24, weight: .bold).monospacedDigit())
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .focused($textFieldFocused)
+                        .frame(width: 70)
+                        .onSubmit { commitTextInput() }
+                        .onChange(of: textFieldFocused) { focused in
+                            if !focused { commitTextInput() }
+                        }
+                    Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                }
+                .frame(width: 80)
+            } else {
+                Button {
+                    textInputValue = "\(Int(currentValue))"
+                    isEditingText = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        textFieldFocused = true
+                    }
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("\(Int(currentValue))")
+                            .font(.system(size: 24, weight: .bold).monospacedDigit())
+                            .foregroundColor(ColorsToken.Text.primary)
+                        Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                    }
+                    .frame(width: 70)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .frame(width: 70)
+            
             stepButton(systemName: "plus", disabled: currentValue >= 30) { applyChange(currentValue + 1) }
         }
+    }
+    
+    private func commitTextInput() {
+        isEditingText = false
+        textFieldFocused = false
+        
+        let trimmed = textInputValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        switch selectedCell {
+        case .weight:
+            // Parse weight (allow decimal)
+            if let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")) {
+                let rounded = (value * 4).rounded() / 4  // Round to nearest 0.25kg
+                applyChange(max(0, rounded))
+            }
+        case .reps:
+            // Parse reps (integer only)
+            if let value = Int(trimmed) {
+                applyChange(Double(min(30, max(1, value))))
+            }
+        default:
+            break
+        }
+        
+        textInputValue = ""
     }
     
     private var rirEditor: some View {

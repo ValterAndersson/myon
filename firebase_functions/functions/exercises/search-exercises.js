@@ -219,15 +219,13 @@ async function searchExercisesHandler(req, res) {
 
     let exercises;
     if (query && !where.length) {
-      try {
-        // Prefix search on name using range query for efficiency when no other filters
-        const ts = db.createTextSearch('name', String(query));
-        const tsParams = { where: ts.where, orderBy: { field: 'name', direction: 'asc' }, limit: parsedLimit };
-        exercises = await db.getDocuments('exercises', tsParams);
-      } catch (e) {
-        console.warn('Prefix text search failed, falling back to scan:', e.message || e);
-        exercises = await db.getDocuments('exercises', { orderBy: { field: 'name', direction: 'asc' }, limit: parsedLimit });
-      }
+      // For text search, fetch more documents and filter in-memory (substring match)
+      // This allows finding "Jefferson Deadlift" when searching for "deadlift"
+      const fetchLimit = Math.max(200, parsedLimit * 10); // Fetch more for filtering
+      exercises = await db.getDocuments('exercises', { 
+        orderBy: { field: 'name', direction: 'asc' }, 
+        limit: fetchLimit 
+      });
     } else {
       exercises = await db.getDocuments('exercises', queryParams);
     }
