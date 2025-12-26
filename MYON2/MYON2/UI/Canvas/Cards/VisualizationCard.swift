@@ -26,7 +26,7 @@ public struct VisualizationCard: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.primary)
+        .background(ColorsToken.Surface.default)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous)
@@ -39,7 +39,7 @@ public struct VisualizationCard: View {
         VStack(alignment: .leading, spacing: Space.xxs) {
             HStack {
                 Text(spec.title)
-                    .font(TypographyToken.headlineBold)
+                    .font(TypographyToken.headline)
                     .foregroundStyle(ColorsToken.Text.primary)
                 
                 Spacer()
@@ -64,9 +64,9 @@ public struct VisualizationCard: View {
             Image(systemName: icon)
                 .font(.system(size: 10, weight: .medium))
             Text(label)
-                .font(TypographyToken.caption2)
+                .font(TypographyToken.caption)
         }
-        .foregroundStyle(ColorsToken.Text.tertiary)
+        .foregroundStyle(ColorsToken.Text.muted)
         .padding(.horizontal, Space.xs)
         .padding(.vertical, 2)
         .background(ColorsToken.Neutral.n100)
@@ -109,7 +109,7 @@ public struct VisualizationCard: View {
         VStack(spacing: Space.sm) {
             Image(systemName: "chart.bar.xaxis")
                 .font(.system(size: 32))
-                .foregroundStyle(ColorsToken.Text.tertiary)
+                .foregroundStyle(ColorsToken.Text.muted)
             
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
@@ -125,7 +125,7 @@ public struct VisualizationCard: View {
         VStack(spacing: Space.sm) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 24))
-                .foregroundStyle(ColorsToken.Status.warning)
+                .foregroundStyle(ColorsToken.State.warning)
             
             Text("Charts require iOS 16+")
                 .font(TypographyToken.callout)
@@ -169,7 +169,7 @@ public struct VisualizationCard: View {
     private func actionBackground(style: CardActionStyle?) -> Color {
         switch style {
         case .primary: return ColorsToken.Brand.primary
-        case .destructive: return ColorsToken.Status.error
+        case .destructive: return ColorsToken.State.error
         case .ghost, .none: return ColorsToken.Neutral.n100
         default: return ColorsToken.Neutral.n200
         }
