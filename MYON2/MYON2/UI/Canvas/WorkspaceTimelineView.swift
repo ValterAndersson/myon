@@ -34,10 +34,12 @@ struct WorkspaceTimelineView: View {
     let onClarificationSkip: (String, String) -> Void
     var hideThinkingEvents: Bool = false  // Hide old SRE stream when showing new skeleton
     
-    @State private var autoScroll = true
+    // Sticky bottom scroll: user stays glued to bottom unless they scroll up
+    @State private var isUserNearBottom = true  // Tracks if user is at/near bottom
     @State private var scrollProxy: ScrollViewProxy?
     @State private var responses: [String: String] = [:]
     @State private var collapsedTools = true
+    @State private var lastContentHash = 0  // Track content changes
     
     typealias ClarificationPrompt = TimelineClarificationPrompt
     
@@ -70,31 +72,37 @@ struct WorkspaceTimelineView: View {
                 .padding(.bottom, Space.xxl)
             }
             .background(ColorsToken.Background.primary)
-            .onAppear { scrollProxy = proxy }
-            // Aggressive scroll: trigger on any new content (messages, thinking, artifacts)
-            // This ensures user always sees the latest activity
-            .onChange(of: scrollTriggerCount) { _ in
-                guard autoScroll else { return }
-                // Scroll to the absolute last item to always show current activity
-                if let lastItem = timelineItems.last {
-                    withAnimation(.easeOut(duration: 0.25)) {
+            .onAppear {
+                scrollProxy = proxy
+                // Initial scroll to bottom
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let lastItem = timelineItems.last {
                         proxy.scrollTo(lastItem.id, anchor: .bottom)
                     }
                 }
             }
-            // Also scroll periodically during active streaming to keep latest visible
+            // STICKY BOTTOM: Scroll to bottom whenever content changes IF user is near bottom
+            .onChange(of: contentHash) { _ in
+                guard isUserNearBottom else { return }
+                scrollToBottom(proxy: proxy)
+            }
+            // Also scroll when thinking starts
             .onChange(of: hasActiveThinking) { isActive in
-                guard autoScroll, isActive else { return }
-                // When thinking starts, scroll to show the live thought track
-                if let lastItem = timelineItems.last {
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        proxy.scrollTo(lastItem.id, anchor: .bottom)
-                    }
-                }
+                guard isUserNearBottom, isActive else { return }
+                scrollToBottom(proxy: proxy)
             }
-            .gesture(DragGesture().onChanged { _ in autoScroll = false })
+            // HIGH-VELOCITY scroll detection only (not slow browse)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        // Only detach if scrolling UP significantly (positive translation = up)
+                        if value.translation.height > 50 {
+                            isUserNearBottom = false
+                        }
+                    }
+            )
             .overlay(alignment: .bottomTrailing) {
-                if !autoScroll {
+                if !isUserNearBottom {
                     jumpToLatestButton
                 }
             }
@@ -154,9 +162,11 @@ struct WorkspaceTimelineView: View {
     
     private var jumpToLatestButton: some View {
         Button {
-            autoScroll = true
+            isUserNearBottom = true
             if let id = timelineItems.last?.id {
-                withAnimation { scrollProxy?.scrollTo(id, anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.3)) {
+                    scrollProxy?.scrollTo(id, anchor: .bottom)
+                }
             }
         } label: {
             HStack(spacing: Space.xs) {
@@ -172,6 +182,39 @@ struct WorkspaceTimelineView: View {
             .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         }
         .padding(Space.md)
+    }
+    
+    // MARK: - Scroll Helpers
+    
+    /// A hash that changes when content changes (triggers scroll)
+    private var contentHash: Int {
+        var hasher = Hasher()
+        hasher.combine(events.count)
+        hasher.combine(embeddedCards.count)
+        // Add last event ID for more granular updates
+        if let lastEvent = events.last {
+            hasher.combine(lastEvent.id)
+        }
+        // Add last card ID
+        if let lastCard = embeddedCards.last {
+            hasher.combine(lastCard.id)
+        }
+        // Count of in-progress events for live updates
+        let inProgressCount = events.filter { $0.event.eventType == .thinking || $0.event.eventType == .toolRunning }.count
+        hasher.combine(inProgressCount)
+        return hasher.finalize()
+    }
+    
+    /// Scroll to bottom with animation
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if let lastItem = timelineItems.last {
+            // Small delay to allow content to render
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(lastItem.id, anchor: .bottom)
+                }
+            }
+        }
     }
     
     // MARK: - Timeline Item View
