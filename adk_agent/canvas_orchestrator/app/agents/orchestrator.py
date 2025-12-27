@@ -139,6 +139,17 @@ RULE_PATTERNS: List[tuple] = [
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:find_weakness"),
     (re.compile(r"\b(volume|frequency|intensity)\s+(analysis|breakdown|distribution)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:volume_analysis"),
+    # Muscle/volume/training questions
+    (re.compile(r"\b(which|what)\s+(muscles?|muscle\s+groups?)\b.*(most|least|volume|train|hit|work)", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:muscle_volume_query"),
+    (re.compile(r"\b(how\s+much|how\s+many)\s+(volume|sets?|reps?|workouts?)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:volume_query"),
+    (re.compile(r"\b(am\s+i\s+training|have\s+i\s+trained|been\s+training)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:training_query"),
+    (re.compile(r"\b(lately|recently|last\s+\d+\s+weeks?|past\s+\d+\s+weeks?)\b.*\b(volume|sets?|train)", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:recent_volume"),
+    (re.compile(r"\b(consistent|consistency|adherence|how\s+often)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:consistency"),
     
     # Coach: Education and explanation (lower priority, catch-all for questions)
     (re.compile(r"\b(why\s+(should|do|is)|how\s+does?|what\s+is|explain|tell\s+me\s+about|help\s+me\s+understand)\b", re.I),
@@ -266,7 +277,7 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
             )
     
     # Analysis agent is fully implemented - no reroute needed
-    # It can produce analysis_summary cards with insights and recommendations
+    # It fetches data and provides text responses
     
     # Copilot agent handles execution - no special reroute needed
     

@@ -9,7 +9,6 @@ from app.agents.analysis_agent import (
     tool_get_analytics_features,
     tool_get_user_profile,
     tool_get_recent_workouts,
-    tool_propose_analysis_group,
     all_tools,
 )
 
@@ -17,6 +16,5 @@ __all__ = [
     "tool_get_analytics_features",
     "tool_get_user_profile",
     "tool_get_recent_workouts",
-    "tool_propose_analysis_group",
     "all_tools",
 ]
