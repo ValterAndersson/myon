@@ -150,6 +150,13 @@ RULE_PATTERNS: List[tuple] = [
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:recent_volume"),
     (re.compile(r"\b(consistent|consistency|adherence|how\s+often)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:consistency"),
+    # Strength and 1RM progress
+    (re.compile(r"\b(1\s*r[mp]|one\s*rep\s*max|e1rm|strength|getting\s+stronger|max\s+weight)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:strength_progress"),
+    (re.compile(r"\b(how\s+has|how.?s|has\s+my).*(develop|improv|progress|chang|grow)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:development_query"),
+    (re.compile(r"\b(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring).*(1rm|progress|develop|improv|stronger)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:muscle_progress"),
     
     # Coach: Education and explanation (lower priority, catch-all for questions)
     (re.compile(r"\b(why\s+(should|do|is)|how\s+does?|what\s+is|explain|tell\s+me\s+about|help\s+me\s+understand)\b", re.I),

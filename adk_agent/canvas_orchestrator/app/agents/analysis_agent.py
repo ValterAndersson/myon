@@ -226,6 +226,85 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 10) 
         return {"error": f"Failed to fetch workouts: {str(e)}"}
 
 
+def tool_get_user_exercises_by_muscle(
+    *, 
+    user_id: Optional[str] = None, 
+    muscle_group: str,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """
+    Get exercises the user has performed for a specific muscle group.
+    
+    Use this when the user asks about progress for a muscle group (e.g., "chest 1RM")
+    to discover which specific exercises they've done.
+    
+    Args:
+        user_id: User ID (auto-resolved from context)
+        muscle_group: Target muscle (e.g., "chest", "back", "shoulders", "biceps", "triceps", "quadriceps", "hamstrings", "glutes")
+        limit: Max workouts to scan (default 20)
+    
+    Returns:
+        List of exercises with id, name, and occurrence count
+    """
+    uid = _resolve(user_id, "user_id")
+    if not uid:
+        return {"error": "No user_id available"}
+    
+    muscle_group = muscle_group.lower().strip()
+    limit = max(5, min(50, limit))
+    
+    logger.info("get_user_exercises_by_muscle uid=%s muscle=%s", uid, muscle_group)
+    
+    try:
+        resp = _canvas_client().get_user_workouts(uid, limit=limit)
+        workouts = resp.get("data") or resp.get("workouts") or []
+    except Exception as e:
+        logger.error("get_user_exercises_by_muscle failed: %s", str(e))
+        return {"error": f"Failed to fetch workouts: {str(e)}"}
+    
+    # Track unique exercises with occurrence count
+    exercise_counts: Dict[str, Dict[str, Any]] = {}
+    
+    for workout in workouts:
+        exercises = workout.get("exercises") or []
+        for ex in exercises:
+            # Check if this exercise targets the requested muscle group
+            primary = (ex.get("primaryMuscle") or ex.get("primary_muscle") or "").lower()
+            secondary = [m.lower() for m in (ex.get("secondaryMuscles") or ex.get("secondary_muscles") or [])]
+            muscle_group_field = (ex.get("muscleGroup") or ex.get("muscle_group") or "").lower()
+            
+            matches = (
+                muscle_group in primary or
+                muscle_group in secondary or
+                muscle_group in muscle_group_field or
+                primary == muscle_group or
+                muscle_group_field == muscle_group
+            )
+            
+            if matches:
+                ex_id = ex.get("id") or ex.get("exercise_id") or ex.get("exerciseId")
+                ex_name = ex.get("name") or ex.get("exerciseName") or "Unknown"
+                
+                if ex_id:
+                    if ex_id not in exercise_counts:
+                        exercise_counts[ex_id] = {
+                            "id": ex_id,
+                            "name": ex_name,
+                            "count": 0,
+                            "primary_muscle": primary,
+                        }
+                    exercise_counts[ex_id]["count"] += 1
+    
+    # Sort by occurrence count (most frequently used first)
+    sorted_exercises = sorted(exercise_counts.values(), key=lambda x: -x["count"])
+    
+    return {
+        "muscle_group": muscle_group,
+        "exercises_found": len(sorted_exercises),
+        "exercises": sorted_exercises,
+    }
+
+
 # ============================================================================
 # ALL TOOLS
 # ============================================================================
@@ -234,6 +313,7 @@ all_tools = [
     FunctionTool(func=tool_get_analytics_features),
     FunctionTool(func=tool_get_user_profile),
     FunctionTool(func=tool_get_recent_workouts),
+    FunctionTool(func=tool_get_user_exercises_by_muscle),
 ]
 
 
@@ -291,8 +371,13 @@ You are the Analysis Agent. You analyze training data and answer questions about
 1. When asked about training data, ALWAYS call tool_get_analytics_features first
 2. Optionally call tool_get_user_profile for goals context
 3. For detailed workout inspection, use tool_get_recent_workouts
-4. For exercise-specific progress (like 1RM), first get recent_workouts to find exercise IDs, then call get_analytics_features with those exercise_ids
-5. Provide a clear, concise answer based on the data
+4. **For muscle group 1RM/progress (e.g., "chest 1RM", "how has my back developed"):**
+   - First call tool_get_user_exercises_by_muscle with the muscle group
+   - Extract the exercise IDs from the result
+   - Then call get_analytics_features with those exercise_ids to get 1RM data (in series_exercise)
+5. For specific exercise progress (like "bench press"), first get recent_workouts to find the exercise ID
+6. NEVER ask the user which exercises they've done - use the tools to discover this automatically
+7. Provide a clear, concise answer based on the data
 
 ## UNDERSTANDING THE DATA
 
@@ -333,6 +418,11 @@ User: "What about upper vs lower body?"
 User: "Is my bench press improving?"
 → First get recent_workouts to find bench press exercise_id, then get analytics with that exercise_id
 → "Your bench press estimated 1RM has increased from 85kg to 92kg over the past 6 weeks - that's about 8% stronger."
+
+User: "How has my chest exercise 1RM developed?" (muscle group query)
+→ First call tool_get_user_exercises_by_muscle(muscle_group="chest") to find chest exercises
+→ Get exercise IDs from result, then call get_analytics_features with those exercise_ids
+→ "Looking at your chest exercises: Chest Press Machine went from 65kg to 75kg e1RM (+15%), Incline Dumbbell Press from 25kg to 28kg (+12%). Overall your chest pressing strength is improving well."
 
 User: "Push pull legs balance?"
 → Fetch analytics → "Your push muscles (chest, shoulders, triceps) are getting about 20 sets/week total. Pull muscles (back, biceps) around 15 sets. Legs only 8 sets. Push:Pull:Legs is roughly 2.5:2:1 - legs are significantly undertrained."
