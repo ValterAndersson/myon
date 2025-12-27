@@ -150,12 +150,12 @@ RULE_PATTERNS: List[tuple] = [
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:recent_volume"),
     (re.compile(r"\b(consistent|consistency|adherence|how\s+often)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:consistency"),
-    # Strength and 1RM progress
-    (re.compile(r"\b(1\s*r[mp]|one\s*rep\s*max|e1rm|strength|getting\s+stronger|max\s+weight)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:strength_progress"),
-    (re.compile(r"\b(how\s+has|how.?s|has\s+my).*(develop|improv|progress|chang|grow)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:development_query"),
-    (re.compile(r"\b(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring).*(1rm|progress|develop|improv|stronger)\b", re.I),
+    # Strength and 1RM progress (data-focused, not advice-seeking)
+    (re.compile(r"\b(1\s*r[mp]|one\s*rep\s*max|e1rm|max\s+weight)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:1rm_query"),
+    (re.compile(r"\b(how\s+has|how.?s)\s+(my\s+)?(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring|bench|squat|deadlift).*(develop|improv|progress|chang|grow)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:specific_development"),
+    (re.compile(r"\b(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring)\s+(1rm|e1rm|progress|develop)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:muscle_progress"),
     
     # Coach: Education and explanation (lower priority, catch-all for questions)
@@ -247,17 +247,61 @@ def classify_intent_rules(message: str) -> Optional[RoutingDecision]:
 def classify_intent_llm(message: str, signals: List[str]) -> RoutingDecision:
     """
     Classify intent using LLM when rules don't match.
-    Uses a minimal prompt for fast classification.
+    Uses Gemini with a minimal prompt for fast classification.
     """
-    # For Phase 1, we default to COACH for ambiguous cases
-    # This is a safe default that doesn't mutate anything
-    logger.info("LLM fallback triggered for message (defaulting to COACH): %s", message[:100])
+    logger.info("LLM fallback triggered for message: %s", message[:100])
     
+    try:
+        import google.generativeai as genai
+        
+        # Use flash model for fast classification
+        model = genai.GenerativeModel(os.getenv("CANVAS_ORCHESTRATOR_MODEL", "gemini-2.5-flash"))
+        
+        prompt = f"""Classify this fitness app user message into ONE category:
+
+COACH - User wants advice, explanations, education about training principles, "how do I get stronger", technique tips
+ANALYSIS - User wants to see their data, progress review, historical trends, volume stats, "how am I doing"  
+PLANNER - User wants to create or modify a workout plan or routine
+COPILOT - User is at the gym, ready to train, asking about their next set or exercise
+
+Message: "{message}"
+
+Respond with ONLY the category name (COACH, ANALYSIS, PLANNER, or COPILOT):"""
+
+        response = model.generate_content(prompt)
+        result = response.text.strip().upper()
+        
+        # Map to target agent
+        target_map = {
+            "COACH": (Intent.COACH_GENERAL, TargetAgent.COACH),
+            "ANALYSIS": (Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS),
+            "PLANNER": (Intent.PLAN_WORKOUT, TargetAgent.PLANNER),
+            "COPILOT": (Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT),
+        }
+        
+        if result in target_map:
+            intent, target = target_map[result]
+            logger.info("LLM classified as: %s -> %s", result, target.value)
+            return RoutingDecision(
+                intent=intent.value,
+                target_agent=target.value,
+                confidence=Confidence.MEDIUM.value,
+                matched_rule=f"fallback:llm_{result.lower()}",
+                signals=signals,
+            )
+        
+        # If LLM gives unexpected response, fall back to Coach
+        logger.warning("LLM returned unexpected: %s, defaulting to COACH", result)
+        
+    except Exception as e:
+        logger.error("LLM fallback failed: %s, defaulting to COACH", str(e))
+    
+    # Default to Coach if LLM fails or returns unexpected
     return RoutingDecision(
         intent=Intent.COACH_GENERAL.value,
         target_agent=TargetAgent.COACH.value,
         confidence=Confidence.LOW.value,
-        matched_rule="fallback:llm_default",
+        matched_rule="fallback:llm_error",
         signals=signals,
     )
 
