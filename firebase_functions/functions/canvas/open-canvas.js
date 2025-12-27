@@ -105,10 +105,44 @@ async function getOrCreateSession(userId, purpose) {
 /**
  * Get or create a canvas for the current conversation
  */
-async function getOrCreateCanvas(userId, purpose) {
+async function getOrCreateCanvas(userId, purpose, requestedCanvasId) {
   const canvasesRef = db.collection('users').doc(userId).collection('canvases');
   
-  // Always create a new canvas for each conversation (clean slate)
+  // If a specific canvas is requested, use it
+  if (requestedCanvasId) {
+    const existingDoc = await canvasesRef.doc(requestedCanvasId).get();
+    if (existingDoc.exists) {
+      logger.info('[openCanvas] Reusing requested canvas', { canvasId: requestedCanvasId });
+      return { canvasId: requestedCanvasId, isNew: false };
+    }
+  }
+  
+  // Look for recent active canvas (within last 24 hours)
+  // NOTE: Removed purpose filtering - all canvases are unified per user
+  // This fixes the issue where iOS/agent using different purposes got different canvases
+  const recentCanvasQuery = await canvasesRef
+    .orderBy('createdAt', 'desc')
+    .limit(10)
+    .get();
+  
+  const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+  
+  for (const doc of recentCanvasQuery.docs) {
+    const data = doc.data();
+    const createdAt = data.createdAt?.toMillis?.() || 0;
+    
+    // Check recency and status only - ignore purpose to ensure single canvas per user
+    if (createdAt >= twentyFourHoursAgo && data.status === 'active') {
+      logger.info('[openCanvas] Reusing recent active canvas', { 
+        canvasId: doc.id, 
+        requestedPurpose: purpose,
+        canvasPurpose: data.purpose 
+      });
+      return { canvasId: doc.id, isNew: false };
+    }
+  }
+  
+  // Create new canvas if none exists
   const canvasDoc = canvasesRef.doc();
   const canvasId = canvasDoc.id;
   
@@ -128,7 +162,7 @@ async function getOrCreateCanvas(userId, purpose) {
 async function getResumeState(userId, canvasId) {
   const [cardsSnapshot, lastEntrySnapshot] = await Promise.all([
     db.collection('users').doc(userId).collection('canvases').doc(canvasId)
-      .collection('cards').orderBy('createdAt', 'desc').limit(10).get(),
+      .collection('cards').orderBy('created_at', 'desc').limit(10).get(),
     db.collection('users').doc(userId).collection('canvases').doc(canvasId)
       .collection('workspace_entries').orderBy('created_at', 'desc').limit(1).get()
   ]);
@@ -136,9 +170,25 @@ async function getResumeState(userId, canvasId) {
   const cards = cardsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   const lastEntry = lastEntrySnapshot.docs[0]?.data() || null;
   
+  // Convert Firestore timestamp to ISO string for iOS compatibility
+  let lastEntryCursor = null;
+  if (lastEntry?.created_at) {
+    const ts = lastEntry.created_at;
+    if (ts.toDate) {
+      // Firestore Timestamp - convert to ISO string
+      lastEntryCursor = ts.toDate().toISOString();
+    } else if (ts._seconds) {
+      // Already serialized Firestore timestamp format
+      lastEntryCursor = new Date(ts._seconds * 1000).toISOString();
+    } else {
+      // Already a string or other format
+      lastEntryCursor = String(ts);
+    }
+  }
+  
   return {
     cards,
-    lastEntryCursor: lastEntry?.created_at || null,
+    lastEntryCursor,
     cardCount: cards.length
   };
 }
@@ -153,6 +203,7 @@ async function openCanvasHandler(req, res) {
   const startTime = Date.now();
   const userId = req.body?.userId || req.query?.userId;
   const purpose = req.body?.purpose || req.query?.purpose || 'chat';
+  const requestedCanvasId = req.body?.canvasId || req.query?.canvasId;
   
   if (!userId) {
     return res.status(400).json({
@@ -164,15 +215,12 @@ async function openCanvasHandler(req, res) {
   try {
     // Run canvas creation and session init in parallel
     const [canvasResult, sessionResult] = await Promise.all([
-      getOrCreateCanvas(userId, purpose),
+      getOrCreateCanvas(userId, purpose, requestedCanvasId),
       getOrCreateSession(userId, purpose)
     ]);
     
-    // Get resume state (optional, can be empty for new canvas)
-    let resumeState = { cards: [], lastEntryCursor: null, cardCount: 0 };
-    if (!canvasResult.isNew) {
-      resumeState = await getResumeState(userId, canvasResult.canvasId);
-    }
+    // Always get resume state (even for new canvas, it will be empty)
+    const resumeState = await getResumeState(userId, canvasResult.canvasId);
     
     const totalTime = Date.now() - startTime;
     logger.info('[openCanvas] Complete', { 
