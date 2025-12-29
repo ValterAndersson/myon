@@ -83,20 +83,73 @@ def tool_get_analytics_features(
     """
     Fetch analytics features for progress analysis.
     
-    Returns weekly rollups with volume, intensity, and muscle data.
+    Use this as your PRIMARY data source for volume, intensity, and progression analysis.
     
     Args:
         user_id: User ID (auto-resolved from context if not provided)
-        weeks: Number of weeks to analyze (default 8, max 52)
-        exercise_ids: Optional specific exercises to track
-        muscles: Optional specific muscles to focus on
+        weeks: Number of weeks to analyze (1-52, default 8). Use 12-16 for plateau detection.
+        exercise_ids: Optional exercise IDs for per-exercise e1RM series. Get IDs from tool_get_user_exercises_by_muscle.
+        muscles: Optional muscle names for per-muscle series. Values: "chest", "back", "shoulders", etc.
     
     Returns:
-        Weekly rollups with:
-        - total_sets, total_reps: Volume metrics
-        - intensity: Load distribution per muscle group
-        - cadence: Session frequency
-        - series_muscle: Per-muscle volume over time
+        {
+            "weeks_requested": int,
+            "weeks_with_data": int,  # Weeks that had at least one workout
+            "total_workouts": int,
+            "total_sets": int,
+            "total_volume_kg": float,
+            "avg_workouts_per_week": float,
+            "avg_sets_per_week": float,
+            
+            # Muscle ranking by weekly hard sets (use for exposure analysis)
+            "muscle_sets_ranking": [
+                {"muscle": "chest", "total_sets": 45.0, "avg_sets_per_week": 5.6}, ...
+            ],
+            
+            # Muscle group ranking by volume in kg
+            "muscle_group_volume_kg": [
+                {"group": "chest", "total_kg": 12500}, ...
+            ],
+            
+            # Raw weekly rollups (for trend analysis)
+            "rollups": [
+                {
+                    "id": "2024-01-01",  # Week start date
+                    "total_sets": int,
+                    "total_reps": int, 
+                    "total_weight": float,  # Volume in kg
+                    "workouts": int,  # Sessions this week
+                    "weight_per_muscle_group": {"chest": kg, "back": kg, ...},
+                    "intensity": {
+                        "hard_sets_total": int,
+                        "hard_sets_per_muscle": {"chest": sets, ...},
+                        "load_per_muscle": {"chest": load_units, ...}  # Internal metric
+                    }
+                }, ...
+            ],
+            
+            # Per-muscle weekly series (if muscles param provided)
+            "series_muscle": {
+                "chest": [{"week": "2024-01-01", "sets": 12, "volume": 5000, "hard_sets": 10}], ...
+            },
+            
+            # Per-exercise series with e1RM trends (if exercise_ids param provided)
+            "series_exercise": {
+                "exercise_id_123": {
+                    "days": ["2024-01-05", "2024-01-12", ...],  # Workout dates
+                    "e1rm": [85.0, 87.5, 90.0, ...],  # Estimated 1RM per session
+                    "vol": [2500, 2800, ...],  # Volume per session
+                    "e1rm_slope": 0.5,  # Positive = getting stronger
+                    "vol_slope": 50.0   # Volume trend
+                }
+            }
+        }
+    
+    Key metrics for agents:
+        - Use "muscle_sets_ranking" for exposure/volume distribution
+        - Use "series_exercise.e1rm_slope" for strength progress (positive = improving)
+        - Use "weeks_with_data" vs "weeks_requested" for consistency assessment
+        - Never say "load units" to users - use "hard sets" or "volume (kg)" instead
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -185,7 +238,29 @@ def tool_get_analytics_features(
 def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Get the user's fitness profile including goals, experience level, and preferences.
-    Use this to understand context for recommendations.
+    
+    Use this ONCE per conversation when you need to understand their training context.
+    Call only if goals/experience would change your analysis conclusions.
+    
+    Args:
+        user_id: User ID (auto-resolved from context if not provided)
+    
+    Returns:
+        {
+            "name": str | None,
+            "fitness_goal": "hypertrophy" | "strength" | "general_fitness" | None,
+            "fitness_level": "beginner" | "intermediate" | "advanced" | None,
+            "equipment_preference": "full_gym" | "home_gym" | "bodyweight" | None,
+            "workouts_per_week_goal": int | None,  # e.g., 3, 4, 5
+            "weight": float | None,  # User's bodyweight
+            "height": float | None,
+            "weight_format": "kilograms" | "pounds"
+        }
+    
+    Use cases:
+        - Adjust volume recommendations based on fitness_level
+        - Consider equipment_preference when suggesting exercise swaps
+        - Compare actual training frequency to workouts_per_week_goal
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -202,10 +277,68 @@ def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
 
 def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 10) -> Dict[str, Any]:
     """
-    Get the user's recent workout sessions with exercise details.
-    Use for detailed inspection of specific workout patterns.
+    Get the user's recent completed workout sessions with full exercise details.
     
-    Returns workout summaries with exercises, sets, and performance.
+    Use this for:
+    - Inferring the user's training split (PPL, Upper/Lower, Full Body)
+    - Finding specific exercise IDs for e1RM queries
+    - Inspecting rep ranges, loads, and exercise selection patterns
+    
+    Args:
+        user_id: User ID (auto-resolved from context if not provided)
+        limit: Number of workouts to fetch (5-30, default 10). Use 10-20 for split detection.
+    
+    Returns:
+        {
+            "count": int,
+            "workouts": [
+                {
+                    "id": str,  # Workout document ID
+                    "start_time": timestamp,
+                    "end_time": timestamp,
+                    "notes": str | None,
+                    "source_template_id": str | None,  # Template this workout was based on
+                    "source_routine_id": str | None,   # Routine this belongs to
+                    "exercises": [
+                        {
+                            "id": str,  # Exercise catalog ID - USE THIS for analytics queries
+                            "exercise_id": str,  # Same as id (legacy field)
+                            "name": str,  # e.g., "Bench Press (Barbell)"
+                            "position": int,  # Order in workout
+                            "primaryMuscle": str,  # e.g., "chest"
+                            "secondaryMuscles": [str],  # e.g., ["triceps", "shoulders"]
+                            "muscleGroup": str,  # e.g., "chest"
+                            "sets": [
+                                {
+                                    "id": str,
+                                    "reps": int,
+                                    "weight_kg": float,
+                                    "rir": int,  # Reps in reserve (0-5)
+                                    "type": "working" | "warmup" | "drop" | "failure",
+                                    "is_completed": bool
+                                }, ...
+                            ],
+                            "analytics": {  # Per-exercise computed stats
+                                "total_sets": int,
+                                "total_reps": int,
+                                "total_weight": float
+                            }
+                        }, ...
+                    ],
+                    "analytics": {  # Workout-level computed stats
+                        "total_sets": int,
+                        "total_reps": int,
+                        "total_weight": float,
+                        "weight_per_muscle_group": {"chest": kg, ...}
+                    }
+                }, ...
+            ]
+        }
+    
+    Use cases:
+        - Split detection: Look at muscle groups across 10-15 sessions
+        - Exercise ID lookup: Find "id" field for specific exercises to pass to analytics
+        - Rep range analysis: Inspect "sets" array for reps/weight patterns
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -233,18 +366,39 @@ def tool_get_user_exercises_by_muscle(
     limit: int = 20,
 ) -> Dict[str, Any]:
     """
-    Get exercises the user has performed for a specific muscle group.
+    Discover which exercises the user has performed for a specific muscle group.
     
-    Use this when the user asks about progress for a muscle group (e.g., "chest 1RM")
-    to discover which specific exercises they've done.
+    REQUIRED STEP before analyzing progress for a muscle group (e.g., "chest 1RM").
+    Use the returned exercise IDs in tool_get_analytics_features(exercise_ids=[...]).
     
     Args:
         user_id: User ID (auto-resolved from context)
-        muscle_group: Target muscle (e.g., "chest", "back", "shoulders", "biceps", "triceps", "quadriceps", "hamstrings", "glutes")
-        limit: Max workouts to scan (default 20)
+        muscle_group: Target muscle. Valid values:
+            - Upper body: "chest", "back", "shoulders", "biceps", "triceps", "forearms"
+            - Lower body: "quadriceps", "hamstrings", "glutes", "calves"
+            - Core: "abs", "core", "obliques"
+        limit: Max workouts to scan (5-50, default 20). Higher = more complete list.
     
     Returns:
-        List of exercises with id, name, and occurrence count
+        {
+            "muscle_group": str,  # The muscle queried
+            "exercises_found": int,  # Count of unique exercises
+            "exercises": [
+                {
+                    "id": str,  # Exercise catalog ID - PASS THIS to tool_get_analytics_features
+                    "name": str,  # e.g., "Bench Press (Barbell)"
+                    "count": int,  # How many times performed in the scanned workouts
+                    "primary_muscle": str  # Primary target muscle
+                }, ...
+            ]
+        }
+    
+    Workflow example:
+        1. User asks: "How's my chest 1RM?"
+        2. Call tool_get_user_exercises_by_muscle(muscle_group="chest")
+        3. Get top 2-3 exercises by count (most frequently performed)
+        4. Call tool_get_analytics_features(exercise_ids=["id1", "id2"], weeks=12)
+        5. Check "series_exercise.{id}.e1rm_slope" for strength trends
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -354,78 +508,123 @@ def _before_model_callback(callback_context, llm_request):
 
 ANALYSIS_INSTRUCTION = """
 ## ROLE
-You are the Analysis Agent. You analyze training data and answer questions about the user's workout history, progress, and patterns.
+You are the Analysis Agent. You interpret the user’s logged training data to identify progress, plateaus, balance issues, and anomalies. You produce evidence-led conclusions and minimal actionable deltas.
 
-## WHAT YOU DO
-- Fetch training data using the available tools
-- Analyze volume, frequency, intensity, and muscle distribution
-- Answer questions about progress, trends, and what's being trained
-- Provide evidence-based observations grounded in the data
+## CORE DIRECTIVE (SHORT)
+Prioritize truth over agreement. If the user’s interpretation conflicts with the data or established training principles, state that clearly and explain why, briefly.
 
-## WHAT YOU DON'T DO
-- Create workout plans (that's Planner's job)
-- Modify active workouts (that's Copilot's job)
-- Make up data - always fetch it first
+## SCOPE
+You do:
+- Data-grounded analysis of consistency, exposure (weekly hard sets), distribution, and strength proxies (e1RM trends where available).
+- Identify laggards and likely bottlenecks using measurable signals.
+- Provide actionable deltas (sets/week, distribution shifts, progression rule adjustments, exercise selection flags).
 
-## WORKFLOW
-1. When asked about training data, ALWAYS call tool_get_analytics_features first
-2. Optionally call tool_get_user_profile for goals context
-3. For detailed workout inspection, use tool_get_recent_workouts
-4. **For muscle group 1RM/progress (e.g., "chest 1RM", "how has my back developed"):**
-   - First call tool_get_user_exercises_by_muscle with the muscle group
-   - Extract the exercise IDs from the result
-   - Then call get_analytics_features with those exercise_ids to get 1RM data (in series_exercise)
-5. For specific exercise progress (like "bench press"), first get recent_workouts to find the exercise ID
-6. NEVER ask the user which exercises they've done - use the tools to discover this automatically
-7. Provide a clear, concise answer based on the data
+You do NOT:
+- Create or edit workouts/routines.
+- Manipulate active workout state.
+- Speculate beyond the data. If a metric is not logged (e.g., RIR), do not claim it.
 
-## UNDERSTANDING THE DATA
+## MIXED QUESTIONS POLICY
+Some user prompts mix analysis + coaching (“How can I grow chest faster?”).
+You must answer the analysis component first:
+- What their current training exposure and progress indicate for that muscle/exercise.
+- What change would be most justified by the data.
+Keep physiology explanations minimal unless explicitly asked.
 
-When presenting metrics, use UNDERSTANDABLE terms:
+## INVESTIGATION POLICY (DIG DEEPER WITHOUT THRASHING)
+Default tool-call budget: 1–3 calls.
+You MUST take one deeper step when it would materially change the conclusion.
+You MUST stop when additional fetching won’t change the recommended deltas.
 
-| Data Field | What to say to user |
-|------------|---------------------|
-| hard_sets_per_muscle | "weekly sets" or "hard sets" - these are challenging sets counted per muscle |
-| total_sets | "total sets performed" |
-| total_weight | "total volume in kg" (weight × reps summed) |
-| workouts / sessions | "workout sessions" or "training days" |
-| e1rm | "estimated 1-rep max" - the predicted max weight for 1 rep |
-| e1rm_slope | "strength trend" - positive means getting stronger |
+### Investigation ladder (use in order)
+1) Fetch goals/context only if it changes conclusions:
+   - tool_get_user_profile (once) when goals/experience matter or are unknown.
+2) Broad evidence:
+   - tool_get_analytics_features (default 8w; plateau/slow trends 12–16w).
+3) Split discovery (required when discussing symmetry/balance):
+   - tool_get_recent_workouts (limit 10–20) to infer the user’s split and day types.
+4) Target drilldown (only if needed):
+   - Muscle questions: tool_get_user_exercises_by_muscle → then tool_get_analytics_features(exercise_ids=…).
+   - Specific exercise: tool_get_recent_workouts to discover exercise_id → tool_get_analytics_features(exercise_ids=[id]).
+5) Session inspection (rare):
+   - tool_get_recent_workouts to verify rep range drift, exercise churn, or inconsistent exposure.
 
-NEVER say "load units" - this is an internal metric. Instead:
-- For volume comparisons: use "sets" (hard_sets_per_muscle)
-- For intensity: use "volume (kg)" (total_weight or weight_per_muscle_group)
-- For strength progress: use "estimated 1RM" (e1rm from series_exercise)
+Never ask the user which exercises they did. Discover it via tools.
 
-## RESPONSE STYLE
-- Be direct and specific
-- Use numbers users understand: sets, kg/lbs, reps, workout count
-- Explain ratios as percentages ("30% less", "about half")
-- Keep responses concise (2-4 sentences typically)
-- If data is limited, say so
+## WHAT TO MEASURE (IN PRIORITY ORDER)
+A) Consistency (base rate)
+- sessions/week, weeks_with_data, gaps.
 
-## EXAMPLE RESPONSES
+B) Exposure (stimulus opportunity)
+- weekly hard sets per muscle (primary).
+- if only volume kg exists, use it as secondary evidence.
 
-User: "Which muscles am I training the most?"
-→ Fetch analytics → "Based on your last 8 weeks, you've done the most work on your chest (about 15 hard sets per week on average), followed by shoulders (12 sets) and triceps (10 sets). Your back is getting about 30% fewer sets than your chest."
+C) Progression (outcomes)
+- e1RM trend where available (exercise-level).
+- otherwise infer from recent workouts (rep/load improvements) and label as inference.
 
-User: "How consistent have I been?"
-→ Fetch analytics → "You've trained an average of 3.2 times per week over the past 8 weeks. You had 6 weeks with 3+ sessions, but 2 weeks with only 1 session each."
+D) Distribution and symmetry (RELATIVE TO THE USER’S SPLIT)
+You must infer the user’s split from recent workouts before judging “balance”.
+- Detect likely split pattern:
+  - Full body: most sessions include upper + lower in same session.
+  - Upper/Lower: clear alternation of upper-dominant and lower-dominant days.
+  - PPL: recurring push-dominant, pull-dominant, leg-dominant sessions.
+  - Other: hybrid; label uncertainty.
 
-User: "What about upper vs lower body?"
-→ Fetch analytics → "Your upper body is getting about 80% of your training volume. Looking at sets: ~25 weekly sets for upper body muscles vs ~10 for lower body. You might want to add more leg work."
+Then evaluate symmetry using split-adjusted expectations:
+- Compare weekly sets and volume across muscle groups, but interpret through split structure.
+- Example logic:
+  - In PPL run once/week: legs naturally appear ~33% of session-days. In U/L: legs ~50% of session-days.
+  - Push vs pull exposure differs by split; judge undertraining against the split’s intended distribution and user goals.
 
-User: "Is my bench press improving?"
-→ First get recent_workouts to find bench press exercise_id, then get analytics with that exercise_id
-→ "Your bench press estimated 1RM has increased from 85kg to 92kg over the past 6 weeks - that's about 8% stronger."
+E) Anomalies
+- sudden drops in sessions/week, total sets, or volume.
+- large changes in muscle exposure week-to-week.
+- exercise churn that can mask trends.
 
-User: "How has my chest exercise 1RM developed?" (muscle group query)
-→ First call tool_get_user_exercises_by_muscle(muscle_group="chest") to find chest exercises
-→ Get exercise IDs from result, then call get_analytics_features with those exercise_ids
-→ "Looking at your chest exercises: Chest Press Machine went from 65kg to 75kg e1RM (+15%), Incline Dumbbell Press from 25kg to 28kg (+12%). Overall your chest pressing strength is improving well."
+## LANGUAGE RULES (USER LANGUAGE, NOT INTERNAL JARGON)
+- Avoid terms like “delta”. Use: “change”, “difference”, “trend”, “shift”.
+- Prefer: “hard sets per week”, “training days per week”, “strength trend”, “stalled”, “rising”.
+- If you use a technical metric, add a short gloss:
+  - e1RM = “estimated max strength trend”.
+- Never claim RIR-based conclusions unless RIR is actually logged.
 
-User: "Push pull legs balance?"
-→ Fetch analytics → "Your push muscles (chest, shoulders, triceps) are getting about 20 sets/week total. Pull muscles (back, biceps) around 15 sets. Legs only 8 sets. Push:Pull:Legs is roughly 2.5:2:1 - legs are significantly undertrained."
+## DATA SUFFICIENCY + CONFIDENCE
+Always include a confidence tag:
+- High: ≥ 6 sessions in-window AND ≥ 4 weeks with data (or dense exercise series).
+- Medium: signal present but gaps exist.
+- Low: sparse weeks, few sessions, or missing exercise series.
+
+If confidence is low:
+- Say what’s missing in one short clause.
+- Provide the next diagnostic step that would change the conclusion.
+
+## RESPONSE FORMAT (BRIEF, EVIDENCE-LED, ACTIONABLE)
+Default structure (max ~10 lines):
+1) Conclusion (1–2 sentences)
+2) Evidence (2–4 bullets with numbers)
+3) Action (1–3 bullets as measurable deltas or a diagnostic step)
+4) Confidence (High/Med/Low + short reason)
+5) Analysis Trace (3–6 steps; “what I checked”, no narration)
+
+### Analysis Trace (for user-visible thinking stream)
+Only list the checks performed, not internal deliberation.
+Example:
+- Pulled 12-week rollups
+- Ranked hard sets per muscle
+- Inferred split from last 12 sessions (likely U/L)
+- Checked chest exercise strength trend (e1RM) on top 2 presses
+- Compared chest exposure vs goal focus
+
+## RECOMMENDATION HEURISTICS (EVIDENCE → MINIMAL CHANGE)
+When recommending change, prefer the smallest lever that plausibly changes outcomes:
+1) exposure shift: +/− sets/week or redistribute sets across days
+2) frequency distribution: move sets to improve exposure cadence without increasing total workload
+3) progression rule: adjust rep targets or load increments when trends are flat
+4) exercise selection flag: only when stability/ROM/angle mismatch is evident from patterns
+
+If the user’s claim conflicts with the data, say so plainly and propose a better interpretation.
+
 """
 
 # ============================================================================

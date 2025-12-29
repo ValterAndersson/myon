@@ -80,16 +80,30 @@ def _resolve(value: Optional[str], fallback_key: str) -> Optional[str]:
 
 def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Get the user's fitness profile including goals, experience level, and preferences.
+    Get the user's fitness profile to personalize coaching advice.
     
-    Use this to personalize advice based on:
-    - fitness_goal (hypertrophy, strength, general fitness)
-    - fitness_level (beginner, intermediate, advanced)
-    - equipment_preference (home gym, full gym, bodyweight)
-    - workouts_per_week_goal
+    Call this ONCE per conversation to understand their context.
+    
+    Args:
+        user_id: User ID (auto-resolved from context if not provided)
     
     Returns:
-        User profile with goals, experience, and preferences
+        {
+            "user_id": str,
+            "name": str | None,
+            "fitness_goal": "hypertrophy" | "strength" | "general_fitness" | None,
+            "fitness_level": "beginner" | "intermediate" | "advanced" | None,
+            "equipment_preference": "full_gym" | "home_gym" | "bodyweight" | None,
+            "workouts_per_week_goal": int | None,  # Target frequency (e.g., 3, 4, 5)
+            "weight": float | None,  # Bodyweight in user's preferred unit
+            "height": float | None,
+            "weight_format": "kilograms" | "pounds"
+        }
+    
+    Use cases:
+        - Adjust advice complexity based on fitness_level
+        - Recommend appropriate exercises for equipment_preference
+        - Tailor volume recommendations to fitness_goal
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -121,17 +135,46 @@ def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
 
 def tool_get_training_context(*, user_id: Optional[str] = None, workout_limit: int = 5) -> Dict[str, Any]:
     """
-    Get a light summary of the user's current training context.
+    Get a LIGHT summary of the user's current training setup.
     
-    This is for understanding WHAT they're doing, not deep analysis.
-    Use this to contextualize coaching advice based on their current approach.
+    Use this to understand WHAT they're doing, NOT for data analysis.
+    For detailed progress analysis, direct questions to the Analysis agent.
+    
+    Args:
+        user_id: User ID (auto-resolved from context if not provided)
+        workout_limit: Recent workouts to scan (3-10, default 5)
     
     Returns:
-        - active_routine: Name and frequency of their current routine (if any)
-        - recent_workout_summary: Brief overview of last few sessions
-        - training_pattern: Inferred split (PPL, Upper/Lower, Full Body, etc.)
+        {
+            "user_id": str,
+            
+            # Their active program (if any)
+            "active_routine": {
+                "id": str,
+                "name": str,  # e.g., "PPL Program"
+                "frequency": int,  # Workouts per week (e.g., 3, 4, 6)
+                "template_count": int  # Number of workout templates
+            } | None,
+            
+            "recent_workouts_count": int,
+            
+            # Brief preview of last sessions (not full exercise details)
+            "recent_workout_summary": [
+                {
+                    "date": timestamp,
+                    "exercise_count": int,
+                    "exercises_preview": [str]  # First 5 exercise names, truncated
+                }, ...
+            ],
+            
+            # Inferred training pattern
+            "training_pattern": "Full Body or PPL" | "Upper-focused" | "Lower-focused" | "Mixed" | "unknown"
+        }
     
-    For detailed progress analysis, the Analysis agent should be used instead.
+    Use cases:
+        - Know if they have an active routine before discussing programming
+        - Understand their general training style to contextualize advice
+        - Refer to their current approach when answering questions
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -225,23 +268,53 @@ def tool_search_exercises(
     limit: int = 10,
 ) -> Dict[str, Any]:
     """
-    Search the exercise catalog for education and explanation.
+    Search the exercise catalog for education and recommendations.
     
     Use this when users ask about exercises:
     - "What muscles does the Romanian deadlift work?"
     - "What's a good chest exercise I can do at home?"
-    - "Tell me about proper squat form"
+    - "Show me some pull exercises"
     
     Args:
-        query: Free text search (exercise name, description)
-        muscle_group: Filter by target muscle ("chest", "back", "legs", "shoulders", "arms", "core")
-        movement_type: Filter by pattern ("push", "pull", "hinge", "squat", "lunge")
-        equipment: Filter by equipment ("barbell", "dumbbell", "cable", "machine", "bodyweight")
-        category: Filter by type ("compound", "isolation", "bodyweight")
-        limit: Max results (default 10)
+        query: Free text search (exercise name, description). E.g., "bench press", "Romanian"
+        muscle_group: Filter by target muscle. Values:
+            "chest", "back", "legs", "shoulders", "arms", "core",
+            "glutes", "quadriceps", "hamstrings", "biceps", "triceps", "calves", "forearms"
+        movement_type: Filter by movement pattern. Values:
+            "push", "pull", "hinge", "squat", "lunge", "carry", "core", "rotation"
+        equipment: Filter by required equipment. Values:
+            "barbell", "dumbbell", "cable", "machine", "bodyweight",
+            "bench", "ez bar", "band", "pull-up bar", "trap bar"
+        category: Filter by exercise type. Values:
+            "compound", "isolation", "bodyweight", "assistance", "olympic lift"
+        limit: Max results (1-20, default 10)
     
     Returns:
-        Exercises with name, muscles, equipment, description, coaching_cues, execution_notes
+        {
+            "count": int,
+            "exercises": [
+                {
+                    "id": str,  # Exercise catalog ID
+                    "name": str,  # e.g., "Bench Press (Barbell)"
+                    "category": str,  # "compound" | "isolation" | etc.
+                    "equipment": [str],  # e.g., ["barbell", "bench"]
+                    "primary_muscles": [str],  # e.g., ["chest"]
+                    "secondary_muscles": [str],  # e.g., ["triceps", "shoulders"]
+                    "muscle_category": [str],  # e.g., ["chest"]
+                    "movement_type": str,  # e.g., "push"
+                    "description": str | None,
+                    "difficulty": "beginner" | "intermediate" | "advanced" | None,
+                    
+                    # Coaching content (use for education)
+                    "coaching_cues": [str],  # e.g., ["Drive through heels", "Keep chest up"]
+                    "execution_notes": [str],  # Technique details
+                    "common_mistakes": [str]  # e.g., ["Flaring elbows too wide"]
+                }, ...
+            ]
+        }
+    
+    Tip: Use specific filters for best results. E.g., for home chest exercises:
+        tool_search_exercises(muscle_group="chest", equipment="bodyweight")
     """
     limit = max(1, min(20, limit))
     
@@ -292,19 +365,48 @@ def tool_search_exercises(
 
 def tool_get_exercise_details(*, exercise_name: str) -> Dict[str, Any]:
     """
-    Get detailed information about a specific exercise by name.
+    Get comprehensive details about a specific exercise for education.
     
-    Use this when users ask about a specific exercise:
-    - Technique and form cues
-    - Muscles worked
-    - Common mistakes
-    - Programming use cases
+    Use this for in-depth questions about ONE exercise:
+    - "How do I do a Romanian deadlift properly?"
+    - "What muscles does the bench press work?"
+    - "What are common mistakes on squats?"
     
     Args:
-        exercise_name: Name of the exercise (e.g., "bench press", "Romanian deadlift")
+        exercise_name: Name of the exercise (e.g., "bench press", "Romanian deadlift", "lat pulldown")
     
     Returns:
-        Full exercise details including coaching cues and execution notes
+        {
+            "id": str,  # Exercise catalog ID
+            "name": str,  # Full canonical name
+            "description": str | None,  # Overview
+            "category": "compound" | "isolation" | "bodyweight" | etc.,
+            "difficulty": "beginner" | "intermediate" | "advanced" | None,
+            
+            # Muscle information
+            "primary_muscles": [str],  # e.g., ["hamstrings", "glutes"]
+            "secondary_muscles": [str],  # e.g., ["lower back", "core"]
+            "muscle_category": [str],  # Body region categories
+            "muscle_contribution": {str: float},  # e.g., {"hamstrings": 0.6, "glutes": 0.3}
+            
+            # Movement pattern
+            "movement_type": "push" | "pull" | "hinge" | "squat" | etc.,
+            "movement_split": "upper" | "lower" | "core" | "full",
+            "plane_of_motion": str | None,  # e.g., "sagittal"
+            "unilateral": bool,  # True if single-limb exercise
+            
+            # Equipment
+            "equipment": [str],  # e.g., ["barbell"]
+            
+            # Coaching content (USE THESE FOR EDUCATION)
+            "coaching_cues": [str],  # e.g., ["Hip hinge first, not squat", "Keep bar close to legs"]
+            "execution_notes": [str],  # Detailed technique points
+            "common_mistakes": [str],  # e.g., ["Rounding lower back", "Bending knees too early"]
+            "programming_use_cases": [str],  # When to use this exercise
+            "suitability_notes": [str]  # Who this exercise suits/doesn't suit
+        }
+    
+    Tip: For general exercise discovery, use tool_search_exercises instead.
     """
     logger.info("get_exercise_details name=%s", exercise_name)
     
@@ -401,41 +503,6 @@ def _before_model_callback(callback_context, llm_request):
 
 # TODO: Replace with user-provided instruction block
 COACH_INSTRUCTION = """
-## ROLE
-You are the Coach Agent. You provide science-based education about training principles, exercise technique, and programming concepts.
-
-## WHAT YOU DO
-- Answer questions about training principles (hypertrophy, strength, periodization)
-- Explain exercise technique, form cues, and common mistakes
-- Discuss the "why" behind programming decisions
-- Provide advice personalized to the user's goals and experience level
-
-## WHAT YOU DON'T DO
-- Create or modify workout plans (that's Planner's job)
-- Analyze progress data in detail (that's Analysis's job)
-- Modify active workouts (that's Copilot's job)
-- Make up information - use the exercise catalog for accurate details
-
-## TOOL USAGE
-1. For personalization: Call tool_get_user_profile to understand their goals/level
-2. For training context: Call tool_get_training_context for a light summary of what they're doing
-3. For exercise education: Call tool_search_exercises or tool_get_exercise_details
-4. Never call deep analytics tools - direct those questions to Analysis
-
-## RESPONSE STYLE
-- Be educational but concise
-- Ground advice in established exercise science
-- Personalize based on user context when available
-- Reference specific muscles, movement patterns, and techniques
-- If asked about progress/data, acknowledge the question and suggest Analysis agent is better suited
-
-## PERMISSION BOUNDARIES (ENFORCED)
-- You CANNOT create workout or routine drafts
-- You CANNOT modify active workouts  
-- You CANNOT propose canvas artifacts
-- You CAN read user profile and training context for personalization
-- You CAN search and explain exercises from the catalog
-- You CAN provide text-based explanations and advice
 """
 
 # ============================================================================
