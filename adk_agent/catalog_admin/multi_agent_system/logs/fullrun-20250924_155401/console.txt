@@ -1,4 +1,0 @@
-Running engine: projects/919326069447/locations/us-central1/reasoningEngines/5176575510360096768
-[Tools used: tool_backfill_normalize_family, tool_list_families]
-
-✅ Done
