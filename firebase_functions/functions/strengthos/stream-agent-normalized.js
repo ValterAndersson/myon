@@ -142,7 +142,8 @@ function describeToolEvent(name, args = {}) {
     return `Telemetry: ${args.event_type}`;
   }
   
-  const baseLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+  // Try both with and without tool_ prefix
+  const baseLabel = TOOL_LABELS[name] || TOOL_LABELS[`tool_${name}`] || name.replace(/_/g, ' ');
   
   // Add parameter details for key tools
   switch (name) {
@@ -175,13 +176,16 @@ function describeToolEvent(name, args = {}) {
 }
 
 function describeToolResult(name, summary = '', args = {}) {
-  const baseLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+  const baseLabel = TOOL_LABELS[name] || TOOL_LABELS[`tool_${name}`] || name.replace(/_/g, ' ');
   
   // Parse summary for item counts
   const itemMatch = summary.match(/items?:\s*(\d+)/i);
   const itemCount = itemMatch ? parseInt(itemMatch[1], 10) : null;
   
-  switch (name) {
+  // Normalize tool name for switch (try with tool_ prefix)
+  const normalizedName = name.startsWith('tool_') ? name : `tool_${name}`;
+  
+  switch (normalizedName) {
     case 'tool_search_exercises': {
       if (itemCount !== null) {
         const muscle = args.muscle_group || args.primary_muscle || '';

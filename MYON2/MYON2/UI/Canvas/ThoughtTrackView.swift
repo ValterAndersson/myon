@@ -72,7 +72,9 @@ struct ThoughtTrack: Identifiable, Equatable {
 
 struct ThoughtTrackView: View {
     let track: ThoughtTrack
-    @State private var isExpanded: Bool = false
+    // Start expanded, collapse when complete
+    @State private var isExpanded: Bool = true
+    @State private var hasAutoCollapsed: Bool = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -120,6 +122,18 @@ struct ThoughtTrackView: View {
         .padding(.vertical, Space.xxs)
         .background(isExpanded ? ColorsToken.Surface.default.opacity(0.3) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Auto-collapse when track becomes complete (only once)
+        .onChange(of: track.isComplete) { isComplete in
+            if isComplete && !hasAutoCollapsed {
+                // Delay collapse slightly so user sees the final state
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isExpanded = false
+                        hasAutoCollapsed = true
+                    }
+                }
+            }
+        }
     }
 }
 
