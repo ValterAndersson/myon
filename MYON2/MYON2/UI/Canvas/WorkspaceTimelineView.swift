@@ -1,5 +1,13 @@
 import SwiftUI
 
+// MARK: - Scroll Position Tracking Key
+private struct BottomVisibilityPreferenceKey: PreferenceKey {
+    static var defaultValue: Bool = true
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue()
+    }
+}
+
 struct TimelineClarificationPrompt: Identifiable {
     let id: String
     let question: String
@@ -34,9 +42,10 @@ struct WorkspaceTimelineView: View {
     let onClarificationSkip: (String, String) -> Void
     var hideThinkingEvents: Bool = false  // Hide old SRE stream when showing new skeleton
     
-    // Sticky bottom scroll: user stays glued to bottom unless they scroll up
-    @State private var isUserNearBottom = true  // Tracks if user is at/near bottom
-    @State private var scrollProxy: ScrollViewProxy?
+    // Simplified sticky bottom scroll state
+    @State private var shouldAutoScroll = true  // Single switch - disabled when user scrolls up
+    @State private var lastScrollTime: Date = .distantPast
+    @State private var lastScrolledItemCount: Int = 0  // Track items to detect changes
     @State private var responses: [String: String] = [:]
     @State private var collapsedTools = true
     
@@ -45,7 +54,7 @@ struct WorkspaceTimelineView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     // Header
                     workspaceHeader
                     
@@ -57,53 +66,102 @@ struct WorkspaceTimelineView: View {
                             .padding(.bottom, Space.md)
                     }
                     
-                    // Timeline items
+                    // Timeline items - using VStack not LazyVStack for reliable height
                     ForEach(timelineItems) { item in
                         timelineItemView(for: item)
                             .id(item.id)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .bottom)),
-                                removal: .opacity
-                            ))
                     }
+                    
+                    // Bottom anchor for scroll target
+                    Color.clear
+                        .frame(height: 1)
+                        .id("bottom-anchor")
                 }
                 .padding(.horizontal, Space.lg)
                 .padding(.bottom, Space.xxl)
             }
             .background(ColorsToken.Background.primary)
             .onAppear {
-                scrollProxy = proxy
                 // Initial scroll to bottom
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if let lastItem = timelineItems.last {
-                        proxy.scrollTo(lastItem.id, anchor: .bottom)
-                    }
+                scrollToBottom(proxy: proxy, animated: false)
+            }
+            // STICKY BOTTOM: Scroll when event count changes
+            .onChange(of: events.count) { newCount in
+                guard shouldAutoScroll else { return }
+                // Small delay to allow SwiftUI to render
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            // STICKY BOTTOM: Scroll when card count changes  
+            .onChange(of: embeddedCards.count) { newCount in
+                guard shouldAutoScroll else { return }
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            // STICKY BOTTOM: Scroll when last event ID changes (for in-place updates)
+            .onChange(of: events.last?.id) { _ in
+                guard shouldAutoScroll else { return }
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            // STICKY BOTTOM: Scroll when last card ID changes
+            .onChange(of: embeddedCards.last?.id) { _ in
+                guard shouldAutoScroll else { return }
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            // STICKY BOTTOM: Also scroll when timeline items change (catches synthesized events)
+            .onChange(of: timelineItems.count) { newCount in
+                guard shouldAutoScroll else { return }
+                // Only scroll if count actually increased
+                if newCount > lastScrolledItemCount {
+                    lastScrolledItemCount = newCount
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             }
-            // STICKY BOTTOM: Scroll to bottom whenever content changes IF user is near bottom
-            .onChange(of: contentHash) { _ in
-                guard isUserNearBottom else { return }
-                scrollToBottom(proxy: proxy)
-            }
-            // Also scroll when thinking starts
+            // Re-enable auto-scroll when new streaming starts
             .onChange(of: hasActiveThinking) { isActive in
-                guard isUserNearBottom, isActive else { return }
-                scrollToBottom(proxy: proxy)
+                if isActive {
+                    shouldAutoScroll = true
+                    lastScrolledItemCount = 0  // Reset so we scroll on new items
+                    scrollToBottom(proxy: proxy, animated: true)
+                }
             }
-            // HIGH-VELOCITY scroll detection only (not slow browse)
+            // HIGH-FREQUENCY SCROLL: Also trigger on any event timestamp change
+            .onChange(of: events.last?.createdAt) { _ in
+                guard shouldAutoScroll else { return }
+                scrollToBottom(proxy: proxy, animated: true)
+            }
+            // Detect user scrolling up to disable auto-scroll
             .simultaneousGesture(
-                DragGesture(minimumDistance: 20)
+                DragGesture(minimumDistance: 5)
                     .onChanged { value in
-                        // Only detach if scrolling UP significantly (positive translation = up)
-                        if value.translation.height > 50 {
-                            isUserNearBottom = false
+                        // Scrolling UP (positive translation.height) = user wants to look at history
+                        if value.translation.height > 20 {
+                            shouldAutoScroll = false
+                            lastScrollTime = Date()
+                        }
+                        // Scrolling DOWN aggressively = user wants to go back to bottom
+                        else if value.translation.height < -40 {
+                            shouldAutoScroll = true
                         }
                     }
             )
             .overlay(alignment: .bottomTrailing) {
-                if !isUserNearBottom {
-                    jumpToLatestButton
+                if !shouldAutoScroll {
+                    jumpToLatestButton(proxy: proxy)
                 }
+            }
+        }
+    }
+    
+    // MARK: - Scroll to Bottom
+    
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        // Use a short delay to ensure content is rendered
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if animated {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("bottom-anchor", anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo("bottom-anchor", anchor: .bottom)
             }
         }
     }
@@ -159,14 +217,11 @@ struct WorkspaceTimelineView: View {
         .clipShape(Capsule())
     }
     
-    private var jumpToLatestButton: some View {
+    private func jumpToLatestButton(proxy: ScrollViewProxy) -> some View {
         Button {
-            isUserNearBottom = true
-            if let id = timelineItems.last?.id {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    scrollProxy?.scrollTo(id, anchor: .bottom)
-                }
-            }
+            // Re-enable auto-scroll and scroll to bottom
+            shouldAutoScroll = true
+            scrollToBottom(proxy: proxy, animated: true)
         } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "arrow.down")
@@ -181,39 +236,7 @@ struct WorkspaceTimelineView: View {
             .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         }
         .padding(Space.md)
-    }
-    
-    // MARK: - Scroll Helpers
-    
-    /// A hash that changes when content changes (triggers scroll)
-    private var contentHash: Int {
-        var hasher = Hasher()
-        hasher.combine(events.count)
-        hasher.combine(embeddedCards.count)
-        // Add last event ID for more granular updates
-        if let lastEvent = events.last {
-            hasher.combine(lastEvent.id)
-        }
-        // Add last card ID
-        if let lastCard = embeddedCards.last {
-            hasher.combine(lastCard.id)
-        }
-        // Count of in-progress events for live updates
-        let inProgressCount = events.filter { $0.event.eventType == .thinking || $0.event.eventType == .toolRunning }.count
-        hasher.combine(inProgressCount)
-        return hasher.finalize()
-    }
-    
-    /// Scroll to bottom with animation
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        if let lastItem = timelineItems.last {
-            // Small delay to allow content to render
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(lastItem.id, anchor: .bottom)
-                }
-            }
-        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
     
     // MARK: - Timeline Item View
