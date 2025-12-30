@@ -42,27 +42,54 @@ function invalidateTokenCache() {
   tokenExpiresAt = 0;
 }
 
+// ============================================================================
+// TOOL LABELS: SINGLE SOURCE OF TRUTH FOR RUNNING STATE
+// These MUST match the _display.running values in the tool definitions.
+// The tools emit _display.complete for the result, but we use these for tool_started.
+// ============================================================================
 const TOOL_LABELS = {
-  // Unified agent v2.0 tools
-  tool_get_user_profile: 'Reviewing profile',
-  tool_get_recent_workouts: 'Checking workout history',
+  // === COACH AGENT TOOLS (matches _display.running in coach_agent.py) ===
+  tool_get_training_context: 'Loading training context',
+  tool_get_analytics_features: 'Analyzing training data',
+  tool_get_user_profile: 'Loading profile',
+  tool_get_recent_workouts: 'Loading recent workouts',
+  tool_get_user_exercises_by_muscle: 'Finding exercises',  // Dynamic in tool, generic here
   tool_search_exercises: 'Searching exercises',
+  tool_get_exercise_details: 'Loading exercise details',
+  
+  // === PLANNER AGENT TOOLS (matches _display.running in planner_agent.py) ===
   tool_propose_workout: 'Creating workout plan',
   tool_propose_routine: 'Creating routine',
-  tool_get_planning_context: 'Loading context',
+  tool_get_planning_context: 'Loading planning context',
   tool_get_next_workout: 'Finding next workout',
   tool_get_template: 'Loading template',
   tool_save_workout_as_template: 'Saving template',
   tool_create_routine: 'Creating routine',
   tool_manage_routine: 'Updating routine',
-  tool_ask_user: 'Asking question',
-  tool_send_message: 'Sending message',
-  // Analysis agent tools
-  tool_get_analytics_features: 'Analyzing training data',
-  tool_get_user_exercises_by_muscle: 'Finding your exercises',
-  // Coach agent tools  
-  tool_get_training_context: 'Loading training context',
-  tool_get_exercise_details: 'Looking up exercise',
+  tool_ask_user: 'Clarifying',
+  tool_send_message: 'Responding',
+  
+  // ===== WITHOUT tool_ prefix (ADK may strip it) =====
+  // Coach agent tools
+  get_training_context: 'Loading training context',
+  get_analytics_features: 'Analyzing training data',
+  get_user_profile: 'Loading profile',
+  get_recent_workouts: 'Loading recent workouts',
+  get_user_exercises_by_muscle: 'Finding exercises',
+  search_exercises: 'Searching exercises',
+  get_exercise_details: 'Loading exercise details',
+  // Planner agent tools
+  propose_workout: 'Creating workout plan',
+  propose_routine: 'Creating routine',
+  get_planning_context: 'Loading planning context',
+  get_next_workout: 'Finding next workout',
+  get_template: 'Loading template',
+  save_workout_as_template: 'Saving template',
+  create_routine: 'Creating routine',
+  manage_routine: 'Updating routine',
+  ask_user: 'Clarifying',
+  send_message: 'Responding',
+  
   // Legacy tools (v1.0 - deprecated)
   tool_set_context: 'Setting up',
   tool_record_user_info: 'Recording information',
@@ -824,6 +851,12 @@ async function streamAgentNormalizedHandler(req, res) {
     let hasEmittedThinkingEvent = false;
     let lineCount = 0;
     let dataChunkCount = 0;
+    
+    // === EMIT INITIAL THINKING EVENT IMMEDIATELY ===
+    // This ensures the UI shows the agent is working right away
+    sse.write({ type: 'thinking', text: 'Analyzing...' });
+    isCurrentlyThinking = true;
+    hasEmittedThinkingEvent = true;
     
     response.data.on('data', (chunk) => {
       dataChunkCount++;

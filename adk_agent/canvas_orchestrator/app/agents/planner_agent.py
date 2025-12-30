@@ -24,6 +24,10 @@ from google.genai import types
 
 from app.agents.shared_voice import SHARED_VOICE
 from app.libs.tools_canvas.client import CanvasFunctionsClient
+from app.libs.tools_common.response_helpers import (
+    parse_api_response,
+    format_validation_error_for_agent,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -137,7 +141,11 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 5) -
     
     logger.info("get_recent_workouts uid=%s limit=%s", uid, limit)
     resp = _canvas_client().get_user_workouts(uid, limit=limit)
-    workouts = resp.get("data") or resp.get("workouts") or []
+    # API returns {success, data: {items, analytics, filters}}
+    data = resp.get("data") or {}
+    workouts = data.get("items") if isinstance(data, dict) else data
+    if not isinstance(workouts, list):
+        workouts = []
     count = len(workouts)
     
     return {
@@ -702,6 +710,13 @@ def tool_propose_workout(
             user_id=uid,
             correlation_id=corr,
         )
+        
+        # Check for validation errors and return self-healing response
+        success, data, error_details = parse_api_response(resp)
+        if not success:
+            logger.error("❌ PROPOSE_WORKOUT VALIDATION ERROR: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+        
         logger.info("✅ PROPOSE_WORKOUT SUCCESS: response=%s", resp.get("success", resp.get("status", "unknown")))
     except Exception as e:
         logger.error("❌ PROPOSE_WORKOUT FAILED: %s", str(e))
@@ -962,15 +977,14 @@ def tool_propose_routine(
             user_id=uid,
             correlation_id=corr,
         )
-        # Verify the response indicates success
-        is_success = resp.get("success", False)
-        created_ids = resp.get("data", {}).get("created_card_ids") or resp.get("created_card_ids") or []
         
-        if not is_success:
-            error_msg = resp.get("error", {}).get("message") if isinstance(resp.get("error"), dict) else str(resp.get("error", "Unknown error"))
-            logger.error("❌ PROPOSE_ROUTINE REJECTED: %s", error_msg)
-            return {"error": f"Backend rejected routine: {error_msg}"}
+        # Check for validation errors and return self-healing response
+        success, data, error_details = parse_api_response(resp)
+        if not success:
+            logger.error("❌ PROPOSE_ROUTINE VALIDATION ERROR: %s", error_details)
+            return format_validation_error_for_agent(error_details)
         
+        created_ids = data.get("created_card_ids") or []
         logger.info("✅ PROPOSE_ROUTINE SUCCESS: cards=%d created_ids=%s", 
                     len(all_cards), created_ids)
     except Exception as e:
@@ -1145,6 +1159,19 @@ Examples:
 - "Drafted a chest-focused push workout."
 - "Updated your routine to increase chest exposure."
 
+## ERROR HANDLING (SELF-CORRECTION)
+If a propose tool returns `status: "validation_error"` with `retryable: true`:
+1. Read the `hint` field - it explains what went wrong
+2. Check the `errors` array for specific field paths and messages
+3. Fix the issue in your next call
+4. Retry the propose tool with corrected data
+
+Common fixes:
+- Missing required field → add the field
+- Wrong type → convert to correct type (e.g., string to number)
+- Value out of range → adjust to valid range (e.g., reps: 1-30, rir: 0-5)
+
+Do NOT ask the user for help with validation errors. Fix them yourself.
 """
 
 # ============================================================================

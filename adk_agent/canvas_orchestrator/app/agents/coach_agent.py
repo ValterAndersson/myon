@@ -18,6 +18,10 @@ from google.genai import types
 
 from app.agents.shared_voice import SHARED_VOICE
 from app.libs.tools_canvas.client import CanvasFunctionsClient
+from app.libs.tools_common.response_helpers import (
+    parse_api_response,
+    format_validation_error_for_agent,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -91,18 +95,28 @@ def tool_get_training_context(*, user_id: Optional[str] = None) -> Dict[str, Any
         return {"error": "No user_id available"}
     
     logger.info("get_training_context uid=%s", uid)
-    data = _canvas_client().get_planning_context(uid)
     
-    return {
-        "activeRoutine": data.get("activeRoutine"),
-        "templates": data.get("templates"),
-        "recentWorkoutsSummary": data.get("recentWorkoutsSummary"),
-        "_display": {
-            "running": "Loading training context",
-            "complete": "Context loaded",
-            "phase": "understanding",
+    try:
+        resp = _canvas_client().get_planning_context(uid)
+        success, data, error_details = parse_api_response(resp)
+        
+        if not success:
+            logger.error("get_training_context failed: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+        
+        return {
+            "activeRoutine": data.get("activeRoutine"),
+            "templates": data.get("templates"),
+            "recentWorkoutsSummary": data.get("recentWorkoutsSummary"),
+            "_display": {
+                "running": "Loading training context",
+                "complete": "Context loaded",
+                "phase": "understanding",
+            }
         }
-    }
+    except Exception as e:
+        logger.error("get_training_context exception: %s", str(e))
+        return {"error": f"Failed to fetch training context: {str(e)}"}
 
 
 def tool_get_analytics_features(
@@ -148,11 +162,17 @@ def tool_get_analytics_features(
             exercise_ids=exercise_ids,
             muscles=muscles,
         )
+        
+        # Check for API-level errors
+        success, data, error_details = parse_api_response(resp)
+        if not success:
+            logger.error("get_analytics_features API error: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+            
     except Exception as e:
         logger.error("get_analytics_features failed: %s", str(e))
         return {"error": f"Failed to fetch analytics: {str(e)}"}
     
-    data = resp.get("data") or resp
     rollups = data.get("rollups") or []
     series_muscle = data.get("series_muscle") or {}
     series_exercise = data.get("series_exercise") or {}
@@ -163,15 +183,34 @@ def tool_get_analytics_features(
     total_sets = sum(r.get("total_sets") or 0 for r in rollups)
     total_weight = sum(r.get("total_weight") or 0 for r in rollups)
     
-    # Aggregate muscle sets
+    # Aggregate muscle sets and intensity metrics
     muscle_sets: Dict[str, float] = {}
+    muscle_low_rir: Dict[str, float] = {}
+    total_hard_sets = 0
+    total_low_rir_sets = 0
+    
     for rollup in rollups:
         intensity = rollup.get("intensity") or {}
+        total_hard_sets += intensity.get("hard_sets_total") or 0
+        total_low_rir_sets += intensity.get("low_rir_sets_total") or 0
+        
         for muscle, sets in (intensity.get("hard_sets_per_muscle") or {}).items():
             muscle_sets[muscle] = muscle_sets.get(muscle, 0) + (sets or 0)
+        for muscle, sets in (intensity.get("low_rir_sets_per_muscle") or {}).items():
+            muscle_low_rir[muscle] = muscle_low_rir.get(muscle, 0) + (sets or 0)
     
     sorted_muscles = sorted(muscle_sets.items(), key=lambda x: -x[1])
     muscle_avg = {m: round(s / max(weeks_with_data, 1), 1) for m, s in muscle_sets.items()}
+    
+    # Calculate intensity ratio (low_rir / hard sets) per muscle
+    muscle_intensity_ratio = {}
+    for muscle, hard in muscle_sets.items():
+        low = muscle_low_rir.get(muscle, 0)
+        if hard > 0:
+            muscle_intensity_ratio[muscle] = round(low / hard, 2)
+    
+    # Overall intensity ratio
+    overall_intensity_ratio = round(total_low_rir_sets / max(total_hard_sets, 1), 2)
     
     return {
         "weeks_requested": weeks,
@@ -181,8 +220,21 @@ def tool_get_analytics_features(
         "total_volume_kg": round(total_weight, 0),
         "avg_workouts_per_week": round(total_workouts / max(weeks_with_data, 1), 1),
         "avg_sets_per_week": round(total_sets / max(weeks_with_data, 1), 1),
+        # Intensity summary (critical for volume adequacy decisions)
+        "intensity_summary": {
+            "total_hard_sets": total_hard_sets,
+            "total_low_rir_sets": total_low_rir_sets,
+            "intensity_ratio": overall_intensity_ratio,  # >0.3 = high intensity training
+            "interpretation": "high intensity" if overall_intensity_ratio > 0.3 else "moderate intensity",
+        },
         "muscle_sets_ranking": [
-            {"muscle": m, "total_sets": round(s, 1), "avg_sets_per_week": muscle_avg.get(m, 0)} 
+            {
+                "muscle": m, 
+                "total_sets": round(s, 1), 
+                "avg_sets_per_week": muscle_avg.get(m, 0),
+                "low_rir_sets": round(muscle_low_rir.get(m, 0), 1),
+                "intensity_ratio": muscle_intensity_ratio.get(m, 0),
+            } 
             for m, s in sorted_muscles[:10]
         ],
         "rollups": rollups,
@@ -209,7 +261,12 @@ def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
     logger.info("get_user_profile uid=%s", uid)
     try:
         resp = _canvas_client().get_user(uid)
-        data = resp.get("data") or resp.get("context") or {}
+        success, data, error_details = parse_api_response(resp)
+        
+        if not success:
+            logger.error("get_user_profile API error: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+        
         data["_display"] = {
             "running": "Loading profile",
             "complete": "Profile loaded",
@@ -239,7 +296,15 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 10) 
     logger.info("get_recent_workouts uid=%s limit=%s", uid, limit)
     try:
         resp = _canvas_client().get_user_workouts(uid, limit=limit)
-        workouts = resp.get("data") or resp.get("workouts") or []
+        success, data, error_details = parse_api_response(resp)
+        
+        if not success:
+            logger.error("get_recent_workouts API error: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+        
+        workouts = data.get("items") if isinstance(data, dict) else data
+        if not isinstance(workouts, list):
+            workouts = []
         return {
             "count": len(workouts),
             "workouts": workouts,
@@ -282,7 +347,15 @@ def tool_get_user_exercises_by_muscle(
     
     try:
         resp = _canvas_client().get_user_workouts(uid, limit=limit)
-        workouts = resp.get("data") or resp.get("workouts") or []
+        success, data, error_details = parse_api_response(resp)
+        
+        if not success:
+            logger.error("get_user_exercises_by_muscle API error: %s", error_details)
+            return format_validation_error_for_agent(error_details)
+        
+        workouts = data.get("items") if isinstance(data, dict) else data
+        if not isinstance(workouts, list):
+            workouts = []
     except Exception as e:
         logger.error("get_user_exercises_by_muscle failed: %s", str(e))
         return {"error": f"Failed to fetch workouts: {str(e)}"}
@@ -365,11 +438,15 @@ def tool_search_exercises(
             query=query,
             limit=limit,
         )
+        
+        success, data, error_details = parse_api_response(resp)
+        if not success:
+            logger.error("search_exercises API error: %s", error_details)
+            return {"items": [], "count": 0, "error": error_details.get("error", "Search failed")}
     except Exception as e:
         logger.error("search_exercises failed: %s", str(e))
         return {"items": [], "count": 0}
     
-    data = resp.get("data") or resp
     items = data.get("items") or []
     
     exercises = [
@@ -492,6 +569,7 @@ You combine evidence-based hypertrophy + strength principles with the user's rec
 
 ## CORE DIRECTIVE
 Truth over agreement. Correct wrong assumptions plainly. No soothing.
+PROGRESSION TRUMPS VOLUME: If the user is getting stronger (positive e1rm_slope), the training is working.
 
 ## OUTPUT CONTROL (CRITICAL)
 - Default reply: 3–8 lines.
@@ -506,30 +584,82 @@ You may exceed 12 lines only if:
 - the user is making a major wrong assumption that must be dismantled
 Otherwise stay short.
 
-## DATA USE (LATENCY + QUALITY)
-Default: 0–2 tool calls. Max: 3.
-Fetch data when the question is about: progress over time, "enough volume", lagging muscles, balance, plateaus, "what's developing".
-If not, answer from principles.
+## DATA USE (ALWAYS FETCH DATA)
+Personalized coaching requires personalized data. ALWAYS fetch training data before giving advice.
+Generic advice without data is worthless — the user could get that from any article.
 
-Preferred order:
-1) tool_get_training_context when split/balance/symmetry matters
-2) tool_get_analytics_features (8w default; 12–16w for "over time" or plateaus)
-3) Drilldown only if needed:
-   - muscle → tool_get_user_exercises_by_muscle → analytics(exercise_ids)
-   - exercise → recent_workouts to find id → analytics(exercise_ids)
+**Default behavior: Fetch data eagerly.** Use 2–4 tool calls for most questions.
+Only skip tools for pure knowledge questions like "what is RIR?" or "how does progressive overload work?"
 
-Never ask the user to list their exercises.
+For ANY question about the user's training (volume, progress, frequency, exercise selection, etc.):
+  → ALWAYS call tools first. Then give data-grounded advice.
+
+**Recommended tool sequence for training questions:**
+1) tool_get_analytics_features — get volume, intensity, and progression data first
+2) tool_get_training_context — understand routine structure, exercise alternation patterns  
+3) tool_get_user_exercises_by_muscle — find which exercises hit the muscle (if muscle-specific)
+4) tool_get_analytics_features with exercise_ids — get per-exercise e1RM slopes
+
+**For volume/progress questions:**
+  - Check e1rm_slope for key exercises. Positive slope = stimulus is working.
+  - Check low_rir_sets / hard_sets ratio for intensity distribution.
+  - If high intensity (lots of RIR 0-1 work) + positive progression → volume is sufficient.
+
+**Never:**
+- Give generic volume recommendations without checking the user's actual data
+- Ask the user to list their exercises (you have tools for that)
+- Assume what the user is doing — look it up
+
+## UNDERSTANDING EXERCISE ALTERNATION
+Many routines alternate exercises for the same muscle across sessions:
+  - Example: Chest Press (Session A) + Incline DB Press (Session B) in a 3x/week rotation
+  - This means each exercise appears ~1.5x/week, but COMBINED chest frequency is 3x/week
+  - Weekly sets = sum of BOTH exercises, not just one
+
+When evaluating volume:
+  1. Get training context to see routine structure
+  2. Identify which exercises hit the muscle (tool_get_user_exercises_by_muscle)
+  3. Sum sets across ALL exercises for that muscle
+  4. Check progression on EACH exercise separately
+
+## READING ANALYTICS DATA CORRECTLY
+
+### Intensity metrics (from rollups)
+- hard_sets = sets at RIR 0-3 (5-20 reps) — effective hypertrophy sets
+- low_rir_sets = sets at RIR 0-1 — high intensity sets
+- load_per_muscle = weighted intensity units (accounts for RIR + relative load)
+
+### Intensity interpretation
+- low_rir_sets / hard_sets > 0.3 → high intensity training
+- If most work is at RIR 0-2, each set carries more stimulus than average
+- High intensity training can grow muscle at LOWER set counts (6-12 hard sets/week)
+
+### Progression metrics (from series_exercise)
+- e1rm_slope: rate of estimated 1RM change over time
+  - Positive slope = getting stronger = training is working
+  - Flat or negative slope = stalled = needs intervention
+- vol_slope: rate of volume change over time
+  - Shows if user is progressively adding work
+
+### Decision framework
+1. e1rm_slope positive + high intensity ratio → OPTIMAL. Don't suggest more volume.
+2. e1rm_slope positive + moderate intensity → GOOD. Can add volume if recovery allows.
+3. e1rm_slope flat/negative + any intensity → STALLED. Fix execution, not volume first.
 
 ## SCIENCE RULES (OPERATING HEURISTICS)
-Use these to decide recommendations:
 
 ### Volume (hard sets/week per muscle)
 - Most lifters grow well around ~10–20 hard sets/week per muscle.
-- Many can grow at ~6–10 if intensity is high, selection is good, and progression is consistent.
-- Add volume only if recovery and performance are stable. Volume is not the first fix for a stall.
+- BUT: 6–10 sets can be OPTIMAL if:
+  - Intensity is high (lots of RIR 0-2 work)
+  - Exercise selection is good (lengthened position, stable setup)
+  - Progression is positive (e1rm_slope > 0)
+- Never recommend adding volume when progression is already positive.
+- Volume is not the first fix for a stall — execution and progression discipline are.
 
 ### Proximity to failure
 - Hypertrophy work: productive around ~0–3 RIR.
+- 2/3 at RIR 1-2 + 1/3 at RIR 0-1 = high-quality stimulus distribution.
 - Compounds: usually best around ~1–3 RIR.
 - Isolations: can live at ~0–2 RIR if joints tolerate.
 
@@ -547,29 +677,38 @@ Use these to decide recommendations:
 
 ### Exercise selection + stability
 - Keep 1–2 main lifts per muscle stable long enough to see measurable progress.
+- Alternating exercises (A/B) across sessions is VALID — judge by combined progression.
 - Prefer movements that allow deep, controlled ROM and stable setup.
 - Consider lengthened partial bias only when technique stays clean and joints tolerate.
 
 ### Progression
 - Default: double progression (add reps → then small load).
 - If stalled for ~3–4 exposures, change ONE lever (rest, ROM standardization, set count, rep range, or swap a single exercise).
+- Stall = 0 or negative e1rm_slope for 3+ weeks.
 
 ### Split-aware balance
 - Infer split from training context before calling "imbalanced".
+- Account for exercise alternation patterns.
 - Evaluate balance relative to split structure and goal (hypertrophy vs strength vs mixed).
 
 ## WHAT YOU SHOULD PRODUCE
 Your reply should usually include:
-- The 1–2 most important conclusions
-- One or two "because" lines grounded in either principles or fetched data
-- One concrete next step (e.g., "add 2 sets", "tighten ROM", "hold exercise constant", "adjust rep range")
-Optional when relevant:
-- 1–2 execution cues for the relevant lift/muscle
+- The 1–2 most important conclusions BASED ON DATA
+- Reference specific metrics when relevant (progression slope, intensity ratio, set counts)
+- One concrete next step grounded in what the data shows
+
+When progression is positive:
+→ Acknowledge it. Don't suggest adding volume.
+→ Example: "Your chest press e1RM is trending up week over week. The current volume is working."
+
+When progression is flat/negative:
+→ Diagnose: is it execution, recovery, or insufficient stimulus?
+→ Example: "Your incline press has plateaued for 4 weeks. Before adding sets, tighten up the ROM and add a rep before weight."
 
 ## EXAMPLE TONE
+- "Your chest gets ~9 hard sets/week across two exercises, with 30% at RIR 0-1. That's solid stimulus. And since your e1RM is trending up on both movements, it's clearly enough."
 - "If your main press isn't trending up, adding sets won't fix it. Tighten execution and progression first."
-- "You're not undertraining chest; you're under-progressing it."
-- "This is either too little exposure or sloppy overload. Your recent trend tells us which."
+- "You're alternating between machine press and incline DB — that's 9 sets combined for chest, not 4.5 each. And it's working: both show positive slopes."
 """
 
 
