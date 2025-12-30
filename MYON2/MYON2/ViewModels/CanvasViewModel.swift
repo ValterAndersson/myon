@@ -332,38 +332,35 @@ final class CanvasViewModel: ObservableObject {
             // Log a thinking line
             streamEvents.append(event)
         case .toolRunning:
+            // Use server-provided display text directly (single source of truth)
             currentAgentStatus = event.displayText
             isAgentThinking = true
             let toolName = (event.content?["tool"]?.value as? String) ?? (event.content?["tool_name"]?.value as? String) ?? "tool"
             toolStartByName[toolName] = event.timestamp ?? now
-            // Advance progress state based on tool (Phase 1 UX Polish)
-            progressState.advance(with: toolName)
-            // Replace text with humanized label
-            let human = humanReadableToolName(toolName)
-            let text = "Looking at \(human)"
-            let formatted = StreamEvent(
-                type: "toolRunning",
-                agent: event.agent,
-                content: ["text": AnyCodable(text), "tool": AnyCodable(toolName)],
-                timestamp: event.timestamp ?? now,
-                metadata: event.metadata
-            )
-            streamEvents.append(formatted)
+            // Advance progress state based on phase from server or tool name fallback (Phase 1 UX Polish)
+            if let phase = event.content?["phase"]?.value as? String {
+                progressState.advance(toPhase: phase)
+            } else {
+                progressState.advance(with: toolName)
+            }
+            // Use server text directly - no local remapping needed
+            streamEvents.append(event)
         case .toolComplete:
             isAgentThinking = false
             let toolName = (event.content?["tool"]?.value as? String) ?? (event.content?["tool_name"]?.value as? String) ?? "tool"
             let start = toolStartByName.removeValue(forKey: toolName) ?? (event.timestamp ?? now)
             let end = event.timestamp ?? now
             let secs = max(0, end - start)
-            let human = humanReadableToolName(toolName)
-            let text = String(format: "Looked at %@ (%.1fs)", human, secs)
+            // Use server-provided display text directly (single source of truth)
+            // Add duration to the event for UI display
             let formatted = StreamEvent(
                 type: "toolComplete",
                 agent: event.agent,
                 content: [
-                    "text": AnyCodable(text),
+                    "text": AnyCodable(event.displayText),
                     "tool": AnyCodable(toolName),
-                    "duration_s": AnyCodable(secs)
+                    "duration_s": AnyCodable(secs),
+                    "phase": event.content?["phase"] ?? AnyCodable("") 
                 ],
                 timestamp: event.timestamp ?? now,
                 metadata: event.metadata

@@ -2,9 +2,15 @@
 
 ## Overview
 
-The canvas orchestrator implements a scalable multi-agent system that replaces the monolithic "Unified Agent" approach. The architecture enforces strict permission boundaries and provides debuggable routing through explicit intent classification.
+The canvas orchestrator implements a scalable multi-agent system. The architecture enforces strict permission boundaries and provides debuggable routing through explicit intent classification.
 
-The system separates concerns into four specialist agents, each with clearly defined responsibilities and tool access. This design prevents routing ambiguity, tool misuse, and chatty leakage that occurs when a single agent handles coaching, analysis, planning, and execution.
+The system separates concerns into **three specialist agents**, each with clearly defined responsibilities and tool access:
+
+| Agent | Role | Key Capability |
+|-------|------|----------------|
+| **Coach** | Education + data-informed advice | Has analytics tools, no artifact writes |
+| **Planner** | Workout/routine artifact creation | Writes drafts, minimal chat |
+| **Copilot** | Live workout execution | Writes activeWorkout state ONLY |
 
 ## Why Multi-Agent?
 
@@ -16,8 +22,7 @@ The previous unified agent blended multiple jobs, creating predictable problems:
 4. **Scaling issues**: As history, progression deltas, and execution signals were added, the monolithic prompt became brittle.
 
 The multi-agent split enforces permission boundaries and predictable behavior:
-- **Coach**: Explanation and principles, no artifact writes
-- **Analysis**: Longitudinal insights artifacts, read-heavy
+- **Coach**: Education, principles, AND data-informed advice (merged with former Analysis)
 - **Planner**: Proposes and edits workout and routine draft artifacts, minimal chat
 - **Copilot**: Runs the live session, the only writer to active workout state
 - **Orchestrator**: Routes intent and maintains the user's current "mode" across the session
@@ -34,22 +39,24 @@ The multi-agent split enforces permission boundaries and predictable behavior:
 │   Method:                                                                │
 │   1. Apply deterministic regex rules first                               │
 │   2. Fall back to LLM classifier if ambiguous                            │
-│   3. Track session mode (coach | analyze | plan | execute)               │
+│   3. Track session mode (coach | plan | execute)                         │
 └──────────────────────────┬───────────────────────────────────────────────┘
                            │
-         ┌─────────────────┼─────────────────┬─────────────────┐
-         ▼                 ▼                 ▼                 ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│     COACH       │ │    ANALYSIS     │ │     PLANNER     │ │     COPILOT     │
-│                 │ │                 │ │                 │ │                 │
-│ Education &     │ │ Progress        │ │ Workout &       │ │ Live workout    │
-│ principles      │ │ analysis        │ │ routine drafts  │ │ execution       │
-│                 │ │                 │ │                 │ │                 │
-│ PERMISSION:     │ │ PERMISSION:     │ │ PERMISSION:     │ │ PERMISSION:     │
-│ Read-only       │ │ Read all +      │ │ Read + Write    │ │ Read + Write    │
-│ No writes       │ │ Write analysis  │ │ drafts only     │ │ activeWorkout   │
-│                 │ │ artifacts       │ │                 │ │ ONLY            │
-└─────────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│     COACH       │ │     PLANNER     │ │     COPILOT     │
+│                 │ │                 │ │                 │
+│ Education +     │ │ Workout &       │ │ Live workout    │
+│ data-informed   │ │ routine drafts  │ │ execution       │
+│ advice          │ │                 │ │                 │
+│                 │ │                 │ │                 │
+│ PERMISSION:     │ │ PERMISSION:     │ │ PERMISSION:     │
+│ Read all +      │ │ Read + Write    │ │ Read + Write    │
+│ analytics tools │ │ drafts only     │ │ activeWorkout   │
+│ No artifact     │ │                 │ │ ONLY            │
+│ writes          │ │                 │ │                 │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
 ## Agents
@@ -59,22 +66,22 @@ The multi-agent split enforces permission boundaries and predictable behavior:
 The orchestrator classifies user intent and routes to the correct specialist agent. It uses a rules-first approach with regex pattern matching, falling back to an LLM classifier for ambiguous cases.
 
 **Key Responsibilities:**
-- Classify intent using deterministic rules first
+- Classify intent using deterministic rules first (~80% coverage)
+- Use "metric words gate" for first-person + metrics patterns
 - Use LLM classifier when rules are insufficient
 - Output structured routing decision for observability
-- Compute session mode per-turn (not persisted - Phase 2 will add persistence with UX signals)
 - Apply safety re-route if target agent lacks tools for request
 
 **Routing Decision Schema:**
 ```python
 @dataclass
 class RoutingDecision:
-    intent: str           # COACH_GENERAL, PLAN_WORKOUT, etc.
-    target_agent: str     # coach, analysis, planner, copilot
+    intent: str           # COACH_GENERAL, ANALYZE_PROGRESS, PLAN_WORKOUT, etc.
+    target_agent: str     # coach, planner, copilot
     confidence: str       # low, medium, high
     mode_transition: str  # Optional: "coach→plan", "plan→execute"
-    matched_rule: str     # e.g., "pattern:create_workout"
-    signals: List[str]    # ["has_create_verb", "mentions_routine"]
+    matched_rule: str     # e.g., "pattern:create_workout", "gate:first_person_plus_metrics"
+    signals: List[str]    # ["has_create_verb", "mentions_routine", "first_person_plus_metrics"]
 ```
 
 **Intent Patterns:**
@@ -85,8 +92,47 @@ class RoutingDecision:
 | `EDIT_PLAN` | "add", "remove", "swap", "change", "more sets" | Planner |
 | `EXECUTE_WORKOUT` | "start workout", "I'm at the gym", "begin session" | Copilot |
 | `NEXT_WORKOUT` | "next workout", "what's today", "ready to train" | Copilot |
-| `ANALYZE_PROGRESS` | "progress", "analyze", "how am I doing", "trends" | Analysis |
-| `COACH_GENERAL` | "why", "explain", "how does", "what is" | Coach |
+| `ANALYZE_PROGRESS` | "my progress", "analyze", "how am I doing", "my volume" | **Coach** |
+| `COACH_GENERAL` | "why", "explain", "how does", "what is", "technique" | Coach |
+
+### CoachAgent (`coach_agent.py`)
+
+The Coach provides evidence-based training advice that is **personalized using training data when it changes the recommendation**. This is a unified agent that combines education/principles with data-informed insights.
+
+**Key Principle:** Truth over agreement. Use data only when it changes the recommendation.
+
+**Permission Boundary:**
+- ✅ Can read user profile and history
+- ✅ Can read analytics features (weekly rollups, muscle series, e1RM trends)
+- ✅ Can search exercise catalog for technique/comparison questions
+- ✅ Can send text responses
+- ❌ Cannot create workout or routine drafts
+- ❌ Cannot modify active workouts
+- ❌ Cannot write canvas artifacts
+
+**Current Tools (Fully Implemented):**
+| Tool | Purpose |
+|------|---------|
+| `tool_get_training_context` | Get split/balance/symmetry context |
+| `tool_get_analytics_features` | Fetch weekly rollups, muscle series, exercise trends |
+| `tool_get_user_profile` | Read user fitness profile for goal context |
+| `tool_get_recent_workouts` | Read recent workout history |
+| `tool_get_user_exercises_by_muscle` | Discover exercises by muscle group |
+| `tool_search_exercises` | Search exercise catalog for comparisons |
+| `tool_get_exercise_details` | Get technique steps, cues, mistakes |
+
+**Output Control:**
+- Default: 3-8 lines
+- Hard cap: 12 lines unless user asks for detail or topic is injury/pain
+- Never narrate tools or mention tool names
+- 0-2 tool calls default, max 3
+
+**Science Rules (Operating Heuristics):**
+- Volume: ~10-20 hard sets/week per muscle (many grow at 6-10 with good intensity)
+- Proximity to failure: 0-3 RIR for hypertrophy
+- Frequency: ~2×/week per muscle default
+- Progression: double progression (add reps → then small load)
+- Split-aware balance: infer split before calling "imbalanced"
 
 ### PlannerAgent (`planner_agent.py`)
 
@@ -103,8 +149,6 @@ The Planner is the workhorse agent that creates and edits workout and routine dr
 **Current Tools (Fully Implemented):**
 | Tool | Purpose |
 |------|---------|
-| `tool_get_user_profile` | Read user fitness profile and preferences |
-| `tool_get_recent_workouts` | Read recent workout history |
 | `tool_get_planning_context` | Get complete context in one call |
 | `tool_get_template` | Get specific template details |
 | `tool_save_workout_as_template` | Save plan as reusable template |
@@ -113,56 +157,6 @@ The Planner is the workhorse agent that creates and edits workout and routine dr
 | `tool_search_exercises` | Search exercise catalog |
 | `tool_propose_workout` | Publish single workout draft to canvas |
 | `tool_propose_routine` | Publish complete routine draft to canvas |
-| `tool_ask_user` | Ask clarifying question |
-
-**Removed Tools (enforced permission boundaries):**
-| Tool | Reason |
-|------|--------|
-| `tool_get_next_workout` | Moved to Copilot (execution context only) |
-| `tool_send_message` | Removed to prevent chat leakage - the card IS the output |
-
-### CoachAgent (`coach_agent.py`)
-
-The Coach provides education and explanations about training principles. It answers "why" questions without creating or modifying artifacts.
-
-**Permission Boundary:**
-- ✅ Can read user profile and history
-- ✅ Can send text responses
-- ❌ Cannot create workout or routine drafts
-- ❌ Cannot modify active workouts
-- ❌ Cannot write any canvas artifacts
-
-**Current Tools (Stub for Routing Validation):**
-| Tool | Purpose |
-|------|---------|
-| `tool_echo_routing` | Debug: Echo routing decision metadata |
-
-**Planned Tools:**
-- `tool_get_user_profile` (read)
-- `tool_get_recent_workouts` (read)
-- `tool_send_message` (text-only response)
-
-### AnalysisAgent (`analysis_agent.py`)
-
-The Analysis agent produces longitudinal progress insights as canvas artifacts. It reads workout history and progression data to identify trends and opportunities.
-
-**Permission Boundary:**
-- ✅ Can read all workout data
-- ✅ Can write analysis artifacts (charts, tables)
-- ❌ Cannot create workout or routine drafts
-- ❌ Cannot modify active workouts
-
-**Current Tools (Stub for Routing Validation):**
-| Tool | Purpose |
-|------|---------|
-| `tool_echo_routing` | Debug: Echo routing decision metadata |
-
-**Planned Tools:**
-- `tool_get_user_profile` (read)
-- `tool_get_recent_workouts` (read, extended limit)
-- `tool_get_progression_data` (read exercise-level trends)
-- `tool_get_volume_distribution` (read muscle group volumes)
-- `tool_propose_analysis` (write analysis_summary cards)
 
 ### CopilotAgent (`copilot_agent.py`)
 
@@ -173,11 +167,6 @@ The Copilot manages live workout sessions. It is the ONLY agent that can write t
 - ✅ Can write to activeWorkout state (EXCLUSIVE)
 - ❌ Cannot create workout or routine drafts
 - ❌ Cannot write analysis artifacts
-
-**Current Tools (Stub for Routing Validation):**
-| Tool | Purpose |
-|------|---------|
-| `tool_echo_routing` | Debug: Echo routing decision metadata |
 
 **Planned Tools:**
 - `tool_get_active_workout` (read current session)
@@ -192,7 +181,7 @@ The Copilot manages live workout sessions. It is the ONLY agent that can write t
 | Intent | Target Agent | Description |
 |--------|--------------|-------------|
 | `COACH_GENERAL` | Coach | Education, explanations, "why" questions |
-| `ANALYZE_PROGRESS` | Analysis | Progress review, data analysis, trends |
+| `ANALYZE_PROGRESS` | Coach | Progress review, data analysis, trends (Coach has analytics tools) |
 | `PLAN_WORKOUT` | Planner | Create single workout |
 | `PLAN_ROUTINE` | Planner | Create multi-day routine |
 | `EDIT_PLAN` | Planner | Modify existing workout/routine |
@@ -204,21 +193,15 @@ The Copilot manages live workout sessions. It is the ONLY agent that can write t
 The system supports natural progression between modes:
 
 ```
-┌─────────┐     "analyze my data"      ┌──────────┐
-│  Coach  │ ─────────────────────────> │ Analysis │
-└─────────┘                            └──────────┘
-                                             │
-                                             │ "apply this to my plan"
-                                             ▼
+┌─────────┐     "analyze my data"      ┌─────────┐
+│  Coach  │ ─────────────────────────> │  Coach  │  (data-informed response)
+└─────────┘                            └─────────┘
+     │                                       │
+     │ "create a routine"                    │ "apply this to my plan"
+     ▼                                       ▼
 ┌─────────┐    "start workout"         ┌──────────┐
 │ Copilot │ <───────────────────────── │ Planner  │
 └─────────┘                            └──────────┘
-     │
-     │ "post-session summary"
-     ▼
-┌──────────┐
-│ Analysis │
-└──────────┘
 ```
 
 ## Directory Structure
@@ -228,23 +211,16 @@ adk_agent/canvas_orchestrator/app/
 ├── __init__.py
 ├── agent.py                    # Original entry point
 ├── agent_engine_app.py         # Agent Engine integration
-├── agent_multi.py              # Multi-agent entry point (USE_MULTI_AGENT toggle)
-├── unified_agent.py            # DEPRECATED - kept for backwards compatibility
+├── agent_multi.py              # Multi-agent entry point
+├── unified_agent.py            # DEPRECATED
 │
 ├── agents/
 │   ├── __init__.py             # Exports root_agent (orchestrator)
+│   ├── shared_voice.py         # SHARED_VOICE constant for all agents
 │   ├── orchestrator.py         # Intent classifier + router
-│   ├── planner_agent.py        # Workout/routine planning (fully implemented)
-│   ├── coach_agent.py          # Education (stub)
-│   ├── analysis_agent.py       # Progress analysis (stub)
-│   ├── copilot_agent.py        # Live execution (stub)
-│   │
-│   └── tools/
-│       ├── __init__.py         # Exports all tool sets
-│       ├── planner_tools.py    # Planner tool definitions
-│       ├── coach_tools.py      # Coach tool definitions
-│       ├── analysis_tools.py   # Analysis tool definitions
-│       └── copilot_tools.py    # Copilot tool definitions
+│   ├── coach_agent.py          # Education + data-informed advice
+│   ├── planner_agent.py        # Workout/routine planning
+│   └── copilot_agent.py        # Live execution
 │
 └── libs/
     └── tools_canvas/
@@ -255,66 +231,55 @@ adk_agent/canvas_orchestrator/app/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `USE_MULTI_AGENT` | `true` | Use orchestrator routing (set to `false` for Planner-only fallback) |
+| `USE_MULTI_AGENT` | `true` | Use orchestrator routing |
 | `CANVAS_ORCHESTRATOR_MODEL` | `gemini-2.5-flash` | Model for intent classification |
-| `CANVAS_PLANNER_MODEL` | `gemini-2.5-flash` | Model for Planner agent |
 | `CANVAS_COACH_MODEL` | `gemini-2.5-flash` | Model for Coach agent |
-| `CANVAS_ANALYSIS_MODEL` | `gemini-2.5-flash` | Model for Analysis agent |
+| `CANVAS_PLANNER_MODEL` | `gemini-2.5-flash` | Model for Planner agent |
 | `CANVAS_COPILOT_MODEL` | `gemini-2.5-flash` | Model for Copilot agent |
 
-## Routing Validation (Stub Behavior)
+## Shared System Voice
 
-The stub agents (Coach, Analysis, Copilot) echo routing metadata for debugging:
+All agents share a common voice defined in `shared_voice.py`:
 
+```python
+SHARED_VOICE = """
+## SYSTEM VOICE
+- Direct, neutral, high-signal. No hype, no fluff.
+- No loop statements or redundant summaries.
+- Use clear adult language. If you use jargon, define it in one short clause.
+- Prioritize truth over agreement. Correct wrong assumptions plainly.
+- Never narrate internal tool usage or internal reasoning.
+"""
 ```
-"I am the Coach Agent. You landed here because orchestrator 
-classified intent as: COACH_GENERAL."
-```
-
-This allows validation of:
-1. **Routing correctness**: Does the right agent receive the message?
-2. **Intent classification accuracy**: Are intents labeled correctly?
-3. **Mode transitions**: Do transitions flow as expected?
-4. **Permission boundaries**: Can we verify tool access at runtime?
 
 ## Permission Enforcement
 
 Permission boundaries are enforced at the code level through tool definitions, not prompts:
 
 ```python
-# planner_tools.py - Planner gets full planning toolkit
+# coach_agent.py - Coach has analytics tools but NO artifact writes
+COACH_TOOLS = [
+    tool_get_training_context,
+    tool_get_analytics_features,  # ✅ Coach can read analytics
+    tool_get_user_profile,
+    tool_search_exercises,
+    # tool_propose_workout,        # ❌ NOT included - Planner only
+]
+
+# planner_agent.py - Planner gets artifact creation tools
 PLANNER_TOOLS = [
     tool_get_planning_context,
     tool_search_exercises,
-    tool_propose_workout,      # ✅ Planner can write drafts
-    tool_propose_routine,      # ✅ Planner can write routines
-    # tool_log_set,            # ❌ NOT included - Copilot only
-]
-
-# copilot_tools.py - Copilot gets activeWorkout tools
-COPILOT_TOOLS = [
-    tool_get_active_workout,
-    tool_start_workout,        # ✅ Copilot can write activeWorkout
-    tool_log_set,              # ✅ Copilot can log sets
-    # tool_propose_workout,    # ❌ NOT included - Planner only
+    tool_propose_workout,          # ✅ Planner can write drafts
+    tool_propose_routine,          # ✅ Planner can write routines
+    # tool_get_analytics_features, # ❌ NOT included - Coach only
 ]
 ```
 
-This ensures that even if an agent's prompt is manipulated, it cannot access tools outside its permission boundary.
-
-## Adding New Capabilities
-
-To add capability to an agent without changing orchestrator plumbing:
-
-1. **Add tool function** to the agent's file (e.g., `planner_agent.py`)
-2. **Add to tool list** in the tools definition (e.g., `planner_tools.py`)
-3. **Update agent instruction** to document the new tool
-
-No changes to orchestrator or other agents required.
-
 ## Key Success Criteria
 
-1. **Planner behaves as a canvas editor** with minimal chat leakage
-2. **Copilot is the only writer to active workout state**
-3. **Orchestrator routing is visible and debuggable**
-4. **Adding capability to an agent does not require changing other agents or loosening tool boundaries**
+1. **Coach combines education + data-informed advice** in one unified agent
+2. **Planner behaves as a canvas editor** with minimal chat leakage
+3. **Copilot is the only writer to active workout state**
+4. **Orchestrator routing is visible and debuggable**
+5. **Adding capability to an agent does not require changing other agents or loosening tool boundaries**

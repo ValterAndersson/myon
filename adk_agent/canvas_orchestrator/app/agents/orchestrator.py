@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 from google.adk import Agent
 from google.adk.tools import FunctionTool
 
+# Note: SHARED_VOICE not used for orchestrator - it needs a simple routing instruction
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -42,8 +44,7 @@ class Intent(str, Enum):
 
 class TargetAgent(str, Enum):
     """Target agent identifiers."""
-    COACH = "coach"
-    ANALYSIS = "analysis"
+    COACH = "coach"  # Also handles analysis (data-informed coaching)
     PLANNER = "planner"
     COPILOT = "copilot"
 
@@ -91,62 +92,123 @@ class RoutingDecision:
 # ============================================================================
 
 # Compile patterns once for performance
+# Priority order: Copilot > Planner > Analysis (first-person + metrics) > Coach (principles)
 RULE_PATTERNS: List[tuple] = [
-    # Copilot: Execution mode signals (highest priority)
+    # =========================================================================
+    # COPILOT: Execution mode signals (HIGHEST PRIORITY)
+    # =========================================================================
     (re.compile(r"\b(start|begin|let.?s\s+go|i.?m\s+(at\s+the\s+)?gym|training\s+now|ready\s+to\s+train)\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:gym_now"),
     (re.compile(r"\b(next\s+set|current\s+set|swap.*(exercise|movement)|adjust.*(weight|load)|rest\s+timer|how\s+much\s+rest)\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:in_workout_action"),
     (re.compile(r"\b(log|record|done|finished|completed)\s+(this\s+)?(set|exercise)\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:log_set"),
-    
-    # Copilot: Next workout request
     (re.compile(r"\b(what.?s?\s+)?(next|today.?s?)\s+(workout|session|training)\b", re.I),
      Intent.NEXT_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:next_workout"),
     (re.compile(r"\b(give\s+me|show\s+me|start)\s+(my\s+)?(next|today.?s?)\s+(workout|session)\b", re.I),
      Intent.NEXT_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:start_next"),
     
-    # Planner: Routine/program creation (multi-day)
-    (re.compile(r"\b(create|build|make|design|set\s+up)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
+    # =========================================================================
+    # PLANNER: Artifact creation/edit (HIGH PRIORITY)
+    # =========================================================================
+    # Routine/program creation (multi-day)
+    (re.compile(r"\b(create|build|make|design|set\s+up|plan|draft)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_routine"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_routine"),
     (re.compile(r"\b(weekly|multi.?day|\d+\s*day)\s+(workout\s+)?(plan|routine|split)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:multiday_plan"),
     
-    # Planner: Single workout creation
-    (re.compile(r"\b(create|build|make|design|plan)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session|training)\b", re.I),
+    # Single workout creation
+    (re.compile(r"\b(create|build|make|design|plan|draft)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session|training)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_workout"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_workout"),
     (re.compile(r"\b(chest|back|leg|shoulder|arm|push|pull)\s+(day|workout|session)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.MEDIUM, "pattern:bodypart_day"),
     
-    # Planner: Edit existing plan
-    (re.compile(r"\b(edit|modify|change|update|adjust|tweak)\s+(the\s+)?(workout|routine|plan|exercises?)\b", re.I),
+    # Edit existing plan
+    (re.compile(r"\b(edit|modify|change|update|adjust|tweak|swap)\s+(the\s+)?(my\s+)?(workout|routine|plan|program|exercises?)\b", re.I),
      Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:edit_plan"),
     (re.compile(r"\b(add|remove|swap|replace)\s+(an?\s+)?(exercise|movement|set)\b", re.I),
      Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:modify_exercise"),
-    (re.compile(r"\b(more|less|fewer)\s+(sets?|reps?|volume|exercises?)\b", re.I),
-     Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.MEDIUM, "pattern:volume_adjust"),
+    (re.compile(r"\b(more|less|fewer)\s+(sets?|reps?|volume|exercises?)\s+(in|to|for)\b", re.I),
+     Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:volume_adjust"),
     
-    # Analysis: Progress and data review
-    (re.compile(r"\b(analyze|review|assess|evaluate)\s+(my\s+)?(progress|history|data|performance|workouts?)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:analyze_progress"),
+    # =========================================================================
+    # COACH (data-informed): First-person + metrics patterns
+    # Coach now handles both principles AND data analysis
+    # =========================================================================
+    # User's progress with first-person + temporal context
+    (re.compile(r"\b(my|mine|i)\b.*\b(progress|trend|over\s+time|lately|recent|last)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_progress_temporal"),
+    (re.compile(r"\b(my|mine|i)\b.*\b(sets?|volume|hard\s+sets?|frequency|sessions?)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_volume_metrics"),
+    
+    # Muscle development questions
+    (re.compile(r"\b(which|what)\b.*\b(muscles?|muscle\s+groups?)\b.*\b(most|least|trained|developed|hit)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:muscle_development_query"),
+    
+    # First-person + 1RM/PR
+    (re.compile(r"\b(my|mine|i)\b.*\b(1rm|e1rm|pr|personal\s+record|max)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_1rm"),
+    (re.compile(r"\b(1rm|e1rm|pr|personal\s+record)\b.*\b(my|mine)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:1rm_my"),
+    
+    # Am I progressing / doing enough patterns
+    (re.compile(r"\b(am\s+i|have\s+i\s+been)\s+(progressing|improving|getting\s+stronger|doing\s+enough)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:am_i_progressing"),
     (re.compile(r"\b(how\s+(am\s+i|have\s+i\s+been)|what.?s\s+my)\s+(doing|progress|performance|trend)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:check_progress"),
-    (re.compile(r"\b(what\s+should\s+i\s+(improve|focus|work\s+on)|weak\s*point|lagging|imbalance)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.MEDIUM, "pattern:find_weakness"),
-    (re.compile(r"\b(volume|frequency|intensity)\s+(analysis|breakdown|distribution)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.ANALYSIS, Confidence.HIGH, "pattern:volume_analysis"),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:check_progress"),
     
-    # Coach: Education and explanation (lower priority, catch-all for questions)
-    (re.compile(r"\b(why\s+(should|do|is)|how\s+does?|what\s+is|explain|tell\s+me\s+about|help\s+me\s+understand)\b", re.I),
+    # Specific muscle/exercise progress with my
+    (re.compile(r"\b(how.?s|how\s+has|how\s+is)\s+(my\s+)?(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring|bench|squat|deadlift)\b.*(develop|improv|progress|chang|grow|doing)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_muscle_progress"),
+    
+    # Lagging / weakness / balance with personal context
+    (re.compile(r"\b(what.?s|which\s+is|am\s+i)\b.*\b(lagging|weak|imbalance|behind|stalling|plateau)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:find_weakness"),
+    
+    # Explicit analysis requests
+    (re.compile(r"\b(analyze|review|assess|evaluate|check)\s+(my\s+)?(progress|history|data|performance|workouts?|training)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:analyze_my_data"),
+    
+    # Time-window references with training context
+    (re.compile(r"\b(last|past)\s+\d+\s+(weeks?|days?|months?)\b.*\b(train|volume|sets?|workout)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:time_window"),
+    (re.compile(r"\b(lately|recently)\b.*\b(train|volume|sets?|workout|progress)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:recently_training"),
+    
+    # How much/many volume queries
+    (re.compile(r"\b(how\s+much|how\s+many)\s+(volume|sets?|reps?|workouts?)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:volume_count"),
+    
+    # Consistency / adherence
+    (re.compile(r"\b(my\s+)?(consistent|consistency|adherence|how\s+often\s+(have\s+)?i)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.MEDIUM, "pattern:my_consistency"),
+    
+    # =========================================================================
+    # COACH: Principles, technique, education (LOWER PRIORITY - catch-all)
+    # =========================================================================
+    # Best practice / science questions (NO first-person + metrics)
+    (re.compile(r"\b(best\s+practice|principles?|science|research|evidence|optimal)\b", re.I),
+     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.HIGH, "pattern:science_question"),
+    
+    # Technique / form / cues
+    (re.compile(r"\b(form|technique|cues?|feel\s+it|rom|range\s+of\s+motion|tempo|execution)\b", re.I),
+     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.HIGH, "pattern:technique_cues"),
+    
+    # How do I / what should I (general guidance without metrics)
+    (re.compile(r"\b(how\s+do\s+i|what\s+should\s+i|should\s+i)\b.*\b(do|train|perform|execute|grow|build)\b", re.I),
+     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:how_should_i"),
+    
+    # General education questions
+    (re.compile(r"\b(why\s+(should|do|is|does)|how\s+does|what\s+is|explain|tell\s+me\s+about|help\s+me\s+understand)\b", re.I),
      Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:education_question"),
-    (re.compile(r"\b(principle|science|research|evidence|optimal|best\s+practice)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:science_question"),
-    (re.compile(r"\b(hypertrophy|strength|endurance|technique|form|injury|pain)\s+(tips?|advice|question)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:training_advice"),
+    
+    # Training concepts
+    (re.compile(r"\b(hypertrophy|strength|endurance|progressive\s+overload|deload|recovery|rest|rir|rpe)\s+(tips?|advice|question|mean|work)\b", re.I),
+     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:training_concept"),
 ]
 
 # Negative patterns to exclude (e.g., "split squat" should not trigger routine)
@@ -155,10 +217,25 @@ NEGATIVE_PATTERNS = [
 ]
 
 
+# Metric words for first-person + metrics gate (routes to Analysis)
+FIRST_PERSON_WORDS = re.compile(r"\b(my|mine|i|i'm|i've|i'll|i'd)\b", re.I)
+METRIC_WORDS = re.compile(r"\b(sets?|volume|frequency|sessions?|1rm|e1rm|pr|personal\s+record|over\s+time|lately|last|recent|progress|trend|stall|plateau|improving|progressing)\b", re.I)
+
+
 def _extract_signals(message: str) -> List[str]:
     """Extract signal flags from message for observability."""
     signals = []
     lower = message.lower()
+    
+    # First-person + metrics detection (critical for routing gate)
+    has_first_person = bool(FIRST_PERSON_WORDS.search(message))
+    has_metric_word = bool(METRIC_WORDS.search(message))
+    if has_first_person:
+        signals.append("has_first_person")
+    if has_metric_word:
+        signals.append("has_metric_word")
+    if has_first_person and has_metric_word:
+        signals.append("first_person_plus_metrics")  # Strong analysis signal
     
     # Verb signals
     if re.search(r"\b(create|build|make|design)\b", lower):
@@ -183,6 +260,12 @@ def _extract_signals(message: str) -> List[str]:
     # Question patterns
     if re.search(r"\b(why|how|what\s+is|explain)\b", lower):
         signals.append("is_question")
+    
+    # Principle/education signals (routes to Coach)
+    if re.search(r"\b(best\s+practice|principles?|science|research|optimal|evidence)\b", lower):
+        signals.append("has_principle_word")
+    if re.search(r"\b(form|technique|cues?|feel|tempo|rom|execution)\b", lower):
+        signals.append("has_technique_word")
     
     return signals
 
@@ -229,17 +312,61 @@ def classify_intent_rules(message: str) -> Optional[RoutingDecision]:
 def classify_intent_llm(message: str, signals: List[str]) -> RoutingDecision:
     """
     Classify intent using LLM when rules don't match.
-    Uses a minimal prompt for fast classification.
+    Uses Gemini with a minimal prompt for fast classification.
     """
-    # For Phase 1, we default to COACH for ambiguous cases
-    # This is a safe default that doesn't mutate anything
-    logger.info("LLM fallback triggered for message (defaulting to COACH): %s", message[:100])
+    logger.info("LLM fallback triggered for message: %s", message[:100])
     
+    try:
+        import google.generativeai as genai
+        
+        # Use flash model for fast classification
+        model = genai.GenerativeModel(os.getenv("CANVAS_ORCHESTRATOR_MODEL", "gemini-2.5-flash"))
+        
+        prompt = f"""Classify this fitness app user message into ONE category:
+
+COACH - User wants advice, explanations, education about training principles, "how do I get stronger", technique tips
+ANALYSIS - User wants to see their data, progress review, historical trends, volume stats, "how am I doing"  
+PLANNER - User wants to create or modify a workout plan or routine
+COPILOT - User is at the gym, ready to train, asking about their next set or exercise
+
+Message: "{message}"
+
+Respond with ONLY the category name (COACH, ANALYSIS, PLANNER, or COPILOT):"""
+
+        response = model.generate_content(prompt)
+        result = response.text.strip().upper()
+        
+        # Map to target agent (ANALYSIS routes to unified Coach)
+        target_map = {
+            "COACH": (Intent.COACH_GENERAL, TargetAgent.COACH),
+            "ANALYSIS": (Intent.ANALYZE_PROGRESS, TargetAgent.COACH),  # Coach handles data
+            "PLANNER": (Intent.PLAN_WORKOUT, TargetAgent.PLANNER),
+            "COPILOT": (Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT),
+        }
+        
+        if result in target_map:
+            intent, target = target_map[result]
+            logger.info("LLM classified as: %s -> %s", result, target.value)
+            return RoutingDecision(
+                intent=intent.value,
+                target_agent=target.value,
+                confidence=Confidence.MEDIUM.value,
+                matched_rule=f"fallback:llm_{result.lower()}",
+                signals=signals,
+            )
+        
+        # If LLM gives unexpected response, fall back to Coach
+        logger.warning("LLM returned unexpected: %s, defaulting to COACH", result)
+        
+    except Exception as e:
+        logger.error("LLM fallback failed: %s, defaulting to COACH", str(e))
+    
+    # Default to Coach if LLM fails or returns unexpected
     return RoutingDecision(
         intent=Intent.COACH_GENERAL.value,
         target_agent=TargetAgent.COACH.value,
         confidence=Confidence.LOW.value,
-        matched_rule="fallback:llm_default",
+        matched_rule="fallback:llm_error",
         signals=signals,
     )
 
@@ -248,13 +375,10 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
     """
     Safety re-route: If the target agent lacks tools for the request, fallback.
     
-    This prevents stub agents (Coach, Analysis, Copilot) from receiving requests
-    they can't fulfill, maintaining the "canvas" illusion.
-    
-    Phase 1 rules:
-    - Coach/Analysis/Copilot are stubs: re-route creation requests to Planner
+    Rules:
     - If user asks for artifact creation but lands on Coach: re-route to Planner
-    - If user asks for execution but lands on stub Copilot: acknowledge limitation
+      (Coach is education-only, cannot create drafts)
+    - Analysis and Copilot agents are fully functional - no reroute needed
     """
     # Check if request implies artifact creation but target is Coach
     if decision.target_agent == TargetAgent.COACH.value:
@@ -268,13 +392,10 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
                 signals=signals + ["safety_rerouted"],
             )
     
-    # Check if request implies data analysis but Analysis is stub
-    # For Phase 1: Analysis agent is a stub, but we still route there for validation
-    # In Phase 2, this would be a real check
+    # Analysis agent is fully implemented - no reroute needed
+    # It fetches data and provides text responses
     
-    # Check if request implies execution but Copilot is stub
-    # For Phase 1: Copilot is a stub, it will echo the routing for validation
-    # We intentionally route there to validate the routing logic
+    # Copilot agent handles execution - no special reroute needed
     
     return decision
 
@@ -282,7 +403,7 @@ def _apply_safety_reroute(decision: RoutingDecision, signals: List[str]) -> Rout
 def classify_intent(message: str) -> RoutingDecision:
     """
     Main entry point for intent classification.
-    Tries rules first, falls back to LLM, then applies safety re-routes.
+    Tries rules first, then metric words gate, then LLM fallback.
     """
     # Try rule-based classification first
     decision = classify_intent_rules(message)
@@ -293,8 +414,35 @@ def classify_intent(message: str) -> RoutingDecision:
         decision = _apply_safety_reroute(decision, decision.signals)
         return decision
     
-    # Fall back to LLM classification
+    # Extract signals for gate checks
     signals = _extract_signals(message)
+    
+    # METRIC WORDS GATE: If first-person + metrics → prefer Coach (data-informed)
+    # This catches "my volume", "i've been training", "my progress lately" etc.
+    if "first_person_plus_metrics" in signals:
+        # Double-check: NOT asking for principles/technique (already Coach territory)
+        if "has_principle_word" not in signals and "has_technique_word" not in signals:
+            logger.info("Metric words gate: first_person + metrics → routing to COACH (data-informed)")
+            return RoutingDecision(
+                intent=Intent.ANALYZE_PROGRESS.value,
+                target_agent=TargetAgent.COACH.value,
+                confidence=Confidence.HIGH.value,
+                matched_rule="gate:first_person_plus_metrics",
+                signals=signals,
+            )
+    
+    # CREATION GATE: If create verb + workout/routine → Planner
+    if "has_create_verb" in signals and ("mentions_workout" in signals or "mentions_routine" in signals):
+        logger.info("Creation gate: create_verb + workout → routing to PLANNER")
+        return RoutingDecision(
+            intent=Intent.PLAN_WORKOUT.value,
+            target_agent=TargetAgent.PLANNER.value,
+            confidence=Confidence.HIGH.value,
+            matched_rule="gate:create_artifact",
+            signals=signals,
+        )
+    
+    # Fall back to LLM classification for truly ambiguous messages
     decision = classify_intent_llm(message, signals)
     logger.info("LLM-based routing: %s -> %s", decision.intent, decision.target_agent)
     # Apply safety re-route
@@ -365,11 +513,8 @@ def _get_coach_agent():
 
 
 def _get_analysis_agent():
-    global _analysis_agent
-    if _analysis_agent is None:
-        from app.agents.analysis_agent import AnalysisAgent
-        _analysis_agent = AnalysisAgent
-    return _analysis_agent
+    """Analysis merged into Coach - returns CoachAgent for backwards compatibility."""
+    return _get_coach_agent()
 
 
 def _get_copilot_agent():
@@ -401,7 +546,6 @@ def tool_route_to_agent(*, message: str) -> Dict[str, Any]:
     # Update session mode based on routing
     mode_map = {
         TargetAgent.COACH.value: "coach",
-        TargetAgent.ANALYSIS.value: "analyze",
         TargetAgent.PLANNER.value: "plan",
         TargetAgent.COPILOT.value: "execute",
     }
@@ -429,6 +573,9 @@ def tool_route_to_agent(*, message: str) -> Dict[str, Any]:
 # Orchestrator Agent Definition
 # ============================================================================
 
+# ORCHESTRATOR INSTRUCTION - Simple, proven instruction from beed800
+# Key: Says "Transfer to" which ADK recognizes for sub_agent routing
+# NO generate_content_config - let the model use default token limits
 ORCHESTRATOR_INSTRUCTION = """
 You are the Orchestrator Agent. Your sole job is to classify user intent and route to the correct specialist agent.
 
@@ -438,16 +585,16 @@ PROCESS:
 3. Transfer to the appropriate specialist agent with the routing context
 
 ROUTING:
-- Coach: Education, explanations, training principles (no artifact writes)
-- Analysis: Progress review, data analysis, trend identification (read-heavy)
+- Coach: Education, explanations, training principles, progress review, data analysis (handles both coaching AND analysis)
 - Planner: Create/edit workouts and routines (draft artifacts)
 - Copilot: Live workout execution, in-session adjustments (active workout writes)
 
-You must ALWAYS route to one of the four specialist agents. Never respond directly.
+You must ALWAYS route to one of the three specialist agents. Never respond directly.
 Include the routing decision in your transfer for observability.
 """
 
 # Orchestrator uses sub_agents for ADK transfer mechanism
+# NO generate_content_config - this was causing truncation issues
 OrchestratorAgent = Agent(
     name="Orchestrator",
     model=os.getenv("CANVAS_ORCHESTRATOR_MODEL", "gemini-2.5-flash"),
@@ -465,11 +612,11 @@ def _build_orchestrator_with_agents() -> Agent:
         instruction=ORCHESTRATOR_INSTRUCTION,
         tools=[FunctionTool(func=tool_route_to_agent)],
         sub_agents=[
-            _get_coach_agent(),
-            _get_analysis_agent(),
-            _get_planner_agent(),
-            _get_copilot_agent(),
+            _get_coach_agent(),    # Coach (handles both coaching + analysis)
+            _get_planner_agent(),  # Planner (artifact creation/editing)
+            _get_copilot_agent(),  # Copilot (in-workout execution)
         ],
+        # NO generate_content_config - let model use defaults
     )
 
 

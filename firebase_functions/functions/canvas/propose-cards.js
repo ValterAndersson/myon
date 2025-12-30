@@ -8,6 +8,8 @@ const crypto = require('crypto');
 const CARD_SCHEMAS = {
   session_plan: require('./schemas/card_types/session_plan.schema.json'),
   routine_summary: require('./schemas/card_types/routine_summary.schema.json'),
+  analysis_summary: require('./schemas/card_types/analysis_summary.schema.json'),
+  visualization: require('./schemas/card_types/visualization.schema.json'),
 };
 
 /**
@@ -159,6 +161,8 @@ async function proposeCards(req, res) {
         type: card.type,
         status: 'proposed',
         lane: d.lane,
+        title: card.title || null,
+        subtitle: card.subtitle || null,
         content: card.content || {},
         refs: d.refs,
         layout: d.layout,

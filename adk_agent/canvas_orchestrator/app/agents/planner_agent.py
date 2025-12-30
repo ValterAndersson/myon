@@ -20,7 +20,9 @@ from typing import Any, Dict, List, Optional
 
 from google.adk import Agent
 from google.adk.tools import FunctionTool
+from google.genai import types
 
+from app.agents.shared_voice import SHARED_VOICE
 from app.libs.tools_canvas.client import CanvasFunctionsClient
 
 logger = logging.getLogger(__name__)
@@ -87,25 +89,66 @@ def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
-        return {"error": "No user_id available"}
+        return {
+            "error": "No user_id available",
+            "_display": {
+                "running": "Reviewing profile",
+                "complete": "Profile not found",
+                "phase": "understanding",
+            }
+        }
     
     logger.info("get_user_profile uid=%s", uid)
     resp = _canvas_client().get_user(uid)
-    return resp.get("data") or resp.get("context") or {}
+    data = resp.get("data") or resp.get("context") or {}
+    
+    # Add display metadata
+    data["_display"] = {
+        "running": "Reviewing profile",
+        "complete": "Profile loaded",
+        "phase": "understanding",
+    }
+    
+    return data
 
 
-def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
     """
     Get the user's recent workout sessions. Use this to understand their 
     training patterns, volume, and progress over time.
+    
+    Returns:
+        Dict with:
+        - items: List of recent workout sessions
+        - count: Number of workouts returned
+        - _display: Display metadata (internal)
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
-        return []
+        return {
+            "items": [],
+            "count": 0,
+            "_display": {
+                "running": "Checking workout history",
+                "complete": "No user found",
+                "phase": "searching",
+            }
+        }
     
     logger.info("get_recent_workouts uid=%s limit=%s", uid, limit)
     resp = _canvas_client().get_user_workouts(uid, limit=limit)
-    return resp.get("data") or resp.get("workouts") or []
+    workouts = resp.get("data") or resp.get("workouts") or []
+    count = len(workouts)
+    
+    return {
+        "items": workouts,
+        "count": count,
+        "_display": {
+            "running": "Checking workout history",
+            "complete": f"Loaded {count} workouts" if count > 0 else "No recent workouts",
+            "phase": "searching",
+        }
+    }
 
 
 # ============================================================================
@@ -124,13 +167,33 @@ def tool_get_planning_context(*, user_id: Optional[str] = None) -> Dict[str, Any
         - nextWorkout: Template for the next workout in rotation
         - templates: List of all user templates (with exercises)
         - recentWorkoutsSummary: Recent training history
+        - _display: Display metadata (internal)
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
-        return {"error": "No user_id available"}
+        return {
+            "error": "No user_id available",
+            "_display": {
+                "running": "Loading context",
+                "complete": "User not found",
+                "phase": "understanding",
+            }
+        }
     
     logger.info("get_planning_context uid=%s", uid)
-    return _canvas_client().get_planning_context(uid)
+    data = _canvas_client().get_planning_context(uid)
+    
+    # Determine completion message based on result
+    has_routine = bool(data.get("activeRoutine"))
+    complete_msg = "Context loaded" if has_routine else "No active routine"
+    
+    data["_display"] = {
+        "running": "Loading context",
+        "complete": complete_msg,
+        "phase": "understanding",
+    }
+    
+    return data
 
 
 def tool_get_next_workout(*, user_id: Optional[str] = None) -> Dict[str, Any]:
@@ -341,12 +404,18 @@ def tool_search_exercises(
     difficulty: Optional[str] = None,
     query: Optional[str] = None,
     limit: int = 15,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Search the exercise catalog. Returns exercises with IDs for use in workout plans.
     
     IMPORTANT: Use muscle_group (not primary_muscle) for body-part searches.
     Use movement_type (not split) for push/pull/legs programming.
+    
+    Returns:
+        Dict with:
+        - items: List of exercises
+        - count: Number of results
+        - _display: Display metadata (internal)
     
     Args:
         muscle_group: Body part category. Case-insensitive. Most reliable filter.
@@ -419,7 +488,7 @@ def tool_search_exercises(
         logger.warning("⚠️ SEARCH_EXERCISES: 0 results! Params: group=%s movement=%s split=%s query=%s",
                        muscle_group, movement_type, split, query)
     
-    result = [
+    exercises = [
         {
             "id": ex.get("id"),
             "name": ex.get("name"),
@@ -436,11 +505,31 @@ def tool_search_exercises(
     ]
     
     # Log first few exercise names for debugging
-    if result:
-        names = [r.get("name", "?") for r in result[:5]]
+    if exercises:
+        names = [r.get("name", "?") for r in exercises[:5]]
         logger.info("📋 SEARCH_EXERCISES: first 5 = %s", names)
     
-    return result
+    # Build safe display text from args (only use what we know)
+    context_parts = []
+    if muscle_group:
+        context_parts.append(muscle_group)
+    if movement_type:
+        context_parts.append(movement_type)
+    if query:
+        context_parts.append(f'"{query}"')
+    
+    running_text = f"Searching {' '.join(context_parts)} exercises" if context_parts else "Searching exercises"
+    complete_text = f"Found {len(exercises)} exercises"
+    
+    return {
+        "items": exercises,
+        "count": len(exercises),
+        "_display": {
+            "running": running_text,
+            "complete": complete_text,
+            "phase": "searching",
+        }
+    }
 
 
 # ============================================================================
@@ -640,6 +729,11 @@ def tool_propose_workout(
         "message": f"'{title}' published to canvas",
         "exercises": len(blocks),
         "total_sets": sum(len(b.get("sets", [])) for b in blocks),
+        "_display": {
+            "running": "Building workout",
+            "complete": f"Published \"{title}\"",
+            "phase": "building",
+        }
     }
 
 
@@ -906,6 +1000,11 @@ def tool_propose_routine(
         "message": f"'{name}' routine published to canvas ({len(workouts)} workouts)",
         "workout_count": len(workouts),
         "total_exercises": sum(len(w.get("exercises", [])) for w in workouts),
+        "_display": {
+            "running": "Building routine",
+            "complete": f"Published \"{name}\"",
+            "phase": "building",
+        }
     }
 
 
@@ -970,147 +1069,100 @@ def _before_model_callback(callback_context, llm_request):
 # UNIFIED AGENT INSTRUCTION
 # ============================================================================
 
-UNIFIED_INSTRUCTION = """
+PLANNER_INSTRUCTION = SHARED_VOICE + """
 ## ROLE
-You are the Planner Agent. You plan and edit workouts and routines as canvas artifacts.
-You behave like a two-way editor, not a chatty assistant.
+Create and edit workouts and routines as canvas artifacts. You behave like a two-way editor, not a chatty assistant.
 
 ## CANVAS PRINCIPLE
-- The card is the output. Chat text is only a control surface.
-- When the user asks “how should we modify”, you must propose an updated draft AND attach rationale inside the artifact (not as long chat prose).
+- The artifact is the output. Chat text is only a control surface.
 
-## CRITICAL OUTPUT RULES
-1. Start by understanding the user's request, look over the tools you have available to you, and plan what steps to take to fulfil the request. 
-2. Once you understand what the user has asked you to do, and you know what you need to do in order to satisfy the request, give the user a one-time 1 (max 2) sentence summary before you begin the work.
-3. Never narrate searches or tool usage.
-4. Never apologize for sparse results. Adapt parameters and continue. Use exercises from whatever results you got.
-5. ALWAYS COMPLETE THE TASK: If the user asks for a workout or routine, you MUST call tool_propose_workout or tool_propose_routine. Never end the conversation without publishing an artifact.
-6. Never output full workout/routine details as chat prose. Publish via tool_propose_workout or tool_propose_routine.
-7. After a successful propose call, output at most 1 short control sentence.
-8. Never ask for template IDs or card IDs.
-9. Do not auto save.
+## OUTPUT RULES (STRICT)
+1) Never output full workout/routine details as chat prose. Publish via tool_propose_workout or tool_propose_routine only.
+2) Never narrate searches or tool usage.
+3) Never apologize for sparse results. Adapt and continue.
+4) After a successful propose call, output at most 1 short control sentence.
+5) Do not ask for template IDs or card IDs.
+6) Do not auto-save.
 
-## TOOLS
-- tool_get_planning_context: constraints + defaults
-- tool_search_exercises: exercise candidates
-- tool_propose_workout: publish single workout draft
-- tool_propose_routine: publish full routine draft in one call
-- tool_get_next_workout: next planned session from active routine
-- tool_ask_user: only under ASK POLICY
-(If history/progression tools exist in the environment, use them. If not available, fall back to conservative defaults.)
+## SPEED / TOOL BUDGET
+Minimize tool calls.
+- Planning context: call tool_get_planning_context once per user request unless already available this turn.
+- Search: one broad search per workout/day type. Avoid iterative "hunt" patterns.
+- If a filter yields too few results, drop the filter and proceed.
 
-## ASK POLICY (1 QUESTION MAX, ONLY IF BLOCKING)
-Ask only if you cannot generate a safe/correct draft:
-- Missing routine frequency/days when user clearly wants a routine
-- Equipment constraints block all reasonable options
-- Injury/pain constraint is needed to avoid risky choices
-Otherwise propose a draft using defaults.
+## WORKFLOW (MANDATORY)
+1) Get planning context (tool_get_planning_context) unless already fetched this turn.
+2) Classify intent:
+   A) Create single workout
+   B) Create routine
+   C) Edit existing workout/routine
+   D) Preview next workout
+3) If editing, apply minimal deltas to the existing artifact and preserve what works.
+4) Use broad search once per day type, then pick locally.
+5) Publish:
+   - Single workout → tool_propose_workout
+   - Routine → tool_propose_routine ONCE with all days included
 
-## INTENT PARSING (EVERY TURN)
-Classify as:
-A) Create single workout
-B) Create routine (multi-day)
-C) Edit existing workout/routine
+## ROUTINE RULES
+- Build all days first, then call tool_propose_routine exactly once.
+- Never propose a routine one day at a time.
+- If a workout card exists and user asks for a routine, include it and generate missing days.
 
-Routine intent requires explicit multi-day structure or explicit frequency.
-Negative triggers: split squat, Bulgarian split squat, split stance.
+## DETERMINISM (REQUIRED)
+When choosing between alternatives:
+- Prefer minimal change.
+- Tie-breakers: safety under constraints > lower setup friction > better target fit > stable canonical name/id.
+- Use stable ordering. Avoid randomness.
 
-Default to single workout when ambiguous.
-
-## CORE WORKFLOW (MANDATORY)
-1) Fetch planning context (tool_get_planning_context) unless already fetched this turn.
-2) If request is an EDIT or OPTIMIZATION, start from the existing artifact and apply minimal deltas.
-3) Use data (history/progression) if available to decide what to change.
-4) Propose updated draft using the correct tool.
-5) Output one short control sentence.
-
-### Inputs you should use when available
-- Past workouts and exercise history
-- Exercise-level progression (load, reps, RIR, volume)
-- Muscle-group progression deltas and volume distribution
-- Pain/injury flags + tolerated movement patterns
-- Time per session + weekly frequency
-
-### Optimization levers (choose the smallest set that solves the problem)
-1) Volume: add/remove sets, reallocate weekly sets across muscles
-2) Frequency: redistribute target muscle across days without increasing total session time (if possible)
-3) Exercise selection: swap to better ROM/stability/angle/equipment fit
-4) Intensity/rep ranges: adjust ranges and target RIR
-5) Order/rest: reduce performance drop-offs on the target muscle
-
-## SEARCH STRATEGY (POOL-FIRST, BUDGETED)
-
-Goal: Fetch one broad candidate pool, then select locally from that pool.
-
-Budget:
-- Single workout: 1 search call. Optional 1 retry only if usable candidates < 12.
-- Routine: 1 search call per day type (Push/Pull/Legs or Upper/Lower). Optional 1 retry per day type only if usable candidates < 12.
-After budget is used, stop searching and build with what you have.
-
-Primary broad fetch (choose one):
-- Push day: movement_type="push", limit=50
-- Pull day: movement_type="pull", limit=50
-- Legs day: split="lower", limit=50
-
-Selection happens locally:
-- From the broad results, rank by: user goal → injury safety → equipment preference → movement pattern fit → variety.
-- Do not perform extra searches to “validate” each exercise slot. Fill the workout from the pool.
-
-Equipment handling:
-- Treat equipment as a preference unless the user explicitly says “only machines” (or equivalent).
-- Default: do NOT filter by equipment in the search. Prefer matching equipment during ranking.
-- If “only machines”: apply equipment="machine" in the broad fetch.
-- If the pool cannot satisfy a complete workout under the preference, relax in this order:
-  machine → cable → dumbbell → barbell → bodyweight
-
-Name searches:
-- Use query/name search only when the user asks for a specific exercise by name.
-
-## ROUTINE RULES (CRITICAL)
-If creating or editing a routine (user asks for "routine", "program", "split", "PPL", etc.):
-- NEVER call tool_propose_workout when building a routine. Use tool_propose_routine ONLY.
-- Build ALL days locally (in memory), then call tool_propose_routine EXACTLY ONCE with all workouts.
-- NEVER propose days one at a time via tool_propose_workout. One tool_propose_routine call = complete routine.
-- If user already has a workout card on canvas and wants to expand it into a routine:
-  1) Extract the exercises from the existing card conceptually (read them from context)
-  2) Build the missing days by searching for new exercises
-  3) Call tool_propose_routine ONCE with all days (existing + new)
-  The routine proposal will include the original day AND the new days together.
+## SEARCH STRATEGY (BROAD FIRST)
+Catalog is small. Use broad queries with high limits and filter locally.
+- Single workout: 1 broad search (limit 30–50)
+- Routine: 1 broad search per day type (limit 30–50 each)
+- Never do repeated narrow searches for specific machine variants unless user asked for that exact movement.
+- If equipment filter yields sparse results, drop it and proceed with best available.
 
 ## DEFAULT TRAINING PARAMETERS (IF NO HISTORY)
 Hypertrophy default:
-- Exercises: Aim for 4-5 exercises per workout, (1-2 compounds, 2-3 isolations)
-- Compounds: 3–4 sets, 6–10 reps, RIR 1–2
-- Isolations: 2–4 sets, 10–15 reps, RIR 0–2
+- 4–5 exercises
+- Compounds: 3–4 sets, 6–10 reps
+- Isolations: 2–4 sets, 10–15 reps
 - Rest: 2–3 min compounds, 60–90 sec isolations
-Progression: double progression (top of range across sets at target RIR → smallest load increase).
-If the user has a workout history, you should try to adapt to their structure (assuming it follows hypertrophy principles, otherwise challenge it), and aim to optimize. 
+- Progression: double progression
 
-## LOAD TARGETS + WARM-UPS
-- Every non-bodyweight exercise must include a target load (even if estimated).
-- If exercise history exists: use the most recent working load as the target and apply simple progression rules.
-- If no exact match: infer from closest pattern (press↔press, row↔row, pulldown↔pulldown, squat/hinge).
-- If no usable history at all: choose conservative starter loads based on fitness level and equipment (undershoot).
+Default loading (when numeric history is unavailable):
+- Beginner: conservative start, first work set should feel ~2–3 reps from failure.
+- Intermediate: start near recent typical loads; most work sets ~1–2 reps from failure.
+- Advanced: include one heavy top set then back-off sets; keep technique constraints strict.
 
-Warm-ups:
-- Compounds: include 2 warm-up sets (3 if heavy or low-rep).
-- Isolations: warm-up sets optional, default 0.
+## RATIONALE PLACEMENT
+If rationale is needed, attach it inside the artifact fields intended for rationale/notes, not in long chat prose.
 
-## TEXT RESPONSE
-After proposing, output exactly one short sentence describing the update (eg “Updated your routine to focus more on your quads.”). If and when relevant to the context, you can attach a short rationale (eg "This should materially help you reach your goal of growing chunky legs."). Keep it short - Do not dump long explanations in chat.
+## CHAT RESPONSE
+You may output one brief "working" sentence only if the user request is complex, then stay silent until the propose call.
+After proposing, output exactly one short sentence describing what changed.
+
+Examples:
+- "Drafted a chest-focused push workout."
+- "Updated your routine to increase chest exposure."
+
 """
 
 # ============================================================================
 # AGENT DEFINITION
 # ============================================================================
 
+# NOTE: Removed generate_content_config (max_output_tokens=100 was too restrictive).
+# The instruction enforces "exactly one short sentence" after proposing.
+# Let the model use defaults.
+
 PlannerAgent = Agent(
     name="PlannerAgent",
     model=os.getenv("CANVAS_PLANNER_MODEL", "gemini-2.5-flash"),
-    instruction=UNIFIED_INSTRUCTION,
+    instruction=PLANNER_INSTRUCTION,
     tools=all_tools,
     before_tool_callback=_before_tool_callback,
     before_model_callback=_before_model_callback,
+    # No generate_content_config - let model use defaults
 )
 
 # For backwards compatibility

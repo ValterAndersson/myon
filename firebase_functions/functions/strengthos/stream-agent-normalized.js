@@ -9,6 +9,10 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
+// Agent version - MUST MATCH initialize-session.js
+// When this changes, all existing sessions become stale
+const AGENT_VERSION = '2.6.0'; // Session-canvas lifecycle binding
+
 // ============================================================================
 // GCP AUTH TOKEN CACHE (1hr TTL - tokens are valid for ~1hr)
 // ============================================================================
@@ -53,6 +57,12 @@ const TOOL_LABELS = {
   tool_manage_routine: 'Updating routine',
   tool_ask_user: 'Asking question',
   tool_send_message: 'Sending message',
+  // Analysis agent tools
+  tool_get_analytics_features: 'Analyzing training data',
+  tool_get_user_exercises_by_muscle: 'Finding your exercises',
+  // Coach agent tools  
+  tool_get_training_context: 'Loading training context',
+  tool_get_exercise_details: 'Looking up exercise',
   // Legacy tools (v1.0 - deprecated)
   tool_set_context: 'Setting up',
   tool_record_user_info: 'Recording information',
@@ -186,6 +196,16 @@ function describeToolResult(name, summary = '', args = {}) {
       return 'Plan created';
     case 'tool_publish_workout_plan':
       return 'Plan published';
+    // Analysis agent tools
+    case 'tool_get_analytics_features':
+      return 'Training data analyzed';
+    case 'tool_get_user_exercises_by_muscle':
+      return 'Exercises found';
+    // Coach agent tools
+    case 'tool_get_training_context':
+      return 'Context loaded';
+    case 'tool_get_exercise_details':
+      return 'Exercise details loaded';
     default:
       return summary || 'Complete';
   }
@@ -345,8 +365,14 @@ function transformToIOSEvent(adkEvent) {
       eventStartTimes.delete(toolResultKey);
       toolArgsCache.delete(toolResultKey);
       
-      // Use describeToolResult for richer completion text
-      const resultText = describeToolResult(toolName, adkEvent.summary || '', cachedArgs);
+      // === SINGLE SOURCE OF TRUTH: Use _display.complete if provided by tool ===
+      // Fall back to describeToolResult for legacy tools without _display
+      const resultText = adkEvent.displayText || describeToolResult(toolName, adkEvent.summary || '', cachedArgs);
+      
+      // Add phase to metadata if provided by tool
+      if (adkEvent.phase) {
+        metadata.phase = adkEvent.phase;
+      }
       
       return {
         ...base,
@@ -355,7 +381,8 @@ function transformToIOSEvent(adkEvent) {
           tool: toolName,
           tool_name: toolName,
           result: adkEvent.summary || 'Complete',
-          text: resultText
+          text: resultText,
+          phase: adkEvent.phase || null,
         },
         metadata
       };
@@ -832,22 +859,41 @@ async function streamAgentNormalizedHandler(req, res) {
               const resp = p.function_response.response;
               let summary = '';
               let parsedResponse = null;
+              let displayText = null;
+              let phase = null;
+              
               try {
                 parsedResponse = typeof resp === 'string' ? JSON.parse(resp) : resp;
-                // Handle various response formats
-                if (Array.isArray(parsedResponse)) {
-                  // Direct array response (e.g., tool_search_exercises returns a list)
-                  summary = `items: ${parsedResponse.length}`;
-                } else if (parsedResponse && typeof parsedResponse === 'object') {
-                  if (Array.isArray(parsedResponse.data)) summary = `items: ${parsedResponse.data.length}`;
-                  else if (Array.isArray(parsedResponse.items)) summary = `items: ${parsedResponse.items.length}`;
-                  else if (Array.isArray(parsedResponse.sessions)) summary = `sessions: ${parsedResponse.sessions.length}`;
-                  else if (Array.isArray(parsedResponse.templates)) summary = `templates: ${parsedResponse.templates.length}`;
-                  else if (Array.isArray(parsedResponse.workouts)) summary = `workouts: ${parsedResponse.workouts.length}`;
-                  else if (Array.isArray(parsedResponse.exercises)) summary = `items: ${parsedResponse.exercises.length}`;
+                
+                // === NEW: Extract _display metadata from tool result (single source of truth) ===
+                if (parsedResponse && parsedResponse._display) {
+                  const display = parsedResponse._display;
+                  displayText = display.complete || null;
+                  phase = display.phase || null;
+                  logger.debug('[streamAgentNormalized] Found _display metadata', { 
+                    tool: name, 
+                    displayText, 
+                    phase 
+                  });
+                }
+                
+                // Fallback: Handle various response formats for legacy tools without _display
+                if (!displayText) {
+                  if (Array.isArray(parsedResponse)) {
+                    summary = `items: ${parsedResponse.length}`;
+                  } else if (parsedResponse && typeof parsedResponse === 'object') {
+                    if (Array.isArray(parsedResponse.data)) summary = `items: ${parsedResponse.data.length}`;
+                    else if (Array.isArray(parsedResponse.items)) summary = `items: ${parsedResponse.items.length}`;
+                    else if (Array.isArray(parsedResponse.sessions)) summary = `sessions: ${parsedResponse.sessions.length}`;
+                    else if (Array.isArray(parsedResponse.templates)) summary = `templates: ${parsedResponse.templates.length}`;
+                    else if (Array.isArray(parsedResponse.workouts)) summary = `workouts: ${parsedResponse.workouts.length}`;
+                    else if (Array.isArray(parsedResponse.exercises)) summary = `items: ${parsedResponse.exercises.length}`;
+                  }
                 }
               } catch (_) {}
-              sse.write({ type: 'tool_result', name, summary });
+              
+              // Pass displayText and phase to tool_result so transformToIOSEvent can use them
+              sse.write({ type: 'tool_result', name, summary, displayText, phase });
               
               if (parsedResponse && Array.isArray(parsedResponse.events)) {
                 for (const evt of parsedResponse.events) {

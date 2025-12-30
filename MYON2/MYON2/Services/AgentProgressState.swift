@@ -11,10 +11,11 @@ public final class AgentProgressState: ObservableObject {
     public enum Stage: Int, Comparable, CaseIterable {
         case idle = 0
         case understanding = 1   // Fetching profile, context
-        case searching = 2       // Searching exercises
-        case building = 3        // Creating workout plan
-        case finalizing = 4      // Publishing cards
-        case complete = 5
+        case searching = 2       // Searching exercises, data
+        case analyzing = 3       // Analyzing workout data (analysis agent)
+        case building = 4        // Creating workout plan
+        case finalizing = 5      // Publishing cards
+        case complete = 6
         
         public static func < (lhs: Stage, rhs: Stage) -> Bool {
             lhs.rawValue < rhs.rawValue
@@ -26,6 +27,7 @@ public final class AgentProgressState: ObservableObject {
             case .idle: return ""
             case .understanding: return "Understanding request"
             case .searching: return "Finding exercises"
+            case .analyzing: return "Analyzing data"
             case .building: return "Building plan"
             case .finalizing: return "Finalizing"
             case .complete: return ""
@@ -38,9 +40,23 @@ public final class AgentProgressState: ObservableObject {
             case .idle: return nil
             case .understanding: return "person.circle"
             case .searching: return "magnifyingglass"
+            case .analyzing: return "chart.bar"
             case .building: return "hammer"
             case .finalizing: return "checkmark.circle"
             case .complete: return nil
+            }
+        }
+        
+        /// Create a stage from a server-provided phase string
+        public static func from(phaseString: String) -> Stage? {
+            switch phaseString.lowercased() {
+            case "understanding": return .understanding
+            case "searching": return .searching
+            case "analyzing": return .analyzing
+            case "building": return .building
+            case "finalizing": return .finalizing
+            case "complete": return .complete
+            default: return nil
             }
         }
     }
@@ -122,8 +138,17 @@ public final class AgentProgressState: ObservableObject {
     }
     
     /// Advance using a tool name. Unknown tools are ignored.
+    /// Falls back to tool mapping if server doesn't provide phase.
     public func advance(with toolName: String) {
         if let stage = Self.stage(for: toolName) {
+            advance(to: stage)
+        }
+    }
+    
+    /// Advance using a server-provided phase string.
+    /// This is the preferred method when the server provides _display.phase.
+    public func advance(toPhase phaseString: String) {
+        if let stage = Stage.from(phaseString: phaseString) {
             advance(to: stage)
         }
     }
@@ -154,8 +179,9 @@ public final class AgentProgressState: ObservableObject {
     public var progressFraction: Double {
         switch currentStage {
         case .idle: return 0.0
-        case .understanding: return 0.2
-        case .searching: return 0.4
+        case .understanding: return 0.15
+        case .searching: return 0.35
+        case .analyzing: return 0.5
         case .building: return 0.7
         case .finalizing: return 0.9
         case .complete: return 1.0

@@ -12,6 +12,7 @@ const inlineInfoSchema = require('./schemas/card_types/inline_info.schema.json')
 const proposalGroupSchema = require('./schemas/card_types/proposal_group.schema.json');
 const routineOverviewSchema = require('./schemas/card_types/routine_overview.schema.json');
 const routineSummarySchema = require('./schemas/card_types/routine_summary.schema.json');
+const analysisSummarySchema = require('./schemas/card_types/analysis_summary.schema.json');
 ajv.addSchema(sessionPlanSchema);
 ajv.addSchema(coachProposalSchema);
 ajv.addSchema(visualizationSchema);
@@ -23,6 +24,7 @@ ajv.addSchema(inlineInfoSchema);
 ajv.addSchema(proposalGroupSchema);
 ajv.addSchema(routineOverviewSchema);
 ajv.addSchema(routineSummarySchema);
+ajv.addSchema(analysisSummarySchema);
 
 // --- Action schema (Phase 1 supported types) ---
 const actionSchema = {
@@ -306,6 +308,11 @@ const cardInputSchema = {
     {
       if: { properties: { type: { const: 'routine_summary' } } },
       then: { properties: { content: { $ref: routineSummarySchema.$id } } }
+    }
+    ,
+    {
+      if: { properties: { type: { const: 'analysis_summary' } } },
+      then: { properties: { content: { $ref: analysisSummarySchema.$id } } }
     }
   ]
 };

@@ -331,3 +331,49 @@ class CanvasFunctionsClient:
             "userId": user_id,
             "routineId": routine_id,
         })
+
+    # ============================================================================
+    # Analytics APIs (for Analysis Agent)
+    # ============================================================================
+
+    def get_analytics_features(
+        self,
+        user_id: str,
+        *,
+        mode: str = "weekly",
+        weeks: int = 8,
+        exercise_ids: Optional[List[str]] = None,
+        muscles: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Get analytics features for analysis agent.
+        
+        Fetches time series and rollups for progress analysis.
+        
+        Args:
+            user_id: User ID
+            mode: "weekly" (default), "week", "range", or "daily"
+            weeks: Number of weeks to fetch (1-52, default 8)
+            exercise_ids: Optional list of exercise IDs for per-exercise series
+            muscles: Optional list of muscle names for per-muscle series
+            
+        Returns:
+            {
+                userId, mode, period_weeks, weekIds,
+                rollups: [{ id, total_sets, total_reps, total_weight, 
+                           intensity: { hard_sets_total, load_per_muscle, ... },
+                           fatigue: { muscles, systemic },
+                           summary: { muscle_groups, muscles } }],
+                series_muscle: { [muscle]: [{ week, sets, volume, hard_sets, load }] },
+                series_exercise: { [exerciseId]: { days, e1rm, vol, e1rm_slope, vol_slope } }
+            }
+        """
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "mode": mode,
+            "weeks": weeks,
+        }
+        if exercise_ids:
+            body["exerciseIds"] = exercise_ids[:50]  # API limit
+        if muscles:
+            body["muscles"] = muscles[:50]  # API limit
+        return self._http.post("getAnalyticsFeatures", body)

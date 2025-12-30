@@ -2,24 +2,128 @@
   "$id": "https://myon.dev/schemas/canvas/card_types/visualization.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "additionalProperties": true,
-  "required": ["chart_type", "spec_format"],
+  "additionalProperties": false,
+  "required": ["chart_type", "title"],
   "properties": {
-    "chart_type": { "type": "string", "enum": ["line", "bar", "table", "heatmap", "sparkline"] },
-    "spec_format": { "type": "string", "enum": ["vega_lite"] },
-    "spec": { "type": "object" },
-    "dataset_inline": { "type": "object" },
-    "dataset_ref": {
+    "chart_type": {
+      "type": "string",
+      "enum": ["line", "bar", "table"],
+      "description": "Chart type: line (time series), bar (comparisons), table (ranked lists)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Chart title, e.g., 'Squat e1RM Trend'"
+    },
+    "subtitle": {
+      "type": "string",
+      "description": "Optional subtitle, e.g., 'Last 8 weeks'"
+    },
+    "data": {
       "type": "object",
+      "additionalProperties": false,
+      "description": "Chart data payload - structure varies by chart_type",
       "properties": {
-        "uri": { "type": "string" },
-        "format": { "type": "string", "enum": ["parquet", "json", "csv"] },
-        "bytes": { "type": "integer", "minimum": 0 },
-        "sha256": { "type": "string" }
+        "x_axis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "key": { "type": "string", "description": "Data key for x values" },
+            "label": { "type": "string", "description": "Axis label, e.g., 'Week'" },
+            "type": { "type": "string", "enum": ["date", "number", "category"] }
+          }
+        },
+        "y_axis": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "key": { "type": "string", "description": "Data key for y values" },
+            "label": { "type": "string", "description": "Axis label, e.g., 'e1RM (kg)'" },
+            "unit": { "type": "string", "description": "Unit suffix, e.g., 'kg', 'sets'" },
+            "min": { "type": "number" },
+            "max": { "type": "number" }
+          }
+        },
+        "series": {
+          "type": "array",
+          "description": "Data series for line/bar charts",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "points"],
+            "properties": {
+              "name": { "type": "string", "description": "Series name, e.g., 'Squat'" },
+              "color": {
+                "type": "string",
+                "enum": ["primary", "secondary", "success", "warning", "danger", "neutral"],
+                "description": "Color token from design system"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Data point with x_axis.key and y_axis.key values"
+                }
+              }
+            }
+          }
+        },
+        "rows": {
+          "type": "array",
+          "description": "Table rows for table chart_type",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rank", "label", "value"],
+            "properties": {
+              "rank": { "type": "integer", "minimum": 1 },
+              "label": { "type": "string", "description": "Row label, e.g., 'Back'" },
+              "value": { "type": ["number", "string"], "description": "Primary value" },
+              "delta": { "type": "number", "description": "Change from baseline" },
+              "trend": { "type": "string", "enum": ["up", "down", "flat"] },
+              "sublabel": { "type": "string", "description": "Secondary info" }
+            }
+          }
+        },
+        "columns": {
+          "type": "array",
+          "description": "Column definitions for table chart_type",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "label"],
+            "properties": {
+              "key": { "type": "string" },
+              "label": { "type": "string" },
+              "width": { "type": "string", "enum": ["narrow", "medium", "wide"] },
+              "align": { "type": "string", "enum": ["left", "center", "right"] }
+            }
+          }
+        }
       }
     },
-    "params": { "type": "object" }
+    "annotations": {
+      "type": "array",
+      "description": "Optional chart annotations",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "enum": ["trend_line", "threshold", "marker", "range"] },
+          "label": { "type": "string" },
+          "value": { "type": "number" },
+          "slope": { "type": "number", "description": "For trend_line: slope value" },
+          "color": { "type": "string", "enum": ["primary", "secondary", "success", "warning", "danger", "neutral"] }
+        }
+      }
+    },
+    "metric_key": {
+      "type": "string",
+      "description": "Reference to the metric being visualized, e.g., 'e1rm_squat', 'volume_by_muscle'"
+    },
+    "empty_state": {
+      "type": "string",
+      "description": "Message to show when no data available"
+    }
   }
 }
-
-

@@ -50,9 +50,11 @@ struct ThoughtTrack: Identifiable, Equatable {
         let toolSteps = steps.filter { $0.kind == .tool && $0.isComplete }
         if let lastTool = toolSteps.last {
             let text = lastTool.text
-            // Check for publish/workout/routine to make meaningful summary
+            // Check for publish/workout/routine/analysis to make meaningful summary
             if text.lowercased().contains("routine") {
                 return String(format: "Crafted routine (%.1fs)", totalDuration)
+            } else if text.lowercased().contains("insights") || text.lowercased().contains("analysis") {
+                return String(format: "Analyzed progress (%.1fs)", totalDuration)
             } else if text.lowercased().contains("workout") || text.lowercased().contains("publish") {
                 return String(format: "Crafted workout (%.1fs)", totalDuration)
             }
@@ -296,14 +298,15 @@ extension ThoughtTrack {
                 let toolName = event.event.content?["tool"]?.value as? String 
                     ?? event.event.content?["tool_name"]?.value as? String 
                     ?? "tool"
-                let args = event.event.content?["args"]?.value
-                let argsDetail = formatToolArgs(toolName, args: args)
+                // Use server-provided text directly (single source of truth)
+                let displayText = event.event.content?["text"]?.value as? String 
+                    ?? humanReadableToolName(toolName)  // Fallback for legacy tools
                 
                 steps.append(ThoughtStep(
                     id: event.id,
                     kind: .tool,
-                    text: humanReadableToolName(toolName),
-                    detail: argsDetail,
+                    text: displayText,
+                    detail: nil,  // Server provides context in the text itself
                     duration: nil,
                     isComplete: false,
                     timestamp: timestamp
@@ -313,25 +316,19 @@ extension ThoughtTrack {
                 let toolName = event.event.content?["tool"]?.value as? String 
                     ?? event.event.content?["tool_name"]?.value as? String 
                     ?? "tool"
+                // Use server-provided text directly (single source of truth)
+                let displayText = event.event.content?["text"]?.value as? String 
+                    ?? humanReadableToolName(toolName)  // Fallback for legacy tools
                 let duration = event.event.content?["duration_s"]?.value as? Double
-                let result = event.event.content?["result"]?.value
-                let resultDetail = formatToolResult(toolName, result: result)
                 
-                // Find and update the matching toolRunning step
-                let humanName = humanReadableToolName(toolName)
-                if let idx = steps.lastIndex(where: { $0.kind == .tool && $0.text == humanName && !$0.isComplete }) {
+                // Find and update the matching toolRunning step by tool name
+                if let idx = steps.lastIndex(where: { $0.kind == .tool && !$0.isComplete }) {
                     let old = steps[idx]
-                    // Build combined detail with args and result
-                    var detail = old.detail ?? ""
-                    if let rd = resultDetail, !rd.isEmpty {
-                        if !detail.isEmpty { detail += " → " }
-                        detail += rd
-                    }
                     steps[idx] = ThoughtStep(
                         id: old.id,
                         kind: .tool,
-                        text: old.text,
-                        detail: detail.isEmpty ? nil : detail,
+                        text: displayText,  // Use complete text from server
+                        detail: nil,
                         duration: duration,
                         isComplete: true,
                         timestamp: timestamp
@@ -342,8 +339,8 @@ extension ThoughtTrack {
                     steps.append(ThoughtStep(
                         id: event.id,
                         kind: .tool,
-                        text: humanName,
-                        detail: resultDetail,
+                        text: displayText,
+                        detail: nil,
                         duration: duration,
                         isComplete: true,
                         timestamp: timestamp
@@ -389,6 +386,9 @@ extension ThoughtTrack {
         case "tool_save_workout_as_template": return "Saving template"
         case "tool_create_routine": return "Creating routine"
         case "tool_manage_routine": return "Managing routine"
+        // Analysis Agent tools
+        case "tool_get_analytics_features": return "Analyzing workout data"
+        case "tool_propose_analysis_group": return "Publishing insights"
         default: return name.replacingOccurrences(of: "tool_", with: "").replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -463,6 +463,28 @@ extension ThoughtTrack {
             
         case "tool_get_planning_context":
             return "Loaded"
+        
+        // Analysis Agent tools
+        case "tool_get_analytics_features":
+            if let dict = result as? [String: Any] {
+                if let dq = dict["data_quality"] as? [String: Any] {
+                    let weeks = dq["weeks_with_data"] as? Int ?? 0
+                    let workouts = dq["total_workouts"] as? Int ?? 0
+                    return "\(workouts) workouts over \(weeks) weeks"
+                }
+            }
+            return "Data loaded"
+            
+        case "tool_propose_analysis_group":
+            if let dict = result as? [String: Any] {
+                if let msg = dict["message"] as? String {
+                    return msg
+                }
+                if let status = dict["status"] as? String, status == "published" {
+                    return "Published"
+                }
+            }
+            return "Published"
             
         default:
             return "Complete"

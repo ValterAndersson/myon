@@ -91,8 +91,40 @@ public enum CanvasMapper {
         let modelData: CanvasCardData = {
             switch rawType {
             case "visualization":
-                let t = (content?["chart_type"] as? String) ?? "chart"
-                return .visualization(title: t.capitalized, subtitle: nil)
+                // Try to parse full visualization spec
+                if let content = content,
+                   let chartTypeStr = content["chart_type"] as? String,
+                   let chartType = ChartType(rawValue: chartTypeStr) {
+                    
+                    let title = (content["title"] as? String) ?? "Chart"
+                    let subtitle = content["subtitle"] as? String
+                    
+                    // Parse data
+                    let dataDict = content["data"] as? [String: Any]
+                    let chartData = parseChartData(from: dataDict)
+                    
+                    // Parse annotations
+                    let annotationsArr = content["annotations"] as? [[String: Any]]
+                    let annotations = parseAnnotations(from: annotationsArr)
+                    
+                    let metricKey = content["metric_key"] as? String
+                    let emptyState = content["empty_state"] as? String
+                    
+                    let spec = VisualizationSpec(
+                        chartType: chartType,
+                        title: title,
+                        subtitle: subtitle,
+                        data: chartData,
+                        annotations: annotations,
+                        metricKey: metricKey,
+                        emptyState: emptyState
+                    )
+                    return .visualization(spec: spec)
+                } else {
+                    // Fallback to legacy format
+                    let t = (content?["chart_type"] as? String) ?? "chart"
+                    return .visualizationLegacy(title: t.capitalized, subtitle: nil)
+                }
             case "session_plan":
                 let blocks = (content?["blocks"] as? [[String: Any]]) ?? []
                 let exercises: [PlanExercise] = blocks.compactMap { blk in
@@ -254,6 +286,63 @@ public enum CanvasMapper {
                     revision: revision
                 )
                 return .routineSummary(summaryData)
+            case "analysis_summary":
+                // Parse analysis summary for progress insights from Analysis Agent
+                let headline = (content?["headline"] as? String) ?? "Progress Analysis"
+                
+                // Parse period
+                let period: AnalysisPeriod? = {
+                    guard let periodDict = content?["period"] as? [String: Any] else { return nil }
+                    let weeks = (periodDict["weeks"] as? Int) ?? 8
+                    let end = periodDict["end"] as? String
+                    return AnalysisPeriod(weeks: weeks, end: end)
+                }()
+                
+                // Parse insights
+                let insightsArr = (content?["insights"] as? [[String: Any]]) ?? []
+                let insights: [AnalysisInsight] = insightsArr.enumerated().map { (idx, i) in
+                    AnalysisInsight(
+                        id: (i["id"] as? String) ?? "insight-\(idx)",
+                        category: (i["category"] as? String) ?? "general",
+                        signal: (i["signal"] as? String) ?? "",
+                        trend: (i["trend"] as? String) ?? "stable",
+                        metricKey: i["metric_key"] as? String,
+                        value: i["value"] as? Double,
+                        confidence: i["confidence"] as? String
+                    )
+                }
+                
+                // Parse recommendations
+                let recsArr = (content?["recommendations"] as? [[String: Any]]) ?? []
+                let recommendations: [AnalysisRecommendation] = recsArr.enumerated().map { (idx, r) in
+                    AnalysisRecommendation(
+                        id: (r["id"] as? String) ?? "rec-\(idx)",
+                        priority: (r["priority"] as? Int) ?? 3,
+                        action: (r["action"] as? String) ?? "",
+                        rationale: (r["rationale"] as? String) ?? "",
+                        category: r["category"] as? String
+                    )
+                }
+                
+                // Parse data quality
+                let dataQuality: AnalysisDataQuality? = {
+                    guard let dq = content?["data_quality"] as? [String: Any] else { return nil }
+                    return AnalysisDataQuality(
+                        weeksWithData: (dq["weeks_with_data"] as? Int) ?? 0,
+                        workoutsAnalyzed: (dq["workouts_analyzed"] as? Int) ?? 0,
+                        confidence: (dq["confidence"] as? String) ?? "low",
+                        caveats: dq["caveats"] as? [String]
+                    )
+                }()
+                
+                let summaryData = AnalysisSummaryData(
+                    headline: headline,
+                    period: period,
+                    insights: insights,
+                    recommendations: recommendations,
+                    dataQuality: dataQuality
+                )
+                return .analysisSummary(summaryData)
             case "analysis_task":
                 if let steps = (content?["steps"] as? [[String: Any]]) {
                     let parsed: [AgentStreamStep] = steps.map { s in
@@ -297,6 +386,125 @@ public enum CanvasMapper {
         )
     }
 
+    // MARK: - Chart Data Parsing
+    
+    private static func parseChartData(from dict: [String: Any]?) -> ChartData? {
+        guard let dict = dict else { return nil }
+        
+        // Parse axes
+        let xAxis: ChartAxis? = {
+            guard let axisDict = dict["x_axis"] as? [String: Any] else { return nil }
+            return ChartAxis(
+                key: axisDict["key"] as? String,
+                label: axisDict["label"] as? String,
+                type: axisDict["type"] as? String,
+                unit: axisDict["unit"] as? String,
+                min: axisDict["min"] as? Double,
+                max: axisDict["max"] as? Double
+            )
+        }()
+        
+        let yAxis: ChartAxis? = {
+            guard let axisDict = dict["y_axis"] as? [String: Any] else { return nil }
+            return ChartAxis(
+                key: axisDict["key"] as? String,
+                label: axisDict["label"] as? String,
+                type: axisDict["type"] as? String,
+                unit: axisDict["unit"] as? String,
+                min: axisDict["min"] as? Double,
+                max: axisDict["max"] as? Double
+            )
+        }()
+        
+        // Parse series (for line/bar charts)
+        let series: [ChartSeries]? = {
+            guard let arr = dict["series"] as? [[String: Any]] else { return nil }
+            return arr.map { s in
+                let name = (s["name"] as? String) ?? "Series"
+                let colorStr = s["color"] as? String
+                let color = colorStr.flatMap { ChartColorToken(rawValue: $0) } ?? .primary
+                
+                let pointsArr = (s["points"] as? [[String: Any]]) ?? []
+                let points: [ChartDataPoint] = pointsArr.map { p in
+                    let x: Double = (p["x"] as? Double) ?? (p["x"] as? Int).map { Double($0) } ?? 0
+                    let y: Double = (p["y"] as? Double) ?? (p["y"] as? Int).map { Double($0) } ?? 0
+                    let label = p["label"] as? String
+                    return ChartDataPoint(x: x, y: y, label: label, date: nil)
+                }
+                
+                return ChartSeries(name: name, color: color, points: points)
+            }
+        }()
+        
+        // Parse rows (for tables)
+        let rows: [ChartTableRow]? = {
+            guard let arr = dict["rows"] as? [[String: Any]] else { return nil }
+            return arr.map { r in
+                let rank = (r["rank"] as? Int) ?? 0
+                let label = (r["label"] as? String) ?? ""
+                
+                // Handle flexible value type
+                let value: String
+                let numericValue: Double?
+                if let num = r["value"] as? Double {
+                    value = String(format: "%.1f", num)
+                    numericValue = num
+                } else if let intVal = r["value"] as? Int {
+                    value = String(intVal)
+                    numericValue = Double(intVal)
+                } else {
+                    value = (r["value"] as? String) ?? ""
+                    numericValue = Double(value)
+                }
+                
+                let delta = r["delta"] as? Double
+                let trendStr = r["trend"] as? String
+                let trend = trendStr.flatMap { TrendDirection(rawValue: $0) }
+                let sublabel = r["sublabel"] as? String
+                
+                return ChartTableRow(
+                    rank: rank,
+                    label: label,
+                    value: value,
+                    numericValue: numericValue,
+                    delta: delta,
+                    trend: trend,
+                    sublabel: sublabel
+                )
+            }
+        }()
+        
+        // Parse columns (for tables)
+        let columns: [ChartTableColumn]? = {
+            guard let arr = dict["columns"] as? [[String: Any]] else { return nil }
+            return arr.map { c in
+                ChartTableColumn(
+                    key: (c["key"] as? String) ?? "",
+                    label: (c["label"] as? String) ?? "",
+                    width: c["width"] as? String,
+                    align: c["align"] as? String
+                )
+            }
+        }()
+        
+        return ChartData(
+            xAxis: xAxis,
+            yAxis: yAxis,
+            series: series,
+            rows: rows,
+            columns: columns
+        )
+    }
+    
+    private static func parseAnnotations(from arr: [[String: Any]]?) -> [ChartAnnotation]? {
+        guard let arr = arr, !arr.isEmpty else { return nil }
+        
+        // We can't directly create ChartAnnotation since init(from:) requires a decoder
+        // For now, return nil and we'll handle this later
+        // TODO: Add a direct initializer to ChartAnnotation
+        return nil
+    }
+    
     private static func parseActions(array: Any?) -> [CardAction]? {
         guard let arr = array as? [[String: Any]] else { return nil }
         return arr.compactMap { a in

@@ -13,6 +13,7 @@ enum LogCategory: String {
 struct DebugLogger {
     private static let subsystem = "com.myon.app"
     private static let toggleKey = "debug_logging_enabled"
+    private static let verboseKey = "debug_verbose_enabled"
 
     private static var _enabled: Bool = {
         if let stored = UserDefaults.standard.object(forKey: toggleKey) as? Bool {
@@ -24,12 +25,31 @@ struct DebugLogger {
         return false
         #endif
     }()
+    
+    /// Verbose mode logs HTTP details, full tool payloads, etc.
+    private static var _verbose: Bool = {
+        if let stored = UserDefaults.standard.object(forKey: verboseKey) as? Bool {
+            return stored
+        }
+        return false
+    }()
 
     static var enabled: Bool { _enabled }
+    static var verbose: Bool { _verbose }
 
     static func setEnabled(_ on: Bool) {
         _enabled = on
         UserDefaults.standard.set(on, forKey: toggleKey)
+    }
+    
+    static func setVerbose(_ on: Bool) {
+        _verbose = on
+        UserDefaults.standard.set(on, forKey: verboseKey)
+        if on {
+            print("🔊 VERBOSE MODE ENABLED - Full payloads will be logged")
+        } else {
+            print("🔇 Verbose mode disabled")
+        }
     }
 
     static func log(_ category: LogCategory, _ message: String) {
@@ -134,11 +154,11 @@ struct AgentEventLogger {
             return ("🧠", "THINKING")
         case "thought":
             return ("💭", "THOUGHT")
-        case "tool_running", "tool_started":
+        case "tool_running", "tool_started", "toolrunning":
             return ("⚙️", "TOOL CALL")
-        case "tool_complete", "tool_result":
+        case "tool_complete", "tool_result", "toolcomplete":
             return ("✅", "TOOL RESULT")
-        case "agent_response", "message":
+        case "agent_response", "message", "agentresponse":
             return ("💬", "RESPONSE")
         case "cards_proposed", "card_published":
             return ("📋", "CARDS PUBLISHED")
@@ -152,8 +172,30 @@ struct AgentEventLogger {
             return ("📊", "STATUS")
         case "user_prompt", "user_response":
             return ("👤", "USER")
+        // Routing events (from orchestrator)
+        case "routing", "route", "transfer":
+            return ("🔀", "ROUTING")
         default:
             return ("📌", type.uppercased())
+        }
+    }
+    
+    /// Log routing decision (which agent was selected)
+    static func logRouting(to agent: String, confidence: String? = nil, reason: String? = nil) {
+        let agentIcon: String
+        switch agent.lowercased() {
+        case "coach", "coachagent": agentIcon = "🎓"
+        case "analysis", "analysisagent": agentIcon = "📊"
+        case "planner", "planneragent": agentIcon = "📋"
+        default: agentIcon = "🤖"
+        }
+        
+        print("   🔀 ROUTED → \(agentIcon) \(agent.uppercased())")
+        if let conf = confidence {
+            print("      └─ Confidence: \(conf)")
+        }
+        if let r = reason {
+            print("      └─ Reason: \(r.prefix(80))")
         }
     }
     

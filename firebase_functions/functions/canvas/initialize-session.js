@@ -21,6 +21,10 @@ const db = admin.firestore();
 // Session validity window (30 minutes)
 const SESSION_TTL_MS = 30 * 60 * 1000;
 
+// Agent version - INCREMENT THIS ON EVERY DEPLOY
+// This forces fresh sessions when the agent schema changes
+const AGENT_VERSION = '2.4.0'; // Fix ADK transfer semantics
+
 async function initializeSessionHandler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -49,13 +53,25 @@ async function initializeSessionHandler(req, res) {
     const existingSessionId = userSessionData.sessionId;
     const lastActivity = userSessionData.lastActivity?.toDate?.() || new Date(0);
     const sessionAge = Date.now() - lastActivity.getTime();
+    const storedVersion = userSessionData.agentVersion || 'unknown';
+    
+    // Version mismatch = stale session, force new
+    const versionMismatch = storedVersion !== AGENT_VERSION;
+    if (versionMismatch && existingSessionId) {
+      logger.info('[initializeSession] Version mismatch - invalidating stale session', {
+        oldVersion: storedVersion,
+        newVersion: AGENT_VERSION,
+        oldSessionId: existingSessionId
+      });
+    }
 
-    // Reuse session if valid, recent, and not forcing new
-    if (!forceNew && existingSessionId && sessionAge < SESSION_TTL_MS) {
+    // Reuse session if valid, recent, same version, and not forcing new
+    if (!forceNew && !versionMismatch && existingSessionId && sessionAge < SESSION_TTL_MS) {
       logger.info('[initializeSession] Reusing USER-LEVEL session', {
         sessionId: existingSessionId,
         ageSeconds: Math.round(sessionAge / 1000),
-        purpose
+        purpose,
+        agentVersion: AGENT_VERSION
       });
       
       // Update last activity and link to this canvas
@@ -104,6 +120,7 @@ async function initializeSessionHandler(req, res) {
     const batch = db.batch();
     batch.set(userSessionRef, {
       sessionId,
+      agentVersion: AGENT_VERSION, // Track version for staleness detection
       lastActivity: admin.firestore.FieldValue.serverTimestamp(),
       sessionCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
       currentCanvasId: canvasId,
