@@ -1,3 +1,89 @@
+/**
+ * =============================================================================
+ * stream-agent-normalized.js - SSE Proxy to Vertex AI Agent Engine
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Firebase Function that proxies streaming requests to the Vertex AI Agent Engine.
+ * Transforms raw ADK streaming events into normalized iOS-friendly StreamEvent format.
+ * This is the ONLY entry point for real-time agent communication.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌─────────────────┐       ┌─────────────────────────────┐       ┌────────────────────┐
+ * │ iOS App         │       │ stream-agent-normalized.js  │       │ Vertex AI          │
+ * │                 │       │                             │       │ Agent Engine       │
+ * │ DirectStreaming │──SSE─►│ 1. Auth with Firebase ID    │       │                    │
+ * │ Service         │◄─────│ 2. Get GCP access token     │──────►│ Reasoning Engine   │
+ * │                 │       │ 3. Create/reuse session     │       │ (agentId: 8723...)│
+ * │ Consumes:       │       │ 4. Stream to :streamQuery   │◄──────│                    │
+ * │  toolRunning    │       │ 5. Transform ADK → iOS      │       │ Returns raw ADK    │
+ * │  toolComplete   │       │ 6. Emit normalized SSE      │       │ NDJSON stream      │
+ * │  message        │       │ 7. Write workspace_entries  │       │                    │
+ * │  agentResponse  │       └─────────────────────────────┘       └────────────────────┘
+ * │  thinking       │
+ * │  thought        │
+ * │  status         │
+ * │  error          │
+ * │  done           │
+ * └─────────────────┘
+ *
+ * VERTEX AI ENDPOINTS CALLED:
+ * - :query (create_session) - Create new agent session
+ * - :streamQuery (stream_query) - Stream agent response
+ *
+ * AGENT ID: 8723635205937561600 (Canvas Orchestrator)
+ * PROJECT: myon-53d85
+ * LOCATION: us-central1
+ *
+ * EVENT TRANSFORMATION (ADK → iOS):
+ * | ADK Event         | iOS StreamEvent  | Content                      |
+ * |-------------------|------------------|------------------------------|
+ * | function_call     | toolRunning      | tool name + args             |
+ * | function_response | toolComplete     | tool result + _display text  |
+ * | text (part)       | text_delta       | partial text chunk           |
+ * | text (commit)     | text_commit      | complete text segment        |
+ * | (inferred)        | thinking         | "Analyzing..."               |
+ * | (inferred)        | thought          | thought completion           |
+ * | session created   | status           | session_id                   |
+ * | stream end        | done             | {}                           |
+ * | error             | error            | error message                |
+ *
+ * TOOL DISPLAY LABELS (TOOL_LABELS):
+ * Maps tool names to human-readable labels for UI display.
+ * These are the "Running" labels shown in ThoughtTrackView.
+ * MUST be kept in sync with _display.running values in:
+ * - adk_agent/canvas_orchestrator/app/agents/tools/coach_tools.py
+ * - adk_agent/canvas_orchestrator/app/agents/tools/planner_tools.py
+ *
+ * _DISPLAY METADATA (Single Source of Truth):
+ * Tools can emit _display metadata in their response:
+ *   { _display: { running: "...", complete: "...", phase: "..." } }
+ * If present, complete text is used as the toolComplete label.
+ * See: adk_agent/canvas_orchestrator/app/libs/tools_common/response_helpers.py
+ *
+ * SESSION MANAGEMENT:
+ * - Sessions are stored in: users/{uid}/agent_sessions/{purpose}
+ * - If no sessionId provided, creates new session via :query
+ * - Stale sessions (empty stream) are auto-invalidated
+ * - AGENT_VERSION tracks breaking changes requiring session reset
+ *
+ * WORKSPACE ENTRIES:
+ * Persists events to Firestore for debugging and replay:
+ * - Path: users/{uid}/canvases/{canvasId}/workspace_entries
+ * - Contains: event type, agent, correlation_id, timestamp
+ *
+ * CALLED BY:
+ * - iOS: DirectStreamingService.streamQuery()
+ *   → MYON2/MYON2/Services/DirectStreamingService.swift
+ *
+ * RELATED FILES:
+ * - ./config.js: VERTEX_AI_CONFIG (projectId, location)
+ * - ../canvas/initialize-session.js: Session initialization (shares AGENT_VERSION)
+ * - ../canvas/open-canvas.js: Combined bootstrap + session
+ *
+ * =============================================================================
+ */
+
 const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const { logger } = require('firebase-functions');

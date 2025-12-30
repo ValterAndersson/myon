@@ -3,24 +3,6 @@ import FirebaseFunctions
 // Archived path: Prefer direct HTTP via ApiClient for onRequest endpoints.
 // Keeping limited callable use for legacy features only.
 
-struct WeeklyStatsRecalculationResult: Codable {
-    let success: Bool
-    let message: String
-    let results: WeeklyStatsResults
-}
-
-struct WeeklyStatsResults: Codable {
-    let currentWeek: WeekStatsResult
-    let lastWeek: WeekStatsResult
-}
-
-struct WeekStatsResult: Codable {
-    let weekId: String
-    let success: Bool
-    let workoutCount: Int
-    let error: String?
-}
-
 protocol CloudFunctionServiceProtocol {
     // Exercise operations
     func getExercises() async throws -> [Exercise]
@@ -51,15 +33,6 @@ protocol CloudFunctionServiceProtocol {
     func getWorkout(id: String, userId: String) async throws -> Workout
     func createWorkout(workout: Workout) async throws -> String
     func updateWorkout(id: String, workout: Workout) async throws
-    
-    // StrengthOS operations
-    func createStrengthOSSession(userId: String) async throws -> String
-    func listStrengthOSSessions(userId: String) async throws -> [String]
-    func deleteStrengthOSSession(userId: String, sessionId: String) async throws
-    func queryStrengthOS(message: String, userId: String, sessionId: String?) async throws -> (response: String, sessionId: String)
-    
-    // Analytics operations
-    func manualWeeklyStatsRecalculation() async throws -> WeeklyStatsRecalculationResult
 }
 
 class CloudFunctionService: CloudFunctionServiceProtocol {
@@ -185,101 +158,6 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
         _ = try await callFunction(name: "updateWorkout", data: params)
     }
     
-    // MARK: - StrengthOS Operations
-    
-    // NOTE: Session management functions are deprecated
-    // ADK manages sessions automatically when using queryStrengthOS
-    
-    @available(*, deprecated, message: "ADK manages sessions automatically")
-    func createStrengthOSSession(userId: String) async throws -> String {
-        let params = ["userId": userId]
-        let data = try await callFunction(name: "createStrengthOSSession", data: params)
-        
-        if let jsonDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessionId = jsonDict["sessionId"] as? String {
-            return sessionId
-        }
-        throw NSError(domain: "CloudFunctionService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
-    }
-    
-    @available(*, deprecated, message: "ADK manages sessions automatically")
-    func listStrengthOSSessions(userId: String) async throws -> [String] {
-        let params = ["userId": userId]
-        let data = try await callFunction(name: "listStrengthOSSessions", data: params)
-        
-        if let jsonDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessionIds = jsonDict["sessionIds"] as? [String] {
-            return sessionIds
-        }
-        return []
-    }
-    
-    @available(*, deprecated, message: "ADK manages sessions automatically")
-    func deleteStrengthOSSession(userId: String, sessionId: String) async throws {
-        let params = ["userId": userId, "sessionId": sessionId]
-        _ = try await callFunction(name: "deleteStrengthOSSession", data: params)
-    }
-    
-    func queryStrengthOS(message: String, userId: String, sessionId: String?) async throws -> (response: String, sessionId: String) {
-        // Use the new v2 function that properly handles ADK sessions
-        // Ensure the first message includes the user id so the agent has it in context
-        var params: [String: Any] = [
-            "message": message,
-            "action": "query"
-        ]
-        
-        // Only include sessionId if it's provided
-        if let sessionId = sessionId {
-            params["sessionId"] = sessionId
-        }
-        
-        let data = try await callFunction(name: "queryStrengthOSv2", data: params)
-        
-        if let jsonDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let response = jsonDict["response"] as? String,
-           let returnedSessionId = jsonDict["sessionId"] as? String {
-            return (response: response, sessionId: returnedSessionId)
-        }
-        throw NSError(domain: "CloudFunctionService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
-    }
-    
-    // New method to explicitly create a session
-    func createStrengthOSSessionV2() async throws -> String {
-        let params: [String: Any] = [
-            "action": "createSession"
-        ]
-        
-        let data = try await callFunction(name: "queryStrengthOSv2", data: params)
-        
-        if let jsonDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessionId = jsonDict["sessionId"] as? String {
-            return sessionId
-        }
-        throw NSError(domain: "CloudFunctionService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create session"])
-    }
-    
-    // New method to list all sessions
-    func listStrengthOSSessionsV2() async throws -> [Any] {
-        let params: [String: Any] = [
-            "action": "listSessions"
-        ]
-        
-        let data = try await callFunction(name: "queryStrengthOSv2", data: params)
-        
-        if let jsonDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessions = jsonDict["sessions"] as? [Any] {
-            return sessions
-        }
-        return []
-    }
-    
-    // MARK: - Analytics Operations
-    
-    func manualWeeklyStatsRecalculation() async throws -> WeeklyStatsRecalculationResult {
-        let data = try await callFunction(name: "manualWeeklyStatsRecalculation", data: [:])
-        return try JSONDecoder().decode(WeeklyStatsRecalculationResult.self, from: data)
-    }
-    
     // MARK: - Private Helpers
     
     private func callFunction(name: String, data: [String: Any]) async throws -> Data {
@@ -289,4 +167,4 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
         }
         return jsonData
     }
-} 
+}

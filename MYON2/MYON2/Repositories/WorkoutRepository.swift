@@ -29,13 +29,7 @@ class WorkoutRepository {
     func createWorkout(userId: String, workout: Workout) async throws -> String {
         return try await retry(times: 3, delay: 0.5) { [self] in
             let ref = try await self.db.collection("users").document(userId).collection("workouts").addDocument(from: workout)
-            
-            // Invalidate dashboard cache after successful creation
-            logger.debug("Workout created, invalidating dashboard cache for user: \(userId)")
-            Task {
-                await DashboardServiceManager.shared.invalidateDashboardCache()
-            }
-            
+            logger.debug("Workout created for user: \(userId)")
             return ref.documentID
         }
     }
@@ -43,13 +37,7 @@ class WorkoutRepository {
     func updateWorkout(userId: String, id: String, workout: Workout) async throws {
         try await retry(times: 3, delay: 0.5) { [self] in
             try await self.db.collection("users").document(userId).collection("workouts").document(id).setData(from: workout, merge: true)
-            
-            // Invalidate dashboard cache after successful update
-            logger.debug("Workout updated, invalidating dashboard cache for user: \(userId)")
-            Task {
-                await DashboardServiceManager.shared.invalidateDashboardCache()
-            }
+            logger.debug("Workout updated for user: \(userId)")
         }
     }
 }
-

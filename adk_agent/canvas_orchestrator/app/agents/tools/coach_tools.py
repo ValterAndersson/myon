@@ -1,29 +1,76 @@
 """
-Coach Agent Tools - Education and training principles.
+coach_tools.py - Coach Agent Tool Definitions
 
-Permission Boundary: Read-only. No artifact writes allowed.
-Cannot: Create drafts, modify active workouts, write any artifacts.
+PURPOSE:
+Defines the tool set available to CoachAgent. The Coach handles education,
+training advice, and data analysis - all READ-ONLY operations.
 
-Current Tools (stub):
-- tool_echo_routing: Debug tool for routing validation
+ARCHITECTURE CONTEXT:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COACH AGENT TOOL BOUNDARY                                                   │
+│                                                                             │
+│ ALLOWED ACTIONS (READ-ONLY):                                                │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ TRAINING CONTEXT:                                                       │ │
+│ │  • tool_get_training_context → Aggregated user training state          │ │
+│ │  • tool_get_analytics_features → Volume/frequency/progress metrics     │ │
+│ │  • tool_get_user_profile → User attributes and preferences             │ │
+│ │  • tool_get_recent_workouts → Last N completed workouts                │ │
+│ │                                                                         │ │
+│ │ EXERCISE CATALOG:                                                       │ │
+│ │  • tool_get_user_exercises_by_muscle → User's exercises for muscle     │ │
+│ │  • tool_search_exercises → Global exercise catalog search              │ │
+│ │  • tool_get_exercise_details → Specific exercise info                  │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ NOT ALLOWED (Coach is education/advice only):                               │
+│  • No canvas writes (no tool_propose_workout)                              │
+│  • No routine management (no tool_create_routine)                          │
+│  • No active workout writes (no tool_log_set)                              │
+│                                                                             │
+│ DESIGN PRINCIPLE: Coach provides text responses informed by data.          │
+│ If user wants to CREATE something, orchestrator routes to Planner.        │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-Future Tools:
-- tool_get_user_profile: Read user context
-- tool_get_recent_workouts: Read workout history
-- tool_send_message: Text-only responses
+TOOL IMPLEMENTATIONS:
+Tool functions are defined in coach_agent.py with full implementation.
+COACH_TOOLS is imported as `all_tools` from coach_agent.py.
+
+FIREBASE FUNCTIONS CALLED:
+- get-user.js (via tool_get_user_profile)
+- search-exercises.js (via tool_search_exercises)
+- workouts collection reads (via tool_get_recent_workouts)
+- analytics aggregation (via tool_get_analytics_features)
+
+RELATED FILES:
+- coach_agent.py: Tool implementations and CoachAgent definition
+- planner_tools.py: PlannerAgent tools (artifact creation)
+- copilot_tools.py: CopilotAgent tools (live workout execution)
+
+UNUSED CODE CHECK: ✅ No unused code in this file
+
 """
 
-from google.adk.tools import FunctionTool
-from app.agents.coach_agent import tool_echo_routing
+from app.agents.coach_agent import all_tools as COACH_TOOLS
 
-# Coach has NO write tools - strictly read-only with text responses
-COACH_TOOLS = [
-    FunctionTool(func=tool_echo_routing),
+# Individual tool exports for direct access if needed
+from app.agents.coach_agent import (
+    tool_get_training_context,
+    tool_get_analytics_features,
+    tool_get_user_profile,
+    tool_get_recent_workouts,
+    tool_get_user_exercises_by_muscle,
+    tool_search_exercises,
+    tool_get_exercise_details,
+)
+
+__all__ = [
+    "COACH_TOOLS",
+    "tool_get_training_context",
+    "tool_get_analytics_features",
+    "tool_get_user_profile",
+    "tool_get_recent_workouts",
+    "tool_get_user_exercises_by_muscle",
+    "tool_search_exercises",
+    "tool_get_exercise_details",
 ]
-
-# Future tools to add (all read-only):
-# - tool_get_user_profile (imported from shared tools)
-# - tool_get_recent_workouts (imported from shared tools)
-# - tool_send_message (text response only, no artifacts)
-
-__all__ = ["COACH_TOOLS"]

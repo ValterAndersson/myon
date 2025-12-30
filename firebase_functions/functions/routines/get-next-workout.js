@@ -1,28 +1,67 @@
+/**
+ * =============================================================================
+ * get-next-workout.js - Routine Cursor Resolution
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Determines which template to use for the next workout based on routine rotation.
+ * This is the READ endpoint that agents and iOS use to get the next scheduled workout.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌────────────────────────────────────────────────────────────────────────────┐
+ * │ ROUTINE ROTATION SYSTEM                                                    │
+ * │                                                                            │
+ * │ Routine (3-day PPL):                                                       │
+ * │   template_ids: [push_id, pull_id, legs_id]                               │
+ * │   last_completed_template_id: push_id  (cursor position)                  │
+ * │                                                                            │
+ * │ get-next-workout.js logic:                                                 │
+ * │   1. Find last_completed_template_id in template_ids                       │
+ * │   2. Return template_ids[(lastIndex + 1) % length]                         │
+ * │   3. For above example: returns pull_id                                    │
+ * │                                                                            │
+ * │ After completing pull workout:                                             │
+ * │   workout-routine-cursor.js updates:                                       │
+ * │   last_completed_template_id: pull_id                                      │
+ * │                                                                            │
+ * │ Next call to get-next-workout returns: legs_id                             │
+ * └────────────────────────────────────────────────────────────────────────────┘
+ *
+ * SELECTION METHODS:
+ * - cursor: O(1) lookup using routine.last_completed_template_id
+ * - history_scan: O(N) fallback scanning last 50 workouts
+ * - default_first: No history, start with first template
+ * - fallback_first_available: Referenced template missing, use first valid
+ *
+ * RESPONSE SHAPE:
+ * {
+ *   template: { id, name, exercises, analytics },
+ *   routine: { id, name, template_ids },
+ *   templateIndex: 1,          // Position in rotation (0-based)
+ *   templateCount: 3,          // Total templates in routine
+ *   selectionMethod: "cursor"  // How we determined next template
+ * }
+ *
+ * CALLED BY:
+ * - iOS: RoutinesViewModel.fetchNextWorkout()
+ * - iOS: CanvasService.getNextWorkout()
+ * - Agent: planner_tools.py → tool_get_next_workout()
+ *   → adk_agent/canvas_orchestrator/app/agents/tools/planner_tools.py
+ *
+ * RELATED FILES:
+ * - create-routine-from-draft.js: Creates routines with template_ids
+ * - ../triggers/workout-routine-cursor.js: Updates cursor on completion
+ * - ../active_workout/complete-active-workout.js: Triggers cursor update
+ *
+ * =============================================================================
+ */
+
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
 
 const db = new FirestoreHelper();
-
-/**
- * Firebase Function: Get Next Workout
- * 
- * Determines which template to use for the next workout based on routine rotation.
- * 
- * Algorithm:
- * 1. Get active routine from user.activeRoutineId
- * 2. Primary: Use cursor fields (last_completed_template_id) for O(1) lookup
- * 3. Fallback: Scan last N workouts and find matching source_template_id
- * 4. Return the next template in rotation order
- * 
- * Deterministic fallback rules:
- * - No active routine → return null with reason
- * - Empty template_ids → return null with reason  
- * - No matching history → return first template
- * - Last template removed → return first template
- * - Normal case → return template_ids[(lastIndex + 1) % length]
- */
 async function getNextWorkoutHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
   const userId = req.auth?.uid || req.query.userId || req.body?.userId;

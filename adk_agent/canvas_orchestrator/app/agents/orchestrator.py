@@ -1,12 +1,80 @@
 """
-Orchestrator Agent - Intent classification and routing.
+orchestrator.py - Intent Classification and Multi-Agent Routing
 
-Design principles:
+PURPOSE:
+The orchestrator is the root agent that receives ALL user messages and routes
+them to the appropriate specialist agent. It never responds directly to users.
+
+ARCHITECTURE CONTEXT:
+┌────────────────────────────────────────────────────────────────────────────┐
+│                          VERTEX AI AGENT ENGINE                            │
+│                                                                            │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │ Orchestrator (this file)                                           │  │
+│   │  - Receives: (context: canvas_id=X user_id=Y corr=Z) message       │  │
+│   │  - Classifies intent using rules, then LLM fallback                │  │
+│   │  - Uses ADK transfer_to_agent mechanism to route                   │  │
+│   │                                                                     │  │
+│   │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐              │  │
+│   │   │ CoachAgent  │   │ PlannerAgent│   │ CopilotAgent│              │  │
+│   │   │             │   │             │   │             │              │  │
+│   │   │ Education,  │   │ Create/edit │   │ Live workout│              │  │
+│   │   │ analysis,   │   │ routines,   │   │ execution,  │              │  │
+│   │   │ progress    │   │ workouts,   │   │ set logging,│              │  │
+│   │   │ review      │   │ templates   │   │ next set    │              │  │
+│   │   └─────────────┘   └─────────────┘   └─────────────┘              │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+           ▲                                    │
+           │ SSE stream                         │ Tool calls
+           │                                    ▼
+┌──────────────────────┐           ┌──────────────────────────────┐
+│ stream-agent-        │           │ Firebase Functions           │
+│ normalized.js        │◄─────────►│ (via client.py)             │
+│ (Firebase Function)  │           └──────────────────────────────┘
+└──────────────────────┘
+
+ROUTING DECISION FLOW:
+1. Message arrives with context prefix
+2. _auto_parse_context() extracts canvas_id, user_id, correlation_id
+3. classify_intent() runs:
+   a. Rule-based patterns (RULE_PATTERNS) - HIGH priority, deterministic
+   b. Metric words gate (first_person + metrics) - routes to Coach
+   c. Creation gate (create_verb + artifact) - routes to Planner
+   d. LLM fallback (Gemini Flash) - for ambiguous messages
+4. _apply_safety_reroute() checks if target has required tools
+5. tool_route_to_agent() returns RoutingDecision for observability
+6. ADK transfers to sub_agent (Coach, Planner, or Copilot)
+
+INTENT TAXONOMY:
+| Intent            | Target Agent | Example                           |
+|-------------------|--------------|-----------------------------------|
+| COACH_GENERAL     | Coach        | "What's the best rep range?"      |
+| ANALYZE_PROGRESS  | Coach        | "How's my chest progress?"        |
+| PLAN_WORKOUT      | Planner      | "Create a push workout"           |
+| PLAN_ROUTINE      | Planner      | "Build me a PPL program"          |
+| EDIT_PLAN         | Planner      | "Add more volume to that"         |
+| NEXT_WORKOUT      | Copilot      | "Start my workout"                |
+| EXECUTE_WORKOUT   | Copilot      | "Log that set" / "Next set"       |
+
+DESIGN PRINCIPLES:
 - Rules first, LLM fallback only when necessary
 - Structured routing decisions for observability
-- No artifact writes - routing only
-- Maintains session mode state (computed per-turn, not persisted)
-- Safety re-route: If target agent lacks tools for request, fallback to Planner/Coach
+- No artifact writes - routing only (agents handle writes)
+- Safety re-route: If target agent lacks tools for request, fallback
+- Conversation history tracking for context-aware LLM routing
+
+RELATED FILES:
+- coach_agent.py: Education, analysis, progress review
+- planner_agent.py: Artifact creation (routines, templates, workouts)
+- copilot_agent.py: Live workout execution
+- shared_voice.py: Common voice/personality for all agents
+- tools/coach_tools.py, planner_tools.py, copilot_tools.py: Agent tools
+
+CALLED BY:
+- Vertex AI Agent Engine via :streamQuery (from stream-agent-normalized.js)
+
 """
 
 from __future__ import annotations

@@ -1,6 +1,493 @@
-## Firestore Data Model (Current State)
+# Firestore Schema & API Reference
 
-This document describes the current Firestore structure, collections, subcollections, document shapes, security posture, and indexes as implemented across the Firebase Functions and the iOS app. It reflects the live schema implied by code, not an idealized design. Field names and nesting match production usage observed in the repository.
+> **Document Purpose**: Complete data model, API endpoint documentation, and event schemas for the MYON platform. Written for LLM/agentic coding agents.
+>
+> This document describes the current Firestore structure, collections, subcollections, document shapes, security posture, indexes, AND comprehensive API endpoint documentation with request/response formats.
+
+---
+
+## Table of Contents
+
+1. [API Reference - HTTPS Endpoints](#api-reference---https-endpoints)
+2. [Streaming API - SSE Events](#streaming-api---sse-events)
+3. [Firestore Data Model](#firestore-data-model-current-state)
+4. [Security Rules](#security-rules-firestorerules)
+5. [Automatic Mutations](#automatic-data-mutations-and-background-processes)
+6. [Self-Healing Validation](#self-healing-validation-responses-for-agents)
+
+---
+
+## API Reference - HTTPS Endpoints
+
+All endpoints are Firebase HTTPS Functions. Auth is via Bearer token (Firebase Auth ID token) unless noted as "API Key".
+
+### Canvas Endpoints
+
+#### `POST applyAction`
+
+Single-writer reducer for all canvas mutations. All state changes to a canvas flow through this endpoint.
+
+**Auth**: Bearer token (requireFlexibleAuth)
+
+**Request**:
+```javascript
+{
+  canvasId: string,              // Required
+  expected_version?: number,     // Optimistic concurrency check
+  action: {
+    type: 'ADD_INSTRUCTION' | 'ACCEPT_PROPOSAL' | 'REJECT_PROPOSAL' | 
+          'ACCEPT_ALL' | 'REJECT_ALL' | 'ADD_NOTE' | 'LOG_SET' | 
+          'SWAP' | 'ADJUST_LOAD' | 'REORDER_SETS' | 'PAUSE' | 
+          'RESUME' | 'COMPLETE' | 'UNDO' | 'PIN_DRAFT' | 
+          'DISMISS_DRAFT' | 'SAVE_ROUTINE',
+    idempotency_key: string,     // Required - prevents duplicate actions
+    card_id?: string,            // For proposal/draft actions
+    payload?: {                  // Type-specific payload
+      text?: string,             // ADD_INSTRUCTION, ADD_NOTE
+      group_id?: string,         // ACCEPT_ALL, REJECT_ALL
+      actual?: { reps, rir, weight? },  // LOG_SET
+      exercise_id?: string,      // LOG_SET, SWAP, REORDER_SETS
+      set_index?: number,        // LOG_SET
+      replacement_exercise_id?: string,  // SWAP
+      workout_id?: string,       // SWAP, ADJUST_LOAD, REORDER_SETS
+      delta_kg?: number,         // ADJUST_LOAD
+      order?: number[],          // REORDER_SETS
+      set_active?: boolean,      // SAVE_ROUTINE (default true)
+    }
+  }
+}
+```
+
+**Response (Success)**:
+```javascript
+{
+  success: true,
+  state: { phase: string, version: number, ... },
+  changed_cards: [{ card_id: string, status: string }],
+  up_next_delta: [{ op: 'add' | 'remove', card_id: string }],
+  version: number
+}
+```
+
+**Response (SAVE_ROUTINE)**:
+```javascript
+{
+  success: true,
+  routine_id: string,
+  template_ids: string[],
+  is_update: boolean,
+  summary_card_id: string
+}
+```
+
+**Error Codes**:
+| Code | HTTP | Description |
+|------|------|-------------|
+| `STALE_VERSION` | 409 | Version mismatch - refetch and retry |
+| `PHASE_GUARD` | 409 | Action not allowed in current phase |
+| `SCIENCE_VIOLATION` | 400 | Invalid reps/rir values |
+| `UNDO_NOT_POSSIBLE` | 409 | No reversible action to undo |
+| `NOT_FOUND` | 404 | Card not found |
+
+---
+
+#### `POST proposeCards`
+
+Agent card proposals (service-only). Creates cards with `status='proposed'` and updates up_next queue.
+
+**Auth**: API Key (withApiKey)
+
+**Request**:
+```javascript
+{
+  userId: string,
+  canvasId: string,
+  cards: [{
+    type: 'session_plan' | 'routine_summary' | 'visualization' | 
+          'analysis_summary' | 'clarify_questions' | 'list' | ...,
+    lane: 'workout' | 'analysis' | 'system',
+    content: { ... },           // Type-specific, Ajv-validated
+    refs?: { topic_key?: string, ... },
+    meta?: { groupId?, draftId?, revision? },
+    priority?: number,          // Higher = shown first (default 0)
+    ttl?: number,               // Time-to-live in minutes (default 60)
+    actions?: [{ key, label, ... }],
+    menuItems?: [{ key, label, ... }]
+  }]
+}
+```
+
+**Response (Success)**:
+```javascript
+{
+  success: true,
+  card_ids: string[],
+  up_next_added: number
+}
+```
+
+**Response (Validation Failure)**:
+```javascript
+{
+  success: false,
+  error: "Schema validation failed",
+  details: {
+    attempted: { /* original payload */ },
+    errors: [{ path, message, keyword, params }],
+    hint: "Missing required property 'target' at /cards/0/content/...",
+    expected_schema: { /* JSON Schema */ }
+  }
+}
+```
+
+---
+
+#### `POST bootstrapCanvas`
+
+Find or create canvas for (userId, purpose). Returns existing canvas if found.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  purpose?: string  // Canvas purpose identifier (default 'chat')
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  canvasId: string,
+  created: boolean
+}
+```
+
+---
+
+#### `POST openCanvas`
+
+Optimized bootstrap + session initialization in one call. Preferred over separate bootstrap + initializeSession.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  purpose?: string
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  canvasId: string,
+  sessionId: string,
+  created: boolean,
+  sessionReused: boolean
+}
+```
+
+---
+
+### Active Workout Endpoints
+
+#### `POST startActiveWorkout`
+
+Initialize workout from template. Creates active_workout document.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  template_id?: string,         // Optional - workout from template
+  source_routine_id?: string,   // Optional - links to routine for cursor updates
+  plan?: {                      // Optional - direct plan
+    blocks: [{
+      exercise_id: string,
+      sets: [{ reps, rir, weight? }]
+    }]
+  }
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  workout_id: string,
+  exercises: [{ exercise_id, name, sets: [...] }],
+  totals: { sets: 0, reps: 0, volume: 0 }
+}
+```
+
+---
+
+#### `POST logSet`
+
+Record completed set during active workout.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  workout_id: string,
+  exercise_id: string,
+  set_index: number,
+  actual: {
+    reps: number,    // >= 0
+    rir: number,     // 0-5
+    weight?: number  // kg
+  }
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  set_index: number,
+  totals: { sets, reps, volume, stimulus_score }
+}
+```
+
+---
+
+#### `POST completeActiveWorkout`
+
+Archive workout and update analytics. Copies to `workouts` collection and marks active_workout as completed.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  workout_id: string,
+  notes?: string
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  archived_workout_id: string,
+  analytics: { ... }
+}
+```
+
+---
+
+### Routine Endpoints
+
+#### `GET getNextWorkout` (v2 onCall)
+
+Deterministic next-template selection from active routine using cursor.
+
+**Auth**: Firebase callable (authenticated)
+
+**Request**:
+```javascript
+{
+  // No parameters - uses activeRoutineId from user doc
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  template: { id, name, exercises: [...] },
+  routine: { id, name, template_ids },
+  index: number,           // Position in template_ids array
+  selection_method: 'cursor' | 'history_scan' | 'first_template'
+}
+```
+
+---
+
+#### `POST getPlanningContext`
+
+Composite read for agent planning. Returns user profile, routine, templates, and recent workouts in one call.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  includeTemplates?: boolean,        // Include all routine templates (default true)
+  includeTemplateExercises?: boolean, // Include full exercise data (default false)
+  includeRecentWorkouts?: boolean,   // Include workout history (default false)
+  workoutLimit?: number              // Recent workouts limit (default 5)
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  user: { uid, name, timezone, fitness_goal, ... },
+  activeRoutine: { id, name, template_ids, ... } | null,
+  nextWorkout: { template, index, selection_method } | null,
+  templates: [{ id, name, exercises: [...] }] | null,
+  recentWorkouts: [{ id, name, end_time, exercises }] | null
+}
+```
+
+---
+
+### Analytics Endpoints
+
+#### `POST getAnalyticsFeatures`
+
+Compact analytics features for LLM/agent consumption. Sublinear data access via pre-computed rollups and series.
+
+**Auth**: Bearer token or API Key
+
+**Request**:
+```javascript
+{
+  userId: string,
+  mode: 'weekly' | 'week' | 'range' | 'daily',  // default 'weekly'
+  // Mode-specific params:
+  weeks?: number,            // weekly mode: 1-52
+  weekId?: 'yyyy-mm-dd',     // week mode: specific week start
+  start?: 'yyyy-mm-dd',      // range mode: inclusive
+  end?: 'yyyy-mm-dd',        // range mode: inclusive
+  days?: number,             // daily mode: 1-120
+  // Optional filters (max 50 each):
+  muscles?: string[],
+  exerciseIds?: string[]
+}
+```
+
+**Response**:
+```javascript
+{
+  success: true,
+  mode: string,
+  period_weeks?: number,
+  weekIds?: string[],
+  range?: { start, end },
+  daily_window_days?: number,
+  rollups: [{
+    id: 'yyyy-ww',
+    total_sets: number,
+    total_reps: number,
+    total_weight: number,
+    weight_per_muscle_group: { [group]: number },
+    hard_sets_per_muscle: { [muscle]: number },
+    updated_at: timestamp
+  }],
+  series_muscle: {
+    [muscle]: [{ week: 'yyyy-mm-dd', sets: number, volume: number }]
+  },
+  series_exercise: {
+    [exerciseId]: {
+      days: string[],      // 'yyyy-mm-dd' array
+      e1rm: number[],      // Estimated 1RM values
+      vol: number[],       // Volume values
+      e1rm_slope: number,  // Trend coefficient
+      vol_slope: number
+    }
+  },
+  schema_version: number
+}
+```
+
+---
+
+## Streaming API - SSE Events
+
+### `POST streamAgentNormalized`
+
+Server-Sent Events (SSE) stream for agent responses. Transforms ADK events to iOS-friendly format.
+
+**Auth**: Bearer token
+
+**Request**:
+```javascript
+{
+  message: string,           // User message
+  canvasId: string,          // Required - links to canvas
+  sessionId?: string,        // Optional - reuse existing session
+  correlationId?: string,    // Optional - for telemetry
+  markdown_policy?: {
+    bullets: '-',
+    max_bullets: 6,
+    no_headers: true
+  }
+}
+```
+
+**Response**: SSE stream with NDJSON events
+
+### Stream Event Types
+
+| Event Type | Description | Content Fields |
+|------------|-------------|----------------|
+| `status` | Connection/system status | `text`, `session_id?` |
+| `thinking` | Agent is reasoning | `text` |
+| `thought` | Thinking complete | `text` |
+| `toolRunning` | Tool execution started | `tool`, `tool_name`, `args`, `text` |
+| `toolComplete` | Tool execution finished | `tool`, `tool_name`, `result`, `text`, `phase?` |
+| `message` | Incremental text (delta) | `text`, `role`, `is_delta: true` |
+| `agentResponse` | Final text commit | `text`, `role`, `is_commit: true` |
+| `error` | Error occurred | `error`, `text` |
+| `done` | Stream complete | `{}` |
+| `heartbeat` | Keep-alive (every 2.5s) | — |
+
+### Tool Display Text (`_display` metadata)
+
+Tools return `_display` metadata that the streaming handler uses for human-readable status:
+
+```python
+# In tool return value:
+{
+  "exercises": [...],
+  "_display": {
+    "running": "Searching chest exercises",
+    "complete": "Found 12 exercises",
+    "phase": "searching"
+  }
+}
+```
+
+The stream handler extracts:
+- `_display.complete` → `toolComplete.content.text`
+- `_display.phase` → `toolComplete.content.phase`
+
+### Progress Phases
+
+| Phase | Description | Typical Tools |
+|-------|-------------|---------------|
+| `understanding` | Analyzing user request | Initial routing |
+| `searching` | Looking up data | `search_exercises`, `get_recent_workouts` |
+| `building` | Constructing artifacts | `propose_workout`, `propose_routine` |
+| `finalizing` | Completing output | `save_template`, `create_routine` |
+| `analyzing` | Processing analytics | `get_analytics_features` |
+
+### Tool Labels (Fallback)
+
+When `_display` is not provided, the handler uses hardcoded labels:
+
+| Tool Name | Running Label |
+|-----------|---------------|
+| `tool_search_exercises` | "Searching exercises" |
+| `tool_get_planning_context` | "Loading planning context" |
+| `tool_propose_workout` | "Creating workout plan" |
+| `tool_propose_routine` | "Creating routine" |
+| `tool_get_analytics_features` | "Analyzing training data" |
+| `tool_save_workout_as_template` | "Saving template" |
+| `tool_create_routine` | "Creating routine" |
+
+---
+
+## Firestore Data Model (Current State)
 
 ### Conventions
 - Timestamps: `created_at`, `updated_at` are generally set by backend using serverTimestamp().
@@ -611,11 +1098,9 @@ Sources
   - `startActiveWorkout` writes `users/{uid}/active_workouts/{id}` with `status='in_progress'`, `totals`, and timestamps.
   - `cancelActiveWorkout` updates the active doc to `status='cancelled'` and sets `end_time`.
   - `completeActiveWorkout` archives the in-progress doc to `users/{uid}/workouts` (mapping `weight → weight_kg` in sets, synthesizing analytics if missing), then marks the active doc `status='completed'` and sets `end_time`.
-- Set prescription and logging
-  - `prescribeSet`, `logSet`, `addExercise`, `swapExercise`, `reorderSets` append `events/{eventId}` under the active workout and update `updated_at`.
+- Set logging and modifications
+  - `logSet`, `addExercise`, `swapExercise`, `reorderSets` append `events/{eventId}` under the active workout and update `updated_at`.
   - Idempotency keys recorded in global `idempotency/{userId:tool:key}` for duplicate suppression in non-canvas tools.
-- Scoring
-  - `scoreSet` exists for post-hoc scoring; it has no direct Firestore schema impact beyond normal event/log patterns.
 - Latest active fetch
   - `getActiveWorkout` returns the most recent active workout (ordered by `updated_at`).
 
@@ -627,7 +1112,6 @@ Sources
 - `firebase_functions/functions/active_workout/cancel-active-workout.js`
 - `firebase_functions/functions/active_workout/complete-active-workout.js`
 - `firebase_functions/functions/active_workout/get-active-workout.js`
-- `firebase_functions/functions/active_workout/prescribe-set.js`
 - `firebase_functions/functions/active_workout/log-set.js`
 - `firebase_functions/functions/active_workout/add-exercise.js`
 - `firebase_functions/functions/active_workout/swap-exercise.js`
@@ -714,7 +1198,7 @@ Sources
 - `firebase_functions/functions/strengthos/progress-reports.js`
 
 ### Idempotency (duplicate suppression)
-- Global: `idempotency/{userId:tool:key}` used by active workout tools (`log_set`, `add_exercise`, `swap_exercise`, `prescribe_set`).
+- Global: `idempotency/{userId:tool:key}` used by active workout tools (`log_set`, `add_exercise`, `swap_exercise`).
 - Canvas-scoped: `users/{uid}/canvases/{canvasId}/idempotency/{key}` inside reducer transactions.
 
 Sources

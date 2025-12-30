@@ -1,6 +1,70 @@
 import Foundation
 import Combine
 
+// =============================================================================
+// MARK: - DirectStreamingService.swift
+// =============================================================================
+//
+// PURPOSE:
+// SSE (Server-Sent Events) streaming client for real-time agent communication.
+// Streams messages to the Agent Engine and receives streaming responses with
+// tool calls, thinking steps, and text output.
+//
+// ARCHITECTURE CONTEXT:
+// ┌─────────────────┐       ┌─────────────────────────────┐       ┌────────────────────┐
+// │ iOS App         │       │ Firebase Functions          │       │ Agent Engine       │
+// │                 │       │                             │       │ (Vertex AI)        │
+// │ DirectStreaming │──SSE─►│ streamAgentNormalized       │──────►│ CanvasOrchestrator │
+// │ Service         │◄─────│ (stream-agent-normalized.js)│◄──────│ (orchestrator.py)  │
+// └─────────────────┘       └─────────────────────────────┘       └────────────────────┘
+//
+// KEY ENDPOINTS CALLED:
+// - streamAgentNormalized → firebase_functions/functions/strengthos/stream-agent-normalized.js
+//   SSE endpoint that normalizes Agent Engine events into structured stream
+//
+// - getServiceToken → firebase_functions/functions/auth/get-service-token.js
+//   Exchanges Firebase ID token for GCP service account access token
+//
+// DIRECT AGENT ENGINE ENDPOINTS (fallback, not currently used):
+// - https://{location}-aiplatform.googleapis.com/v1beta1/.../reasoningEngines/{id}:streamQuery
+//   Direct Vertex AI Agent Engine streaming endpoint
+// - :query endpoints for session management (create_session, list_sessions, etc.)
+//
+// STREAM EVENT FLOW:
+// 1. User sends message → CanvasViewModel.sendMessage()
+// 2. CanvasViewModel calls DirectStreamingService.streamQuery()
+// 3. DirectStreamingService POSTs to streamAgentNormalized with SSE Accept header
+// 4. Firebase Function proxies to Agent Engine and normalizes events
+// 5. Agent Engine routes to Orchestrator → Coach/Planner/Copilot agents
+// 6. Agent calls tools which emit _display metadata (see response_helpers.py)
+// 7. Firebase extracts _display and emits structured SSE events
+// 8. DirectStreamingService parses SSE → StreamEvent objects
+// 9. UI renders StreamEvents in ThoughtTrackView and AgentStreamCard
+//
+// EVENT TYPES RECEIVED:
+// - session: Contains sessionId for session continuity
+// - text_delta: Partial text chunk from agent
+// - text_commit: Final committed text
+// - list_item: Formatted list item (bullet point)
+// - tool_started: Agent is calling a tool (with name)
+// - tool_result: Tool completed (with name and counts)
+// - code_block: Code block open/close
+// - error: Error from agent
+//
+// RELATED IOS FILES:
+// - ChatService.swift: Manages chat sessions, uses this for streaming
+// - CanvasViewModel.swift: Uses streamQuery for agent invocations
+// - AgentProgressState.swift: Tracks tool execution phases
+// - StreamEvent.swift (Models): Event data model
+// - ThoughtTrackView.swift: Renders tool_started/tool_result events
+// - AgentStreamCard.swift: Renders streaming text output
+//
+// RELATED AGENT FILES:
+// - adk_agent/canvas_orchestrator/app/agents/orchestrator.py: Routes to agents
+// - adk_agent/canvas_orchestrator/app/libs/tools_common/response_helpers.py: _display
+//
+// =============================================================================
+
 // MARK: - Session Details
 struct SessionDetails {
     let id: String

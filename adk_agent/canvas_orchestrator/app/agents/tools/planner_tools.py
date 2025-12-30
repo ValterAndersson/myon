@@ -1,19 +1,54 @@
 """
-Planner Agent Tools - Workout and routine draft creation.
+planner_tools.py - Planner Agent Tool Definitions
 
-Permission Boundary: Can write session_plan and routine_summary artifacts.
-Cannot: Write to activeWorkout state, send chat messages (canvas-only output).
+PURPOSE:
+Defines the tool set available to PlannerAgent. Tools are the interface between
+agent reasoning and external systems (Firebase Functions, Firestore).
 
-Tools:
-- User context (read)
-- Routine & template context (read + write templates)
-- Exercise catalog (read)
-- Workout/routine drafts (write)
-- Clarification (ask_user only, not send_message)
+ARCHITECTURE CONTEXT:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PLANNER AGENT TOOL BOUNDARY                                                 │
+│                                                                             │
+│ ALLOWED ACTIONS:                                                            │
+│ ┌─────────────────────────────────────────────────────────────────────────┐ │
+│ │ READ:                                                                   │ │
+│ │  • tool_get_user_profile → get-user.js                                 │ │
+│ │  • tool_get_recent_workouts → workouts collection                      │ │
+│ │  • tool_get_planning_context → get-planning-context.js                 │ │
+│ │  • tool_get_template → templates collection                            │ │
+│ │  • tool_search_exercises → search-exercises.js                         │ │
+│ │                                                                         │ │
+│ │ WRITE (Canvas-only):                                                   │ │
+│ │  • tool_propose_workout → propose-cards.js (session_plan)              │ │
+│ │  • tool_propose_routine → propose-cards.js (routine_summary + days)    │ │
+│ │  • tool_save_workout_as_template → create-template-from-plan.js        │ │
+│ │  • tool_create_routine → routines collection                           │ │
+│ │  • tool_manage_routine → patch-routine.js                              │ │
+│ │                                                                         │ │
+│ │ CLARIFICATION:                                                          │ │
+│ │  • tool_ask_user → Emits clarification card for user input             │ │
+│ └─────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+│ NOT ALLOWED (enforced by not including in PLANNER_TOOLS):                  │
+│  • tool_get_next_workout - Copilot-only (execution context)                │
+│  • tool_log_set - Copilot-only (active workout writes)                     │
+│  • tool_send_message - Removed to prevent chat leakage                     │
+│                                                                             │
+│ DESIGN PRINCIPLE: The card IS the output. No chat messages.               │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-Removed tools (enforced permission boundaries):
-- tool_get_next_workout: Copilot-only (execution context)
-- tool_send_message: Removed to prevent chat leakage. The card IS the output.
+TOOL IMPLEMENTATIONS:
+Tool functions are defined in planner_agent.py with full implementation.
+This file wraps them in FunctionTool for ADK registration.
+
+RELATED FILES:
+- planner_agent.py: Tool implementations and PlannerAgent definition
+- coach_tools.py: CoachAgent tools (education, analysis)
+- copilot_tools.py: CopilotAgent tools (live workout execution)
+- ../libs/tools_canvas/client.py: HTTP client for Firebase Functions
+
+UNUSED CODE CHECK: ✅ No unused code in this file
+
 """
 
 from google.adk.tools import FunctionTool

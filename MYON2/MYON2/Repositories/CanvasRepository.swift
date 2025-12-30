@@ -1,3 +1,58 @@
+/**
+ =============================================================================
+ CanvasRepository.swift - Firestore Canvas Subscription
+ =============================================================================
+ 
+ PURPOSE:
+ Provides real-time Firestore listeners for canvas state, cards, and up_next.
+ Returns an AsyncThrowingStream that emits CanvasSnapshot on any change.
+ 
+ ARCHITECTURE CONTEXT:
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │ FIRESTORE LISTENER SETUP                                                    │
+ │                                                                             │
+ │ CanvasViewModel.start()                                                     │
+ │   │                                                                         │
+ │   ▼ repo.subscribe(userId, canvasId)                                       │
+ │   │                                                                         │
+ │   ▼ CanvasRepository (THIS FILE)                                           │
+ │   │                                                                         │
+ │   ├──▶ stateListener: users/{uid}/canvases/{canvasId} (doc)                │
+ │   │      → state.phase, state.version, state.purpose                       │
+ │   │                                                                         │
+ │   ├──▶ cardsListener: users/{uid}/canvases/{canvasId}/cards (collection)   │
+ │   │      → All card documents, mapped via CanvasMapper                     │
+ │   │                                                                         │
+ │   └──▶ upNextListener: users/{uid}/canvases/{canvasId}/up_next (collection)│
+ │          → Priority-ordered list of card_ids for "suggested next"          │
+ │                                                                             │
+ │ Any listener change → emit(CanvasSnapshot) → CanvasViewModel receives      │
+ └─────────────────────────────────────────────────────────────────────────────┘
+ 
+ SNAPSHOT STRUCTURE:
+ CanvasSnapshot {
+   version: Int              // Incremented on every apply-action
+   state: CanvasStateDTO     // Phase, purpose, lanes
+   cards: [CanvasCardModel]  // All active cards
+   upNext: [String]          // Card IDs suggested for next action
+ }
+ 
+ CACHE HANDLING:
+ - First snapshot may be from local cache (offline persistence)
+ - Skip cache-only card snapshots until server data arrives
+ - This prevents showing stale cards on fresh open
+ 
+ RELATED FILES:
+ - CanvasViewModel.swift: Consumes this stream
+ - CanvasMapper.swift: Maps Firestore docs to CanvasCardModel
+ - CanvasService.swift: HTTP calls (apply-action, open-canvas)
+ - Models.swift: CanvasCardModel, CanvasSnapshot definitions
+ 
+ UNUSED CODE CHECK: ✅ No unused code in this file
+ 
+ =============================================================================
+ */
+
 import Foundation
 import FirebaseFirestore
 import FirebaseAuth

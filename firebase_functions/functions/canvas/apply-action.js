@@ -1,3 +1,85 @@
+/**
+ * =============================================================================
+ * apply-action.js - Canvas Single-Writer Reducer
+ * =============================================================================
+ *
+ * PURPOSE:
+ * The ONLY endpoint that mutates canvas state. All canvas changes flow through
+ * this reducer in an atomic Firestore transaction. This guarantees:
+ * - Deterministic state transitions
+ * - Optimistic concurrency control via version numbers
+ * - Idempotency via per-canvas keys
+ * - Full auditability via events
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌─────────────────┐       ┌─────────────────────────────────┐
+ * │ iOS App         │       │ apply-action.js                 │
+ * │                 │       │                                 │
+ * │ CanvasService ──┼──────►│ 1. Validate request             │
+ * │ .applyAction()  │       │ 2. Check idempotency key        │
+ * └─────────────────┘       │ 3. Verify expected_version      │
+ *                           │ 4. Run reducer logic in txn     │
+ *                           │ 5. Write cards/state/events     │
+ *                           │ 6. Return changed_cards         │
+ *                           └─────────────────────────────────┘
+ *                                        │
+ *                                        ▼
+ *                           ┌─────────────────────────────────┐
+ *                           │ Firestore                       │
+ *                           │ users/{uid}/canvases/{canvasId}/│
+ *                           │   cards/{cardId}                │
+ *                           │   up_next/{entryId}             │
+ *                           │   events/{eventId}              │
+ *                           │   idempotency/{key}             │
+ *                           └─────────────────────────────────┘
+ *
+ * ACTION TYPES HANDLED:
+ * - ADD_INSTRUCTION: User sends message → creates instruction card + event
+ * - ACCEPT_PROPOSAL / REJECT_PROPOSAL: Accept or reject agent-proposed card
+ * - ACCEPT_ALL / REJECT_ALL: Group actions for routine drafts
+ * - LOG_SET: Log completed set with actual reps/weight/RIR
+ * - SWAP: Replace exercise mid-workout
+ * - ADJUST_LOAD: Modify weight
+ * - REORDER_SETS: Reorder set sequence
+ * - PAUSE / RESUME / COMPLETE: Phase transitions (planning ↔ active → analysis)
+ * - ADD_NOTE: Add user note (supports UNDO)
+ * - UNDO: Revert last reversible action
+ * - PIN_DRAFT: Flip routine draft cards to status='active'
+ * - DISMISS_DRAFT: Mark routine draft as 'rejected'
+ * - SAVE_ROUTINE: Create routine + templates from draft (special: outside txn)
+ *
+ * PHASE GUARDS:
+ * - LOG_SET, SWAP, ADJUST_LOAD, REORDER_SETS: Only allowed when phase='active'
+ * - COMPLETE: Only allowed when phase='active'
+ * - PAUSE: Only allowed when phase='active' → sets phase='planning'
+ * - RESUME: Only allowed when phase='planning' → sets phase='active'
+ *
+ * VALIDATION GATES:
+ * - Schema validation via validators.js (Ajv-based)
+ * - Science checks: reps 1-30, RIR 0-5
+ * - Phase guards: Workout mutations only in active phase
+ *
+ * CALLED BY:
+ * - iOS: CanvasService.applyAction() → MYON2/MYON2/Services/CanvasService.swift
+ * - Validated via: ./validators.js → validateApplyActionRequest()
+ *
+ * SHARED CORE FUNCTIONS CALLED:
+ * - ../shared/active_workout/log_set_core.js: Handles LOG_SET business logic
+ * - ../shared/active_workout/swap_core.js: Handles SWAP business logic
+ * - ../shared/active_workout/adjust_load_core.js: Handles ADJUST_LOAD logic
+ * - ../shared/active_workout/reorder_sets_core.js: Handles REORDER_SETS logic
+ * - ../routines/create-routine-from-draft.js: Handles SAVE_ROUTINE logic
+ *
+ * FIRESTORE COLLECTIONS WRITTEN:
+ * - users/{uid}/canvases/{canvasId}: Canvas state document
+ * - users/{uid}/canvases/{canvasId}/cards: Card documents
+ * - users/{uid}/canvases/{canvasId}/up_next: Priority queue entries
+ * - users/{uid}/canvases/{canvasId}/events: Reducer events (for agent pickup)
+ * - users/{uid}/canvases/{canvasId}/idempotency: Deduplication keys
+ *
+ * =============================================================================
+ */
+
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
 const FirestoreHelper = require('../utils/firestore-helper');

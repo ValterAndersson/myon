@@ -1,3 +1,67 @@
+/**
+ =============================================================================
+ CanvasViewModel.swift - Central Canvas State Management
+ =============================================================================
+ 
+ PURPOSE:
+ The central ViewModel for the canvas experience. Manages canvas state, card
+ collections, SSE streaming from agent, and user actions.
+ 
+ ARCHITECTURE CONTEXT:
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │ iOS CANVAS DATA FLOW                                                        │
+ │                                                                             │
+ │ CanvasScreen.swift (UI)                                                     │
+ │   │                                                                         │
+ │   ▼                                                                         │
+ │ CanvasViewModel (THIS FILE)                                                 │
+ │   │                                                                         │
+ │   ├──▶ CanvasRepository.subscribe() ──▶ Firestore Listener                 │
+ │   │      cards/*, state doc                                                 │
+ │   │                                                                         │
+ │   ├──▶ CanvasService.applyAction() ──▶ apply-action.js                     │
+ │   │      user actions (accept, dismiss, edit)                               │
+ │   │                                                                         │
+ │   ├──▶ DirectStreamingService.streamQuery() ──▶ stream-agent-normalized.js │
+ │   │      SSE events during agent work                                       │
+ │   │                                                                         │
+ │   └──▶ CanvasService.openCanvas() ──▶ open-canvas.js                       │
+ │          canvas + session initialization                                    │
+ └─────────────────────────────────────────────────────────────────────────────┘
+ 
+ KEY STATE:
+ - cards: [CanvasCardModel] - All canvas cards from Firestore listener
+ - streamEvents: [StreamEvent] - SSE events for workspace timeline
+ - workspaceEvents: [WorkspaceEvent] - Persisted conversation history
+ - progressState: AgentProgressState - Monotonic progress tracking for UX
+ - pendingClarificationCue: ClarificationCue? - Pending agent question
+ 
+ METHODS:
+ - start(userId:canvasId:) - Open existing canvas with session reuse
+ - start(userId:purpose:) - Create new canvas with combined openCanvas call
+ - startSSEStream() - Begin agent streaming with correlation ID
+ - applyAction() - Send user action to apply-action.js
+ - handleIncomingStreamEvent() - Process SSE events and update UI
+ 
+ FIRESTORE LISTENERS:
+ - Canvas cards: users/{uid}/canvases/{canvasId}/cards
+ - Canvas state: users/{uid}/canvases/{canvasId}/state
+ - Workspace entries: users/{uid}/canvases/{canvasId}/workspace_entries
+ - Events (telemetry): users/{uid}/canvases/{canvasId}/events
+ 
+ RELATED FILES:
+ - CanvasScreen.swift: UI layer that uses this ViewModel
+ - CanvasRepository.swift: Firestore subscription logic
+ - CanvasService.swift: HTTP calls to Firebase Functions
+ - DirectStreamingService.swift: SSE streaming client
+ 
+ UNUSED CODE CHECK: ⚠️ POTENTIAL UNUSED CODE
+ - humanReadableToolName() - May be unused (server now provides display text)
+ - firstThinkingEventTime / firstCardEventTime - Declared but never used
+ 
+ =============================================================================
+ */
+
 import Foundation
 import Combine
 import FirebaseFirestore

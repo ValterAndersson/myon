@@ -3,10 +3,9 @@ Multi-Agent System Entry Point for Canvas Orchestrator.
 
 Agent Architecture:
 - Orchestrator: Intent classification and routing (rules-first, LLM fallback)
-- PlannerAgent: Creates/edits workout and routine drafts
-- CoachAgent: Education and training principles (Phase 1 stub)
-- AnalysisAgent: Progress analysis and insights (Phase 1 stub)  
-- CopilotAgent: Live workout execution (Phase 1 stub)
+- Planner: Creates/edits workout and routine drafts (fully implemented)
+- Coach: Education, analytics, and data-informed advice (fully implemented)
+- Copilot: Live workout execution (stub)
 
 Environment Variables:
 - USE_MULTI_AGENT=true: Use the new multi-agent orchestrator (default)
@@ -14,9 +13,8 @@ Environment Variables:
 
 The multi-agent system enforces permission boundaries at the code level:
 - Only Planner can write workout/routine drafts
-- Only Copilot can write activeWorkout (Phase 2)
-- Only Analysis can write analysis artifacts
-- Coach has no artifact write permissions
+- Only Copilot can write activeWorkout (stub, Phase 2)
+- Coach has read-only access to analytics and exercise catalog
 """
 
 import os

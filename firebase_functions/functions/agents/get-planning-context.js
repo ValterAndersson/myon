@@ -1,23 +1,69 @@
+/**
+ * =============================================================================
+ * get-planning-context.js - Agent Context Aggregation
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Composite read that provides the agent with full user context in ONE call.
+ * This reduces tool sprawl and network round-trips for the planning agent.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌────────────────────────────────────────────────────────────────────────────┐
+ * │ AGENT CONTEXT LOADING                                                      │
+ * │                                                                            │
+ * │ Agent (Planner/Coach)                                                      │
+ * │   │                                                                        │
+ * │   ▼ tool_get_planning_context()                                           │
+ * │   │                                                                        │
+ * │   ▼ client.py → HTTP POST                                                 │
+ * │   │                                                                        │
+ * │   ▼ get-planning-context.js (THIS FILE)                                   │
+ * │   │                                                                        │
+ * │   ▼ Returns composite:                                                     │
+ * │   ┌─────────────────────────────────────────────────────────────────────┐ │
+ * │   │ {                                                                   │ │
+ * │   │   user: { profile, attributes },                                   │ │
+ * │   │   activeRoutine: { name, template_ids, cursor },                   │ │
+ * │   │   nextWorkout: { templateId, templateIndex, template },            │ │
+ * │   │   templates: [{ id, name, analytics, exerciseCount }],             │ │
+ * │   │   recentWorkoutsSummary: [{ id, end_time, total_volume }]          │ │
+ * │   │ }                                                                   │ │
+ * │   └─────────────────────────────────────────────────────────────────────┘ │
+ * └────────────────────────────────────────────────────────────────────────────┘
+ *
+ * PAYLOAD CONTROL FLAGS:
+ * - includeTemplates: boolean (default true) - include routine template metadata
+ * - includeTemplateExercises: boolean (default false) - include full exercise arrays
+ * - includeRecentWorkouts: boolean (default true) - include workout summary
+ * - workoutLimit: number (default 20) - max workouts to return
+ *
+ * FIRESTORE READS:
+ * - users/{uid} - User profile
+ * - users/{uid}/user_attributes/{uid} - User preferences
+ * - users/{uid}/routines/{activeRoutineId} - Active routine
+ * - users/{uid}/templates/{templateId} - Routine templates
+ * - users/{uid}/workouts - Recent workout history
+ *
+ * CALLED BY:
+ * - Agent: tool_get_planning_context() in planner_agent.py
+ * - Agent: tool_get_training_context() in coach_agent.py
+ *   → adk_agent/canvas_orchestrator/app/libs/tools_canvas/client.py
+ *
+ * RELATED FILES:
+ * - get-next-workout.js: Standalone next workout endpoint
+ * - ../user/get-user.js: Standalone user profile endpoint
+ * - ../routines/get-next-workout.js: Used by iOS (simpler response)
+ *
+ * UNUSED CODE CHECK: ✅ No unused code in this file
+ *
+ * =============================================================================
+ */
+
 const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
 
 const firestore = admin.firestore();
-
-/**
- * Firebase Function: Get Planning Context
- * 
- * Composite read for the planning agent. Returns user profile, active routine,
- * templates, next workout, and recent workouts summary in one call.
- * 
- * Flags for payload control:
- * - includeTemplates: boolean (default true) - include routine templates
- * - includeTemplateExercises: boolean (default false) - include full exercise arrays
- * - includeRecentWorkouts: boolean (default true) - include workout summary
- * - workoutLimit: number (default 20) - max workouts to return
- * 
- * This reduces tool sprawl by combining multiple reads into one composite.
- */
 async function getPlanningContextHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
   const callerUid = req.auth?.uid || req.body?.userId || req.query?.userId;

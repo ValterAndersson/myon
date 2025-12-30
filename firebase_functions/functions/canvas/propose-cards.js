@@ -1,3 +1,86 @@
+/**
+ * =============================================================================
+ * propose-cards.js - Agent Card Proposal Endpoint
+ * =============================================================================
+ *
+ * PURPOSE:
+ * The endpoint agents use to write cards to the canvas. This is the WRITE path
+ * for agent-generated content. Cards are written with status='proposed' and
+ * added to the up_next queue for user review.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌────────────────────────┐       ┌─────────────────────────────────┐
+ * │ Agent Engine           │       │ propose-cards.js                │
+ * │                        │       │                                 │
+ * │ PlannerAgent           │       │ 1. Validate X-User-Id header    │
+ * │  .tool_propose_workout │──────►│ 2. Schema-validate cards (Ajv)  │
+ * │  .tool_propose_routine │       │ 3. Generate groupId/draftId     │
+ * │                        │       │ 4. Write cards (batch)          │
+ * │ Uses: client.py        │       │ 5. Add to up_next queue         │
+ * │   .propose_cards()     │       │ 6. Emit agent_propose event     │
+ * └────────────────────────┘       └─────────────────────────────────┘
+ *                                              │
+ *                                              ▼
+ *                                  ┌─────────────────────────────────┐
+ *                                  │ Firestore                       │
+ *                                  │ users/{uid}/canvases/{canvasId}/│
+ *                                  │   cards/{cardId} ← NEW CARDS    │
+ *                                  │   up_next/{entryId} ← QUEUE     │
+ *                                  │   events/{eventId} ← TELEMETRY  │
+ *                                  └─────────────────────────────────┘
+ *                                              │
+ *                                              ▼
+ *                                  ┌─────────────────────────────────┐
+ *                                  │ iOS App                         │
+ *                                  │                                 │
+ *                                  │ CanvasRepository (Firestore     │
+ *                                  │ listener) receives card changes │
+ *                                  │ → CanvasViewModel.cards updated │
+ *                                  │ → UI renders new cards          │
+ *                                  └─────────────────────────────────┘
+ *
+ * CARD TYPES SUPPORTED:
+ * - session_plan: Single workout plan with exercises and sets
+ * - routine_summary: Multi-day routine with linked session_plan cards
+ * - analysis_summary: Training analysis with insights
+ * - visualization: Charts and data visualizations
+ * 
+ * Each has a JSON schema in ./schemas/card_types/*.schema.json
+ * Validation failures return the schema for agent self-healing.
+ *
+ * ROUTINE PROPOSAL LOGIC:
+ * When a routine_summary card is included:
+ * 1. Generate server-side groupId (grp-xxx) for linking all cards
+ * 2. Generate server-side draftId (draft-xxx) for draft management
+ * 3. Link session_plan cards via workouts[].card_id references
+ * 4. Only anchor (routine_summary) goes into up_next
+ * 5. Day cards are referenced, not queued separately
+ *
+ * UP_NEXT QUEUE MANAGEMENT:
+ * - Cards are added with priority (default 100, range -1000 to 1000)
+ * - Queue is capped at MAX=20 entries
+ * - Overflow is trimmed by lowest priority
+ *
+ * CALLED BY:
+ * - Agent: client.py → propose_cards()
+ *   → adk_agent/canvas_orchestrator/app/libs/tools_canvas/client.py
+ * - Agent tools: planner_tools.py → tool_propose_workout/routine
+ *   → adk_agent/canvas_orchestrator/app/agents/tools/planner_tools.py
+ *
+ * AUTHENTICATION:
+ * - Service-only: Requires api_key auth (not Firebase ID token)
+ * - Requires X-User-Id header for user context
+ * - Correlation-Id header for request tracing
+ *
+ * RELATED FILES:
+ * - validators.js: Schema validation (validateProposeCardsRequest)
+ * - validation-response.js: Format validation errors for self-healing
+ * - schemas/card_types/*.schema.json: Card type definitions
+ * - apply-action.js: User-initiated mutations (ACCEPT/REJECT_PROPOSAL)
+ *
+ * =============================================================================
+ */
+
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
 const { formatValidationResponse } = require('../utils/validation-response');

@@ -1,14 +1,69 @@
 /**
- * create-routine-from-draft.js
+ * =============================================================================
+ * create-routine-from-draft.js - Routine Materialization from Canvas Draft
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Creates permanent routine and template documents from a canvas draft.
+ * This is the SINGLE WRITE PATH for saving routine proposals from the agent.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌────────────────────────────────────────────────────────────────────────────┐
+ * │ ROUTINE CREATION FLOW                                                      │
+ * │                                                                            │
+ * │ 1. Agent proposes routine (propose-cards.js)                               │
+ * │    → Creates routine_summary card + N session_plan cards                   │
+ * │    → Cards linked via meta.groupId and workouts[].card_id                  │
+ * │    → All cards status='proposed'                                           │
+ * │                                                                            │
+ * │ 2. User reviews on canvas UI                                               │
+ * │    → Can edit individual days, ask for regeneration                        │
+ * │                                                                            │
+ * │ 3. User accepts (apply-action.js ACCEPT_PROPOSAL)                          │
+ * │    → Calls THIS FILE (createRoutineFromDraftCore)                          │
+ * │                                                                            │
+ * │ 4. This file creates permanent records:                                    │
+ * │    ┌─────────────────────────────────────────────────────────────────┐     │
+ * │    │ Canvas Cards                  →      Permanent Documents        │     │
+ * │    │                                                                 │     │
+ * │    │ session_plan card (Day 1)    →  templates/{templateId1}        │     │
+ * │    │ session_plan card (Day 2)    →  templates/{templateId2}        │     │
+ * │    │ session_plan card (Day 3)    →  templates/{templateId3}        │     │
+ * │    │                                                                 │     │
+ * │    │ routine_summary card         →  routines/{routineId}           │     │
+ * │    │                                  .template_ids = [t1, t2, t3]   │     │
+ * │    │                                  .cursor = 0                    │     │
+ * │    └─────────────────────────────────────────────────────────────────┘     │
+ * │                                                                            │
+ * │ 5. Sets user.activeRoutineId = routineId                                   │
+ * │                                                                            │
+ * │ 6. Marks all draft cards status='accepted'                                 │
+ * └────────────────────────────────────────────────────────────────────────────┘
+ *
+ * FIRESTORE WRITES:
+ * - Creates/Updates: users/{uid}/templates/{templateId} (one per day)
+ * - Creates/Updates: users/{uid}/routines/{routineId}
+ * - Updates: users/{uid} → activeRoutineId
+ * - Updates: users/{uid}/canvases/{canvasId}/cards/* → status='accepted'
+ *
+ * UPDATE vs CREATE LOGIC:
+ * - If card.meta.sourceTemplateId exists → Updates that template
+ * - If card.meta.sourceRoutineId exists → Updates that routine
+ * - Otherwise → Creates new documents
  * 
- * Creates a routine and templates from a routine draft in the canvas.
- * This is the single write path for saving routine drafts.
- * 
- * Flow:
- * 1. Load routine_summary card and all referenced session_plan cards
- * 2. For each day: create new template or patch existing (if source_template_id exists)
- * 3. Create new routine or patch existing (if source_routine_id exists)
- * 4. Mark all draft cards as accepted
+ * This enables "edit and save" flows where user modifies existing routine.
+ *
+ * CALLED BY:
+ * - apply-action.js: ACCEPT_PROPOSAL for routine_summary cards
+ * - Potentially direct API calls for testing
+ *
+ * RELATED FILES:
+ * - ../canvas/propose-cards.js: Creates the draft cards
+ * - ../utils/plan-to-template-converter.js: Converts session_plan → template
+ * - get-next-workout.js: Uses routine.template_ids + cursor
+ * - ../triggers/workout-routine-cursor.js: Advances cursor on completion
+ *
+ * =============================================================================
  */
 
 const admin = require('firebase-admin');

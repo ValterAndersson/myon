@@ -1,26 +1,70 @@
+/**
+ * =============================================================================
+ * workout-routine-cursor.js - Routine Cursor Advancement Trigger
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Firestore trigger that updates the routine cursor when a workout is completed.
+ * This enables O(1) next-workout selection in get-next-workout.js.
+ *
+ * ARCHITECTURE CONTEXT:
+ * ┌────────────────────────────────────────────────────────────────────────────┐
+ * │ ROUTINE CURSOR FLOW                                                        │
+ * │                                                                            │
+ * │ complete-active-workout.js                                                 │
+ * │   │                                                                        │
+ * │   ▼ (creates document)                                                     │
+ * │ users/{uid}/workouts/{workoutId}                                          │
+ * │   {                                                                        │
+ * │     source_routine_id: "routine_abc",                                     │
+ * │     source_template_id: "template_push",                                  │
+ * │     end_time: 2024-01-15T10:00:00Z                                        │
+ * │   }                                                                        │
+ * │   │                                                                        │
+ * │   ▼ (Firestore onCreate trigger - THIS FILE)                              │
+ * │ workout-routine-cursor.js                                                  │
+ * │   │                                                                        │
+ * │   ▼ (updates routine)                                                      │
+ * │ users/{uid}/routines/{routineId}                                          │
+ * │   {                                                                        │
+ * │     last_completed_template_id: "template_push",  ← UPDATED               │
+ * │     last_completed_at: 2024-01-15T10:00:00Z       ← UPDATED               │
+ * │   }                                                                        │
+ * │                                                                            │
+ * │ Next call to get-next-workout.js uses last_completed_template_id          │
+ * │ for O(1) cursor lookup instead of scanning workout history                 │
+ * └────────────────────────────────────────────────────────────────────────────┘
+ *
+ * TRIGGER DETAILS:
+ * - Event: onDocumentCreated('users/{userId}/workouts/{workoutId}')
+ * - Condition: Only fires when source_routine_id AND source_template_id exist
+ * - Updates: routines/{source_routine_id}.last_completed_template_id
+ * - Best-effort: Errors are logged but don't fail the trigger
+ *
+ * KEY BEHAVIORS:
+ * - Uses source_routine_id from workout (not user.activeRoutineId)
+ *   → Handles case where user changes routine mid-workout
+ * - Only updates if template is still in routine.template_ids
+ *   → Handles case where routine was edited after workout started
+ * - Non-blocking: Doesn't throw on error (best-effort update)
+ *
+ * TRIGGERED BY:
+ * - complete-active-workout.js when workout is archived to workouts collection
+ *
+ * RELATED FILES:
+ * - ../routines/get-next-workout.js: Reads cursor for O(1) template selection
+ * - ../active_workout/complete-active-workout.js: Creates the workout doc
+ * - ../active_workout/start-active-workout.js: Captures source_routine_id
+ *
+ * UNUSED CODE CHECK: ✅ No unused code in this file
+ *
+ * =============================================================================
+ */
+
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 
 const firestore = admin.firestore();
-
-/**
- * Firestore Trigger: Update Routine Cursor on Workout Creation
- * 
- * When a workout is completed (archived to workouts collection), this trigger
- * updates the routine's cursor fields to track the last completed template.
- * 
- * This enables O(1) next-workout selection instead of scanning history.
- * 
- * Key behaviors:
- * - Uses source_routine_id from the workout (not current active routine)
- * - Only updates if source_template_id is in the routine's template_ids
- * - Updates last_completed_template_id and last_completed_at
- * 
- * This approach is correct because:
- * - User might change activeRoutineId while a workout is in progress
- * - User might log an ad-hoc workout not from any routine
- * - The source_routine_id captures the routine context at workout start time
- */
 exports.onWorkoutCreatedUpdateRoutineCursor = onDocumentCreated(
   'users/{userId}/workouts/{workoutId}',
   async (event) => {

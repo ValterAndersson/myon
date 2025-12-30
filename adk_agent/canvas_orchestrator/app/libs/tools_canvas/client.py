@@ -1,3 +1,86 @@
+"""
+client.py - Agent → Firebase Functions HTTP Client
+
+PURPOSE:
+HTTP client for Agent to call Firebase Functions. This is the primary way
+the agent reads and writes data. All methods call Firebase Cloud Functions
+which then interact with Firestore.
+
+ARCHITECTURE CONTEXT:
+┌─────────────────────────────┐       ┌─────────────────────────────────┐
+│ Agent (Vertex AI)           │       │ Firebase Functions              │
+│                             │       │                                 │
+│ PlannerAgent                │       │ Canvas APIs:                    │
+│ CoachAgent     ────────────►│──────►│   proposeCards, bootstrapCanvas │
+│ CopilotAgent               │       │   emitEvent                     │
+│                             │       │                                 │
+│ Uses:                       │       │ User APIs:                      │
+│   CanvasFunctionsClient     │       │   getUser, getUserPreferences   │
+│   (this file)               │       │   getUserWorkouts               │
+│                             │       │                                 │
+└─────────────────────────────┘       │ Exercise APIs:                  │
+                                      │   searchExercises               │
+                                      │                                 │
+                                      │ Template APIs:                  │
+                                      │   getTemplate, getUserTemplates │
+                                      │   createTemplateFromPlan        │
+                                      │   patchTemplate                 │
+                                      │                                 │
+                                      │ Routine APIs:                   │
+                                      │   getRoutine, getUserRoutines   │
+                                      │   getActiveRoutine, patchRoutine│
+                                      │   setActiveRoutine              │
+                                      │                                 │
+                                      │ Planning APIs:                  │
+                                      │   getPlanningContext            │
+                                      │   getNextWorkout                │
+                                      │                                 │
+                                      │ Analytics APIs:                 │
+                                      │   getAnalyticsFeatures          │
+                                      └─────────────────────────────────┘
+
+KEY METHOD → FIREBASE FUNCTION MAPPING:
+- propose_cards() → firebase_functions/functions/canvas/propose-cards.js
+- bootstrap_canvas() → firebase_functions/functions/canvas/bootstrap-canvas.js
+- emit_event() → firebase_functions/functions/canvas/emit-event.js
+- get_user() → firebase_functions/functions/user/get-user.js
+- get_user_preferences() → firebase_functions/functions/user/get-user-preferences.js
+- get_user_workouts() → firebase_functions/functions/workouts/get-user-workouts.js
+- search_exercises() → firebase_functions/functions/exercises/search-exercises.js
+- get_planning_context() → firebase_functions/functions/agents/get-planning-context.js
+- get_next_workout() → firebase_functions/functions/routines/get-next-workout.js
+- get_template() → firebase_functions/functions/templates/get-template.js
+- create_template_from_plan() → firebase_functions/functions/templates/create-template-from-plan.js
+- patch_template() → firebase_functions/functions/templates/patch-template.js
+- patch_routine() → firebase_functions/functions/routines/patch-routine.js
+- get_analytics_features() → firebase_functions/functions/analytics/get-analytics-features.js
+
+HOW IT'S USED BY AGENTS:
+Agent tools (planner_tools.py, coach_tools.py, etc.) wrap this client and
+expose methods as FunctionTool instances that the LLM can call:
+
+  from ..libs.tools_canvas.client import CanvasFunctionsClient
+  
+  client = CanvasFunctionsClient(
+      base_url="https://us-central1-myon-53d85.cloudfunctions.net",
+      api_key="myon-agent-key-2024"
+  )
+  result = client.search_exercises(muscle_group="chest", limit=10)
+
+RELATED FILES:
+- agents/tools/planner_tools.py: Uses this client for planning tools
+- agents/tools/coach_tools.py: Uses this client for coaching tools
+- agents/tools/copilot_tools.py: Uses this client for copilot tools
+- agents/tools/analysis_tools.py: Uses this client for analytics tools
+- libs/tools_common/http.py: Underlying HTTP implementation
+
+AUTHENTICATION:
+- api_key: Static API key for server-to-server auth
+- bearer_token: Firebase ID token (when used from iOS via proxy)
+- user_id: X-User-Id header for user context
+
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -44,13 +127,6 @@ class CanvasFunctionsClient:
 
     def bootstrap_canvas(self, user_id: str, purpose: str) -> Dict[str, Any]:
         return self._http.post("bootstrapCanvas", {"userId": user_id, "purpose": purpose})
-    
-    def check_pending_response(self, user_id: str, canvas_id: str) -> Dict[str, Any]:
-        """Check for pending user responses."""
-        return self._http.post("checkPendingResponse", {
-            "userId": user_id,
-            "canvasId": canvas_id
-        })
     
     def get_user(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user profile data."""

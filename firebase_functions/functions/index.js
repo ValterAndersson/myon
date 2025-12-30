@@ -31,7 +31,6 @@ const { upsertUserAttributes } = require('./user/upsert-attributes');
 // Workout Operations  
 const { getUserWorkouts } = require('./workouts/get-user-workouts');
 const { getWorkout } = require('./workouts/get-workout');
-const { upsertWorkout } = require('./workouts/upsert-workout');
 
 // Template Operations
 const { getUserTemplates } = require('./templates/get-user-templates');
@@ -74,27 +73,17 @@ const { normalizeCatalogPage } = require('./exercises/normalize-catalog-page');
 const { proposeSession } = require('./active_workout/propose-session');
 const { startActiveWorkout } = require('./active_workout/start-active-workout');
 const { getActiveWorkout } = require('./active_workout/get-active-workout');
-const { prescribeSet } = require('./active_workout/prescribe-set');
 const { logSet } = require('./active_workout/log-set');
-const { scoreSet } = require('./active_workout/score-set');
 const { addExercise } = require('./active_workout/add-exercise');
 const { swapExercise } = require('./active_workout/swap-exercise');
 const { completeActiveWorkout } = require('./active_workout/complete-active-workout');
 const { cancelActiveWorkout } = require('./active_workout/cancel-active-workout');
-const { noteActiveWorkout } = require('./active_workout/note-active-workout');
-
-// Memory Operations
-
 
 // StrengthOS Operations
-const { createStrengthOSSession } = require('./strengthos/create-session');
-const { listStrengthOSSessions } = require('./strengthos/list-sessions');
-const { deleteStrengthOSSession } = require('./strengthos/delete-session');
-const { queryStrengthOS } = require('./strengthos/query-strengthos');
-const { queryStrengthOSv2 } = require('./strengthos/query-strengthos-v2');
 const { streamAgentNormalizedHandler } = require('./strengthos/stream-agent-normalized');
 const { requireFlexibleAuth } = require('./auth/middleware');
 const { upsertProgressReport, getProgressReports } = require('./strengthos/progress-reports');
+
 // Canvas Operations
 const { applyAction } = require('./canvas/apply-action');
 const { proposeCards } = require('./canvas/propose-cards');
@@ -102,8 +91,6 @@ const { expireProposals } = require('./canvas/expire-proposals');
 const { expireProposalsScheduledHandler } = require('./canvas/expire-proposals-scheduled');
 const { bootstrapCanvas } = require('./canvas/bootstrap-canvas');
 const { emitEvent } = require('./canvas/emit-event');
-const { checkPendingResponse } = require('./canvas/check-pending-response');
-const { respondToAgent } = require('./canvas/respond-to-agent');
 const { purgeCanvas } = require('./canvas/purge-canvas');
 const { initializeSessionHandler } = require('./canvas/initialize-session');
 const { openCanvas, preWarmSession } = require('./canvas/open-canvas');
@@ -148,7 +135,6 @@ exports.upsertUserAttributes = functions.https.onRequest((req, res) => withApiKe
 // Workout Operations
 exports.getUserWorkouts = functions.https.onRequest((req, res) => withApiKey(getUserWorkouts)(req, res));
 exports.getWorkout = functions.https.onRequest((req, res) => withApiKey(getWorkout)(req, res));
-exports.upsertWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(upsertWorkout)(req, res));
 
 // Template Operations
 exports.getUserTemplates = functions.https.onRequest((req, res) => withApiKey(getUserTemplates)(req, res));
@@ -198,24 +184,13 @@ exports.normalizeCatalogPage = functions.https.onRequest((req, res) => withApiKe
 exports.proposeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(proposeSession)(req, res));
 exports.startActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(startActiveWorkout)(req, res));
 exports.getActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(getActiveWorkout)(req, res));
-exports.prescribeSet = functions.https.onRequest((req, res) => requireFlexibleAuth(prescribeSet)(req, res));
 exports.logSet = functions.https.onRequest((req, res) => requireFlexibleAuth(logSet)(req, res));
-exports.scoreSet = functions.https.onRequest((req, res) => requireFlexibleAuth(scoreSet)(req, res));
 exports.addExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(addExercise)(req, res));
 exports.swapExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(swapExercise)(req, res));
 exports.completeActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(completeActiveWorkout)(req, res));
 exports.cancelActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(cancelActiveWorkout)(req, res));
-exports.noteActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(noteActiveWorkout)(req, res));
 
-// Memory Operations
-
-
-// StrengthOS Operations (Callable functions - authenticated via Firebase Auth)
-exports.createStrengthOSSession = createStrengthOSSession;
-exports.listStrengthOSSessions = listStrengthOSSessions;
-exports.deleteStrengthOSSession = deleteStrengthOSSession;
-exports.queryStrengthOS = queryStrengthOS;
-exports.queryStrengthOSv2 = queryStrengthOSv2;
+// StrengthOS Operations
 exports.streamAgentNormalized = functions.https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));
 exports.upsertProgressReport = functions.https.onRequest((req, res) => withApiKey(upsertProgressReport)(req, res));
 exports.getProgressReports = functions.https.onRequest((req, res) => requireFlexibleAuth(getProgressReports)(req, res));
@@ -226,8 +201,6 @@ exports.proposeCards = functions.https.onRequest((req, res) => withApiKey(propos
 exports.expireProposals = functions.https.onRequest((req, res) => withApiKey(expireProposals)(req, res));
 exports.bootstrapCanvas = functions.https.onRequest((req, res) => requireFlexibleAuth(bootstrapCanvas)(req, res));
 exports.emitEvent = functions.https.onRequest((req, res) => withApiKey(emitEvent)(req, res));
-exports.checkPendingResponse = functions.https.onRequest((req, res) => withApiKey(checkPendingResponse)(req, res));
-exports.respondToAgent = functions.https.onRequest((req, res) => requireFlexibleAuth(respondToAgent)(req, res));
 exports.purgeCanvas = functions.https.onRequest((req, res) => requireFlexibleAuth(purgeCanvas)(req, res));
 exports.initializeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(initializeSessionHandler)(req, res));
 // Optimized canvas initialization (combines bootstrap + session in one call, with min instances)
