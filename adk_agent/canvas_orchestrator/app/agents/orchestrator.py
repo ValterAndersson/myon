@@ -92,130 +92,92 @@ class RoutingDecision:
 # ============================================================================
 
 # Compile patterns once for performance
-# Priority order: Copilot > Planner > Analysis (first-person + metrics) > Coach (principles)
+# DESIGN PRINCIPLE: Only include HIGH-CONFIDENCE patterns here.
+# Ambiguous requests should fall through to LLM which has conversation context.
+# Priority order: Copilot > Planner > Coach (data-informed) > LLM fallback
 RULE_PATTERNS: List[tuple] = [
     # =========================================================================
-    # COPILOT: Execution mode signals (HIGHEST PRIORITY)
+    # COPILOT: Active workout execution (HIGHEST PRIORITY)
+    # These are very specific in-workout actions that can't be confused.
     # =========================================================================
-    (re.compile(r"\b(start|begin|let.?s\s+go|i.?m\s+(at\s+the\s+)?gym|training\s+now|ready\s+to\s+train)\b", re.I),
+    # NOTE: Removed "start|begin|let's go" - too broad, could match "start a routine"
+    (re.compile(r"\bi.?m\s+(at\s+the\s+)?gym\b|\btraining\s+now\b|\bready\s+to\s+train\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:gym_now"),
-    (re.compile(r"\b(next\s+set|current\s+set|swap.*(exercise|movement)|adjust.*(weight|load)|rest\s+timer|how\s+much\s+rest)\b", re.I),
+    (re.compile(r"\bnext\s+set\b|\bcurrent\s+set\b|\brest\s+timer\b|\bhow\s+much\s+rest\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:in_workout_action"),
     (re.compile(r"\b(log|record|done|finished|completed)\s+(this\s+)?(set|exercise)\b", re.I),
      Intent.EXECUTE_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:log_set"),
-    (re.compile(r"\b(what.?s?\s+)?(next|today.?s?)\s+(workout|session|training)\b", re.I),
+    # "start my workout" / "start today's session" → Copilot
+    (re.compile(r"\bstart\s+(my\s+)?(today.?s?\s+)?(workout|session|training)\b", re.I),
+     Intent.NEXT_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:start_workout"),
+    (re.compile(r"\b(what.?s|show\s+me)\s+(my\s+)?(next|today.?s?)\s+(workout|session)\b", re.I),
      Intent.NEXT_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:next_workout"),
-    (re.compile(r"\b(give\s+me|show\s+me|start)\s+(my\s+)?(next|today.?s?)\s+(workout|session)\b", re.I),
-     Intent.NEXT_WORKOUT, TargetAgent.COPILOT, Confidence.HIGH, "pattern:start_next"),
     
     # =========================================================================
     # PLANNER: Artifact creation/edit (HIGH PRIORITY)
+    # Explicit creation verbs + artifact types. Very specific.
     # =========================================================================
-    # Routine/program creation (multi-day)
-    (re.compile(r"\b(create|build|make|design|set\s+up|plan|draft|recreate|turn\s+into|convert\s+to|save\s+as)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
+    # Routine/program creation (must have explicit create verb + artifact type)
+    (re.compile(r"\b(create|build|make|design|set\s+up|plan\s+a|draft)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_routine"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_routine"),
-    (re.compile(r"\b(weekly|multi.?day|\d+\s*day)\s+(workout\s+)?(plan|routine|split)\b", re.I),
-     Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:multiday_plan"),
     # Recreate from history patterns
-    (re.compile(r"\b(recreate|repeat|redo|copy)\b.*\b(last|recent|previous)\s+(workouts?|sessions?|training)\b", re.I),
+    (re.compile(r"\b(recreate|repeat|redo|copy)\b.*\b(last|recent|previous)\s+(workouts?|sessions?|training)\b.*\b(as\s+)?(a\s+)?(routine|program|template)?\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:recreate_from_history"),
     (re.compile(r"\b(last|recent|previous)\s+(workouts?|sessions?)\b.*\b(as\s+a?\s*)?(new\s+)?(routine|program|template)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:history_to_routine"),
-    (re.compile(r"\b(based\s+on|from)\s+(my\s+)?(last|recent|previous)\s+(workouts?|sessions?)\b", re.I),
-     Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:based_on_history"),
     
-    # Single workout creation
-    (re.compile(r"\b(create|build|make|design|plan|draft|recreate)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session|training)\b", re.I),
+    # Single workout creation (explicit create verb)
+    (re.compile(r"\b(create|build|make|design|plan|draft)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session)\s+(for\s+)?(me|today)?\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_workout"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_workout"),
-    (re.compile(r"\b(chest|back|leg|shoulder|arm|push|pull)\s+(day|workout|session)\b", re.I),
-     Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.MEDIUM, "pattern:bodypart_day"),
     
-    # Edit existing plan
-    (re.compile(r"\b(edit|modify|change|update|adjust|tweak|swap)\s+(the\s+)?(my\s+)?(workout|routine|plan|program|exercises?)\b", re.I),
+    # Edit existing plan (explicit edit verb + artifact)
+    (re.compile(r"\b(edit|modify|update)\s+(the\s+)?(my\s+)?(current\s+)?(workout|routine|plan|program)\b", re.I),
      Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:edit_plan"),
-    (re.compile(r"\b(add|remove|swap|replace)\s+(an?\s+)?(exercise|movement|set)\b", re.I),
+    (re.compile(r"\b(add|remove|swap|replace)\s+(an?\s+)?(exercise|movement)\s+(in|from|to)\s+(my|the)\s+(workout|routine)\b", re.I),
      Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:modify_exercise"),
-    (re.compile(r"\b(more|less|fewer)\s+(sets?|reps?|volume|exercises?)\s+(in|to|for)\b", re.I),
-     Intent.EDIT_PLAN, TargetAgent.PLANNER, Confidence.HIGH, "pattern:volume_adjust"),
     
     # =========================================================================
-    # COACH (data-informed): First-person + metrics patterns
-    # Coach now handles both principles AND data analysis
+    # COACH (data-informed): Explicit progress/analysis requests
+    # Must have clear intent to analyze personal data, not just mention "my"
     # =========================================================================
-    # User's progress with first-person + temporal context
-    (re.compile(r"\b(my|mine|i)\b.*\b(progress|trend|over\s+time|lately|recent|last)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_progress_temporal"),
-    (re.compile(r"\b(my|mine|i)\b.*\b(sets?|volume|hard\s+sets?|frequency|sessions?)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_volume_metrics"),
-    
-    # Muscle development questions
-    (re.compile(r"\b(which|what)\b.*\b(muscles?|muscle\s+groups?)\b.*\b(most|least|trained|developed|hit)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:muscle_development_query"),
-    
-    # First-person + 1RM/PR
-    (re.compile(r"\b(my|mine|i)\b.*\b(1rm|e1rm|pr|personal\s+record|max)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_1rm"),
-    (re.compile(r"\b(1rm|e1rm|pr|personal\s+record)\b.*\b(my|mine)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:1rm_my"),
-    
-    # Am I progressing / doing enough patterns
-    (re.compile(r"\b(am\s+i|have\s+i\s+been)\s+(progressing|improving|getting\s+stronger|doing\s+enough)\b", re.I),
+    # Explicit progress questions (very specific patterns)
+    (re.compile(r"\b(am\s+i|have\s+i\s+been)\s+(progressing|improving|getting\s+stronger|doing\s+enough|growing)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:am_i_progressing"),
-    (re.compile(r"\b(how\s+(am\s+i|have\s+i\s+been)|what.?s\s+my)\s+(doing|progress|performance|trend)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:check_progress"),
+    (re.compile(r"\bhow.?s\s+my\s+(progress|performance)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:hows_my_progress"),
     
-    # Specific muscle/exercise progress with my
-    (re.compile(r"\b(how.?s|how\s+has|how\s+is)\s+(my\s+)?(chest|back|shoulder|leg|arm|bicep|tricep|quad|hamstring|bench|squat|deadlift)\b.*(develop|improv|progress|chang|grow|doing)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:my_muscle_progress"),
-    
-    # Lagging / weakness / balance with personal context
-    (re.compile(r"\b(what.?s|which\s+is|am\s+i)\b.*\b(lagging|weak|imbalance|behind|stalling|plateau)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:find_weakness"),
-    
-    # Explicit analysis requests
-    (re.compile(r"\b(analyze|review|assess|evaluate|check)\s+(my\s+)?(progress|history|data|performance|workouts?|training)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:analyze_my_data"),
-    
-    # Time-window references with training context
-    (re.compile(r"\b(last|past)\s+\d+\s+(weeks?|days?|months?)\b.*\b(train|volume|sets?|workout)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:time_window"),
-    (re.compile(r"\b(lately|recently)\b.*\b(train|volume|sets?|workout|progress)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:recently_training"),
-    
-    # How much/many volume queries
-    (re.compile(r"\b(how\s+much|how\s+many)\s+(volume|sets?|reps?|workouts?)\b", re.I),
+    # Explicit volume analysis questions
+    (re.compile(r"\b(is\s+my|are\s+my)\s+(volume|sets|frequency)\s+(enough|sufficient|too\s+(low|high|much))\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:volume_adequacy"),
+    (re.compile(r"\bhow\s+(much|many)\s+(volume|sets|workouts)\s+(am\s+i|have\s+i|do\s+i)\b", re.I),
      Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:volume_count"),
     
-    # Consistency / adherence
-    (re.compile(r"\b(my\s+)?(consistent|consistency|adherence|how\s+often\s+(have\s+)?i)\b", re.I),
-     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.MEDIUM, "pattern:my_consistency"),
+    # Explicit muscle/exercise progress
+    (re.compile(r"\bhow.?s\s+my\s+(chest|back|shoulder|leg|arm|bicep|tricep|bench|squat|deadlift)\s+(progress|doing|developing)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:muscle_progress"),
     
-    # =========================================================================
-    # COACH: Principles, technique, education (LOWER PRIORITY - catch-all)
-    # =========================================================================
-    # Best practice / science questions (NO first-person + metrics)
-    (re.compile(r"\b(best\s+practice|principles?|science|research|evidence|optimal)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.HIGH, "pattern:science_question"),
+    # Which muscles am I training
+    (re.compile(r"\b(which|what)\s+(muscles?|muscle\s+groups?)\s+(am\s+i|have\s+i\s+been)\s+(training|hitting|working|developing)\s+(the\s+)?(most|least)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:muscle_distribution"),
     
-    # Technique / form / cues
-    (re.compile(r"\b(form|technique|cues?|feel\s+it|rom|range\s+of\s+motion|tempo|execution)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.HIGH, "pattern:technique_cues"),
+    # Stall/plateau detection
+    (re.compile(r"\b(am\s+i|have\s+i)\s+(stall|plateau|stuck)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:stall_check"),
     
-    # How do I / what should I (general guidance without metrics)
-    (re.compile(r"\b(how\s+do\s+i|what\s+should\s+i|should\s+i)\b.*\b(do|train|perform|execute|grow|build)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:how_should_i"),
+    # Explicit analyze/review commands
+    (re.compile(r"\b(analyze|review|assess|evaluate)\s+(my\s+)?(training|workouts?|progress|data)\b", re.I),
+     Intent.ANALYZE_PROGRESS, TargetAgent.COACH, Confidence.HIGH, "pattern:analyze_data"),
     
-    # General education questions
-    (re.compile(r"\b(why\s+(should|do|is|does)|how\s+does|what\s+is|explain|tell\s+me\s+about|help\s+me\s+understand)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:education_question"),
-    
-    # Training concepts
-    (re.compile(r"\b(hypertrophy|strength|endurance|progressive\s+overload|deload|recovery|rest|rir|rpe)\s+(tips?|advice|question|mean|work)\b", re.I),
-     Intent.COACH_GENERAL, TargetAgent.COACH, Confidence.MEDIUM, "pattern:training_concept"),
+    # NOTE: Removed broad patterns like:
+    # - "my|i ... progress|trend|lately" (too loose)
+    # - "my|i ... sets|volume" (could be execution context)
+    # - "why/how does/what is" (catches everything)
+    # - "form|technique" as single words (too broad)
+    # These now fall through to LLM for context-aware classification
 ]
 
 # Negative patterns to exclude (e.g., "split squat" should not trigger routine)
