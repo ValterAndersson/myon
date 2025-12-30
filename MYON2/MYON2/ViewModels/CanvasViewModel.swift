@@ -248,7 +248,7 @@ final class CanvasViewModel: ObservableObject {
             
             // Track last meaningful event time for timeout detection
             var lastMeaningfulEventTime = Date()
-            let streamTimeoutSeconds: TimeInterval = 30 // Timeout after 30s of only heartbeats
+            let streamTimeoutSeconds: TimeInterval = 120 // Timeout after 2 minutes of only heartbeats (complex reasoning can take >30s)
             var receivedDoneEvent = false
             var firstThinkingEventTime: Date? = nil
             var firstCardEventTime: Date? = nil
