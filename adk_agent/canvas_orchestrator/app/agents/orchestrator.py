@@ -112,15 +112,22 @@ RULE_PATTERNS: List[tuple] = [
     # PLANNER: Artifact creation/edit (HIGH PRIORITY)
     # =========================================================================
     # Routine/program creation (multi-day)
-    (re.compile(r"\b(create|build|make|design|set\s+up|plan|draft)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
+    (re.compile(r"\b(create|build|make|design|set\s+up|plan|draft|recreate|turn\s+into|convert\s+to|save\s+as)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split|ppl|push.?pull.?legs|upper.?lower)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_routine"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(workout\s+)?(routine|program|split)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_routine"),
     (re.compile(r"\b(weekly|multi.?day|\d+\s*day)\s+(workout\s+)?(plan|routine|split)\b", re.I),
      Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:multiday_plan"),
+    # Recreate from history patterns
+    (re.compile(r"\b(recreate|repeat|redo|copy)\b.*\b(last|recent|previous)\s+(workouts?|sessions?|training)\b", re.I),
+     Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:recreate_from_history"),
+    (re.compile(r"\b(last|recent|previous)\s+(workouts?|sessions?)\b.*\b(as\s+a?\s*)?(new\s+)?(routine|program|template)\b", re.I),
+     Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:history_to_routine"),
+    (re.compile(r"\b(based\s+on|from)\s+(my\s+)?(last|recent|previous)\s+(workouts?|sessions?)\b", re.I),
+     Intent.PLAN_ROUTINE, TargetAgent.PLANNER, Confidence.HIGH, "pattern:based_on_history"),
     
     # Single workout creation
-    (re.compile(r"\b(create|build|make|design|plan|draft)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session|training)\b", re.I),
+    (re.compile(r"\b(create|build|make|design|plan|draft|recreate)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session|training)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:create_workout"),
     (re.compile(r"\b(i\s+(want|need)|give\s+me)\s+(a\s+)?(new\s+)?(single\s+)?(workout|session)\b", re.I),
      Intent.PLAN_WORKOUT, TargetAgent.PLANNER, Confidence.HIGH, "pattern:want_workout"),
@@ -238,7 +245,7 @@ def _extract_signals(message: str) -> List[str]:
         signals.append("first_person_plus_metrics")  # Strong analysis signal
     
     # Verb signals
-    if re.search(r"\b(create|build|make|design)\b", lower):
+    if re.search(r"\b(create|build|make|design|recreate|repeat|redo|copy|turn\s+into|convert)\b", lower):
         signals.append("has_create_verb")
     if re.search(r"\b(edit|modify|change|update)\b", lower):
         signals.append("has_edit_verb")
