@@ -319,9 +319,17 @@ def classify_intent_rules(message: str) -> Optional[RoutingDecision]:
 def classify_intent_llm(message: str, signals: List[str]) -> RoutingDecision:
     """
     Classify intent using LLM when rules don't match.
-    Uses Gemini with a minimal prompt for fast classification.
+    Uses Gemini with conversation context for accurate classification of
+    short/ambiguous messages like "okay, do it", "yes", "let's go".
     """
     logger.info("LLM fallback triggered for message: %s", message[:100])
+    
+    # Get conversation context for better classification
+    conversation_context = get_conversation_context()
+    has_context = bool(conversation_context)
+    
+    if has_context:
+        logger.info("LLM routing with %d turns of conversation context", len(_conversation_history))
     
     try:
         import google.generativeai as genai
@@ -329,16 +337,37 @@ def classify_intent_llm(message: str, signals: List[str]) -> RoutingDecision:
         # Use flash model for fast classification
         model = genai.GenerativeModel(os.getenv("CANVAS_ORCHESTRATOR_MODEL", "gemini-2.5-flash"))
         
-        prompt = f"""Classify this fitness app user message into ONE category:
+        # Build prompt with conversation context if available
+        if has_context:
+            prompt = f"""Classify the user's latest message in this fitness app conversation.
+
+CATEGORIES:
+COACH - User wants advice, explanations, education about training principles, technique tips, progress review
+PLANNER - User wants to create or modify a workout plan or routine (includes confirming a suggested plan change)
+COPILOT - User is at the gym, ready to train, asking about their next set or exercise
+
+CONVERSATION CONTEXT:
+{conversation_context}
+
+LATEST MESSAGE: "{message}"
+
+Based on the conversation context, what is the user asking for?
+- If the assistant suggested creating/modifying a routine and user confirms (e.g., "okay", "do it", "yes"), classify as PLANNER
+- If the assistant was giving coaching advice and user asks a follow-up, classify as COACH
+- If user is confirming starting a workout, classify as COPILOT
+
+Respond with ONLY the category name (COACH, PLANNER, or COPILOT):"""
+        else:
+            # Fallback to simple classification without context
+            prompt = f"""Classify this fitness app user message into ONE category:
 
 COACH - User wants advice, explanations, education about training principles, "how do I get stronger", technique tips
-ANALYSIS - User wants to see their data, progress review, historical trends, volume stats, "how am I doing"  
 PLANNER - User wants to create or modify a workout plan or routine
 COPILOT - User is at the gym, ready to train, asking about their next set or exercise
 
 Message: "{message}"
 
-Respond with ONLY the category name (COACH, ANALYSIS, PLANNER, or COPILOT):"""
+Respond with ONLY the category name (COACH, PLANNER, or COPILOT):"""
 
         response = model.generate_content(prompt)
         result = response.text.strip().upper()
@@ -469,6 +498,62 @@ _context: Dict[str, Any] = {
 }
 _context_parsed_for_message: Optional[str] = None
 
+# Conversation history cache for context-aware LLM routing
+# Stores last N turns as (role, text) tuples
+_conversation_history: List[tuple] = []
+MAX_HISTORY_TURNS = 4  # Keep last 4 turns for context
+
+
+def update_conversation_history(role: str, text: str) -> None:
+    """
+    Update the conversation history cache.
+    Called by tool_route_to_agent and after agent responses.
+    
+    Args:
+        role: 'user' or 'assistant'
+        text: The message text (cleaned, without context prefix)
+    """
+    global _conversation_history
+    
+    # Skip empty messages
+    if not text or not text.strip():
+        return
+    
+    # Clean the text (remove context prefix if present)
+    clean_text = _strip_context_prefix(text)
+    if not clean_text:
+        return
+    
+    # Truncate long messages for context efficiency
+    max_chars = 500
+    if len(clean_text) > max_chars:
+        clean_text = clean_text[:max_chars] + "..."
+    
+    # Add to history
+    _conversation_history.append((role, clean_text))
+    
+    # Keep only last N turns
+    if len(_conversation_history) > MAX_HISTORY_TURNS:
+        _conversation_history = _conversation_history[-MAX_HISTORY_TURNS:]
+    
+    logger.debug("Conversation history updated: %d turns", len(_conversation_history))
+
+
+def get_conversation_context() -> str:
+    """
+    Format conversation history for LLM routing context.
+    Returns empty string if no history.
+    """
+    if not _conversation_history:
+        return ""
+    
+    lines = []
+    for role, text in _conversation_history:
+        prefix = "User" if role == "user" else "Assistant"
+        lines.append(f"{prefix}: {text}")
+    
+    return "\n".join(lines)
+
 
 def _auto_parse_context(message: str) -> None:
     """Auto-parse context from message prefix."""
@@ -546,6 +631,10 @@ def tool_route_to_agent(*, message: str) -> Dict[str, Any]:
     
     # Strip context for cleaner classification
     clean_message = _strip_context_prefix(message)
+    
+    # Track user message in conversation history for context-aware LLM routing
+    # This enables "okay, do it" to route correctly based on previous turns
+    update_conversation_history("user", clean_message)
     
     # Classify intent
     decision = classify_intent(clean_message)
@@ -673,4 +762,5 @@ __all__ = [
     "classify_intent",
     "initialize_root_agent",
     "root_agent",
+    "update_conversation_history",  # For tracking assistant responses
 ]
