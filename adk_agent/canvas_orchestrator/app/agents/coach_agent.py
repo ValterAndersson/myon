@@ -319,6 +319,71 @@ def tool_get_recent_workouts(*, user_id: Optional[str] = None, limit: int = 10) 
         return {"error": f"Failed to fetch workouts: {str(e)}"}
 
 
+# ============================================================================
+# MUSCLE NAME MAPPING: Maps common/simple names to anatomical names
+# Analytics uses anatomical names, users use simple names
+# ============================================================================
+
+MUSCLE_NAME_ALIASES = {
+    # Simple → Anatomical mappings (for flexible matching)
+    "chest": ["pectoralis major", "pectoralis minor", "pecs", "pec"],
+    "back": ["latissimus dorsi", "lats", "rhomboids", "trapezius", "erector spinae", "teres major"],
+    "shoulders": ["deltoid", "anterior deltoid", "lateral deltoid", "posterior deltoid", "medial deltoid", "delts"],
+    "biceps": ["biceps brachii", "bicep"],
+    "triceps": ["triceps brachii", "tricep"],
+    "forearms": ["forearm", "brachioradialis", "wrist flexors", "wrist extensors"],
+    "quads": ["quadriceps", "vastus lateralis", "vastus medialis", "rectus femoris", "quad"],
+    "hamstrings": ["hamstring", "biceps femoris", "semitendinosus", "semimembranosus"],
+    "glutes": ["gluteus maximus", "gluteus medius", "gluteus minimus", "glute"],
+    "calves": ["gastrocnemius", "soleus", "calf"],
+    "abs": ["rectus abdominis", "abdominals", "core", "obliques", "transverse abdominis"],
+    # Also allow anatomical names as input
+    "pectoralis major": ["chest", "pecs"],
+    "latissimus dorsi": ["back", "lats"],
+    "biceps brachii": ["biceps", "bicep"],
+    "triceps brachii": ["triceps", "tricep"],
+    "medial deltoid": ["shoulders", "lateral deltoid", "side delt"],
+    "anterior deltoid": ["front delt", "shoulders"],
+    "posterior deltoid": ["rear delt", "shoulders"],
+}
+
+
+def _muscle_matches(muscle_input: str, target_muscles: List[str]) -> bool:
+    """
+    Check if the user's muscle input matches any of the target muscles.
+    Handles both simple names (chest) and anatomical names (pectoralis major).
+    """
+    muscle_input = muscle_input.lower().strip()
+    target_muscles_lower = [m.lower() for m in target_muscles]
+    
+    # Direct match
+    if muscle_input in target_muscles_lower:
+        return True
+    
+    # Check if input is a simple name that maps to any target
+    if muscle_input in MUSCLE_NAME_ALIASES:
+        for alias in MUSCLE_NAME_ALIASES[muscle_input]:
+            if alias.lower() in target_muscles_lower:
+                return True
+            # Partial match (e.g., "pectoralis major" contains "pectoralis")
+            for target in target_muscles_lower:
+                if alias.lower() in target or target in alias.lower():
+                    return True
+    
+    # Check if any target is a simple name that maps to input
+    for target in target_muscles_lower:
+        if target in MUSCLE_NAME_ALIASES:
+            if muscle_input in [a.lower() for a in MUSCLE_NAME_ALIASES[target]]:
+                return True
+    
+    # Partial string match as fallback
+    for target in target_muscles_lower:
+        if muscle_input in target or target in muscle_input:
+            return True
+    
+    return False
+
+
 def tool_get_user_exercises_by_muscle(
     *, 
     user_id: Optional[str] = None, 
@@ -332,9 +397,12 @@ def tool_get_user_exercises_by_muscle(
     Use the returned exercise IDs in tool_get_analytics_features(exercise_ids=[...]).
     
     Args:
-        muscle_group: Target muscle ("chest", "back", "shoulders", "biceps", "triceps", 
-                      "quadriceps", "hamstrings", "glutes", "calves", "abs")
+        muscle_group: Target muscle. Accepts both simple names ("chest", "back", "biceps")
+                      and anatomical names ("pectoralis major", "biceps brachii").
         limit: Max workouts to scan (default 20)
+    
+    Returns:
+        exercises: List of {id, name, count, primary_muscle} sorted by usage frequency
     """
     uid = _resolve(user_id, "user_id")
     if not uid:
@@ -345,6 +413,7 @@ def tool_get_user_exercises_by_muscle(
     
     logger.info("get_user_exercises_by_muscle uid=%s muscle=%s", uid, muscle_group)
     
+    # Step 1: Fetch recent workouts
     try:
         resp = _canvas_client().get_user_workouts(uid, limit=limit)
         success, data, error_details = parse_api_response(resp)
@@ -360,37 +429,76 @@ def tool_get_user_exercises_by_muscle(
         logger.error("get_user_exercises_by_muscle failed: %s", str(e))
         return {"error": f"Failed to fetch workouts: {str(e)}"}
     
-    exercise_counts: Dict[str, Dict[str, Any]] = {}
+    # Step 2: Collect unique exercise IDs
+    exercise_usage: Dict[str, Dict[str, Any]] = {}
     
     for workout in workouts:
         for ex in (workout.get("exercises") or []):
-            primary = (ex.get("primaryMuscle") or ex.get("primary_muscle") or "").lower()
-            secondary = [m.lower() for m in (ex.get("secondaryMuscles") or ex.get("secondary_muscles") or [])]
-            muscle_group_field = (ex.get("muscleGroup") or ex.get("muscle_group") or "").lower()
+            ex_id = ex.get("id") or ex.get("exercise_id") or ex.get("exerciseId")
+            ex_name = ex.get("name") or ex.get("exerciseName") or "Unknown"
             
-            matches = (
-                muscle_group in primary or
-                muscle_group in secondary or
-                muscle_group in muscle_group_field or
-                primary == muscle_group or
-                muscle_group_field == muscle_group
-            )
-            
-            if matches:
-                ex_id = ex.get("id") or ex.get("exercise_id") or ex.get("exerciseId")
-                ex_name = ex.get("name") or ex.get("exerciseName") or "Unknown"
-                
-                if ex_id:
-                    if ex_id not in exercise_counts:
-                        exercise_counts[ex_id] = {
-                            "id": ex_id,
-                            "name": ex_name,
-                            "count": 0,
-                            "primary_muscle": primary,
-                        }
-                    exercise_counts[ex_id]["count"] += 1
+            if ex_id:
+                if ex_id not in exercise_usage:
+                    exercise_usage[ex_id] = {
+                        "id": ex_id,
+                        "name": ex_name,
+                        "count": 0,
+                        "primary_muscle": None,
+                        "muscles": [],
+                    }
+                exercise_usage[ex_id]["count"] += 1
     
-    sorted_exercises = sorted(exercise_counts.values(), key=lambda x: -x["count"])
+    if not exercise_usage:
+        return {
+            "muscle_group": muscle_group,
+            "exercises_found": 0,
+            "exercises": [],
+            "_display": {
+                "running": f"Finding {muscle_group} exercises",
+                "complete": f"No workouts found",
+                "phase": "searching",
+            }
+        }
+    
+    # Step 3: Batch lookup exercise details from catalog to get muscle data
+    exercise_ids = list(exercise_usage.keys())
+    
+    try:
+        # Search exercises by their IDs to get muscle data
+        # We'll do this in batches if needed
+        for ex_id in exercise_ids[:30]:  # Limit to first 30 to avoid too many lookups
+            try:
+                resp = _canvas_client().search_exercises(query=ex_id, limit=1)
+                items = (resp.get("data") or resp).get("items") or []
+                if items:
+                    ex_data = items[0]
+                    muscles = ex_data.get("muscles", {})
+                    primary = muscles.get("primary", [])
+                    secondary = muscles.get("secondary", [])
+                    all_muscles = primary + secondary
+                    
+                    if ex_id in exercise_usage:
+                        exercise_usage[ex_id]["primary_muscle"] = primary[0] if primary else None
+                        exercise_usage[ex_id]["muscles"] = all_muscles
+            except Exception as e:
+                logger.debug("Failed to lookup exercise %s: %s", ex_id, str(e))
+                continue
+    except Exception as e:
+        logger.warning("Batch exercise lookup failed: %s", str(e))
+    
+    # Step 4: Filter exercises by muscle match
+    matching_exercises = []
+    for ex_id, ex_data in exercise_usage.items():
+        all_muscles = ex_data.get("muscles", [])
+        if all_muscles and _muscle_matches(muscle_group, all_muscles):
+            matching_exercises.append({
+                "id": ex_id,
+                "name": ex_data["name"],
+                "count": ex_data["count"],
+                "primary_muscle": ex_data["primary_muscle"],
+            })
+    
+    sorted_exercises = sorted(matching_exercises, key=lambda x: -x["count"])
     
     return {
         "muscle_group": muscle_group,
@@ -576,6 +684,14 @@ PROGRESSION TRUMPS VOLUME: If the user is getting stronger (positive e1rm_slope)
 - Hard cap: 12 lines unless the user explicitly asks for detail or the topic is injury/pain/risk.
 - Never narrate tools, never include internal traces, never mention tool names.
 - Avoid templates that feel mechanical. Write naturally, but concise.
+
+## TOOL EXECUTION DISCIPLINE (CRITICAL)
+- NEVER promise future actions. Complete ALL tool calls BEFORE responding with text.
+- NEVER say "I'll fetch...", "Let me get...", "I'll analyze..." — just DO IT silently, then present results.
+- Call all necessary tools in one turn, then respond with your findings.
+- If you need data, get it NOW. Don't announce it.
+- Wrong: "I'll fetch your chest progression data now." (ends turn without actually fetching)
+- Right: [call tool_get_analytics_features] [call tool_get_user_exercises_by_muscle] then respond with findings
 
 ## WHEN TO EXPAND
 You may exceed 12 lines only if:

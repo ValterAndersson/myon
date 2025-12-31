@@ -427,13 +427,15 @@ function fingerprint(text) {
 const eventStartTimes = new Map();
 // Track tool args for use in result description
 const toolArgsCache = new Map();
+// Track current active agent (updated on transfer_to_agent calls)
+let currentActiveAgent = 'orchestrator';
 
 // Transform ADK events to iOS-friendly StreamEvent format
 function transformToIOSEvent(adkEvent) {
   const timestamp = Date.now() / 1000; // Convert to seconds
   const base = {
     type: 'unknown',
-    agent: 'orchestrator',
+    agent: currentActiveAgent,  // Use tracked agent instead of hardcoded
     timestamp,
     metadata: {}
   };
@@ -942,6 +944,10 @@ async function streamAgentNormalizedHandler(req, res) {
     let lineCount = 0;
     let dataChunkCount = 0;
     
+    // === RESET AGENT STATE FOR NEW STREAM ===
+    // Reset to orchestrator at start of each request
+    currentActiveAgent = 'orchestrator';
+    
     // === EMIT INITIAL THINKING EVENT IMMEDIATELY ===
     // This ensures the UI shows the agent is working right away
     sse.write({ type: 'thinking', text: 'Analyzing...' });
@@ -975,7 +981,28 @@ async function streamAgentNormalizedHandler(req, res) {
               }
               
               const name = p.function_call.name || 'tool';
-              sse.write({ type: 'tool_started', name, args: p.function_call.args || {} });
+              const args = p.function_call.args || {};
+              
+              // === TRACK AGENT ROUTING: Update current agent on transfer ===
+              if (name === 'transfer_to_agent' && args.agent_name) {
+                const agentName = args.agent_name.toLowerCase();
+                // Map ADK agent names to display names
+                if (agentName.includes('coach')) {
+                  currentActiveAgent = 'coach';
+                } else if (agentName.includes('planner')) {
+                  currentActiveAgent = 'planner';
+                } else if (agentName.includes('copilot')) {
+                  currentActiveAgent = 'copilot';
+                } else {
+                  currentActiveAgent = agentName;
+                }
+                logger.info('[streamAgentNormalized] Agent transfer detected', { 
+                  targetAgent: currentActiveAgent,
+                  rawAgentName: args.agent_name 
+                });
+              }
+              
+              sse.write({ type: 'tool_started', name, args });
             }
             if (p.function_response) {
               const name = p.function_response.name || 'tool';

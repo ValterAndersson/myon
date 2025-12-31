@@ -153,17 +153,44 @@ final class CanvasService: CanvasServiceProtocol {
     // Related DTOs: ApplyActionRequestDTO, ApplyActionResponseDTO (CanvasDTOs.swift)
     // =========================================================================
     func applyAction(_ req: ApplyActionRequestDTO) async throws -> ApplyActionResponseDTO {
-        DebugLogger.log(.canvas, "applyAction: v=\(req.expected_version ?? -1) type=\(req.action.type) card=\(req.action.card_id ?? "-")")
+        // Log canvas action with full context
+        var payloadDict: [String: Any] = [:]
+        if let payload = req.action.payload {
+            for (key, value) in payload {
+                payloadDict[key] = value.value
+            }
+        }
+        
+        SessionLogger.shared.logCanvasAction(
+            type: req.action.type,
+            cardId: req.action.card_id,
+            payload: payloadDict.isEmpty ? nil : payloadDict,
+            expectedVersion: req.expected_version ?? -1
+        )
         
         // POST to Firebase Function via ApiClient (uses Firebase Auth token)
+        // Note: ApiClient already logs the full HTTP request/response
         let res: ApplyActionResponseDTO = try await ApiClient.shared.postJSON("applyAction", body: req)
         
-        if DebugLogger.enabled {
-            if let v = res.data?.version {
-                DebugLogger.debug(.canvas, "applyAction result version=\(v) changed=\(res.data?.changed_cards?.count ?? 0)")
-            }
-            if let err = res.error { DebugLogger.error(.canvas, "applyAction error: \(err.code) - \(err.message)") }
+        // Log the result
+        if res.success == true, let data = res.data {
+            SessionLogger.shared.log(.canvas, .info, "applyAction succeeded", context: [
+                "new_version": data.version ?? -1,
+                "changed_cards": data.changed_cards?.count ?? 0
+            ])
+        } else if let err = res.error {
+            SessionLogger.shared.logError(
+                category: .canvas,
+                message: "applyAction failed: \(err.code)",
+                context: [
+                    "code": err.code,
+                    "message": err.message,
+                    "action_type": req.action.type,
+                    "expected_version": req.expected_version ?? -1
+                ]
+            )
         }
+        
         return res
     }
 
