@@ -100,10 +100,8 @@ struct FocusModeWorkoutScreen: View {
             Button("Keep Logging", role: .cancel) { }
         }
         .sheet(isPresented: $showingExerciseSearch) {
-            ExerciseSearchSheet { exercise in
-                Task {
-                    await addExercise(exercise)
-                }
+            FocusModeExerciseSearch { exercise in
+                addExercise(exercise)
             }
         }
         .task {
@@ -291,27 +289,14 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    private func addExercise(_ exercise: Exercise) async {
-        guard let workout = service.workout else { return }
-        
-        let newExercise = FocusModeExercise(
-            instanceId: UUID().uuidString,
-            exerciseId: exercise.id,
-            name: exercise.name,
-            position: workout.exercises.count,
-            sets: [
-                FocusModeSet(
-                    id: UUID().uuidString,
-                    setType: .working,
-                    status: .planned,
-                    targetReps: 10,
-                    targetRir: 2
-                )
-            ]
-        )
-        
-        // TODO: Call patchActiveWorkout to add exercise
-        print("Add exercise: \(newExercise.name)")
+    private func addExercise(_ exercise: Exercise) {
+        Task {
+            do {
+                try await service.addExercise(exercise: exercise)
+            } catch {
+                print("Add exercise failed: \(error)")
+            }
+        }
     }
     
     private func logSet(exerciseId: String, setId: String, weight: Double?, reps: Int, rir: Int?) {

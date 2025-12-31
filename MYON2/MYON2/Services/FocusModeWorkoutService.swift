@@ -257,6 +257,76 @@ class FocusModeWorkoutService: ObservableObject {
         return try await syncPatch(request)
     }
     
+    /// Add a new exercise to the workout
+    func addExercise(
+        exercise: Exercise,
+        withSets initialSets: [FocusModeSet]? = nil
+    ) async throws {
+        guard var workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        let newInstanceId = UUID().uuidString
+        let defaultSets = initialSets ?? [
+            FocusModeSet(
+                id: UUID().uuidString,
+                setType: .working,
+                status: .planned,
+                targetReps: 10,
+                targetRir: 2
+            )
+        ]
+        
+        let newExercise = FocusModeExercise(
+            instanceId: newInstanceId,
+            exerciseId: exercise.id,
+            name: exercise.name,
+            position: workout.exercises.count,
+            sets: defaultSets
+        )
+        
+        // Apply optimistically
+        workout.exercises.append(newExercise)
+        self.workout = workout
+        
+        // Build request
+        let idempotencyKey = idempotencyHelper.generate(context: "addExercise", exerciseId: newInstanceId)
+        
+        let exerciseValue: [String: Any] = [
+            "instance_id": newInstanceId,
+            "exercise_id": exercise.id,
+            "name": exercise.name,
+            "position": newExercise.position,
+            "sets": defaultSets.map { [
+                "id": $0.id,
+                "set_type": $0.setType.rawValue,
+                "status": $0.status.rawValue,
+                "reps": $0.targetReps ?? 10,
+                "rir": $0.targetRir ?? 2
+            ] as [String : Any] }
+        ]
+        
+        let op = PatchOperation(
+            op: "add_exercise",
+            target: PatchOperation.PatchTarget(exerciseInstanceId: newInstanceId, setId: nil),
+            field: nil,
+            value: AnyCodable(exerciseValue)
+        )
+        
+        let request = PatchActiveWorkoutRequest(
+            workoutId: workout.id,
+            ops: [op],
+            cause: "user_edit",
+            uiSource: "add_exercise_button",
+            idempotencyKey: idempotencyKey,
+            clientTimestamp: ISO8601DateFormatter().string(from: Date()),
+            aiScope: nil
+        )
+        
+        _ = try await syncPatch(request)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+    
     /// Remove a set from an exercise
     func removeSet(
         exerciseInstanceId: String,
