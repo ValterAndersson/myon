@@ -2166,7 +2166,55 @@ const RATE_LIMITS = {
 
 ---
 
-## Appendix: Related Documentation
+## Appendix A: Current Implementation Gaps
+
+> **Last Assessed**: 2024-12-31 by Codex  
+> **Status**: Pre-implementation  
+> This section tracks gaps between this specification and the current codebase.
+
+### A.1 Blockers (Must Fix Before MVP)
+
+| ID | Severity | Area | Current State | Required State | Files to Modify |
+|----|----------|------|---------------|----------------|-----------------|
+| **R1** | Blocker | Backend | `logSet` appends a generic `set_performed` event with `exercise_id`/`set_index` but never updates workout sets, statuses, tags, or totals | Must use stable `exercise_instance_id` + `set_id`, enforce ALREADY_DONE, update workout document, recompute totals, emit `set_done` event | `log-set.js`, `log_set_core.js` |
+| **M1** | Blocker | Backend | `patchActiveWorkout` and `autofillExercise` endpoints do not exist | Implement both with homogeneous patch ops, validation, idempotency, and event emission | Create `patch-active-workout.js`, `autofill-exercise.js` |
+
+### A.2 High Priority
+
+| ID | Severity | Area | Current State | Required State | Files to Modify |
+|----|----------|------|---------------|----------------|-----------------|
+| **R2/M3** | High | Firestore | Idempotency keys stored in global collection without TTL or cached responses | Move to per-workout subcollection: `users/{uid}/active_workouts/{id}/idempotency/{key}` with `response` payload + `expires_at` (24h TTL) | `idempotency.js`, all mutating endpoints |
+| **R3** | High | Backend | Events use ad-hoc payloads (`set_index`, `exercise_id`) without stable IDs; totals never recomputed | Use stable `exercise_instance_id` + `set_id` in all event payloads; recompute totals on every mutation | `log-set.js`, `add-exercise.js`, `complete-active-workout.js` |
+| **M2** | High | Backend | `logSet` accepts `set_index` (position-based) | Must accept stable `exercise_instance_id` + `set_id` and return totals | `log-set.js` |
+
+### A.3 Medium Priority (Phase 2)
+
+| ID | Severity | Area | Current State | Required State | Files to Modify |
+|----|----------|------|---------------|----------------|-----------------|
+| **R4** | Medium | iOS | `ActiveWorkoutManager` builds local workouts and saves once; no endpoint integration or pending edit queue | Create `FocusModeViewModel` with local-first state, debounced commits, flush coordination, and reconciliation on foreground | Create `FocusModeView.swift`, `FocusModeViewModel.swift` |
+
+### A.4 Minimal Patchlist
+
+Execute in order:
+
+| Step | Change | Files | Reason |
+|------|--------|-------|--------|
+| **1** | Implement workout-scoped idempotency storage with cached responses and 24h TTL | `idempotency.js`, `log-set.js`, `add-exercise.js`, `swap-exercise.js` | Prevents duplicate mutations |
+| **2** | Rewrite `logSet` to use stable IDs, enforce validation/status transitions, update workout document + totals, emit `set_done` event | `log-set.js`, `log_set_core.js` | Hot-path correctness |
+| **3** | Add `patchActiveWorkout` and `autofillExercise` endpoints | Create `patch-active-workout.js`, `autofill-exercise.js`, `validators.js` | Required for Phase 1/2 |
+| **4** | Build iOS `FocusModeViewModel` with local-first queueing and backend sync | Create `FocusModeView.swift`, `FocusModeViewModel.swift` | Phase 2 requirement |
+
+### A.5 Tests to Add
+
+| ID | Scope | Test Name | What It Proves |
+|----|-------|-----------|----------------|
+| **T1** | Backend | `logSet_respects_idempotency_and_already_done` | Duplicate keys return cached response; already-done sets return ALREADY_DONE error |
+| **T2** | Backend | `addExercise_idempotent_and_totals_intact` | Repeated calls with same key create only one exercise |
+| **T3** | iOS | `focus_mode_pending_edits_flush_and_reconcile` | Offline edits queue and sync without overwriting newer server state |
+
+---
+
+## Appendix B: Related Documentation
 
 - [FIRESTORE_SCHEMA.md](./FIRESTORE_SCHEMA.md) - Full Firestore schema reference
 - [FIREBASE_FUNCTIONS_ARCHITECTURE.md](./FIREBASE_FUNCTIONS_ARCHITECTURE.md) - Backend architecture
