@@ -41,9 +41,10 @@ async function getGcpAuthToken() {
   return cachedGcpToken;
 }
 
-// Session TTL: 10 minutes of inactivity (reduced from 30 to prevent stale session issues)
-// Vertex AI agent sessions can become corrupted/stuck, so shorter TTL is safer
-const SESSION_TTL_MS = 10 * 60 * 1000;
+// Session TTL: 30 minutes of inactivity
+// With pre-warming, we want sessions to stay valid longer so users can take their time
+// Vertex AI sessions are revalidated on each stream, so longer TTL is safe
+const SESSION_TTL_MS = 30 * 60 * 1000;
 
 // Agent version - MUST MATCH initialize-session.js and stream-agent-normalized.js
 // When agent is updated, bump this to invalidate all existing sessions

@@ -317,26 +317,56 @@ final class CanvasService: CanvasServiceProtocol {
     //
     // This is the RECOMMENDED entry point for opening a canvas.
     //
+    // PRE-WARMING:
+    // If SessionPreWarmer.preWarmIfNeeded() was called earlier, the session may already
+    // exist in Firestore. The backend will detect this and return isNewSession=false.
+    //
     // Called by: CanvasViewModel.bootstrap()
     // =========================================================================
     func openCanvas(userId: String, purpose: String) async throws -> (canvasId: String, sessionId: String) {
         struct Req: Codable { let userId: String; let purpose: String }
         
-        DebugLogger.log(.canvas, "⏱️ openCanvas: user=\(userId) purpose=\(purpose)")
         let startTime = Date()
+        
+        // Log with pre-warm status
+        let preWarmedSession = await MainActor.run { SessionPreWarmer.shared.preWarmedSession }
+        let hadPreWarmedSession = preWarmedSession != nil && preWarmedSession?.userId == userId
+        
+        SessionLogger.shared.log(.canvas, .info, "⏱️ openCanvas START", context: [
+            "user_id": userId,
+            "purpose": purpose,
+            "pre_warmed_available": hadPreWarmedSession,
+            "pre_warmed_session_id": preWarmedSession?.sessionId ?? "none"
+        ])
         
         let response: OpenCanvasResponse = try await ApiClient.shared.postJSON("openCanvas", body: Req(userId: userId, purpose: purpose))
         
         let elapsed = Date().timeIntervalSince(startTime)
-        if DebugLogger.enabled {
-            DebugLogger.debug(.canvas, "⏱️ openCanvas completed in \(Int(elapsed * 1000))ms - success=\(response.success) canvas=\(response.canvasId ?? "-") session=\(response.sessionId ?? "-") newSession=\(response.isNewSession ?? true)")
-        }
+        let elapsedMs = Int(elapsed * 1000)
         
         if response.success, let canvasId = response.canvasId, let sessionId = response.sessionId {
+            // Determine if we reused a pre-warmed session
+            let wasPreWarmed = !(response.isNewSession ?? true)
+            let matchedPreWarm = preWarmedSession?.sessionId == sessionId
+            
+            SessionLogger.shared.log(.canvas, .info, "⏱️ openCanvas COMPLETE", context: [
+                "canvas_id": canvasId,
+                "session_id": sessionId,
+                "duration_ms": elapsedMs,
+                "was_new_session": response.isNewSession ?? true,
+                "used_pre_warmed": wasPreWarmed,
+                "pre_warm_matched": matchedPreWarm,
+                "card_count": response.resumeState?.cardCount ?? 0,
+                "latency_category": elapsedMs < 500 ? "FAST" : (elapsedMs < 2000 ? "NORMAL" : "SLOW")
+            ])
+            
             return (canvasId, sessionId)
         }
         
         let message = response.error ?? "Failed to open canvas"
+        SessionLogger.shared.logError(category: .canvas, message: "openCanvas FAILED after \(elapsedMs)ms", context: [
+            "error": message
+        ])
         throw NSError(domain: "CanvasService", code: 500, userInfo: [NSLocalizedDescriptionKey: message])
     }
     
