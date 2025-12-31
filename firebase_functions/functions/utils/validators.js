@@ -28,12 +28,45 @@ const PrescribeSchema = z.object({
   context: z.any().optional()
 });
 
+// Legacy LogSetSchema - deprecated, use LogSetSchemaV2
 const LogSetSchema = z.object({
   workout_id: IdSchema,
   exercise_id: IdSchema,
   set_index: z.number().int().min(0),
   actual: z.object({ reps: z.number().int().min(0), rir: z.number().int().min(0).max(5), weight: z.number().optional(), tempo: z.string().optional(), notes: z.string().optional() })
 });
+
+/**
+ * LogSetSchemaV2 - Per FOCUS_MODE_WORKOUT_EXECUTION.md spec
+ * Uses stable IDs (exercise_instance_id + set_id) instead of position-based (exercise_id + set_index)
+ * 
+ * Validation rules:
+ * - reps: 0-30 (0 requires is_failure=true)
+ * - rir: 0-5
+ * - weight: >= 0 or null (null for bodyweight)
+ */
+const LogSetSchemaV2 = z.object({
+  workout_id: IdSchema,
+  exercise_instance_id: IdSchema,           // Workout-local stable ID (UUID)
+  set_id: IdSchema,                          // Stable set ID (UUID)
+  values: z.object({
+    weight: z.number().nonnegative().nullable(), // kg, null for bodyweight
+    reps: z.number().int().min(0).max(30),       // 0-30 (0 requires is_failure)
+    rir: z.number().int().min(0).max(5),         // Reps In Reserve
+  }),
+  is_failure: z.boolean().optional(),            // Required if reps=0
+  idempotency_key: IdSchema,                     // Required for idempotency
+  client_timestamp: z.string().optional(),       // ISO 8601 timestamp
+}).refine(
+  (data) => {
+    // If reps is 0, is_failure must be true
+    if (data.values.reps === 0 && data.is_failure !== true) {
+      return false;
+    }
+    return true;
+  },
+  { message: 'reps=0 requires is_failure=true' }
+);
 
 const ScoreSetSchema = z.object({ actual: z.object({ reps: z.number(), rir: z.number(), weight: z.number().optional() }) });
 
@@ -43,6 +76,7 @@ module.exports = {
   PlanSchema,
   PrescribeSchema,
   LogSetSchema,
+  LogSetSchemaV2,
   ScoreSetSchema,
 };
 
