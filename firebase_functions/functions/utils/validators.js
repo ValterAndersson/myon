@@ -70,6 +70,100 @@ const LogSetSchemaV2 = z.object({
 
 const ScoreSetSchema = z.object({ actual: z.object({ reps: z.number(), rir: z.number(), weight: z.number().optional() }) });
 
+/**
+ * PatchActiveWorkoutSchema - Per FOCUS_MODE_WORKOUT_EXECUTION.md spec
+ * 
+ * Supports:
+ * - set_field: Update a single field on a set
+ * - add_set: Add a new set to an exercise
+ * - remove_set: Remove a set from an exercise
+ * 
+ * Homogeneous constraint: 
+ * - Only one op type per request
+ * - set_field ops must target same set
+ */
+const PatchOpSchema = z.discriminatedUnion('op', [
+  // Field update
+  z.object({
+    op: z.literal('set_field'),
+    target: z.object({
+      exercise_instance_id: IdSchema,
+      set_id: IdSchema,
+    }),
+    field: z.enum(['weight', 'reps', 'rir', 'status', 'set_type', 'tags.is_failure']),
+    value: z.any(),
+  }),
+  // Add set
+  z.object({
+    op: z.literal('add_set'),
+    target: z.object({
+      exercise_instance_id: IdSchema,
+    }),
+    value: z.object({
+      id: IdSchema,                                      // Client-generated UUID (required)
+      set_type: z.enum(['warmup', 'working', 'dropset']),
+      reps: z.number().int().min(1).max(30),             // 1-30 for planned sets
+      rir: z.number().int().min(0).max(5),
+      weight: z.number().nonnegative().nullable(),
+      status: z.literal('planned'),                       // Must be 'planned'
+      tags: z.object({}).optional(),
+    }),
+  }),
+  // Remove set
+  z.object({
+    op: z.literal('remove_set'),
+    target: z.object({
+      exercise_instance_id: IdSchema,
+      set_id: IdSchema,
+    }),
+  }),
+]);
+
+const PatchActiveWorkoutSchema = z.object({
+  workout_id: IdSchema,
+  ops: z.array(PatchOpSchema).min(1),
+  cause: z.enum(['user_edit', 'user_ai_action']),
+  ui_source: z.string(),
+  idempotency_key: IdSchema,
+  client_timestamp: z.string().optional(),
+  ai_scope: z.object({
+    exercise_instance_id: IdSchema,
+  }).optional(), // Required when cause is 'user_ai_action'
+}).refine(
+  (data) => {
+    // If cause is 'user_ai_action', ai_scope is required
+    if (data.cause === 'user_ai_action' && !data.ai_scope) {
+      return false;
+    }
+    return true;
+  },
+  { message: 'ai_scope is required when cause is user_ai_action' }
+);
+
+/**
+ * AutofillExerciseSchema - Per FOCUS_MODE_WORKOUT_EXECUTION.md spec
+ * AI bulk prescription for a single exercise
+ */
+const AutofillExerciseSchema = z.object({
+  workout_id: IdSchema,
+  exercise_instance_id: IdSchema,
+  updates: z.array(z.object({
+    set_id: IdSchema,
+    weight: z.number().nonnegative().nullable().optional(),
+    reps: z.number().int().min(1).max(30).optional(),
+    rir: z.number().int().min(0).max(5).optional(),
+  })).optional(),
+  additions: z.array(z.object({
+    id: IdSchema,
+    set_type: z.enum(['working', 'dropset']),
+    reps: z.number().int().min(1).max(30),
+    rir: z.number().int().min(0).max(5),
+    weight: z.number().nonnegative().nullable(),
+  })).optional(),
+  idempotency_key: IdSchema,
+  client_timestamp: z.string().optional(),
+});
+
 module.exports = {
   IdSchema,
   PreferencesSchema,
@@ -78,6 +172,9 @@ module.exports = {
   LogSetSchema,
   LogSetSchemaV2,
   ScoreSetSchema,
+  PatchOpSchema,
+  PatchActiveWorkoutSchema,
+  AutofillExerciseSchema,
 };
 
 // Template & Routine schemas (minimal)

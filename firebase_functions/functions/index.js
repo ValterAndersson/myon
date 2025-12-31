@@ -74,6 +74,8 @@ const { proposeSession } = require('./active_workout/propose-session');
 const { startActiveWorkout } = require('./active_workout/start-active-workout');
 const { getActiveWorkout } = require('./active_workout/get-active-workout');
 const { logSet } = require('./active_workout/log-set');
+const { patchActiveWorkout } = require('./active_workout/patch-active-workout');
+const { autofillExercise } = require('./active_workout/autofill-exercise');
 const { addExercise } = require('./active_workout/add-exercise');
 const { swapExercise } = require('./active_workout/swap-exercise');
 const { completeActiveWorkout } = require('./active_workout/complete-active-workout');
@@ -184,7 +186,11 @@ exports.normalizeCatalogPage = functions.https.onRequest((req, res) => withApiKe
 exports.proposeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(proposeSession)(req, res));
 exports.startActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(startActiveWorkout)(req, res));
 exports.getActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(getActiveWorkout)(req, res));
-exports.logSet = functions.https.onRequest((req, res) => requireFlexibleAuth(logSet)(req, res));
+// v2 endpoints (already wrapped with requireFlexibleAuth internally via onRequest)
+exports.logSet = logSet;
+exports.patchActiveWorkout = patchActiveWorkout;
+exports.autofillExercise = autofillExercise;
+// Legacy v1 endpoints
 exports.addExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(addExercise)(req, res));
 exports.swapExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(swapExercise)(req, res));
 exports.completeActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(completeActiveWorkout)(req, res));
