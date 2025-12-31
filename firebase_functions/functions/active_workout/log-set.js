@@ -78,6 +78,7 @@ async function logSetHandler(req, res) {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
     
+    // User ID from Firebase Auth or API key middleware
     const userId = req.user?.uid || req.auth?.uid;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });

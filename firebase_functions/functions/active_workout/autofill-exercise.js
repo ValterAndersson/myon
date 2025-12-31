@@ -53,6 +53,7 @@ async function autofillExerciseHandler(req, res) {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
     
+    // User ID from Firebase Auth or API key middleware
     const userId = req.user?.uid || req.auth?.uid;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -193,16 +194,18 @@ async function autofillExerciseHandler(req, res) {
     // 9. Recompute totals
     const totals = computeTotals(updatedExercises);
 
-    // 10. Create event
+    // 10. Create event (avoid undefined values for Firestore)
     const eventRef = db.collection(`users/${userId}/active_workouts/${workoutId}/events`).doc();
+    const eventPayload = {
+      exercise_instance_id: exerciseInstanceId,
+    };
+    if (setsUpdated.length > 0) eventPayload.sets_updated = setsUpdated;
+    if (setsAdded.length > 0) eventPayload.sets_added = setsAdded;
+    
     const event = {
       id: eventRef.id,
       type: 'autofill_applied',
-      payload: {
-        exercise_instance_id: exerciseInstanceId,
-        sets_updated: setsUpdated.length > 0 ? setsUpdated : undefined,
-        sets_added: setsAdded.length > 0 ? setsAdded : undefined,
-      },
+      payload: eventPayload,
       diff_ops: diffOps,
       cause: 'user_ai_action',
       ui_source: 'ai_button',

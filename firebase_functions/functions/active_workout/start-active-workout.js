@@ -69,6 +69,7 @@ async function startActiveWorkoutHandler(req, res) {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
 
+    // User ID from Firebase Auth or API key middleware
     const userId = req.user?.uid || req.auth?.uid;
     if (!userId) return fail(res, 'UNAUTHENTICATED', 'Unauthorized', null, 401);
 
@@ -77,20 +78,27 @@ async function startActiveWorkoutHandler(req, res) {
     // These capture the routine context at workout start time
     const sourceTemplateId = req.body?.source_template_id || null;
     const sourceRoutineId = req.body?.source_routine_id || null;
+    
+    // Accept name and exercises from request body for testing/seeding
+    const name = req.body?.name || null;
+    const exercises = req.body?.exercises || [];
 
     const workout = {
       id: null,
       user_id: userId,
+      name: name,
       status: 'in_progress',
       source_template_id: sourceTemplateId,
       source_routine_id: sourceRoutineId,  // Added for routine cursor tracking
       notes: null,
       plan: plan || null,
       current: null,
-      exercises: [],
+      exercises: exercises,
       totals: { sets: 0, reps: 0, volume: 0, stimulus_score: 0 },
       start_time: admin.firestore.FieldValue.serverTimestamp(),
       end_time: null,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
     };
 
     const collectionPath = `users/${userId}/active_workouts`;

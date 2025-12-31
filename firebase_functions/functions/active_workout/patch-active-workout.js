@@ -201,6 +201,7 @@ async function patchActiveWorkoutHandler(req, res) {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
     
+    // User ID from Firebase Auth or API key middleware
     const userId = req.user?.uid || req.auth?.uid;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -368,16 +369,18 @@ async function patchActiveWorkoutHandler(req, res) {
       eventType = 'set_removed';
     }
 
-    // 9. Create event
+    // 9. Create event (avoid undefined values for Firestore)
     const eventRef = db.collection(`users/${userId}/active_workouts/${workoutId}/events`).doc();
+    const eventPayload = {
+      exercise_instance_id: ops[0].target.exercise_instance_id,
+      set_id: ops[0].target.set_id || ops[0].value?.id || null,
+    };
+    if (fieldsChanged.length > 0) eventPayload.fields_changed = fieldsChanged;
+    
     const event = {
       id: eventRef.id,
       type: eventType,
-      payload: {
-        exercise_instance_id: ops[0].target.exercise_instance_id,
-        set_id: ops[0].target.set_id || ops[0].value?.id,
-        fields_changed: fieldsChanged.length > 0 ? fieldsChanged : undefined,
-      },
+      payload: eventPayload,
       diff_ops: diffOps,
       cause,
       ui_source: uiSource,
