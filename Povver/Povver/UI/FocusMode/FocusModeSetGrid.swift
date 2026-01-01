@@ -224,20 +224,18 @@ struct FocusModeSetGrid: View {
         Button {
             setTypePickerSetId = set.id
         } label: {
+            let display = displayNumber(for: index, set: set)
+            
             HStack(spacing: 4) {
-                Text(displayNumber(for: index, set: set))
+                Text(display.text)
                     .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                    .foregroundColor(set.isWarmup ? ColorsToken.Text.secondary : ColorsToken.Text.primary)
-                
-                // Set type badge
-                if let badge = setTypeBadge(for: set) {
-                    Text(badge)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 18, height: 18)
-                        .background(set.tags?.isFailure == true ? ColorsToken.State.error : ColorsToken.State.warning)
-                        .clipShape(Circle())
-                }
+                    .foregroundColor(display.color)
+                    .frame(width: display.isLetter ? 24 : nil, alignment: .center)
+                    .background(
+                        display.isLetter && display.text != "W" ?
+                            display.color.opacity(0.15) : Color.clear
+                    )
+                    .cornerRadius(4)
             }
             .frame(width: width, alignment: .leading)
         }
@@ -330,20 +328,31 @@ struct FocusModeSetGrid: View {
         )
     }
     
-    private func displayNumber(for index: Int, set: FocusModeSet) -> String {
-        if set.isWarmup {
-            let warmupIndex = exercise.sets.prefix(index + 1).filter { $0.isWarmup }.count
-            return "W\(warmupIndex)"
-        } else {
-            let workingIndex = exercise.sets.prefix(index + 1).filter { !$0.isWarmup }.count
-            return "\(workingIndex)"
-        }
+    /// Display info for set number column
+    private struct SetDisplayInfo {
+        let text: String
+        let color: Color
+        let isLetter: Bool
     }
     
-    private func setTypeBadge(for set: FocusModeSet) -> String? {
-        if set.tags?.isFailure == true { return "F" }
-        if set.setType == .dropset { return "D" }
-        return nil
+    /// Returns display info for the set number column
+    /// - Warmups: "W" (secondary color)
+    /// - Working sets: numbered 1, 2, 3... (primary color)
+    /// - Drop sets: "D" (warning color)
+    /// - Failure sets: "F" (error color)
+    private func displayNumber(for index: Int, set: FocusModeSet) -> SetDisplayInfo {
+        // Calculate the working set index (drop sets and failure sets still count)
+        let workingIndex = exercise.sets.prefix(index + 1).filter { !$0.isWarmup }.count
+        
+        if set.isWarmup {
+            return SetDisplayInfo(text: "W", color: ColorsToken.Text.secondary, isLetter: true)
+        } else if set.tags?.isFailure == true {
+            return SetDisplayInfo(text: "F", color: ColorsToken.State.error, isLetter: true)
+        } else if set.setType == .dropset {
+            return SetDisplayInfo(text: "D", color: ColorsToken.State.warning, isLetter: true)
+        } else {
+            return SetDisplayInfo(text: "\(workingIndex)", color: ColorsToken.Text.primary, isLetter: false)
+        }
     }
     
     private func formatWeight(_ weight: Double?) -> String {
