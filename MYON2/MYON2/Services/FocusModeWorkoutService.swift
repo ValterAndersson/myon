@@ -60,24 +60,34 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.startFailed(response.error ?? "Unknown error")
         }
         
-        // Parse timestamps from server (fall back to Date() only if missing)
+        // Parse all fields from server (fall back to sensible defaults only if missing)
         let serverStartTime = parseISO8601Date(response.startTime) ?? Date()
+        let serverEndTime = parseISO8601Date(response.endTime)
         let serverCreatedAt = parseISO8601Date(response.createdAt) ?? Date()
+        let serverUpdatedAt = parseISO8601Date(response.updatedAt)
         
-        // Parse the workout using server-provided data
+        // Parse status from server (default to inProgress for new workouts)
+        let serverStatus: FocusModeWorkoutStatus
+        if let statusString = response.status {
+            serverStatus = FocusModeWorkoutStatus(rawValue: statusString) ?? .inProgress
+        } else {
+            serverStatus = .inProgress
+        }
+        
+        // Parse the workout using all server-provided data
         let parsedWorkout = FocusModeWorkout(
             id: response.workoutId ?? UUID().uuidString,
             userId: response.userId ?? "",
-            status: .inProgress,
-            sourceTemplateId: sourceTemplateId,
-            sourceRoutineId: sourceRoutineId,
-            name: name,
+            status: serverStatus,
+            sourceTemplateId: response.sourceTemplateId ?? sourceTemplateId,
+            sourceRoutineId: response.sourceRoutineId ?? sourceRoutineId,
+            name: response.name ?? name,
             exercises: response.exercises?.map { FocusModeExercise(from: $0) } ?? [],
             totals: response.totals ?? WorkoutTotals(),
             startTime: serverStartTime,
-            endTime: nil,
+            endTime: serverEndTime,
             createdAt: serverCreatedAt,
-            updatedAt: nil
+            updatedAt: serverUpdatedAt
         )
         
         self.workout = parsedWorkout
@@ -223,17 +233,19 @@ class FocusModeWorkoutService: ObservableObject {
         )
         addSetLocally(exerciseInstanceId: exerciseInstanceId, set: newSet)
         
-        // 2. Build request
+        // 2. Build request - use target_* keys for planned set prescriptions
         let idempotencyKey = idempotencyHelper.generate(context: "addSet", setId: newSetId)
         
-        let addValue: [String: Any?] = [
+        var addValue: [String: Any] = [
             "id": newSetId,
             "set_type": setType.rawValue,
-            "weight": weight,
-            "reps": reps,
-            "rir": rir,
-            "status": "planned"
+            "status": "planned",
+            "target_reps": reps,
+            "target_rir": rir ?? 2
         ]
+        if let weight = weight {
+            addValue["target_weight"] = weight
+        }
         
         let op = PatchOperationDTO(
             op: "add_set",
@@ -537,7 +549,16 @@ class FocusModeWorkoutService: ObservableObject {
         guard var workout = workout else { return }
         
         if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) {
+            // Check if the removed set was completed (affects totals)
+            let wasCompleted = workout.exercises[exIdx].sets.first(where: { $0.id == setId })?.status == .done
+            
             workout.exercises[exIdx].sets.removeAll { $0.id == setId }
+            
+            // Recalculate totals if a completed set was removed
+            if wasCompleted {
+                workout.totals = recalculateTotals(for: workout)
+            }
+            
             self.workout = workout
         }
     }
@@ -595,20 +616,32 @@ private struct StartActiveWorkoutResponse: Decodable {
     let success: Bool
     let workoutId: String?
     let userId: String?
+    let name: String?
+    let status: String?
     let exercises: [ExerciseDTO]?
     let startTime: String?
+    let endTime: String?
     let createdAt: String?
+    let updatedAt: String?
     let totals: WorkoutTotals?
+    let sourceTemplateId: String?
+    let sourceRoutineId: String?
     let error: String?
     
     enum CodingKeys: String, CodingKey {
         case success
         case workoutId = "workout_id"
         case userId = "user_id"
+        case name
+        case status
         case exercises
         case startTime = "start_time"
+        case endTime = "end_time"
         case createdAt = "created_at"
+        case updatedAt = "updated_at"
         case totals
+        case sourceTemplateId = "source_template_id"
+        case sourceRoutineId = "source_routine_id"
         case error
     }
 }
