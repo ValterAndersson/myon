@@ -12,6 +12,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 class FocusModeWorkoutService: ObservableObject {
@@ -27,20 +28,6 @@ class FocusModeWorkoutService: ObservableObject {
     
     private let apiClient = ApiClient.shared
     private let idempotencyHelper = IdempotencyKeyHelper.shared
-    
-    // MARK: - Pending Sync Queue
-    
-    private var pendingSyncOperations: [(request: Any, completion: (Bool) -> Void)] = []
-    
-    // MARK: - Endpoints
-    
-    private let baseUrl = StrengthOSConfig.functionsBaseUrl
-    
-    private var logSetUrl: URL { URL(string: "\(baseUrl)/logSet")! }
-    private var patchActiveWorkoutUrl: URL { URL(string: "\(baseUrl)/patchActiveWorkout")! }
-    private var autofillExerciseUrl: URL { URL(string: "\(baseUrl)/autofillExercise")! }
-    private var startActiveWorkoutUrl: URL { URL(string: "\(baseUrl)/startActiveWorkout")! }
-    private var completeActiveWorkoutUrl: URL { URL(string: "\(baseUrl)/completeActiveWorkout")! }
     
     // MARK: - Singleton (optional - can also inject)
     
@@ -60,26 +47,37 @@ class FocusModeWorkoutService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        let body: [String: Any] = [
-            "name": name as Any,
-            "source_template_id": sourceTemplateId as Any,
-            "source_routine_id": sourceRoutineId as Any,
-            "exercises": exercises.map { exerciseToDict($0) }
-        ].compactMapValues { $0 }
-        
-        let response: StartWorkoutResponse = try await apiClient.post(
-            url: startActiveWorkoutUrl,
-            body: body
+        let request = StartActiveWorkoutRequest(
+            name: name,
+            sourceTemplateId: sourceTemplateId,
+            sourceRoutineId: sourceRoutineId,
+            exercises: exercises.isEmpty ? nil : exercises.map { ExerciseDTO(from: $0) }
         )
         
-        guard response.success, let workoutDoc = response.activeWorkoutDoc else {
+        let response: StartActiveWorkoutResponse = try await apiClient.postJSON("startActiveWorkout", body: request)
+        
+        guard response.success else {
             throw FocusModeError.startFailed(response.error ?? "Unknown error")
         }
         
         // Parse the workout
-        let workout = try parseWorkout(from: workoutDoc, workoutId: response.workoutId)
-        self.workout = workout
-        return workout
+        let parsedWorkout = FocusModeWorkout(
+            id: response.workoutId ?? UUID().uuidString,
+            userId: response.userId ?? "",
+            status: .inProgress,
+            sourceTemplateId: sourceTemplateId,
+            sourceRoutineId: sourceRoutineId,
+            name: name,
+            exercises: response.exercises?.map { FocusModeExercise(from: $0) } ?? [],
+            totals: WorkoutTotals(),
+            startTime: Date(),
+            endTime: nil,
+            createdAt: Date(),
+            updatedAt: nil
+        )
+        
+        self.workout = parsedWorkout
+        return parsedWorkout
     }
     
     /// Load existing active workout (for resume)
@@ -88,7 +86,6 @@ class FocusModeWorkoutService: ObservableObject {
         defer { isLoading = false }
         
         // TODO: Call getActiveWorkout endpoint
-        // For now, this would be a direct Firestore read
     }
     
     // MARK: - Log Set (Hot Path)
@@ -133,10 +130,7 @@ class FocusModeWorkoutService: ObservableObject {
         defer { isSyncing = false }
         
         do {
-            let response: LogSetResponse = try await apiClient.post(
-                url: logSetUrl,
-                body: request
-            )
+            let response: LogSetResponse = try await apiClient.postJSON("logSet", body: request)
             
             if response.success, let totals = response.totals {
                 // Update totals from server (source of truth)
@@ -148,7 +142,7 @@ class FocusModeWorkoutService: ObservableObject {
         } catch {
             // Log sync failure but don't rollback local state
             // User can continue working offline
-            DebugLogger.shared.log("logSet sync failed: \(error)", category: .network)
+            print("[FocusModeWorkoutService] logSet sync failed: \(error)")
             self.error = "Sync pending - you can continue"
             throw error
         }
@@ -179,9 +173,9 @@ class FocusModeWorkoutService: ObservableObject {
         )
         
         // 3. Build request
-        let op = PatchOperation(
+        let op = PatchOperationDTO(
             op: "set_field",
-            target: PatchOperation.PatchTarget(exerciseInstanceId: exerciseInstanceId, setId: setId),
+            target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: setId),
             field: field,
             value: AnyCodable(value)
         )
@@ -228,20 +222,20 @@ class FocusModeWorkoutService: ObservableObject {
         // 2. Build request
         let idempotencyKey = idempotencyHelper.generate(context: "addSet", setId: newSetId)
         
-        let addValue: [String: Any] = [
+        let addValue: [String: Any?] = [
             "id": newSetId,
             "set_type": setType.rawValue,
-            "weight": weight as Any,
+            "weight": weight,
             "reps": reps,
-            "rir": rir as Any,
+            "rir": rir,
             "status": "planned"
-        ].compactMapValues { $0 }
+        ]
         
-        let op = PatchOperation(
+        let op = PatchOperationDTO(
             op: "add_set",
-            target: PatchOperation.PatchTarget(exerciseInstanceId: exerciseInstanceId, setId: nil),
+            target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: nil),
             field: nil,
-            value: AnyCodable(addValue)
+            value: AnyCodable(addValue.compactMapValues { $0 })
         )
         
         let request = PatchActiveWorkoutRequest(
@@ -306,9 +300,9 @@ class FocusModeWorkoutService: ObservableObject {
             ] as [String : Any] }
         ]
         
-        let op = PatchOperation(
+        let op = PatchOperationDTO(
             op: "add_exercise",
-            target: PatchOperation.PatchTarget(exerciseInstanceId: newInstanceId, setId: nil),
+            target: PatchTargetDTO(exerciseInstanceId: newInstanceId, setId: nil),
             field: nil,
             value: AnyCodable(exerciseValue)
         )
@@ -324,7 +318,9 @@ class FocusModeWorkoutService: ObservableObject {
         )
         
         _ = try await syncPatch(request)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        await MainActor.run {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
     }
     
     /// Remove a set from an exercise
@@ -342,9 +338,9 @@ class FocusModeWorkoutService: ObservableObject {
         // 2. Build request
         let idempotencyKey = idempotencyHelper.generate(context: "removeSet", setId: setId)
         
-        let op = PatchOperation(
+        let op = PatchOperationDTO(
             op: "remove_set",
-            target: PatchOperation.PatchTarget(exerciseInstanceId: exerciseInstanceId, setId: setId),
+            target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: setId),
             field: nil,
             value: nil
         )
@@ -388,10 +384,7 @@ class FocusModeWorkoutService: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
         
-        let response: AutofillExerciseResponse = try await apiClient.post(
-            url: autofillExerciseUrl,
-            body: request
-        )
+        let response: AutofillExerciseResponse = try await apiClient.postJSON("autofillExercise", body: request)
         
         if response.success, let totals = response.totals {
             // Apply updates locally
@@ -409,10 +402,7 @@ class FocusModeWorkoutService: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
         
-        let response: PatchActiveWorkoutResponse = try await apiClient.post(
-            url: patchActiveWorkoutUrl,
-            body: request
-        )
+        let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
         
         if response.success, let totals = response.totals {
             self.workout?.totals = totals
@@ -461,7 +451,6 @@ class FocusModeWorkoutService: ObservableObject {
             switch field {
             case "weight":
                 if let doubleValue = value as? Double {
-                    // Update target if planned, actual if done
                     if workout.exercises[exIdx].sets[setIdx].isPlanned {
                         workout.exercises[exIdx].sets[setIdx].targetWeight = doubleValue
                     } else {
@@ -523,7 +512,6 @@ class FocusModeWorkoutService: ObservableObject {
         guard var workout = workout else { return }
         
         if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) {
-            // Apply updates
             for update in updates {
                 if let setIdx = workout.exercises[exIdx].sets.firstIndex(where: { $0.id == update.setId }) {
                     if let weight = update.weight { workout.exercises[exIdx].sets[setIdx].targetWeight = weight }
@@ -532,7 +520,6 @@ class FocusModeWorkoutService: ObservableObject {
                 }
             }
             
-            // Apply additions
             for addition in additions {
                 let newSet = FocusModeSet(
                     id: addition.id,
@@ -548,115 +535,177 @@ class FocusModeWorkoutService: ObservableObject {
             self.workout = workout
         }
     }
+}
+
+// MARK: - Request/Response DTOs
+
+private struct StartActiveWorkoutRequest: Encodable {
+    let name: String?
+    let sourceTemplateId: String?
+    let sourceRoutineId: String?
+    let exercises: [ExerciseDTO]?
     
-    // MARK: - Parsing Helpers
-    
-    private func exerciseToDict(_ exercise: FocusModeExercise) -> [String: Any] {
-        return [
-            "instance_id": exercise.instanceId,
-            "exercise_id": exercise.exerciseId,
-            "name": exercise.name,
-            "position": exercise.position,
-            "sets": exercise.sets.map { setToDict($0) }
-        ]
-    }
-    
-    private func setToDict(_ set: FocusModeSet) -> [String: Any] {
-        var dict: [String: Any] = [
-            "id": set.id,
-            "set_type": set.setType.rawValue,
-            "status": set.status.rawValue
-        ]
-        if let weight = set.targetWeight { dict["weight"] = weight }
-        if let reps = set.targetReps { dict["reps"] = reps }
-        if let rir = set.targetRir { dict["rir"] = rir }
-        return dict
-    }
-    
-    private func parseWorkout(from doc: [String: Any], workoutId: String) throws -> FocusModeWorkout {
-        // Parse exercises
-        let exercisesData = doc["exercises"] as? [[String: Any]] ?? []
-        let exercises = exercisesData.compactMap { parseExercise(from: $0) }
-        
-        return FocusModeWorkout(
-            id: workoutId,
-            userId: doc["user_id"] as? String ?? "",
-            status: .inProgress,
-            sourceTemplateId: doc["source_template_id"] as? String,
-            sourceRoutineId: doc["source_routine_id"] as? String,
-            name: doc["name"] as? String,
-            exercises: exercises,
-            totals: WorkoutTotals(),
-            startTime: Date(),
-            endTime: nil,
-            createdAt: Date(),
-            updatedAt: nil
-        )
-    }
-    
-    private func parseExercise(from dict: [String: Any]) -> FocusModeExercise? {
-        guard let instanceId = dict["instance_id"] as? String,
-              let exerciseId = dict["exercise_id"] as? String,
-              let name = dict["name"] as? String else {
-            return nil
-        }
-        
-        let setsData = dict["sets"] as? [[String: Any]] ?? []
-        let sets = setsData.compactMap { parseSet(from: $0) }
-        
-        return FocusModeExercise(
-            instanceId: instanceId,
-            exerciseId: exerciseId,
-            name: name,
-            position: dict["position"] as? Int ?? 0,
-            sets: sets
-        )
-    }
-    
-    private func parseSet(from dict: [String: Any]) -> FocusModeSet? {
-        guard let id = dict["id"] as? String else { return nil }
-        
-        return FocusModeSet(
-            id: id,
-            setType: FocusModeSetType(rawValue: dict["set_type"] as? String ?? "working") ?? .working,
-            status: FocusModeSetStatus(rawValue: dict["status"] as? String ?? "planned") ?? .planned,
-            targetWeight: dict["target_weight"] as? Double ?? dict["weight"] as? Double,
-            targetReps: dict["target_reps"] as? Int ?? dict["reps"] as? Int,
-            targetRir: dict["target_rir"] as? Int ?? dict["rir"] as? Int,
-            weight: dict["weight"] as? Double,
-            reps: dict["reps"] as? Int,
-            rir: dict["rir"] as? Int
-        )
+    enum CodingKeys: String, CodingKey {
+        case name
+        case sourceTemplateId = "source_template_id"
+        case sourceRoutineId = "source_routine_id"
+        case exercises
     }
 }
 
-// MARK: - Response Types
-
-private struct StartWorkoutResponse: Decodable {
+private struct StartActiveWorkoutResponse: Decodable {
     let success: Bool
-    let workoutId: String
-    let activeWorkoutDoc: [String: Any]?
+    let workoutId: String?
+    let userId: String?
+    let exercises: [ExerciseDTO]?
     let error: String?
     
     enum CodingKeys: String, CodingKey {
         case success
         case workoutId = "workout_id"
-        case activeWorkoutDoc = "active_workout_doc"
+        case userId = "user_id"
+        case exercises
         case error
     }
+}
+
+private struct ExerciseDTO: Codable {
+    let instanceId: String
+    let exerciseId: String
+    let name: String
+    let position: Int
+    let sets: [SetDTO]
     
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        success = (try? container.decode(Bool.self, forKey: .success)) ?? false
-        workoutId = (try? container.decode(String.self, forKey: .workoutId)) ?? ""
-        error = try? container.decode(String.self, forKey: .error)
-        
-        // Parse activeWorkoutDoc as [String: Any]
-        if let docData = try? container.decode([String: AnyCodable].self, forKey: .activeWorkoutDoc) {
-            activeWorkoutDoc = docData.mapValues { $0.value }
-        } else {
-            activeWorkoutDoc = nil
-        }
+    enum CodingKeys: String, CodingKey {
+        case instanceId = "instance_id"
+        case exerciseId = "exercise_id"
+        case name
+        case position
+        case sets
+    }
+    
+    init(from exercise: FocusModeExercise) {
+        self.instanceId = exercise.instanceId
+        self.exerciseId = exercise.exerciseId
+        self.name = exercise.name
+        self.position = exercise.position
+        self.sets = exercise.sets.map { SetDTO(from: $0) }
+    }
+}
+
+private struct SetDTO: Codable {
+    let id: String
+    let setType: String
+    let status: String
+    let weight: Double?
+    let reps: Int?
+    let rir: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case setType = "set_type"
+        case status
+        case weight
+        case reps
+        case rir
+    }
+    
+    init(from set: FocusModeSet) {
+        self.id = set.id
+        self.setType = set.setType.rawValue
+        self.status = set.status.rawValue
+        self.weight = set.targetWeight ?? set.weight
+        self.reps = set.targetReps ?? set.reps
+        self.rir = set.targetRir ?? set.rir
+    }
+}
+
+private struct PatchOperationDTO: Encodable {
+    let op: String
+    let target: PatchTargetDTO
+    let field: String?
+    let value: AnyCodable?
+}
+
+private struct PatchTargetDTO: Encodable {
+    let exerciseInstanceId: String
+    let setId: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case exerciseInstanceId = "exercise_instance_id"
+        case setId = "set_id"
+    }
+}
+
+private struct PatchActiveWorkoutRequest: Encodable {
+    let workoutId: String
+    let ops: [PatchOperationDTO]
+    let cause: String
+    let uiSource: String
+    let idempotencyKey: String
+    let clientTimestamp: String
+    let aiScope: AIScopeDTO?
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case ops
+        case cause
+        case uiSource = "ui_source"
+        case idempotencyKey = "idempotency_key"
+        case clientTimestamp = "client_timestamp"
+        case aiScope = "ai_scope"
+    }
+}
+
+private struct AIScopeDTO: Encodable {
+    let exerciseInstanceId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case exerciseInstanceId = "exercise_instance_id"
+    }
+}
+
+private struct PatchActiveWorkoutResponse: Decodable {
+    let success: Bool
+    let eventId: String?
+    let totals: WorkoutTotals?
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case eventId = "event_id"
+        case totals
+        case error
+    }
+}
+
+// MARK: - Extensions for DTO conversion
+
+extension FocusModeExercise {
+    init(from dto: ExerciseDTO) {
+        self.init(
+            instanceId: dto.instanceId,
+            exerciseId: dto.exerciseId,
+            name: dto.name,
+            position: dto.position,
+            sets: dto.sets.map { FocusModeSet(from: $0) }
+        )
+    }
+}
+
+extension FocusModeSet {
+    init(from dto: SetDTO) {
+        self.init(
+            id: dto.id,
+            setType: FocusModeSetType(rawValue: dto.setType) ?? .working,
+            status: FocusModeSetStatus(rawValue: dto.status) ?? .planned,
+            targetWeight: dto.weight,
+            targetReps: dto.reps,
+            targetRir: dto.rir,
+            weight: dto.weight,
+            reps: dto.reps,
+            rir: dto.rir
+        )
     }
 }
 

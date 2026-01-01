@@ -1,8 +1,10 @@
 /**
  * FocusModeModels.swift
  * 
- * Models for Focus Mode Workout Execution per FOCUS_MODE_WORKOUT_EXECUTION.md spec.
+ * Core domain models for Focus Mode Workout Execution.
  * These align with the backend schema for proper sync.
+ * 
+ * Note: Request/Response DTOs are private to FocusModeWorkoutService.
  */
 
 import Foundation
@@ -245,7 +247,7 @@ struct WorkoutTotals: Codable, Equatable {
     }
 }
 
-// MARK: - Backend Request/Response DTOs
+// MARK: - LogSet DTOs (needed by service)
 
 struct LogSetRequest: Encodable {
     let workoutId: String
@@ -287,64 +289,7 @@ struct LogSetResponse: Decodable {
     }
 }
 
-struct PatchOperation: Encodable {
-    let op: String
-    let target: PatchTarget
-    let field: String?
-    let value: AnyCodable?
-    
-    struct PatchTarget: Encodable {
-        let exerciseInstanceId: String
-        let setId: String?
-        
-        enum CodingKeys: String, CodingKey {
-            case exerciseInstanceId = "exercise_instance_id"
-            case setId = "set_id"
-        }
-    }
-}
-
-struct PatchActiveWorkoutRequest: Encodable {
-    let workoutId: String
-    let ops: [PatchOperation]
-    let cause: String
-    let uiSource: String
-    let idempotencyKey: String
-    let clientTimestamp: String
-    let aiScope: AIScope?
-    
-    enum CodingKeys: String, CodingKey {
-        case workoutId = "workout_id"
-        case ops
-        case cause
-        case uiSource = "ui_source"
-        case idempotencyKey = "idempotency_key"
-        case clientTimestamp = "client_timestamp"
-        case aiScope = "ai_scope"
-    }
-    
-    struct AIScope: Encodable {
-        let exerciseInstanceId: String
-        
-        enum CodingKeys: String, CodingKey {
-            case exerciseInstanceId = "exercise_instance_id"
-        }
-    }
-}
-
-struct PatchActiveWorkoutResponse: Decodable {
-    let success: Bool
-    let eventId: String?
-    let totals: WorkoutTotals?
-    let error: String?
-    
-    enum CodingKeys: String, CodingKey {
-        case success
-        case eventId = "event_id"
-        case totals
-        case error
-    }
-}
+// MARK: - Autofill DTOs (needed by service)
 
 struct AutofillSetUpdate: Encodable {
     let setId: String
