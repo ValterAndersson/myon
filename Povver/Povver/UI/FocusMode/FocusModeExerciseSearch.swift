@@ -120,10 +120,13 @@ struct FocusModeExerciseSearch: View {
         // Apply equipment filter
         if !filters.equipment.isEmpty {
             result = result.filter { exercise in
-                let exerciseEquip = exercise.equipment.lowercased()
+                // exercise.equipment is [String], compare each item
+                let exerciseEquipSet = Set(exercise.equipment.map { $0.lowercased() })
                 return filters.equipment.contains { filterEquip in
                     let lowerFilter = filterEquip.lowercased()
-                    return lowerFilter == exerciseEquip || exerciseEquip.contains(lowerFilter)
+                    return exerciseEquipSet.contains { equip in
+                        equip == lowerFilter || equip.contains(lowerFilter) || lowerFilter.contains(equip)
+                    }
                 }
             }
         }
