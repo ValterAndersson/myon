@@ -9,9 +9,16 @@ import SwiftUI
 
 // MARK: - Screen Mode State Machine
 
+/// Cell types for editing in the set grid
+enum FocusModeEditCellType: Equatable {
+    case weight
+    case reps
+    case rir
+}
+
 enum FocusModeScreenMode: Equatable {
     case normal
-    case editingSet(exerciseId: String, setId: String)
+    case editingSet(exerciseId: String, setId: String, cellType: FocusModeEditCellType)
     case reordering
     
     var isReordering: Bool {
@@ -22,6 +29,12 @@ enum FocusModeScreenMode: Equatable {
     var isEditing: Bool {
         if case .editingSet = self { return true }
         return false
+    }
+    
+    /// Get the cell type if editing, nil otherwise
+    var editingCellType: FocusModeEditCellType? {
+        if case .editingSet(_, _, let cellType) = self { return cellType }
+        return nil
     }
 }
 
@@ -111,19 +124,35 @@ struct CoachButton: View {
 
 // MARK: - Reorder Toggle Button
 
+/// Reorder toggle that collapses to icon-only on compact widths using ViewThatFits
 struct ReorderToggleButton: View {
     let isReordering: Bool
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            Text(isReordering ? "Done" : "Reorder")
-                .font(.system(size: 14, weight: .medium))
+            ViewThatFits(in: .horizontal) {
+                // Preferred: text + icon
+                HStack(spacing: 4) {
+                    Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(isReordering ? "Done" : "Reorder")
+                        .font(.system(size: 14, weight: .medium))
+                }
                 .foregroundColor(isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
                 .padding(.horizontal, Space.sm)
                 .padding(.vertical, Space.xs)
+                
+                // Fallback: icon only
+                Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
+                    .frame(width: 32, height: 32)
+            }
         }
         .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel(isReordering ? "Done reordering" : "Reorder exercises")
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

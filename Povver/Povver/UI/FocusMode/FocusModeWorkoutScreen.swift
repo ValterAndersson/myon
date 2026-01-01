@@ -65,15 +65,25 @@ struct FocusModeWorkoutScreen: View {
     private var selectedCell: Binding<FocusModeGridCell?> {
         Binding(
             get: {
-                if case .editingSet(let exerciseId, let setId) = screenMode {
-                    // Return a default cell type - actual type tracked elsewhere
-                    return .weight(exerciseId: exerciseId, setId: setId)
+                if case .editingSet(let exerciseId, let setId, let cellType) = screenMode {
+                    switch cellType {
+                    case .weight: return .weight(exerciseId: exerciseId, setId: setId)
+                    case .reps: return .reps(exerciseId: exerciseId, setId: setId)
+                    case .rir: return .rir(exerciseId: exerciseId, setId: setId)
+                    }
                 }
                 return nil
             },
             set: { newValue in
                 if let cell = newValue {
-                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId)
+                    let cellType: FocusModeEditCellType
+                    switch cell {
+                    case .weight: cellType = .weight
+                    case .reps: cellType = .reps
+                    case .rir: cellType = .rir
+                    case .done: cellType = .weight  // Default to weight for done cells
+                    }
+                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId, cellType: cellType)
                 } else {
                     screenMode = .normal
                 }
@@ -83,7 +93,7 @@ struct FocusModeWorkoutScreen: View {
     
     /// Active exercise based on current mode or first incomplete
     private var activeExerciseId: String? {
-        if case .editingSet(let exerciseId, _) = screenMode {
+        if case .editingSet(let exerciseId, _, _) = screenMode {
             return exerciseId
         }
         return service.workout?.exercises.first { !$0.isComplete }?.instanceId
@@ -447,6 +457,7 @@ struct FocusModeWorkoutScreen: View {
                     Spacer(minLength: Space.sm)
                     
                     // RIGHT ZONE: Coach, Reorder, Ellipsis
+                    // fixedSize prevents compression wrapping
                     HStack(spacing: Space.sm) {
                         // Coach button (primary AI action)
                         CoachButton {
@@ -489,6 +500,7 @@ struct FocusModeWorkoutScreen: View {
                                 .foregroundColor(ColorsToken.Text.secondary)
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 } else {
                     // Pre-workout state
                     Text("Start Workout")
@@ -518,19 +530,19 @@ struct FocusModeWorkoutScreen: View {
     
     private var startTimeEditorSheet: some View {
         NavigationStack {
-            VStack(spacing: Space.lg) {
-                Spacer()
-                
-                // Time picker - use graphical style to avoid UIKit conflict
+            VStack(spacing: 0) {
+                // Time picker - wheel style with explicit height
                 DatePicker(
-                    "Start Time",
+                    "",
                     selection: $editingStartTime,
                     in: ...Date(),
-                    displayedComponents: [.hourAndMinute]
+                    displayedComponents: [.date, .hourAndMinute]
                 )
-                .datePickerStyle(.graphical)
+                .datePickerStyle(.wheel)
                 .labelsHidden()
-                .frame(maxHeight: 200)
+                .frame(height: 216)  // Standard wheel picker height
+                .frame(maxWidth: .infinity)
+                .padding(.top, Space.lg)
                 
                 // Timezone info
                 HStack {
@@ -542,10 +554,12 @@ struct FocusModeWorkoutScreen: View {
                     Spacer()
                 }
                 .padding(.horizontal, Space.lg)
+                .padding(.top, Space.md)
                 
                 Spacer()
             }
-            .padding(.top, Space.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("Edit Start Time")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -572,7 +586,7 @@ struct FocusModeWorkoutScreen: View {
                 editingStartTime = service.workout?.startTime ?? Date()
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
     }
     
     private func formatStartTime(_ date: Date) -> String {
@@ -994,15 +1008,26 @@ struct FocusModeExerciseSectionNew: View {
     private var selectedCell: Binding<FocusModeGridCell?> {
         Binding(
             get: {
-                if case .editingSet(let exerciseId, let setId) = screenMode,
+                if case .editingSet(let exerciseId, let setId, let cellType) = screenMode,
                    exerciseId == exercise.instanceId {
-                    return .weight(exerciseId: exerciseId, setId: setId)
+                    switch cellType {
+                    case .weight: return .weight(exerciseId: exerciseId, setId: setId)
+                    case .reps: return .reps(exerciseId: exerciseId, setId: setId)
+                    case .rir: return .rir(exerciseId: exerciseId, setId: setId)
+                    }
                 }
                 return nil
             },
             set: { newValue in
                 if let cell = newValue {
-                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId)
+                    let cellType: FocusModeEditCellType
+                    switch cell {
+                    case .weight: cellType = .weight
+                    case .reps: cellType = .reps
+                    case .rir: cellType = .rir
+                    case .done: cellType = .weight
+                    }
+                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId, cellType: cellType)
                 } else {
                     screenMode = .normal
                 }
