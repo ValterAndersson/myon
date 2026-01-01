@@ -286,9 +286,9 @@ class FocusModeWorkoutService: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         
-        // Reset coordinator and generate new session ID to invalidate any stale callbacks
+        // Reset coordinator and get its session ID (must match for callbacks to work)
         await mutationCoordinator.reset()
-        currentSessionId = UUID()
+        currentSessionId = await mutationCoordinator.getSessionId()
         print("[FocusModeWorkoutService] New session: \(currentSessionId!)")
         
         let request = StartActiveWorkoutRequest(
