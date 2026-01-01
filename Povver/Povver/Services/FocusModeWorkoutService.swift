@@ -424,14 +424,29 @@ class FocusModeWorkoutService: ObservableObject {
     
     /// Update the workout name
     func updateWorkoutName(_ name: String) async throws {
-        guard let workout = workout else {
+        guard workout != nil else {
             throw FocusModeError.noActiveWorkout
         }
         
-        // For now, use patchActiveWorkout with a special op
-        // TODO: Add proper name update op to backend
         // Optimistically update local state
         self.workout?.name = name
+        // TODO: Add proper name update op to backend
+    }
+    
+    /// Update the workout start time (adjusts timer)
+    func updateStartTime(_ newStartTime: Date) async throws {
+        guard workout != nil else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        // Validate: start time cannot be in the future
+        guard newStartTime <= Date() else {
+            throw FocusModeError.syncFailed("Start time cannot be in the future")
+        }
+        
+        // Optimistically update local state
+        self.workout?.startTime = newStartTime
+        // TODO: Add proper start time update op to backend
     }
     
     /// Reorder exercises and sync to backend
@@ -627,6 +642,10 @@ class FocusModeWorkoutService: ObservableObject {
         if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }),
            let setIdx = workout.exercises[exIdx].sets.firstIndex(where: { $0.id == setId }) {
             
+            let currentSet = workout.exercises[exIdx].sets[setIdx]
+            let previousStatus = currentSet.status
+            var needsTotalsRecalc = false
+            
             switch field {
             case "weight":
                 if let doubleValue = value as? Double {
@@ -634,6 +653,8 @@ class FocusModeWorkoutService: ObservableObject {
                         workout.exercises[exIdx].sets[setIdx].targetWeight = doubleValue
                     } else {
                         workout.exercises[exIdx].sets[setIdx].weight = doubleValue
+                        // Recalc if weight changed on a done set
+                        if currentSet.isDone { needsTotalsRecalc = true }
                     }
                 }
             case "reps":
@@ -642,6 +663,8 @@ class FocusModeWorkoutService: ObservableObject {
                         workout.exercises[exIdx].sets[setIdx].targetReps = intValue
                     } else {
                         workout.exercises[exIdx].sets[setIdx].reps = intValue
+                        // Recalc if reps changed on a done set
+                        if currentSet.isDone { needsTotalsRecalc = true }
                     }
                 }
             case "rir":
@@ -654,8 +677,21 @@ class FocusModeWorkoutService: ObservableObject {
                 }
             case "status":
                 if let stringValue = value as? String,
-                   let status = FocusModeSetStatus(rawValue: stringValue) {
-                    workout.exercises[exIdx].sets[setIdx].status = status
+                   let newStatus = FocusModeSetStatus(rawValue: stringValue) {
+                    workout.exercises[exIdx].sets[setIdx].status = newStatus
+                    
+                    // Handle undo: when reverting to planned, clear actuals only (keep targets)
+                    if previousStatus == .done && newStatus == .planned {
+                        workout.exercises[exIdx].sets[setIdx].weight = nil
+                        workout.exercises[exIdx].sets[setIdx].reps = nil
+                        workout.exercises[exIdx].sets[setIdx].rir = nil
+                        workout.exercises[exIdx].sets[setIdx].tags?.isFailure = nil
+                    }
+                    
+                    // Recalc totals on any status transition involving done
+                    if previousStatus == .done || newStatus == .done {
+                        needsTotalsRecalc = true
+                    }
                 }
             case "set_type":
                 if let stringValue = value as? String,
@@ -672,6 +708,11 @@ class FocusModeWorkoutService: ObservableObject {
                 }
             default:
                 break
+            }
+            
+            // Recalculate totals if needed
+            if needsTotalsRecalc {
+                workout.totals = recalculateTotals(for: workout)
             }
             
             self.workout = workout

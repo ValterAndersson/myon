@@ -46,6 +46,9 @@ struct FocusModeWorkoutScreen: View {
     @State private var showingCompleteConfirmation = false
     @State private var showingNameEditor = false
     
+    // Prevents duplicate starts
+    @State private var isStartingWorkout = false
+    
     init(
         templateId: String? = nil,
         routineId: String? = nil,
@@ -178,6 +181,9 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Sheet Presentation Helper
     
+    /// Present a sheet with deterministic gating:
+    /// - Clears editor/reorder mode first
+    /// - Waits for animation to complete before presenting
     private func presentSheet(_ sheet: FocusModeActiveSheet) {
         // Cancel any pending presentation
         pendingSheetTask?.cancel()
@@ -187,19 +193,20 @@ struct FocusModeWorkoutScreen: View {
             withAnimation(.easeOut(duration: 0.2)) {
                 screenMode = .normal
             }
-            // Schedule sheet on next run loop tick
-            pendingSheetTask = Task { @MainActor in
-                guard screenMode == .normal, activeSheet == nil else { return }
-                activeSheet = sheet
+            // Wait for animation to complete, then present on next run loop
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                guard self.screenMode == .normal, self.activeSheet == nil else { return }
+                self.activeSheet = sheet
             }
         } else if screenMode.isEditing {
             // Close editor first
             withAnimation(.easeOut(duration: 0.15)) {
                 screenMode = .normal
             }
-            pendingSheetTask = Task { @MainActor in
-                guard screenMode == .normal, activeSheet == nil else { return }
-                activeSheet = sheet
+            // Wait for animation to complete, then present
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                guard self.screenMode == .normal, self.activeSheet == nil else { return }
+                self.activeSheet = sheet
             }
         } else {
             activeSheet = sheet
@@ -549,7 +556,14 @@ struct FocusModeWorkoutScreen: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        // TODO: Call service to update start time
+                        Task {
+                            do {
+                                try await service.updateStartTime(editingStartTime)
+                                print("✅ Start time updated to: \(editingStartTime)")
+                            } catch {
+                                print("❌ Failed to update start time: \(error)")
+                            }
+                        }
                         activeSheet = nil
                     }
                 }
@@ -690,8 +704,16 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Timer
     
+    /// Start the elapsed time timer. Guards against double-start.
+    /// Timer derives elapsed time from workout.startTime (single source of truth).
     private func startTimer() {
         guard let workout = service.workout else { return }
+        
+        // Guard against double-start
+        guard timer == nil else { return }
+        
+        // Reset UI state
+        screenMode = .normal
         elapsedTime = Date().timeIntervalSince(workout.startTime)
         
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
@@ -703,27 +725,42 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
+    /// Stop the timer and reset elapsed time.
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+        elapsedTime = 0
+    }
+    
+    /// Reset timer state for a new workout (derives from new startTime).
+    private func resetTimerForNewWorkout() {
+        stopTimer()
+        startTimer()
     }
     
     // MARK: - Actions
     
     private func startWorkoutIfNeeded() async {
+        // Existing workout - just start timer
         guard service.workout == nil else {
             startTimer()
             return
         }
         
+        // Guard against duplicate concurrent starts
+        guard !isStartingWorkout else { return }
+        
         if sourceTemplateId != nil || sourceRoutineId != nil {
+            isStartingWorkout = true
+            defer { isStartingWorkout = false }
+            
             do {
                 _ = try await service.startWorkout(
                     name: workoutName,
                     sourceTemplateId: sourceTemplateId,
                     sourceRoutineId: sourceRoutineId
                 )
-                startTimer()
+                resetTimerForNewWorkout()
             } catch {
                 print("Failed to start workout: \(error)")
             }
@@ -731,9 +768,15 @@ struct FocusModeWorkoutScreen: View {
     }
     
     private func startEmptyWorkout() async {
+        // Guard against duplicate concurrent starts
+        guard !isStartingWorkout else { return }
+        
+        isStartingWorkout = true
+        defer { isStartingWorkout = false }
+        
         do {
             _ = try await service.startWorkout(name: "Workout")
-            startTimer()
+            resetTimerForNewWorkout()
         } catch {
             print("Failed to start workout: \(error)")
         }
