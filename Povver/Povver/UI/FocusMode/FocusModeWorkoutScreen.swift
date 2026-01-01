@@ -30,6 +30,7 @@ struct FocusModeWorkoutScreen: View {
     @State private var showingAIPanel = false
     @State private var elapsedTime: TimeInterval = 0
     @State private var timer: Timer?
+    @State private var isEditingOrder = false
     
     init(
         templateId: String? = nil,
@@ -83,20 +84,33 @@ struct FocusModeWorkoutScreen: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if service.workout != nil {
                         HStack(spacing: Space.md) {
-                            // AI button (placeholder)
-                            Button {
-                                showingAIPanel = true
-                            } label: {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(ColorsToken.Brand.primary)
+                            // Edit/Done button for reordering
+                            if (service.workout?.exercises.count ?? 0) > 1 {
+                                Button(isEditingOrder ? "Done" : "Edit") {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isEditingOrder.toggle()
+                                    }
+                                }
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(isEditingOrder ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
                             }
                             
-                            Button("Finish") {
-                                showingCompleteConfirmation = true
+                            if !isEditingOrder {
+                                // AI button (placeholder)
+                                Button {
+                                    showingAIPanel = true
+                                } label: {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(ColorsToken.Brand.primary)
+                                }
+                                
+                                Button("Finish") {
+                                    showingCompleteConfirmation = true
+                                }
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(ColorsToken.Brand.primary)
                             }
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(ColorsToken.Brand.primary)
                         }
                     }
                 }
@@ -239,29 +253,97 @@ struct FocusModeWorkoutScreen: View {
     
     @ViewBuilder
     private func workoutContent(_ workout: FocusModeWorkout) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: []) {
-                // Exercises - each as a section with full set grid
-                ForEach(workout.exercises) { exercise in
-                    FocusModeExerciseSection(
-                        exercise: exercise,
-                        selectedCell: $selectedCell,
-                        onLogSet: logSet,
-                        onPatchField: patchField,
-                        onAddSet: { addSet(to: exercise.instanceId) },
-                        onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
-                        onAutofill: { autofillExercise(exercise.instanceId) }
-                    )
+        if isEditingOrder {
+            // Edit mode: simplified list with drag handles
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("Drag to reorder exercises")
+                        .font(.system(size: 13))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                    Spacer()
                 }
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.sm)
+                .background(ColorsToken.Background.secondary.opacity(0.5))
                 
-                // Add Exercise Button
-                addExerciseButton
-                    .padding(.top, Space.lg)
-                    .padding(.bottom, 40)
+                List {
+                    ForEach(workout.exercises) { exercise in
+                        exerciseReorderRow(exercise)
+                            .listRowBackground(ColorsToken.Surface.card)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                    }
+                    .onMove { from, to in
+                        reorderExercises(from: from, to: to)
+                    }
+                }
+                .listStyle(.plain)
+                .environment(\.editMode, .constant(.active))
             }
-            .padding(.horizontal, Space.md)
+        } else {
+            // Normal mode: full exercise sections
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: []) {
+                    // Exercises - each as a section with full set grid
+                    ForEach(workout.exercises) { exercise in
+                        FocusModeExerciseSection(
+                            exercise: exercise,
+                            selectedCell: $selectedCell,
+                            onLogSet: logSet,
+                            onPatchField: patchField,
+                            onAddSet: { addSet(to: exercise.instanceId) },
+                            onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
+                            onAutofill: { autofillExercise(exercise.instanceId) }
+                        )
+                    }
+                    
+                    // Add Exercise Button
+                    addExerciseButton
+                        .padding(.top, Space.lg)
+                        .padding(.bottom, 40)
+                }
+                .padding(.horizontal, Space.md)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
-        .scrollDismissesKeyboard(.interactively)
+    }
+    
+    // MARK: - Exercise Reorder Row
+    
+    private func exerciseReorderRow(_ exercise: FocusModeExercise) -> some View {
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exercise.name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(ColorsToken.Text.primary)
+                
+                Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
+                    .font(.system(size: 13))
+                    .foregroundColor(ColorsToken.Text.secondary)
+            }
+            
+            Spacer()
+            
+            if exercise.isComplete {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(ColorsToken.State.success)
+                    .font(.system(size: 18))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    // MARK: - Reorder Exercises
+    
+    private func reorderExercises(from source: IndexSet, to destination: Int) {
+        // TODO: Call service to reorder exercises
+        // For now this just triggers UI feedback
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        // The actual reorder would need to:
+        // 1. Update positions in Firestore
+        // 2. Refresh the workout from service
+        print("Reorder from \(source) to \(destination)")
     }
     
     // MARK: - Loading View
