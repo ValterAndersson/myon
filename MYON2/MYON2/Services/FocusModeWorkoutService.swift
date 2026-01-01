@@ -682,7 +682,7 @@ private struct PatchActiveWorkoutResponse: Decodable {
 // MARK: - Extensions for DTO conversion
 
 extension FocusModeExercise {
-    init(from dto: ExerciseDTO) {
+    fileprivate init(from dto: ExerciseDTO) {
         self.init(
             instanceId: dto.instanceId,
             exerciseId: dto.exerciseId,
@@ -694,7 +694,7 @@ extension FocusModeExercise {
 }
 
 extension FocusModeSet {
-    init(from dto: SetDTO) {
+    fileprivate init(from dto: SetDTO) {
         self.init(
             id: dto.id,
             setType: FocusModeSetType(rawValue: dto.setType) ?? .working,
