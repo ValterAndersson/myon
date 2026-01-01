@@ -43,22 +43,21 @@ struct FocusModeWorkoutScreen: View {
     }
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                ColorsToken.Background.primary.ignoresSafeArea()
-                
-                if service.isLoading {
-                    loadingView
-                } else if let workout = service.workout {
-                    workoutContent(workout)
-                } else {
-                    workoutStartView
-                }
+        ZStack {
+            ColorsToken.Background.primary.ignoresSafeArea()
+            
+            if service.isLoading {
+                loadingView
+            } else if let workout = service.workout {
+                workoutContent(workout)
+            } else {
+                workoutStartView
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(ColorsToken.Background.primary, for: .navigationBar)
-            .toolbar {
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(ColorsToken.Background.primary, for: .navigationBar)
+        .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if service.workout != nil {
                         Button {
@@ -117,7 +116,6 @@ struct FocusModeWorkoutScreen: View {
                     }
                 }
             }
-        }
         .interactiveDismissDisabled(service.workout != nil)
         .confirmationDialog("Workout Options", isPresented: $showingSettings) {
             Button("Discard Workout", role: .destructive) {
