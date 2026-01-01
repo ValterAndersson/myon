@@ -13,12 +13,12 @@
 
 import SwiftUI
 
-// MARK: - Edit Scope (Apply to All/Remaining/This)
+// MARK: - Edit Scope (Apply to This/Remaining/All)
 
 enum FocusModeEditScope: String, CaseIterable {
-    case allWorking = "All Working"
-    case remaining = "Remaining"
     case thisOnly = "This Only"
+    case remaining = "Remaining"
+    case allWorking = "All Working"
 }
 
 struct FocusModeSetGrid: View {
@@ -36,72 +36,35 @@ struct FocusModeSetGrid: View {
     // Set type picker state
     @State private var setTypePickerSetId: String? = nil
     
+    // MARK: - Normalized Sets (warmups first, then working)
+    
+    private var warmupSets: [FocusModeSet] {
+        exercise.sets.filter { $0.isWarmup }
+    }
+    
+    private var workingSets: [FocusModeSet] {
+        exercise.sets.filter { !$0.isWarmup }
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Header row
             gridHeader
             
-            // Set rows - always visible, no collapse
-            ForEach(Array(exercise.sets.enumerated()), id: \.element.id) { index, set in
-                VStack(spacing: 0) {
-                    setRow(set: set, index: index)
-                        .contentShape(Rectangle())
-                    
-                    // Inline editing dock
-                    if let selected = selectedCell,
-                       selected.exerciseId == exercise.instanceId,
-                       selected.setId == set.id {
-                        FocusModeEditingDock(
-                            selectedCell: selected,
-                            set: set,
-                            exerciseId: exercise.instanceId,
-                            allSets: exercise.sets,
-                            onValueChange: { field, value in
-                                onPatchField(exercise.instanceId, set.id, field, value)
-                            },
-                            onBatchValueChange: { field, value, scope in
-                                // Apply to multiple sets based on scope
-                                let currentIndex = exercise.sets.firstIndex { $0.id == set.id } ?? 0
-                                let targetSets: [FocusModeSet]
-                                switch scope {
-                                case .allWorking:
-                                    targetSets = exercise.sets.filter { !$0.isWarmup }
-                                case .remaining:
-                                    targetSets = Array(exercise.sets.dropFirst(currentIndex).filter { !$0.isWarmup })
-                                case .thisOnly:
-                                    targetSets = [set]
-                                }
-                                for targetSet in targetSets {
-                                    onPatchField(exercise.instanceId, targetSet.id, field, value)
-                                }
-                            },
-                            onLogSet: {
-                                let weight = set.displayWeight
-                                let reps = set.displayReps ?? 10
-                                let rir = set.displayRir
-                                onLogSet(exercise.instanceId, set.id, weight, reps, rir)
-                                selectedCell = nil
-                            },
-                            onDismiss: {
-                                withAnimation(.easeOut(duration: 0.15)) {
-                                    selectedCell = nil
-                                }
-                            }
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                    
-                    Divider()
-                        .padding(.leading, Space.md)
-                }
-                .background(rowBackground(for: set))
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        onRemoveSet(set.id)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
+            // Warmup sets (rendered first, normalized ordering)
+            ForEach(Array(warmupSets.enumerated()), id: \.element.id) { index, set in
+                setRowWithEditor(set: set, displayIndex: index, isWarmupSection: true)
+            }
+            
+            // Dotted divider between warmup and working sets
+            if !warmupSets.isEmpty && !workingSets.isEmpty {
+                WarmupDivider()
+                    .padding(.horizontal, Space.md)
+            }
+            
+            // Working sets (rendered after warmups)
+            ForEach(Array(workingSets.enumerated()), id: \.element.id) { index, set in
+                setRowWithEditor(set: set, displayIndex: index, isWarmupSection: false)
             }
             
             // Add set button
@@ -129,6 +92,64 @@ struct FocusModeSetGrid: View {
                 )
             }
         }
+    }
+    
+    // MARK: - Set Row With Editor
+    
+    @ViewBuilder
+    private func setRowWithEditor(set: FocusModeSet, displayIndex: Int, isWarmupSection: Bool) -> some View {
+        VStack(spacing: 0) {
+            setRow(set: set, index: displayIndex)
+                .contentShape(Rectangle())
+            
+            // Inline editing dock
+            if let selected = selectedCell,
+               selected.exerciseId == exercise.instanceId,
+               selected.setId == set.id {
+                FocusModeEditingDock(
+                    selectedCell: selected,
+                    set: set,
+                    exerciseId: exercise.instanceId,
+                    allSets: exercise.sets,
+                    onValueChange: { field, value in
+                        onPatchField(exercise.instanceId, set.id, field, value)
+                    },
+                    onBatchValueChange: { field, value, scope in
+                        // Apply to multiple sets based on scope
+                        let currentIndex = exercise.sets.firstIndex { $0.id == set.id } ?? 0
+                        let targetSets: [FocusModeSet]
+                        switch scope {
+                        case .allWorking:
+                            targetSets = exercise.sets.filter { !$0.isWarmup }
+                        case .remaining:
+                            targetSets = Array(exercise.sets.dropFirst(currentIndex).filter { !$0.isWarmup })
+                        case .thisOnly:
+                            targetSets = [set]
+                        }
+                        for targetSet in targetSets {
+                            onPatchField(exercise.instanceId, targetSet.id, field, value)
+                        }
+                    },
+                    onLogSet: {
+                        let weight = set.displayWeight
+                        let reps = set.displayReps ?? 10
+                        let rir = set.displayRir
+                        onLogSet(exercise.instanceId, set.id, weight, reps, rir)
+                        selectedCell = nil
+                    },
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            selectedCell = nil
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            
+            Divider()
+                .padding(.leading, Space.md)
+        }
+        .background(rowBackground(for: set))
     }
     
     // MARK: - Grid Header
@@ -280,13 +301,29 @@ struct FocusModeSetGrid: View {
                 let rir = set.displayRir
                 onLogSet(exercise.instanceId, set.id, weight, reps, rir)
             }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
-            Image(systemName: set.isDone ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 26))
-                .foregroundColor(set.isDone ? ColorsToken.State.success : ColorsToken.Text.secondary.opacity(0.3))
-                .frame(width: width, height: rowHeight)
+            ZStack {
+                // Subtle ring background
+                Circle()
+                    .stroke(
+                        set.isDone ? ColorsToken.State.success.opacity(0.3) : ColorsToken.Text.secondary.opacity(0.15),
+                        lineWidth: set.isDone ? 2 : 1.5
+                    )
+                    .frame(width: 20, height: 20)
+                
+                // Checkmark when done
+                if set.isDone {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(ColorsToken.State.success)
+                }
+            }
+            .frame(width: 44, height: 44) // 44pt hit target
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .frame(width: width, height: rowHeight)
     }
     
     // MARK: - Add Set Button

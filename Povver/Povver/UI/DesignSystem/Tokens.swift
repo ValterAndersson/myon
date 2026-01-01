@@ -57,6 +57,7 @@ public enum CornerRadiusToken {
     public static let small: CGFloat = 8
     public static let medium: CGFloat = 12
     public static let large: CGFloat = 16
+    public static let card: CGFloat = 18
     public static let pill: CGFloat = 999
 }
 
@@ -142,16 +143,24 @@ public enum ColorsToken {
         public static var accent900: Color { Color(red: 0.09, green: 0.48, blue: 0.39) } // text-on-white contrast
         public static var primary: Color { accent700 }
         public static var secondary: Color { accent900 }
+        
+        /// Emerald button fills and strokes for primary actions
+        public static var emeraldFill: Color { accent700 }
+        public static var emeraldStroke: Color { accent900 }
     }
     public enum Background {
         public static var primary: Color { Color.white.opacity(0.98) }
         public static var secondary: Color { ColorsToken.Neutral.n50 }
+        /// Off-white screen background for premium surfaces
+        public static var screen: Color { Color(hex: "FAFBFC") }
     }
     public enum Surface {
         public static var `default`: Color { Color.white } 
         public static var raised: Color { Color.white }
         /// Plain card surface
         public static var card: Color { Color.white }
+        /// Active card surface (same color, but used with elevated shadow/stroke)
+        public static var cardActive: Color { Color.white }
         
         // MARK: - Semantic Selection Surfaces (Light/Dark Ready)
         
@@ -192,6 +201,14 @@ public enum ColorsToken {
         public static var subtle: Color { ColorsToken.Neutral.n200 }
     }
     
+    /// Stroke colors for cards and containers
+    public enum Stroke {
+        /// Card hairline stroke (~8% black opacity)
+        public static var card: Color { Color.black.opacity(0.08) }
+        /// Active card stroke (brand accent)
+        public static var cardActive: Color { ColorsToken.Brand.primary }
+    }
+    
     /// Separator/divider colors with dark mode support
     public enum Separator {
         public static var hairline: Color {
@@ -204,6 +221,13 @@ public enum ColorsToken {
             Color(
                 light: ColorsToken.Neutral.n300,
                 dark: Color(hex: "404040")
+            )
+        }
+        /// Dotted divider for warmup/working set separation
+        public static var dottedWarmup: Color {
+            Color(
+                light: ColorsToken.Neutral.n400,
+                dark: Color(hex: "555555")
             )
         }
     }
@@ -238,6 +262,8 @@ public enum LayoutToken {
     public static let canvasColumns: Int = 12
     /// Max content width for centered pages (points)
     public static let contentMaxWidth: CGFloat = 860
+    /// Extra padding for bottom CTAs (added to safe area inset at runtime)
+    public static let bottomCTAExtraPadding: CGFloat = 24
 }
 
 public extension View {

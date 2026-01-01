@@ -1,13 +1,14 @@
 /**
  * FocusModeWorkoutScreen.swift
  * 
- * Full-screen workout execution view.
+ * Full-screen workout execution view - Premium Execution Surface.
  * 
- * Design principles (per PRD):
- * - Spreadsheet-first: exercises as sections, sets as rows, max space utilization
- * - All sets expanded by default (no collapsed state)
- * - Fast editing: tap cell → inline dock with stepper controls
- * - Non-intrusive AI: optional copilot actions, never blocking
+ * Design principles:
+ * - Strong depth + hierarchy with card elevation system
+ * - Fast set entry with inline editing dock
+ * - AI Copilot as first-class control (Coach button)
+ * - Mode-driven reordering with visual mode distinction
+ * - Finish action at bottom of flow, not header
  */
 
 import SwiftUI
@@ -21,20 +22,29 @@ struct FocusModeWorkoutScreen: View {
     let sourceRoutineId: String?
     let workoutName: String?
     
-    // Local UI state
-    @State private var selectedCell: FocusModeGridCell?
-    @State private var showingExerciseSearch = false
-    @State private var showingCancelConfirmation = false
-    @State private var showingCompleteConfirmation = false
-    @State private var showingSettings = false
-    @State private var showingAIPanel = false
-    @State private var showingNameEditor = false
-    @State private var showingStartTimeEditor = false
+    // MARK: - State Machine
+    @State private var screenMode: FocusModeScreenMode = .normal
+    @State private var activeSheet: FocusModeActiveSheet? = nil
+    @State private var pendingSheetTask: Task<Void, Never>? = nil
+    
+    // List edit mode binding (synced with screenMode)
+    @State private var listEditMode: EditMode = .inactive
+    
+    // Reorder toggle debounce
+    @State private var isReorderTransitioning = false
+    
+    // Timer state
     @State private var elapsedTime: TimeInterval = 0
     @State private var timer: Timer?
-    @State private var isEditingOrder = false
+    
+    // Editor state
     @State private var editingName: String = ""
     @State private var editingStartTime: Date = Date()
+    
+    // Confirmation dialogs
+    @State private var showingCancelConfirmation = false
+    @State private var showingCompleteConfirmation = false
+    @State private var showingNameEditor = false
     
     init(
         templateId: String? = nil,
@@ -46,51 +56,82 @@ struct FocusModeWorkoutScreen: View {
         self.workoutName = name
     }
     
-    var body: some View {
-        VStack(spacing: 0) {
-            // Custom header bar (always visible)
-            customHeaderBar
-            
-            // Main content
-            ZStack {
-                ColorsToken.Background.primary.ignoresSafeArea()
-                
-                if service.isLoading {
-                    loadingView
-                } else if let workout = service.workout {
-                    workoutContent(workout)
+    // MARK: - Computed Properties
+    
+    /// Derive selectedCell from screenMode for backward compatibility
+    private var selectedCell: Binding<FocusModeGridCell?> {
+        Binding(
+            get: {
+                if case .editingSet(let exerciseId, let setId) = screenMode {
+                    // Return a default cell type - actual type tracked elsewhere
+                    return .weight(exerciseId: exerciseId, setId: setId)
+                }
+                return nil
+            },
+            set: { newValue in
+                if let cell = newValue {
+                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId)
                 } else {
-                    workoutStartView
+                    screenMode = .normal
                 }
             }
+        )
+    }
+    
+    /// Active exercise based on current mode or first incomplete
+    private var activeExerciseId: String? {
+        if case .editingSet(let exerciseId, _) = screenMode {
+            return exerciseId
         }
-        .background(ColorsToken.Background.primary)
-        .navigationBarHidden(true)  // Hide system nav bar, use custom
-        .interactiveDismissDisabled(service.workout != nil)
-        .confirmationDialog("Workout Options", isPresented: $showingSettings) {
-            Button("Discard Workout", role: .destructive) {
-                discardWorkout()
+        return service.workout?.exercises.first { !$0.isComplete }?.instanceId
+    }
+    
+    /// Total and completed sets for progress display
+    private var totalSets: Int {
+        service.workout?.exercises.flatMap { $0.sets }.count ?? 0
+    }
+    
+    private var completedSets: Int {
+        service.workout?.exercises.flatMap { $0.sets }.filter { $0.isDone }.count ?? 0
+    }
+    
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Custom header bar (always visible)
+                customHeaderBar
+                
+                // Reorder mode banner
+                if screenMode.isReordering {
+                    ReorderModeBanner()
+                }
+                
+                // Main content
+                ZStack {
+                    ColorsToken.Background.screen.ignoresSafeArea()
+                    
+                    if service.isLoading {
+                        loadingView
+                    } else if let workout = service.workout {
+                        workoutContent(workout, safeAreaBottom: geometry.safeAreaInsets.bottom)
+                    } else {
+                        workoutStartView
+                    }
+                }
             }
-            Button("Keep Logging", role: .cancel) { }
-        } message: {
-            Text("Your progress will not be saved if you discard.")
+            .background(ColorsToken.Background.screen)
+        }
+        .navigationBarHidden(true)
+        .interactiveDismissDisabled(service.workout != nil)
+        .onChange(of: screenMode) { _, newMode in
+            // Sync List editMode with screenMode
+            listEditMode = newMode.isReordering ? .active : .inactive
         }
         .confirmationDialog("Finish Workout?", isPresented: $showingCompleteConfirmation) {
             Button("Complete Workout") {
                 finishWorkout()
             }
             Button("Keep Logging", role: .cancel) { }
-        }
-        .sheet(isPresented: $showingExerciseSearch) {
-            FocusModeExerciseSearch { exercise in
-                addExercise(exercise)
-            }
-        }
-        .sheet(isPresented: $showingAIPanel) {
-            aiPanelPlaceholder
-        }
-        .sheet(isPresented: $showingStartTimeEditor) {
-            startTimeEditorSheet
         }
         .alert("Workout Name", isPresented: $showingNameEditor) {
             TextField("Name", text: $editingName)
@@ -107,8 +148,87 @@ struct FocusModeWorkoutScreen: View {
         } message: {
             Text("Your progress will not be saved.")
         }
+        .sheet(item: $activeSheet) { sheet in
+            sheetContent(for: sheet)
+        }
         .task {
             await startWorkoutIfNeeded()
+        }
+    }
+    
+    // MARK: - Sheet Content
+    
+    @ViewBuilder
+    private func sheetContent(for sheet: FocusModeActiveSheet) -> some View {
+        switch sheet {
+        case .coach:
+            aiPanelPlaceholder
+        case .exerciseSearch:
+            FocusModeExerciseSearch { exercise in
+                addExercise(exercise)
+                activeSheet = nil
+            }
+        case .startTimeEditor:
+            startTimeEditorSheet
+        case .setTypePicker, .moreActions:
+            // Handled in FocusModeSetGrid
+            EmptyView()
+        }
+    }
+    
+    // MARK: - Sheet Presentation Helper
+    
+    private func presentSheet(_ sheet: FocusModeActiveSheet) {
+        // Cancel any pending presentation
+        pendingSheetTask?.cancel()
+        
+        if screenMode.isReordering {
+            // Exit reorder mode first
+            withAnimation(.easeOut(duration: 0.2)) {
+                screenMode = .normal
+            }
+            // Schedule sheet on next run loop tick
+            pendingSheetTask = Task { @MainActor in
+                guard screenMode == .normal, activeSheet == nil else { return }
+                activeSheet = sheet
+            }
+        } else if screenMode.isEditing {
+            // Close editor first
+            withAnimation(.easeOut(duration: 0.15)) {
+                screenMode = .normal
+            }
+            pendingSheetTask = Task { @MainActor in
+                guard screenMode == .normal, activeSheet == nil else { return }
+                activeSheet = sheet
+            }
+        } else {
+            activeSheet = sheet
+        }
+    }
+    
+    // MARK: - Reorder Toggle
+    
+    private func toggleReorderMode() {
+        guard !isReorderTransitioning else { return }
+        
+        isReorderTransitioning = true
+        
+        // Exit editing mode first if needed
+        if screenMode.isEditing {
+            withAnimation(.easeOut(duration: 0.15)) {
+                screenMode = .normal
+            }
+        }
+        
+        withAnimation(.spring(response: 0.3)) {
+            screenMode = screenMode.isReordering ? .normal : .reordering
+        }
+        
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        // Re-enable after transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            isReorderTransitioning = false
         }
     }
     
@@ -212,55 +332,56 @@ struct FocusModeWorkoutScreen: View {
     // MARK: - Workout Content
     
     @ViewBuilder
-    private func workoutContent(_ workout: FocusModeWorkout) -> some View {
-        if isEditingOrder {
-            // Edit mode: simplified list with drag handles
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("Drag to reorder exercises")
-                        .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
-                    Spacer()
+    private func workoutContent(_ workout: FocusModeWorkout, safeAreaBottom: CGFloat) -> some View {
+        if screenMode.isReordering {
+            // Reorder mode: simplified list with drag handles
+            List {
+                ForEach(workout.exercises) { exercise in
+                    ExerciseReorderRow(exercise: exercise)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                 }
-                .padding(.horizontal, Space.lg)
-                .padding(.vertical, Space.sm)
-                .background(ColorsToken.Background.secondary.opacity(0.5))
-                
-                List {
-                    ForEach(workout.exercises) { exercise in
-                        exerciseReorderRow(exercise)
-                            .listRowBackground(ColorsToken.Surface.card)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    }
-                    .onMove { from, to in
-                        reorderExercises(from: from, to: to)
-                    }
+                .onMove { from, to in
+                    reorderExercisesNew(from: from, to: to)
                 }
-                .listStyle(.plain)
-                .environment(\.editMode, .constant(.active))
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, $listEditMode)
         } else {
-            // Normal mode: full exercise sections
+            // Normal mode: full exercise sections with bottom CTA
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: []) {
-                    // Exercises - each as a section with full set grid
+                    // Exercises - each as a card with full set grid
                     ForEach(workout.exercises) { exercise in
-                        FocusModeExerciseSection(
-                            exercise: exercise,
-                            selectedCell: $selectedCell,
-                            onLogSet: logSet,
-                            onPatchField: patchField,
-                            onAddSet: { addSet(to: exercise.instanceId) },
-                            onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
-                            onAutofill: { autofillExercise(exercise.instanceId) }
-                        )
+                        let isActive = exercise.instanceId == activeExerciseId
+                        
+                        ExerciseCardContainer(isActive: isActive) {
+                            FocusModeExerciseSectionNew(
+                                exercise: exercise,
+                                isActive: isActive,
+                                screenMode: $screenMode,
+                                onLogSet: logSet,
+                                onPatchField: patchField,
+                                onAddSet: { addSet(to: exercise.instanceId) },
+                                onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
+                                onAutofill: { autofillExercise(exercise.instanceId) }
+                            )
+                        }
+                        .padding(.top, Space.md)
                     }
                     
                     // Add Exercise Button
                     addExerciseButton
                         .padding(.top, Space.lg)
-                        .padding(.bottom, 40)
+                    
+                    // Bottom CTA: Finish + Discard
+                    WorkoutBottomCTA(
+                        onFinish: { showingCompleteConfirmation = true },
+                        onDiscard: { showingCancelConfirmation = true },
+                        safeAreaBottom: safeAreaBottom
+                    )
                 }
                 .padding(.horizontal, Space.md)
             }
@@ -268,106 +389,72 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    // MARK: - Exercise Reorder Row
-    
-    private func exerciseReorderRow(_ exercise: FocusModeExercise) -> some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(exercise.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
-                
-                Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
-                    .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
-            }
-            
-            Spacer()
-            
-            if exercise.isComplete {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(ColorsToken.State.success)
-                    .font(.system(size: 18))
-            }
-        }
-        .padding(.vertical, 4)
-    }
-    
     // MARK: - Reorder Exercises
     
-    private func reorderExercises(from source: IndexSet, to destination: Int) {
-        // SwiftUI's List onMove has a bug where it doesn't properly update
-        // when the data source changes during the animation. 
-        // Workaround: Exit edit mode briefly to force UI refresh.
-        withAnimation {
-            isEditingOrder = false
-        }
-        
+    private func reorderExercisesNew(from source: IndexSet, to destination: Int) {
         // Apply the reorder to the service
         service.reorderExercises(from: source, to: destination)
-        
-        // Re-enter edit mode after a brief delay to show updated order
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            withAnimation {
-                isEditingOrder = true
-            }
-        }
-        
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
-    // MARK: - Custom Header Bar
+    // MARK: - Custom Header Bar (3-Zone Layout)
     
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: Space.sm) {
-                // Left side: Name + Start time (stacked)
                 if let workout = service.workout {
+                    // LEFT ZONE: Name + Subline
                     VStack(alignment: .leading, spacing: 2) {
-                        // Tappable workout name
                         Button {
                             editingName = workout.name ?? "Workout"
                             showingNameEditor = true
                         } label: {
-                            HStack(spacing: 4) {
-                                Text(workout.name ?? "Workout")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(ColorsToken.Text.primary)
-                                    .lineLimit(1)
-                                
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(ColorsToken.Text.secondary)
-                            }
+                            Text(workout.name ?? "Workout")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(ColorsToken.Text.primary)
+                                .lineLimit(1)
                         }
                         .buttonStyle(PlainButtonStyle())
                         
-                        // Start time (tappable)
                         Button {
-                            showingStartTimeEditor = true
+                            presentSheet(.startTimeEditor)
                         } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 11))
-                                Text(formatStartTime(workout.startTime))
-                                    .font(.system(size: 12))
-                            }
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            Text(formatStartTime(workout.startTime))
+                                .font(.system(size: 13))
+                                .foregroundColor(ColorsToken.Text.secondary)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
+                    .layoutPriority(1)
                     
-                    Spacer()
+                    Spacer(minLength: Space.sm)
                     
-                    // Timer (centered-ish)
-                    Text(formatDuration(elapsedTime))
-                        .font(.system(size: 14, weight: .medium).monospacedDigit())
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .padding(.horizontal, Space.sm)
+                    // CENTER ZONE: Timer Pill with Progress
+                    TimerPill(
+                        elapsedTime: elapsedTime,
+                        completedSets: completedSets,
+                        totalSets: totalSets
+                    )
+                    .layoutPriority(2)
                     
-                    // Right side: Actions
+                    Spacer(minLength: Space.sm)
+                    
+                    // RIGHT ZONE: Coach, Reorder, Ellipsis
                     HStack(spacing: Space.sm) {
-                        // Settings/More button
+                        // Coach button (primary AI action)
+                        CoachButton {
+                            presentSheet(.coach)
+                        }
+                        
+                        // Reorder toggle (top-level, not in menu)
+                        if !workout.exercises.isEmpty {
+                            ReorderToggleButton(
+                                isReordering: screenMode.isReordering,
+                                action: toggleReorderMode
+                            )
+                        }
+                        
+                        // Ellipsis for secondary actions only
                         Menu {
                             Button {
                                 editingName = workout.name ?? "Workout"
@@ -377,19 +464,9 @@ struct FocusModeWorkoutScreen: View {
                             }
                             
                             Button {
-                                showingStartTimeEditor = true
+                                presentSheet(.startTimeEditor)
                             } label: {
                                 Label("Edit Start Time", systemImage: "clock")
-                            }
-                            
-                            if !workout.exercises.isEmpty {
-                                Button {
-                                    withAnimation {
-                                        isEditingOrder.toggle()
-                                    }
-                                } label: {
-                                    Label(isEditingOrder ? "Done Reordering" : "Reorder Exercises", systemImage: "arrow.up.arrow.down")
-                                }
                             }
                             
                             Divider()
@@ -403,28 +480,6 @@ struct FocusModeWorkoutScreen: View {
                             Image(systemName: "ellipsis.circle")
                                 .font(.system(size: 20))
                                 .foregroundColor(ColorsToken.Text.secondary)
-                        }
-                        
-                        // AI button
-                        Button {
-                            showingAIPanel = true
-                        } label: {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 18))
-                                .foregroundColor(ColorsToken.Brand.primary)
-                        }
-                        
-                        // Finish button (prominent)
-                        Button {
-                            showingCompleteConfirmation = true
-                        } label: {
-                            Text("Finish")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(ColorsToken.Brand.primary)
-                                .clipShape(Capsule())
                         }
                     }
                 } else {
@@ -449,7 +504,7 @@ struct FocusModeWorkoutScreen: View {
             
             Divider()
         }
-        .background(ColorsToken.Background.primary)
+        .background(ColorsToken.Background.screen)
     }
     
     // MARK: - Start Time Editor Sheet
@@ -489,13 +544,13 @@ struct FocusModeWorkoutScreen: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        showingStartTimeEditor = false
+                        activeSheet = nil
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         // TODO: Call service to update start time
-                        showingStartTimeEditor = false
+                        activeSheet = nil
                     }
                 }
             }
@@ -585,29 +640,6 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    // MARK: - Workout Header
-    
-    private var workoutHeader: some View {
-        Group {
-            if let workout = service.workout {
-                VStack(spacing: 0) {
-                    Text(workout.name ?? "Workout")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.primary)
-                        .lineLimit(1)
-                    
-                    Text(formatDuration(elapsedTime))
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                        .foregroundColor(ColorsToken.Text.secondary)
-                }
-            } else {
-                Text("Start Workout")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
-            }
-        }
-    }
-    
     // MARK: - AI Panel Placeholder
     
     private var aiPanelPlaceholder: some View {
@@ -630,7 +662,7 @@ struct FocusModeWorkoutScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { showingAIPanel = false }
+                    Button("Done") { activeSheet = nil }
                 }
             }
         }
@@ -640,7 +672,7 @@ struct FocusModeWorkoutScreen: View {
     // MARK: - Add Exercise Button
     
     private var addExerciseButton: some View {
-        Button { showingExerciseSearch = true } label: {
+        Button { presentSheet(.exerciseSearch) } label: {
             HStack(spacing: Space.sm) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 20))
@@ -899,6 +931,133 @@ struct FocusModeExerciseSection: View {
             .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Exercise Section New (with ActionRail and screenMode binding)
+
+struct FocusModeExerciseSectionNew: View {
+    let exercise: FocusModeExercise
+    let isActive: Bool
+    @Binding var screenMode: FocusModeScreenMode
+    
+    let onLogSet: (String, String, Double?, Int, Int?) -> Void
+    let onPatchField: (String, String, String, Any) -> Void
+    let onAddSet: () -> Void
+    let onRemoveSet: (String) -> Void
+    let onAutofill: () -> Void
+    
+    /// Derive selectedCell from screenMode for this exercise
+    private var selectedCell: Binding<FocusModeGridCell?> {
+        Binding(
+            get: {
+                if case .editingSet(let exerciseId, let setId) = screenMode,
+                   exerciseId == exercise.instanceId {
+                    return .weight(exerciseId: exerciseId, setId: setId)
+                }
+                return nil
+            },
+            set: { newValue in
+                if let cell = newValue {
+                    screenMode = .editingSet(exerciseId: cell.exerciseId, setId: cell.setId)
+                } else {
+                    screenMode = .normal
+                }
+            }
+        )
+    }
+    
+    /// Build action items for the ActionRail
+    private var actionItems: [ActionItem] {
+        [
+            ActionItem(
+                icon: "sparkles",
+                label: "Auto-fill",
+                priority: .coach,
+                isPrimary: true,
+                action: onAutofill
+            ),
+            ActionItem(
+                icon: "arrow.up",
+                label: "+2.5kg",
+                priority: .utility,
+                isPrimary: false,
+                action: { /* TODO: Suggest weight increase */ }
+            ),
+            ActionItem(
+                icon: "clock.arrow.circlepath",
+                label: "Last Time",
+                priority: .utility,
+                isPrimary: false,
+                action: { /* TODO: Use last performance */ }
+            )
+        ]
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Exercise Header
+            exerciseHeader
+            
+            // Action Rail (structured AI actions)
+            ActionRail(
+                actions: actionItems,
+                isActive: isActive,
+                onMoreTap: { /* TODO: Show more actions sheet */ }
+            )
+            
+            // Set Grid with warmup divider
+            FocusModeSetGrid(
+                exercise: exercise,
+                selectedCell: selectedCell,
+                onLogSet: onLogSet,
+                onPatchField: onPatchField,
+                onAddSet: onAddSet,
+                onRemoveSet: onRemoveSet
+            )
+        }
+    }
+    
+    private var exerciseHeader: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exercise.name)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(ColorsToken.Text.primary)
+                
+                Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
+                    .font(.system(size: 13).monospacedDigit())
+                    .foregroundColor(ColorsToken.Text.secondary)
+            }
+            
+            Spacer()
+            
+            // Progress indicator
+            if exercise.isComplete {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(ColorsToken.State.success)
+                    .font(.system(size: 20))
+            }
+            
+            // More menu
+            Menu {
+                Button { onAutofill() } label: {
+                    Label("Auto-fill Sets", systemImage: "sparkles")
+                }
+                Button(role: .destructive) {
+                    // TODO: Remove exercise
+                } label: {
+                    Label("Remove Exercise", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.sm)
     }
 }
 
