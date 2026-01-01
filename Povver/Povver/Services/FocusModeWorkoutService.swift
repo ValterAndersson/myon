@@ -22,17 +22,9 @@ class FocusModeWorkoutService: ObservableObject {
     @Published private(set) var workout: FocusModeWorkout?
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var error: String?
-    @Published private(set) var isSyncing: Bool = false
     
-    /// Track exercises that are currently being synced to the server
-    /// Patches to sets in these exercises should wait for sync to complete
-    @Published private(set) var pendingSyncExercises: Set<String> = []
-    
-    /// Track sets that are currently being synced
-    @Published private(set) var pendingSyncSets: Set<String> = []
-    
-    /// Continuations waiting for exercise sync to complete
-    private var syncContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Session ID to validate coordinator callbacks (prevents stale updates)
+    private var currentSessionId: UUID?
     
     // MARK: - Dependencies
     
@@ -56,52 +48,42 @@ class FocusModeWorkoutService: ObservableObject {
     private func setupMutationCoordinator() {
         // Note: The MutationCoordinator is an actor, so we set up the callback
         // using a closure that will be called from within the actor.
-        // Since this class is @MainActor, we're already on MainActor.
+        // Callback now includes sessionId for staleness validation.
         Task {
-            await mutationCoordinator.setStateChangeHandler { [weak self] change in
+            await mutationCoordinator.setStateChangeHandler { [weak self] change, sessionId in
                 guard let self = self else { return }
-                // Use Task.detached to avoid actor re-entrancy issues
+                // Use Task to dispatch to MainActor
                 Task { @MainActor [weak self] in
-                    await self?.handleMutationStateChange(change)
+                    await self?.handleMutationStateChange(change, sessionId: sessionId)
                 }
             }
         }
     }
     
     /// Handle mutation coordinator state changes
+    /// Validates sessionId to prevent stale callbacks from affecting new workout sessions
     @MainActor
-    private func handleMutationStateChange(_ change: MutationStateChange) async {
+    private func handleMutationStateChange(_ change: MutationStateChange, sessionId: UUID) async {
+        // Session scoping: ignore callbacks from old sessions
+        guard sessionId == currentSessionId else {
+            print("[FocusModeWorkoutService] Ignoring stale callback for old session")
+            return
+        }
+        
         switch change {
         case .syncSuccess(let mutation):
             print("[FocusModeWorkoutService] Mutation synced: \(mutation)")
-            isSyncing = false
-            // Remove from pending tracking
-            handleMutationSynced(mutation)
+            // Coordinator handles dependencies - no additional tracking needed
             
         case .syncFailed(let mutation, let error):
             print("[FocusModeWorkoutService] Mutation failed: \(mutation), error: \(error)")
             self.error = error
-            isSyncing = false
             // Rollback optimistic state on failure
             rollbackMutation(mutation)
             
         case .needsReconcile:
             print("[FocusModeWorkoutService] Reconciliation needed - fetching latest state")
             await performReconciliation()
-        }
-    }
-    
-    /// Remove entity from pending sync tracking
-    private func handleMutationSynced(_ mutation: WorkoutMutation) {
-        switch mutation {
-        case .addExercise(let instanceId, _, _, _, _):
-            pendingSyncExercises.remove(instanceId)
-            notifySyncContinuations(exerciseId: instanceId)
-        case .addSet(let exerciseInstanceId, let setId, _, _, _, _):
-            pendingSyncSets.remove(setId)
-            _ = exerciseInstanceId // Used for logging
-        default:
-            break
         }
     }
     
@@ -113,7 +95,6 @@ class FocusModeWorkoutService: ObservableObject {
         case .addExercise(let instanceId, _, _, _, _):
             // Remove optimistically added exercise
             workout.exercises.removeAll { $0.instanceId == instanceId }
-            pendingSyncExercises.remove(instanceId)
             self.workout = workout
             print("[FocusModeWorkoutService] Rolled back exercise: \(instanceId)")
             
@@ -122,21 +103,11 @@ class FocusModeWorkoutService: ObservableObject {
             if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exId }) {
                 workout.exercises[exIdx].sets.removeAll { $0.id == setId }
             }
-            pendingSyncSets.remove(setId)
             self.workout = workout
             
         default:
             // Other mutations don't have optimistic state that needs rollback
             break
-        }
-    }
-    
-    /// Notify waiting continuations that exercise sync completed
-    private func notifySyncContinuations(exerciseId: String) {
-        if let continuations = syncContinuations.removeValue(forKey: exerciseId) {
-            for continuation in continuations {
-                continuation.resume()
-            }
         }
     }
     
@@ -182,6 +153,11 @@ class FocusModeWorkoutService: ObservableObject {
     ) async throws -> FocusModeWorkout {
         isLoading = true
         defer { isLoading = false }
+        
+        // Reset coordinator and generate new session ID to invalidate any stale callbacks
+        await mutationCoordinator.reset()
+        currentSessionId = UUID()
+        print("[FocusModeWorkoutService] New session: \(currentSessionId!)")
         
         let request = StartActiveWorkoutRequest(
             name: name,
@@ -241,7 +217,7 @@ class FocusModeWorkoutService: ObservableObject {
     // MARK: - Log Set (Hot Path)
     
     /// Mark a set as done - this is the PRIMARY action in focus mode
-    /// Must feel instant - apply locally first, sync async
+    /// Must feel instant - apply locally first, sync async (no global isSyncing flag)
     func logSet(
         exerciseInstanceId: String,
         setId: String,
@@ -254,12 +230,7 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
         
-        // Wait for exercise to finish syncing before logging
-        if pendingSyncExercises.contains(exerciseInstanceId) {
-            try await waitForExerciseSync(exerciseInstanceId)
-        }
-        
-        // 1. Apply optimistically to local state
+        // 1. Apply optimistically to local state (coordinator handles dependency ordering)
         applyLogSetLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, weight: weight, reps: reps, rir: rir, isFailure: isFailure)
         
         // 2. Generate idempotency key
@@ -280,10 +251,7 @@ class FocusModeWorkoutService: ObservableObject {
             clientTimestamp: ISO8601DateFormatter().string(from: Date())
         )
         
-        // 4. Sync to backend
-        isSyncing = true
-        defer { isSyncing = false }
-        
+        // 4. Sync to backend (no isSyncing flag - hot path stays fully responsive)
         do {
             let response: LogSetResponse = try await apiClient.postJSON("logSet", body: request)
             
@@ -316,10 +284,7 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
         
-        // Wait for exercise to finish syncing before patching
-        if pendingSyncExercises.contains(exerciseInstanceId) {
-            try await waitForExerciseSync(exerciseInstanceId)
-        }
+        // Coordinator handles dependency ordering - no manual wait needed
         
         // 1. Apply optimistically
         applyPatchLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, field: field, value: value)
@@ -448,9 +413,6 @@ class FocusModeWorkoutService: ObservableObject {
             sets: defaultSets.map { AddExerciseSetDTO(from: $0) }
         )
         
-        isSyncing = true
-        defer { isSyncing = false }
-        
         print("[addExercise] Sending exercise with sets: \(defaultSets.map { $0.id })")
         
         let response: AddExerciseResponse = try await apiClient.postJSON("addExercise", body: request)
@@ -520,6 +482,9 @@ class FocusModeWorkoutService: ObservableObject {
         let response: CancelWorkoutResponse = try await apiClient.postJSON("cancelActiveWorkout", body: request)
         
         if response.success {
+            // Reset coordinator to clear pending mutations and invalidate callbacks
+            await mutationCoordinator.reset()
+            currentSessionId = nil
             self.workout = nil  // Clear local state
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to cancel workout")
@@ -541,6 +506,9 @@ class FocusModeWorkoutService: ObservableObject {
         
         if response.success {
             let archivedId = response.workoutId ?? workout.id
+            // Reset coordinator to clear pending mutations and invalidate callbacks
+            await mutationCoordinator.reset()
+            currentSessionId = nil
             self.workout = nil  // Clear local state
             return archivedId
         } else {
@@ -643,9 +611,6 @@ class FocusModeWorkoutService: ObservableObject {
             clientTimestamp: ISO8601DateFormatter().string(from: Date())
         )
         
-        isSyncing = true
-        defer { isSyncing = false }
-        
         let response: AutofillExerciseResponse = try await apiClient.postJSON("autofillExercise", body: request)
         
         if response.success, let totals = response.totals {
@@ -660,26 +625,7 @@ class FocusModeWorkoutService: ObservableObject {
     
     // MARK: - Private Helpers
     
-    /// Wait for an exercise to finish syncing (max 3 seconds)
-    private func waitForExerciseSync(_ exerciseInstanceId: String) async throws {
-        let maxWaitTime: TimeInterval = 3.0
-        let pollInterval: TimeInterval = 0.1
-        let startTime = Date()
-        
-        while pendingSyncExercises.contains(exerciseInstanceId) {
-            if Date().timeIntervalSince(startTime) > maxWaitTime {
-                // Timeout - proceed anyway, server will return 404 and user can retry
-                print("[FocusModeWorkoutService] Timeout waiting for exercise sync: \(exerciseInstanceId)")
-                break
-            }
-            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
-        }
-    }
-    
     private func syncPatch(_ request: PatchActiveWorkoutRequest) async throws -> WorkoutTotals {
-        isSyncing = true
-        defer { isSyncing = false }
-        
         let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
         
         if response.success, let totals = response.totals {
@@ -691,9 +637,6 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     private func syncAddSetPatch(_ request: AddSetPatchRequest) async throws -> WorkoutTotals {
-        isSyncing = true
-        defer { isSyncing = false }
-        
         let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
         
         if response.success, let totals = response.totals {
