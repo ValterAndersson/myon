@@ -43,82 +43,25 @@ struct FocusModeWorkoutScreen: View {
     }
     
     var body: some View {
-        ZStack {
-            ColorsToken.Background.primary.ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Custom header bar (always visible)
+            customHeaderBar
             
-            if service.isLoading {
-                loadingView
-            } else if let workout = service.workout {
-                workoutContent(workout)
-            } else {
-                workoutStartView
+            // Main content
+            ZStack {
+                ColorsToken.Background.primary.ignoresSafeArea()
+                
+                if service.isLoading {
+                    loadingView
+                } else if let workout = service.workout {
+                    workoutContent(workout)
+                } else {
+                    workoutStartView
+                }
             }
         }
-        .navigationTitle("")  // Empty title but forces nav bar to show
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(ColorsToken.Background.primary, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)  // Hide default back button since we provide custom
-        .toolbar(.visible, for: .navigationBar)  // Force navigation bar to be visible
-        .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if service.workout != nil {
-                        Button {
-                            showingSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(ColorsToken.Text.primary)
-                        }
-                    } else {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(ColorsToken.Text.primary)
-                        }
-                    }
-                }
-                
-                ToolbarItem(placement: .principal) {
-                    workoutHeader
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if service.workout != nil {
-                        HStack(spacing: Space.md) {
-                            // Edit/Done button for reordering
-                            if (service.workout?.exercises.count ?? 0) > 1 {
-                                Button(isEditingOrder ? "Done" : "Edit") {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        isEditingOrder.toggle()
-                                    }
-                                }
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(isEditingOrder ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
-                            }
-                            
-                            if !isEditingOrder {
-                                // AI button (placeholder)
-                                Button {
-                                    showingAIPanel = true
-                                } label: {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 16))
-                                        .foregroundColor(ColorsToken.Brand.primary)
-                                }
-                                
-                                Button("Finish") {
-                                    showingCompleteConfirmation = true
-                                }
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(ColorsToken.Brand.primary)
-                            }
-                        }
-                    }
-                }
-            }
+        .background(ColorsToken.Background.primary)
+        .navigationBarHidden(true)  // Hide system nav bar, use custom
         .interactiveDismissDisabled(service.workout != nil)
         .confirmationDialog("Workout Options", isPresented: $showingSettings) {
             Button("Discard Workout", role: .destructive) {
@@ -347,6 +290,84 @@ struct FocusModeWorkoutScreen: View {
         // 1. Update positions in Firestore
         // 2. Refresh the workout from service
         print("Reorder from \(source) to \(destination)")
+    }
+    
+    // MARK: - Custom Header Bar
+    
+    private var customHeaderBar: some View {
+        HStack(spacing: Space.md) {
+            // Leading button
+            if service.workout != nil {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(ColorsToken.Text.primary)
+                        .frame(width: 36, height: 36)
+                }
+            } else {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(ColorsToken.Text.primary)
+                        .frame(width: 36, height: 36)
+                }
+            }
+            
+            Spacer()
+            
+            // Center: title + timer
+            workoutHeader
+            
+            Spacer()
+            
+            // Trailing buttons
+            if service.workout != nil {
+                HStack(spacing: Space.sm) {
+                    // Edit/Done button for reordering
+                    if (service.workout?.exercises.count ?? 0) > 1 {
+                        Button(isEditingOrder ? "Done" : "Edit") {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isEditingOrder.toggle()
+                            }
+                        }
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(isEditingOrder ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
+                    }
+                    
+                    if !isEditingOrder {
+                        // AI button
+                        Button {
+                            showingAIPanel = true
+                        } label: {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 16))
+                                .foregroundColor(ColorsToken.Brand.primary)
+                        }
+                        
+                        // Finish button
+                        Button("Finish") {
+                            showingCompleteConfirmation = true
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(ColorsToken.Brand.primary)
+                    }
+                }
+            } else {
+                // Placeholder for balance
+                Color.clear.frame(width: 36, height: 36)
+            }
+        }
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.sm)
+        .background(ColorsToken.Background.primary)
+        .overlay(
+            Divider(),
+            alignment: .bottom
+        )
     }
     
     // MARK: - Loading View
