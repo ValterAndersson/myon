@@ -299,47 +299,25 @@ class FocusModeWorkoutService: ObservableObject {
         workout.exercises.append(newExercise)
         self.workout = workout
         
-        // Build request
-        let idempotencyKey = idempotencyHelper.generate(context: "addExercise", exerciseId: newInstanceId)
-        
-        let exerciseValue: [String: Any] = [
-            "instance_id": newInstanceId,
-            "exercise_id": exercise.id,
-            "name": exercise.name,
-            "position": newExercise.position,
-            "sets": defaultSets.map { set -> [String : Any] in
-                var setDict: [String: Any] = [
-                    "id": set.id,
-                    "set_type": set.setType.rawValue,
-                    "status": set.status.rawValue,
-                    "target_reps": set.targetReps ?? 10,
-                    "target_rir": set.targetRir ?? 2
-                ]
-                if let targetWeight = set.targetWeight {
-                    setDict["target_weight"] = targetWeight
-                }
-                return setDict
-            }
-        ]
-        
-        let op = PatchOperationDTO(
-            op: "add_exercise",
-            target: PatchTargetDTO(exerciseInstanceId: newInstanceId, setId: nil),
-            field: nil,
-            value: AnyCodable(exerciseValue)
-        )
-        
-        let request = PatchActiveWorkoutRequest(
+        // Use dedicated addExercise endpoint
+        let request = AddExerciseRequest(
             workoutId: workout.id,
-            ops: [op],
-            cause: "user_edit",
-            uiSource: "add_exercise_button",
-            idempotencyKey: idempotencyKey,
-            clientTimestamp: ISO8601DateFormatter().string(from: Date()),
-            aiScope: nil
+            instanceId: newInstanceId,
+            exerciseId: exercise.id,
+            name: exercise.name,
+            position: newExercise.position,
+            sets: defaultSets.map { AddExerciseSetDTO(from: $0) }
         )
         
-        _ = try await syncPatch(request)
+        isSyncing = true
+        defer { isSyncing = false }
+        
+        let response: AddExerciseResponse = try await apiClient.postJSON("addExercise", body: request)
+        
+        if !response.success {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to add exercise")
+        }
+        
         await MainActor.run {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         }
@@ -751,6 +729,67 @@ private struct PatchActiveWorkoutResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case success
         case eventId = "event_id"
+        case totals
+        case error
+    }
+}
+
+// MARK: - Add Exercise DTOs
+
+private struct AddExerciseRequest: Encodable {
+    let workoutId: String
+    let instanceId: String
+    let exerciseId: String
+    let name: String
+    let position: Int
+    let sets: [AddExerciseSetDTO]
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case instanceId = "instance_id"
+        case exerciseId = "exercise_id"
+        case name
+        case position
+        case sets
+    }
+}
+
+private struct AddExerciseSetDTO: Encodable {
+    let id: String
+    let setType: String
+    let status: String
+    let targetReps: Int?
+    let targetRir: Int?
+    let targetWeight: Double?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case setType = "set_type"
+        case status
+        case targetReps = "target_reps"
+        case targetRir = "target_rir"
+        case targetWeight = "target_weight"
+    }
+    
+    init(from set: FocusModeSet) {
+        self.id = set.id
+        self.setType = set.setType.rawValue
+        self.status = set.status.rawValue
+        self.targetReps = set.targetReps
+        self.targetRir = set.targetRir
+        self.targetWeight = set.targetWeight
+    }
+}
+
+private struct AddExerciseResponse: Decodable {
+    let success: Bool
+    let exerciseInstanceId: String?
+    let totals: WorkoutTotals?
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case exerciseInstanceId = "exercise_instance_id"
         case totals
         case error
     }
