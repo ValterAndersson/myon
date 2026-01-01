@@ -1282,32 +1282,38 @@ func mergeSets(local: inout FocusModeExercise, server: ServerExercise) {
 }
 ```
 
-### 8.7 File Structure
+### 8.7 File Structure (Current)
 
 ```
-MYON2/MYON2/
-├── Views/
-│   └── FocusMode/
-│       ├── FocusModeView.swift              # Main full-screen view
-│       ├── FocusModeExerciseSection.swift   # Exercise header + sets
-│       └── FocusModeEmptyState.swift        # "Generate workout" CTA
-│
-├── ViewModels/
-│   └── FocusModeViewModel.swift             # Local-first state
-│
+Povver/Povver/
 ├── UI/
 │   └── FocusMode/
-│       ├── FocusModeSetGrid.swift           # Adapted from SetGridView
-│       ├── InlineAIActionsRow.swift         # Auto-fill, Use Last
-│       ├── PriorPerformanceColumn.swift     # "Last time" reference
-│       └── RestTimerView.swift              # Non-blocking timer
+│       ├── FocusModeWorkoutScreen.swift     # Main workout execution screen
+│       ├── FocusModeSetGrid.swift           # Set table with inline editing
+│       ├── FocusModeComponents.swift        # Shared UI components
+│       └── FocusModeExerciseSearch.swift    # Add exercise sheet
 │
 ├── Services/
-│   └── FocusModeService.swift               # API calls to endpoints
+│   ├── FocusModeWorkoutService.swift        # Local-first service layer
+│   └── MutationCoordinator.swift            # Serial queue for mutations
 │
-└── Models/
-    └── FocusModeModels.swift                # Local model types
+├── Models/
+│   └── FocusModeModels.swift                # Domain models (Workout, Exercise, Set)
+│
+└── UI/
+    └── DesignSystem/
+        └── Tokens.swift                     # Design tokens (colors, spacing)
 ```
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `FocusModeWorkoutService.swift` | Local-first state management, optimistic updates, coordinator orchestration |
+| `MutationCoordinator.swift` | Serial mutation queue, dependency ordering, session scoping, reconciliation |
+| `FocusModeModels.swift` | Domain models: `FocusModeWorkout`, `FocusModeExercise`, `FocusModeSet` |
+| `FocusModeWorkoutScreen.swift` | Main UI, observes service state |
+| `FocusModeSetGrid.swift` | Set table with inline value editing |
 
 ### 8.8 Entry Points
 
