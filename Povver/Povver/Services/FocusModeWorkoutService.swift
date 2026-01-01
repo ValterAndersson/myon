@@ -1,13 +1,91 @@
 /**
  * FocusModeWorkoutService.swift
  * 
- * Service layer for Focus Mode workout execution.
- * Handles all backend API calls for active workout operations.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * FOCUS MODE WORKOUT SERVICE - Local-First Workout Execution Engine
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * PURPOSE:
+ * This is the service layer for Focus Mode workout execution. It implements a
+ * local-first architecture where UI changes are applied immediately and synced
+ * to the backend asynchronously via MutationCoordinator.
+ *
+ * ARCHITECTURE:
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │  FocusModeWorkoutScreen (UI)                                                │
+ * │  └── Observes: workout, isLoading, error, exerciseSyncState                 │
+ * │                            │                                                 │
+ * │                            │ User Actions                                    │
+ * │                            ▼                                                 │
+ * │  ┌─────────────────────────────────────────────────────────────────────┐    │
+ * │  │  FocusModeWorkoutService (@MainActor, ObservableObject)             │    │
+ * │  │  ├── workout: FocusModeWorkout?      - Local state (source of truth)│    │
+ * │  │  ├── exerciseSyncState: [String: EntitySyncState]  - Per-entity UI  │    │
+ * │  │  ├── currentSessionId: UUID?         - Validates callbacks          │    │
+ * │  │  └── mutationCoordinator             - Handles sync ordering        │    │
+ * │  └─────────────────────────────────────────────────────────────────────┘    │
+ * │                            │                                                 │
+ * │                            │ Optimistic Update + Enqueue                     │
+ * │                            ▼                                                 │
+ * │  ┌─────────────────────────────────────────────────────────────────────┐    │
+ * │  │  MutationCoordinator (actor)                                        │    │
+ * │  │  └── Ensures dependency ordering, retries, reconciliation           │    │
+ * │  └─────────────────────────────────────────────────────────────────────┘    │
+ * │                            │                                                 │
+ * │                            │ Network Calls                                   │
+ * │                            ▼                                                 │
+ * │  Backend API (Firebase Functions)                                           │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ *
+ * KEY PATTERNS:
+ *
+ * 1. OPTIMISTIC UPDATES
+ *    - User action → Apply to local state immediately → Enqueue to coordinator
+ *    - UI never waits for network (feels instant in the gym)
+ *    - Rollback on sync failure via rollbackMutation()
+ *
+ * 2. SESSION SCOPING
+ *    - Each workout session has a unique sessionId
+ *    - Callbacks validate sessionId before applying changes
+ *    - Prevents: old workout's callbacks corrupt new workout's state
+ *    - Generated in startWorkout(), cleared in cancel/complete
+ *
+ * 3. PER-ENTITY SYNC STATE
+ *    - exerciseSyncState[instanceId] tracks syncing/synced/failed
+ *    - UI can show spinners on exercise cards during sync
+ *    - UI can show error badges if sync failed
+ *
+ * 4. SELECTIVE HYDRATION (Reconciliation)
+ *    - On TARGET_NOT_FOUND, coordinator triggers reconciliation
+ *    - performReconciliation() fetches server state
+ *    - Only updates positions and totals (server source of truth)
+ *    - Preserves user's local set values (user's work)
+ *
+ * LATENCY REQUIREMENTS (from spec):
+ * - Cell edits: Local update immediately, sync debounced 2s
+ * - Set done (hot path): Local update immediately, no isSyncing flag
+ * - AI inline actions: Target < 1.0–1.5s perceived
+ *
+ * USAGE:
+ * ```swift
+ * // Start workout
+ * let workout = try await service.startWorkout(name: "Push Day")
  * 
- * Per FOCUS_MODE_WORKOUT_EXECUTION.md spec:
- * - Cell edits: local UI update immediately; backend sync async
- * - Set done: must feel instant; backend sync async; any AI follow-up async
- * - AI inline action: target < 1.0–1.5s perceived
+ * // Add exercise (optimistic)
+ * try await service.addExercise(exercise: benchPress)  // Appears immediately
+ * 
+ * // Log set (hot path)
+ * let totals = try await service.logSet(
+ *     exerciseInstanceId: "...",
+ *     setId: "...",
+ *     weight: 80,
+ *     reps: 10,
+ *     rir: 2
+ * )
+ * 
+ * // Complete workout
+ * let archivedId = try await service.completeWorkout()
+ * ```
  */
 
 import Foundation

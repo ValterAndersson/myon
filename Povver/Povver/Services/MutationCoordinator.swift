@@ -1,15 +1,90 @@
 /**
  * MutationCoordinator.swift
  * 
- * Serial mutation queue for Focus Mode workout operations.
- * Ensures ordering + dependency satisfaction to prevent TARGET_NOT_FOUND errors.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * MUTATION COORDINATOR - Serial Queue for Focus Mode Workout Operations
+ * ═══════════════════════════════════════════════════════════════════════════════
  * 
- * Key design decisions:
- * - All network mutations go through this coordinator (addExercise, addSet, patchSet, etc.)
- * - ACK only on successful server response
- * - Remove operations purge dependent queued mutations
- * - Pauses execution during reconciliation
- * - Uses QueuedMutation wrapper with immutable idempotencyKey and mutable attempt count
+ * PURPOSE:
+ * This actor is the single source of truth for mutation ordering and dependency
+ * satisfaction in Focus Mode. All network mutations flow through here to prevent
+ * race conditions and TARGET_NOT_FOUND errors.
+ *
+ * ARCHITECTURE:
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │  FocusModeWorkoutService                                                    │
+ * │  ├── Applies optimistic updates to local state                              │
+ * │  └── Enqueues mutations to MutationCoordinator                              │
+ * │                            │                                                 │
+ * │                            ▼                                                 │
+ * │  ┌─────────────────────────────────────────────────────────────────────┐    │
+ * │  │  MutationCoordinator (actor)                                        │    │
+ * │  │  ├── pending: [QueuedMutation]     - Waiting for dependencies       │    │
+ * │  │  ├── ackExercises: Set<String>     - Server-confirmed exercises     │    │
+ * │  │  ├── ackSets: Set<SetKey>          - Server-confirmed sets          │    │
+ * │  │  ├── sessionId: UUID               - Prevents stale callbacks       │    │
+ * │  │  └── inFlight: QueuedMutation?     - Currently executing            │    │
+ * │  └─────────────────────────────────────────────────────────────────────┘    │
+ * │                            │                                                 │
+ * │                            ▼                                                 │
+ * │  Backend API (addExercise, patchActiveWorkout, logSet, etc.)                │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ *
+ * KEY BEHAVIORS:
+ * 
+ * 1. DEPENDENCY ORDERING
+ *    - addSet waits until parent exercise is ACK'd
+ *    - patchSet/logSet wait until target set is ACK'd
+ *    - Prevents "set doesn't exist" errors from race conditions
+ *
+ * 2. SESSION SCOPING
+ *    - Each workout session has a unique sessionId (UUID)
+ *    - Callbacks include sessionId; service ignores stale sessions
+ *    - reset() generates new sessionId, invalidating in-flight callbacks
+ *    - Prevents: start workout A → callbacks from A corrupt workout B
+ *
+ * 3. COALESCING (Metadata Mutations)
+ *    - patchWorkoutMetadata for same field replaces pending (last-write-wins)
+ *    - Prevents: rapid typing sends N requests; only last value matters
+ *
+ * 4. PURGE ON REMOVE
+ *    - removeExercise purges all pending mutations for that exercise
+ *    - removeSet purges all pending mutations for that set
+ *    - Prevents: queue contains patches for deleted entities
+ *
+ * 5. RECONCILIATION
+ *    - On TARGET_NOT_FOUND, pauses processing and triggers reconciliation
+ *    - Service fetches server state, calls finishReconcile()
+ *    - Resume processing with updated ACK state
+ *
+ * USAGE (from FocusModeWorkoutService):
+ * ```swift
+ * // On workout start
+ * await mutationCoordinator.reset()  // Invalidate old session
+ * currentSessionId = UUID()
+ * 
+ * // On add exercise
+ * var workout = self.workout
+ * workout.exercises.append(newExercise)  // Optimistic
+ * self.workout = workout
+ * await mutationCoordinator.enqueue(.addExercise(...))
+ * 
+ * // Callback handler validates sessionId
+ * func handleMutationStateChange(_ change: MutationStateChange, sessionId: UUID) {
+ *     guard sessionId == currentSessionId else { return }  // Ignore stale
+ *     // Apply changes...
+ * }
+ * ```
+ *
+ * MUTATION TYPES:
+ * - addExercise: Creates exercise with initial sets (all ACK'd together)
+ * - removeExercise: Deletes exercise (purges dependents first)
+ * - addSet: Adds set to exercise (depends on exercise ACK)
+ * - removeSet: Deletes set (purges dependents first)
+ * - patchSet: Updates set field (depends on set ACK)
+ * - logSet: Marks set done (depends on set ACK, hot path)
+ * - reorderExercises: Updates exercise positions (no dependencies)
+ * - patchWorkoutMetadata: Updates name/start_time (coalesced)
  */
 
 import Foundation
