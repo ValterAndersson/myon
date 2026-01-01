@@ -60,7 +60,11 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.startFailed(response.error ?? "Unknown error")
         }
         
-        // Parse the workout
+        // Parse timestamps from server (fall back to Date() only if missing)
+        let serverStartTime = parseISO8601Date(response.startTime) ?? Date()
+        let serverCreatedAt = parseISO8601Date(response.createdAt) ?? Date()
+        
+        // Parse the workout using server-provided data
         let parsedWorkout = FocusModeWorkout(
             id: response.workoutId ?? UUID().uuidString,
             userId: response.userId ?? "",
@@ -69,10 +73,10 @@ class FocusModeWorkoutService: ObservableObject {
             sourceRoutineId: sourceRoutineId,
             name: name,
             exercises: response.exercises?.map { FocusModeExercise(from: $0) } ?? [],
-            totals: WorkoutTotals(),
-            startTime: Date(),
+            totals: response.totals ?? WorkoutTotals(),
+            startTime: serverStartTime,
             endTime: nil,
-            createdAt: Date(),
+            createdAt: serverCreatedAt,
             updatedAt: nil
         )
         
@@ -291,13 +295,19 @@ class FocusModeWorkoutService: ObservableObject {
             "exercise_id": exercise.id,
             "name": exercise.name,
             "position": newExercise.position,
-            "sets": defaultSets.map { [
-                "id": $0.id,
-                "set_type": $0.setType.rawValue,
-                "status": $0.status.rawValue,
-                "reps": $0.targetReps ?? 10,
-                "rir": $0.targetRir ?? 2
-            ] as [String : Any] }
+            "sets": defaultSets.map { set -> [String : Any] in
+                var setDict: [String: Any] = [
+                    "id": set.id,
+                    "set_type": set.setType.rawValue,
+                    "status": set.status.rawValue,
+                    "target_reps": set.targetReps ?? 10,
+                    "target_rir": set.targetRir ?? 2
+                ]
+                if let targetWeight = set.targetWeight {
+                    setDict["target_weight"] = targetWeight
+                }
+                return setDict
+            }
         ]
         
         let op = PatchOperationDTO(
@@ -426,6 +436,10 @@ class FocusModeWorkoutService: ObservableObject {
         
         if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }),
            let setIdx = workout.exercises[exIdx].sets.firstIndex(where: { $0.id == setId }) {
+            
+            // Track if this is a new completion (for incrementing totals)
+            let wasPlanned = workout.exercises[exIdx].sets[setIdx].status == .planned
+            
             workout.exercises[exIdx].sets[setIdx].status = .done
             workout.exercises[exIdx].sets[setIdx].weight = weight
             workout.exercises[exIdx].sets[setIdx].reps = reps
@@ -433,8 +447,32 @@ class FocusModeWorkoutService: ObservableObject {
             if let isFailure = isFailure {
                 workout.exercises[exIdx].sets[setIdx].tags = FocusModeSetTags(isFailure: isFailure)
             }
+            
+            // Recalculate totals locally for immediate UI feedback
+            if wasPlanned {
+                workout.totals = recalculateTotals(for: workout)
+            }
+            
             self.workout = workout
         }
+    }
+    
+    /// Recalculate workout totals from current state
+    private func recalculateTotals(for workout: FocusModeWorkout) -> WorkoutTotals {
+        var totalSets = 0
+        var totalReps = 0
+        var totalVolume: Double = 0
+        
+        for exercise in workout.exercises {
+            for set in exercise.sets where set.status == .done {
+                totalSets += 1
+                let setReps = set.reps ?? 0
+                totalReps += setReps
+                totalVolume += (set.weight ?? 0) * Double(setReps)
+            }
+        }
+        
+        return WorkoutTotals(sets: totalSets, reps: totalReps, volume: totalVolume)
     }
     
     private func applyPatchLocally(
@@ -558,6 +596,9 @@ private struct StartActiveWorkoutResponse: Decodable {
     let workoutId: String?
     let userId: String?
     let exercises: [ExerciseDTO]?
+    let startTime: String?
+    let createdAt: String?
+    let totals: WorkoutTotals?
     let error: String?
     
     enum CodingKeys: String, CodingKey {
@@ -565,6 +606,9 @@ private struct StartActiveWorkoutResponse: Decodable {
         case workoutId = "workout_id"
         case userId = "user_id"
         case exercises
+        case startTime = "start_time"
+        case createdAt = "created_at"
+        case totals
         case error
     }
 }
@@ -746,4 +790,34 @@ class IdempotencyKeyHelper {
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         return "\(components.joined(separator: "-"))-\(timestamp)"
     }
+}
+
+// MARK: - Date Parsing Helper
+
+/// Parse ISO8601 date strings from server (supports multiple formats)
+private func parseISO8601Date(_ string: String?) -> Date? {
+    guard let string = string else { return nil }
+    
+    // Try standard ISO8601 formatter first
+    let iso8601 = ISO8601DateFormatter()
+    iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = iso8601.date(from: string) {
+        return date
+    }
+    
+    // Try without fractional seconds
+    iso8601.formatOptions = [.withInternetDateTime]
+    if let date = iso8601.date(from: string) {
+        return date
+    }
+    
+    // Try Firebase timestamp format (common alternative)
+    let dateFormatter = DateFormatter()
+    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+    dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+    if let date = dateFormatter.date(from: string) {
+        return date
+    }
+    
+    return nil
 }
