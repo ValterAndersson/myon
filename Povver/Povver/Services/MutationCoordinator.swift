@@ -205,7 +205,12 @@ actor MutationCoordinator {
     private let apiClient = ApiClient.shared
     
     /// Callback to update local state on success/failure
-    var onStateChange: ((MutationStateChange) async -> Void)?
+    private var onStateChange: ((MutationStateChange) async -> Void)?
+    
+    /// Set the state change handler (called from service setup)
+    func setStateChangeHandler(_ handler: @escaping (MutationStateChange) async -> Void) {
+        self.onStateChange = handler
+    }
     
     /// Current workout ID
     private var workoutId: String?

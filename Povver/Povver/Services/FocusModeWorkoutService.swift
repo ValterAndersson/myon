@@ -54,9 +54,17 @@ class FocusModeWorkoutService: ObservableObject {
     
     /// Wire mutation coordinator callbacks
     private func setupMutationCoordinator() {
-        Task {
-            await mutationCoordinator.onStateChange = { [weak self] change in
-                await self?.handleMutationStateChange(change)
+        // Note: The MutationCoordinator is an actor, so we set up the callback
+        // using a nonisolated closure that will be called from within the actor.
+        // The callback dispatches to MainActor for state updates.
+        Task { @MainActor in
+            let service = self
+            await mutationCoordinator.setStateChangeHandler { change in
+                await MainActor.run {
+                    Task {
+                        await service.handleMutationStateChange(change)
+                    }
+                }
             }
         }
     }
@@ -138,8 +146,9 @@ class FocusModeWorkoutService: ObservableObject {
         guard let workoutId = workout?.id else { return }
         
         do {
-            // Fetch latest workout state
-            let response: GetActiveWorkoutResponse = try await apiClient.getJSON("getActiveWorkout?workout_id=\(workoutId)")
+            // Fetch latest workout state via POST (since ApiClient only supports postJSON)
+            let request = GetActiveWorkoutRequest(workoutId: workoutId)
+            let response: GetActiveWorkoutResponse = try await apiClient.postJSON("getActiveWorkout", body: request)
             
             if response.success, let data = response.data {
                 // Update local workout from server state
@@ -1309,6 +1318,14 @@ private struct AddExerciseResponse: Decodable {
 }
 
 // MARK: - Get Active Workout DTOs (for reconciliation)
+
+private struct GetActiveWorkoutRequest: Encodable {
+    let workoutId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+    }
+}
 
 private struct GetActiveWorkoutResponse: Decodable {
     let success: Bool
