@@ -273,54 +273,5 @@ public extension View {
     }
 }
 
-// MARK: - FlowLayout
-
-/// A flow layout that wraps content to multiple lines when space runs out.
-/// Useful for filter chips, tags, and other horizontally-arranged items.
-public struct FlowLayout: Layout {
-    public var spacing: CGFloat
-    
-    public init(spacing: CGFloat = Space.sm) {
-        self.spacing = spacing
-    }
-    
-    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        return layout(sizes: sizes, proposal: proposal).size
-    }
-    
-    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let positions = layout(sizes: sizes, proposal: proposal).positions
-        
-        for (index, subview) in subviews.enumerated() {
-            subview.place(at: CGPoint(x: bounds.minX + positions[index].x, y: bounds.minY + positions[index].y), proposal: .unspecified)
-        }
-    }
-    
-    private func layout(sizes: [CGSize], proposal: ProposedViewSize) -> (size: CGSize, positions: [CGPoint]) {
-        let containerWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
-        
-        for size in sizes {
-            // Check if we need to wrap to next line
-            if currentX + size.width > containerWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
-            }
-            
-            positions.append(CGPoint(x: currentX, y: currentY))
-            lineHeight = max(lineHeight, size.height)
-            currentX += size.width + spacing
-            maxWidth = max(maxWidth, currentX - spacing)
-        }
-        
-        let totalHeight = currentY + lineHeight
-        return (CGSize(width: maxWidth, height: totalHeight), positions)
-    }
-}
+// Note: FlowLayout is defined in ExerciseDetailSheet.swift
+// If a public version is needed in the design system, consolidate there.
