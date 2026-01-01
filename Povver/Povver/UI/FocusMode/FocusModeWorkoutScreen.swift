@@ -34,6 +34,7 @@ struct FocusModeWorkoutScreen: View {
     @State private var timer: Timer?
     @State private var isEditingOrder = false
     @State private var editingName: String = ""
+    @State private var editingStartTime: Date = Date()
     
     init(
         templateId: String? = nil,
@@ -87,6 +88,24 @@ struct FocusModeWorkoutScreen: View {
         }
         .sheet(isPresented: $showingAIPanel) {
             aiPanelPlaceholder
+        }
+        .sheet(isPresented: $showingStartTimeEditor) {
+            startTimeEditorSheet
+        }
+        .alert("Workout Name", isPresented: $showingNameEditor) {
+            TextField("Name", text: $editingName)
+            Button("Save") {
+                updateWorkoutName(editingName)
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        .confirmationDialog("Discard Workout?", isPresented: $showingCancelConfirmation) {
+            Button("Discard", role: .destructive) {
+                discardWorkout()
+            }
+            Button("Keep Logging", role: .cancel) { }
+        } message: {
+            Text("Your progress will not be saved.")
         }
         .task {
             await startWorkoutIfNeeded()
@@ -411,23 +430,41 @@ struct FocusModeWorkoutScreen: View {
             Divider()
         }
         .background(ColorsToken.Background.primary)
-        // Name editor alert
-        .alert("Workout Name", isPresented: $showingNameEditor) {
-            TextField("Name", text: $editingName)
-            Button("Save") {
-                updateWorkoutName(editingName)
+    }
+    
+    // MARK: - Start Time Editor Sheet
+    
+    private var startTimeEditorSheet: some View {
+        NavigationStack {
+            Form {
+                DatePicker(
+                    "Start Time",
+                    selection: $editingStartTime,
+                    in: ...Date(),
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.graphical)
             }
-            Button("Cancel", role: .cancel) { }
-        }
-        // Discard confirmation
-        .confirmationDialog("Discard Workout?", isPresented: $showingCancelConfirmation) {
-            Button("Discard", role: .destructive) {
-                discardWorkout()
+            .navigationTitle("Edit Start Time")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingStartTimeEditor = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        // TODO: Call service to update start time
+                        showingStartTimeEditor = false
+                    }
+                }
             }
-            Button("Keep Logging", role: .cancel) { }
-        } message: {
-            Text("Your progress will not be saved.")
+            .onAppear {
+                editingStartTime = service.workout?.startTime ?? Date()
+            }
         }
+        .presentationDetents([.medium, .large])
     }
     
     private func formatStartTime(_ date: Date) -> String {
