@@ -442,10 +442,44 @@ struct FocusModeEditingDock: View {
     @State private var isEditingText = false
     @State private var textInputValue = ""
     @State private var editScope: FocusModeEditScope = .thisOnly
+    @State private var hasComputedDefaultScope = false
     @FocusState private var textFieldFocused: Bool
     
     private var isWarmup: Bool { `set`.isWarmup }
     private var currentSetIndex: Int { allSets.firstIndex { $0.id == `set`.id } ?? 0 }
+    
+    /// Compute smart default scope:
+    /// - If subsequent sets have same value as current → default to "Remaining"
+    /// - If they differ → default to "This"
+    private var smartDefaultScope: FocusModeEditScope {
+        guard !isWarmup else { return .thisOnly }
+        
+        let workingSets = allSets.filter { !$0.isWarmup }
+        guard let currentWorkingIndex = workingSets.firstIndex(where: { $0.id == set.id }) else {
+            return .thisOnly
+        }
+        
+        let subsequentSets = Array(workingSets.dropFirst(currentWorkingIndex + 1))
+        guard !subsequentSets.isEmpty else { return .thisOnly }
+        
+        // Check if subsequent sets match current based on what we're editing
+        let allMatch: Bool
+        switch selectedCell {
+        case .weight:
+            let currentWeight = set.displayWeight
+            allMatch = subsequentSets.allSatisfy { $0.displayWeight == currentWeight }
+        case .reps:
+            let currentReps = set.displayReps
+            allMatch = subsequentSets.allSatisfy { $0.displayReps == currentReps }
+        case .rir:
+            let currentRir = set.displayRir
+            allMatch = subsequentSets.allSatisfy { $0.displayRir == currentRir }
+        case .done:
+            return .thisOnly
+        }
+        
+        return allMatch ? .remaining : .thisOnly
+    }
     
     var body: some View {
         VStack(spacing: Space.sm) {
@@ -479,6 +513,13 @@ struct FocusModeEditingDock: View {
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
         .background(ColorsToken.Neutral.n100.opacity(0.95))
+        .onAppear {
+            // Set smart default scope on first appear
+            if !hasComputedDefaultScope {
+                editScope = smartDefaultScope
+                hasComputedDefaultScope = true
+            }
+        }
     }
     
     // MARK: - Scope Selector

@@ -39,11 +39,45 @@ class FocusModeWorkoutService: ObservableObject {
     private let apiClient = ApiClient.shared
     private let idempotencyHelper = IdempotencyKeyHelper.shared
     
+    // MARK: - Mutation Coordinator
+    
+    /// Serial mutation queue for sync ordering + dependency satisfaction
+    private let mutationCoordinator = MutationCoordinator()
+    
     // MARK: - Singleton (optional - can also inject)
     
     static let shared = FocusModeWorkoutService()
     
-    private init() {}
+    private init() {
+        setupMutationCoordinator()
+    }
+    
+    /// Wire mutation coordinator callbacks
+    private func setupMutationCoordinator() {
+        Task {
+            await mutationCoordinator.onStateChange = { [weak self] change in
+                await self?.handleMutationStateChange(change)
+            }
+        }
+    }
+    
+    /// Handle mutation coordinator state changes
+    private func handleMutationStateChange(_ change: MutationStateChange) async {
+        switch change {
+        case .syncSuccess(let mutation):
+            print("[FocusModeWorkoutService] Mutation synced: \(mutation)")
+            isSyncing = false
+            
+        case .syncFailed(let mutation, let error):
+            print("[FocusModeWorkoutService] Mutation failed: \(mutation), error: \(error)")
+            self.error = error
+            isSyncing = false
+            
+        case .needsReconcile:
+            print("[FocusModeWorkoutService] Reconciliation needed - TODO: fetch latest state")
+            // TODO: Fetch latest workout state and call mutationCoordinator.finishReconcile()
+        }
+    }
     
     // MARK: - Workout Lifecycle
     
