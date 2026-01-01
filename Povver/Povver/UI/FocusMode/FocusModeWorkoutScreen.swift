@@ -56,6 +56,8 @@ struct FocusModeWorkoutScreen: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(ColorsToken.Background.primary, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if service.workout != nil {
