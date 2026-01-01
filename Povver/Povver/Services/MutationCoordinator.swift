@@ -750,25 +750,49 @@ private struct AddSetRequest: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(workoutId, forKey: .workoutId)
         
-        let op: [String: Any] = [
-            "op": "add_set",
-            "target": ["exercise_instance_id": exerciseInstanceId],
-            "value": [
-                "id": setId,
-                "set_type": setType,
-                "status": "planned",
-                "reps": reps,
-                "rir": rir,
-                "weight": weight as Any
-            ]
-        ]
+        // Use properly typed structs for encoding
+        let op = AddSetOp(
+            op: "add_set",
+            target: AddSetTarget(exerciseInstanceId: exerciseInstanceId),
+            value: AddSetValue(id: setId, setType: setType, status: "planned", reps: reps, rir: rir, weight: weight)
+        )
         
-        // Encode as AnyCodable
-        try container.encode([AnyCodable(op)], forKey: .ops)
+        try container.encode([op], forKey: .ops)
         try container.encode("user_edit", forKey: .cause)
         try container.encode("add_set_button", forKey: .uiSource)
         try container.encode(idempotencyKey, forKey: .idempotencyKey)
         try container.encode(ISO8601DateFormatter().string(from: Date()), forKey: .clientTimestamp)
+    }
+}
+
+// Typed structs for add_set operation (avoids AnyCodable encoding issues)
+private struct AddSetOp: Encodable {
+    let op: String
+    let target: AddSetTarget
+    let value: AddSetValue
+}
+
+private struct AddSetTarget: Encodable {
+    let exerciseInstanceId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case exerciseInstanceId = "exercise_instance_id"
+    }
+}
+
+private struct AddSetValue: Encodable {
+    let id: String
+    let setType: String
+    let status: String
+    let reps: Int
+    let rir: Int
+    let weight: Double?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case setType = "set_type"
+        case status
+        case reps, rir, weight
     }
 }
 
