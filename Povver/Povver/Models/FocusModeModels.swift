@@ -1,10 +1,62 @@
 /**
  * FocusModeModels.swift
  * 
- * Core domain models for Focus Mode Workout Execution.
- * These align with the backend schema for proper sync.
- * 
- * Note: Request/Response DTOs are private to FocusModeWorkoutService.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * FOCUS MODE DOMAIN MODELS - Core Data Structures for Workout Execution
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * PURPOSE:
+ * These models represent the domain entities for Focus Mode workout execution.
+ * They align with the Firestore schema for proper sync between iOS and backend.
+ *
+ * ENTITY HIERARCHY:
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │  FocusModeWorkout                                                           │
+ * │  ├── id: String                 - Document ID                               │
+ * │  ├── userId: String             - Owner                                     │
+ * │  ├── status: WorkoutStatus      - in_progress / completed / cancelled       │
+ * │  ├── exercises: [FocusModeExercise]                                         │
+ * │  │   ├── instanceId: String     - Unique per-workout (stable ID)            │
+ * │  │   ├── exerciseId: String     - Catalog reference                         │
+ * │  │   ├── name: String           - Denormalized display name                 │
+ * │  │   ├── position: Int          - Order (0, 1, 2...)                        │
+ * │  │   └── sets: [FocusModeSet]                                               │
+ * │  │       ├── id: String         - Unique per-workout (stable ID)            │
+ * │  │       ├── setType: warmup/working/dropset                                │
+ * │  │       ├── status: planned/done/skipped                                   │
+ * │  │       ├── target*: Double?/Int?  - Prescription values                   │
+ * │  │       └── weight/reps/rir: Actuals (filled when done)                    │
+ * │  └── totals: WorkoutTotals      - Computed: sets, reps, volume              │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ *
+ * KEY DESIGN DECISIONS:
+ *
+ * 1. SINGLE-VALUE MODEL (Not Target/Actual Split)
+ *    - When user edits a value on a planned set, we update target*
+ *    - When set is marked done, actuals are filled, targets preserved
+ *    - Display logic: show actual if done, target if planned
+ *
+ * 2. STABLE IDs
+ *    - instanceId: Identifies exercise within this workout (UUID)
+ *    - exerciseId: Points to catalog (for metadata lookup)
+ *    - set.id: Stable set identity (UUID, never changes)
+ *    - Why: Enables dependency tracking in MutationCoordinator
+ *
+ * 3. SYNC STATE (Local Only)
+ *    - syncState field tracks sync status for UI indicators
+ *    - Not persisted to server (excluded from CodingKeys)
+ *    - Used to show spinners/error badges on entities
+ *
+ * 4. TOTALS COMPUTATION
+ *    - Warmups excluded from totals
+ *    - Skipped sets excluded from totals
+ *    - Only done working/dropset sets count
+ *    - Recalculated locally and verified by server
+ *
+ * BACKEND ALIGNMENT:
+ * - CodingKeys use snake_case to match Firestore schema
+ * - All optional fields are truly optional in Firestore
+ * - Timestamps handled via custom parsing (see FocusModeWorkoutService)
  */
 
 import Foundation
