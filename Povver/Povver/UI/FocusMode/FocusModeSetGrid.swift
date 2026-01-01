@@ -410,32 +410,19 @@ struct FocusModeEditingDock: View {
                 
                 Spacer()
                 
-                // Quick done button
-                if !set.isDone {
-                    Button(action: onLogSet) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .bold))
-                            Text("Done")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(ColorsToken.State.success)
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                
-                // Dismiss button
+                // Dismiss/Done button (closes editor, does NOT mark set complete)
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .frame(width: 32, height: 32)
-                        .background(ColorsToken.Background.secondary)
-                        .clipShape(Circle())
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Done")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(ColorsToken.Brand.primary)
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
             }
@@ -504,7 +491,7 @@ struct FocusModeEditingDock: View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayWeight ?? 0) <= 0) {
                 let newValue = (set.displayWeight ?? 0) - 2.5
-                onValueChange("weight", max(0, newValue))
+                applyValueChange("weight", max(0, newValue))
             }
             
             // Tappable value → TextField for direct keyboard input
@@ -554,7 +541,7 @@ struct FocusModeEditingDock: View {
             
             stepButton(systemName: "plus", disabled: false) {
                 let newValue = (set.displayWeight ?? 0) + 2.5
-                onValueChange("weight", newValue)
+                applyValueChange("weight", newValue)
             }
         }
     }
@@ -563,7 +550,7 @@ struct FocusModeEditingDock: View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayReps ?? 1) <= 1) {
                 let newValue = (set.displayReps ?? 10) - 1
-                onValueChange("reps", max(1, newValue))
+                applyValueChange("reps", max(1, newValue))
             }
             
             // Tappable value → TextField for direct keyboard input
@@ -612,8 +599,21 @@ struct FocusModeEditingDock: View {
             
             stepButton(systemName: "plus", disabled: (set.displayReps ?? 0) >= 30) {
                 let newValue = (set.displayReps ?? 10) + 1
-                onValueChange("reps", min(30, newValue))
+                applyValueChange("reps", min(30, newValue))
             }
+        }
+    }
+    
+    // MARK: - Value Change (respects scope)
+    
+    /// Apply value change based on the selected scope
+    private func applyValueChange(_ field: String, _ value: Any) {
+        if isWarmup {
+            // Warmups always apply to this only
+            onValueChange(field, value)
+        } else {
+            // Working sets use the selected scope
+            onBatchValueChange(field, value, editScope)
         }
     }
     
@@ -630,11 +630,11 @@ struct FocusModeEditingDock: View {
         case .weight:
             if let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")) {
                 let rounded = (value * 4).rounded() / 4  // Round to nearest 0.25kg
-                onValueChange("weight", max(0, rounded))
+                applyValueChange("weight", max(0, rounded))
             }
         case .reps:
             if let value = Int(trimmed) {
-                onValueChange("reps", min(30, max(1, value)))
+                applyValueChange("reps", min(30, max(1, value)))
             }
         default:
             break
@@ -785,7 +785,9 @@ struct FocusModeSetTypePickerSheet: View {
     }
     
     private func setTypeOption(type: FocusModeSetType, title: String, icon: String, color: Color) -> some View {
-        Button { onSelectType(type) } label: {
+        Button {
+            onSelectType(type)
+        } label: {
             HStack(spacing: Space.md) {
                 Image(systemName: icon)
                     .font(.system(size: 18))
@@ -806,8 +808,8 @@ struct FocusModeSetTypePickerSheet: View {
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
     }
 }
 
