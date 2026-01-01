@@ -471,11 +471,16 @@ struct FocusModeEditingDock: View {
     
     private func scopeLabel(_ scope: FocusModeEditScope) -> String {
         let workingSets = allSets.filter { !$0.isWarmup }
-        let remainingCount = workingSets.dropFirst(currentSetIndex).count
+        
+        // Find index of current set within working sets (not allSets)
+        let currentWorkingIndex = workingSets.firstIndex { $0.id == set.id } ?? 0
+        
+        // Remaining = sets after current one (not including current)
+        let remainingCount = workingSets.count - currentWorkingIndex - 1
         
         switch scope {
         case .allWorking: return "All (\(workingSets.count))"
-        case .remaining: return "Remain (\(remainingCount))"
+        case .remaining: return "Remain (\(max(0, remainingCount)))"
         case .thisOnly: return "This"
         }
     }
