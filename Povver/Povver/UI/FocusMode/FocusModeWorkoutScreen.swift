@@ -28,9 +28,12 @@ struct FocusModeWorkoutScreen: View {
     @State private var showingCompleteConfirmation = false
     @State private var showingSettings = false
     @State private var showingAIPanel = false
+    @State private var showingNameEditor = false
+    @State private var showingStartTimeEditor = false
     @State private var elapsedTime: TimeInterval = 0
     @State private var timer: Timer?
     @State private var isEditingOrder = false
+    @State private var editingName: String = ""
     
     init(
         templateId: String? = nil,
@@ -295,79 +298,177 @@ struct FocusModeWorkoutScreen: View {
     // MARK: - Custom Header Bar
     
     private var customHeaderBar: some View {
-        HStack(spacing: Space.md) {
-            // Leading button
-            if service.workout != nil {
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
-                        .frame(width: 36, height: 36)
-                }
-            } else {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
-                        .frame(width: 36, height: 36)
-                }
-            }
-            
-            Spacer()
-            
-            // Center: title + timer
-            workoutHeader
-            
-            Spacer()
-            
-            // Trailing buttons
-            if service.workout != nil {
-                HStack(spacing: Space.sm) {
-                    // Edit/Done button for reordering
-                    if (service.workout?.exercises.count ?? 0) > 1 {
-                        Button(isEditingOrder ? "Done" : "Edit") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isEditingOrder.toggle()
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: Space.sm) {
+                // Left side: Name + Start time (stacked)
+                if let workout = service.workout {
+                    VStack(alignment: .leading, spacing: 2) {
+                        // Tappable workout name
+                        Button {
+                            editingName = workout.name ?? "Workout"
+                            showingNameEditor = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(workout.name ?? "Workout")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(ColorsToken.Text.primary)
+                                    .lineLimit(1)
+                                
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(ColorsToken.Text.secondary)
                             }
                         }
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(isEditingOrder ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        // Start time (tappable)
+                        Button {
+                            showingStartTimeEditor = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 11))
+                                Text(formatStartTime(workout.startTime))
+                                    .font(.system(size: 12))
+                            }
+                            .foregroundColor(ColorsToken.Text.secondary)
+                        }
+                        .buttonStyle(PlainButtonStyle())
                     }
                     
-                    if !isEditingOrder {
+                    Spacer()
+                    
+                    // Timer (centered-ish)
+                    Text(formatDuration(elapsedTime))
+                        .font(.system(size: 14, weight: .medium).monospacedDigit())
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .padding(.horizontal, Space.sm)
+                    
+                    // Right side: Actions
+                    HStack(spacing: Space.sm) {
+                        // Settings/More button
+                        Menu {
+                            Button {
+                                editingName = workout.name ?? "Workout"
+                                showingNameEditor = true
+                            } label: {
+                                Label("Edit Name", systemImage: "pencil")
+                            }
+                            
+                            Button {
+                                showingStartTimeEditor = true
+                            } label: {
+                                Label("Edit Start Time", systemImage: "calendar")
+                            }
+                            
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                showingCancelConfirmation = true
+                            } label: {
+                                Label("Discard Workout", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 20))
+                                .foregroundColor(ColorsToken.Text.secondary)
+                        }
+                        
                         // AI button
                         Button {
                             showingAIPanel = true
                         } label: {
                             Image(systemName: "sparkles")
-                                .font(.system(size: 16))
+                                .font(.system(size: 18))
                                 .foregroundColor(ColorsToken.Brand.primary)
                         }
                         
-                        // Finish button
-                        Button("Finish") {
+                        // Finish button (prominent)
+                        Button {
                             showingCompleteConfirmation = true
+                        } label: {
+                            Text("Finish")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(ColorsToken.Brand.primary)
+                                .clipShape(Capsule())
                         }
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                    }
+                } else {
+                    // Pre-workout state
+                    Text("Start Workout")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(ColorsToken.Text.primary)
+                    
+                    Spacer()
+                    
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(ColorsToken.Text.secondary)
                     }
                 }
-            } else {
-                // Placeholder for balance
-                Color.clear.frame(width: 36, height: 36)
             }
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
+            
+            Divider()
         }
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
         .background(ColorsToken.Background.primary)
-        .overlay(
-            Divider(),
-            alignment: .bottom
-        )
+        // Name editor alert
+        .alert("Workout Name", isPresented: $showingNameEditor) {
+            TextField("Name", text: $editingName)
+            Button("Save") {
+                updateWorkoutName(editingName)
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        // Discard confirmation
+        .confirmationDialog("Discard Workout?", isPresented: $showingCancelConfirmation) {
+            Button("Discard", role: .destructive) {
+                discardWorkout()
+            }
+            Button("Keep Logging", role: .cancel) { }
+        } message: {
+            Text("Your progress will not be saved.")
+        }
+    }
+    
+    private func formatStartTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        
+        if calendar.isDateInToday(date) {
+            formatter.dateFormat = "'Today at' h:mm a"
+        } else if calendar.isDateInYesterday(date) {
+            formatter.dateFormat = "'Yesterday at' h:mm a"
+        } else {
+            formatter.dateFormat = "MMM d 'at' h:mm a"
+        }
+        
+        return formatter.string(from: date)
+    }
+    
+    private func updateWorkoutName(_ name: String) {
+        guard !name.isEmpty else { return }
+        Task {
+            // TODO: Update workout name via service
+            // For now just update locally
+            print("Update workout name to: \(name)")
+        }
+    }
+    
+    private func discardWorkout() {
+        stopTimer()
+        Task {
+            // TODO: Call cancelActiveWorkout endpoint
+            print("Discarding workout...")
+        }
+        dismiss()
     }
     
     // MARK: - Loading View
