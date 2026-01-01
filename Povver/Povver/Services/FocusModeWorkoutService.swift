@@ -23,6 +23,9 @@ class FocusModeWorkoutService: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var error: String?
     
+    /// Per-exercise sync state for UI indicators (spinners, error badges)
+    @Published private(set) var exerciseSyncState: [String: EntitySyncState] = [:]
+    
     /// Session ID to validate coordinator callbacks (prevents stale updates)
     private var currentSessionId: UUID?
     
@@ -374,8 +377,7 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     /// Add a new exercise to the workout
-    /// NOTE: Does NOT use optimistic updates to avoid race conditions.
-    /// Exercise only appears after server confirmation.
+    /// Uses optimistic updates for instant feedback - coordinator handles sync and rollback
     func addExercise(
         exercise: Exercise,
         withSets initialSets: [FocusModeSet]? = nil
@@ -403,32 +405,37 @@ class FocusModeWorkoutService: ObservableObject {
             sets: defaultSets
         )
         
-        // Use dedicated addExercise endpoint
-        let request = AddExerciseRequest(
-            workoutId: workout.id,
+        // 1. Apply optimistically - exercise appears immediately
+        var updatedWorkout = workout
+        updatedWorkout.exercises.append(newExercise)
+        self.workout = updatedWorkout
+        
+        // Haptic feedback immediately on tap
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        print("[addExercise] Optimistically added exercise: \(newInstanceId) with sets: \(defaultSets.map { $0.id })")
+        
+        // 2. Build mutation for coordinator
+        let mutationSets = defaultSets.map { set in
+            MutationSetData(
+                id: set.id,
+                setType: set.setType.rawValue,
+                status: set.status.rawValue,
+                targetReps: set.targetReps,
+                targetRir: set.targetRir,
+                targetWeight: set.targetWeight
+            )
+        }
+        
+        // 3. Enqueue to coordinator (fire-and-forget, coordinator handles sync/rollback)
+        await mutationCoordinator.setWorkout(workout.id)
+        await mutationCoordinator.enqueue(.addExercise(
             instanceId: newInstanceId,
             exerciseId: exercise.id,
             name: exercise.name,
             position: newExercise.position,
-            sets: defaultSets.map { AddExerciseSetDTO(from: $0) }
-        )
-        
-        print("[addExercise] Sending exercise with sets: \(defaultSets.map { $0.id })")
-        
-        let response: AddExerciseResponse = try await apiClient.postJSON("addExercise", body: request)
-        
-        if !response.success {
-            throw FocusModeError.syncFailed(response.error ?? "Failed to add exercise")
-        }
-        
-        // Only add to local state AFTER server confirmation
-        var updatedWorkout = self.workout!
-        updatedWorkout.exercises.append(newExercise)
-        self.workout = updatedWorkout
-        
-        print("[addExercise] Added exercise to local state with sets: \(newExercise.sets.map { $0.id })")
-        
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            sets: mutationSets
+        ))
     }
     
     /// Remove a set from an exercise
@@ -1406,6 +1413,30 @@ extension FocusModeSet {
             reps: dto.reps,
             rir: dto.rir
         )
+    }
+}
+
+// MARK: - Entity Sync State (for UI indicators)
+
+/// Sync state for individual entities (exercises, sets)
+enum EntitySyncState: Equatable {
+    case synced
+    case syncing
+    case failed(String)
+    
+    var isSyncing: Bool {
+        if case .syncing = self { return true }
+        return false
+    }
+    
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+    
+    var errorMessage: String? {
+        if case .failed(let msg) = self { return msg }
+        return nil
     }
 }
 
