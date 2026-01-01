@@ -85,6 +85,8 @@ async function addExerciseHandler(req, res) {
     const exercisePosition = typeof position === 'number' ? position : (workout.exercises || []).length;
     
     // Process sets - ensure they have proper structure
+    console.log('[addExercise] Received sets from client:', JSON.stringify(sets));
+    
     const processedSets = (sets || []).map(set => ({
       id: set.id,
       set_type: set.set_type || 'working',
@@ -94,6 +96,8 @@ async function addExerciseHandler(req, res) {
       rir: set.target_rir ?? set.rir ?? null,
       tags: set.tags || {},
     }));
+    
+    console.log('[addExercise] Processed sets to store:', JSON.stringify(processedSets));
     
     const newExercise = {
       instance_id: instanceId,

@@ -270,10 +270,17 @@ async function patchActiveWorkoutHandler(req, res) {
     
     if (opType === 'set_field') {
       const target = ops[0].target;
+      console.log('[patchActiveWorkout] Looking for exercise:', target.exercise_instance_id);
+      console.log('[patchActiveWorkout] Current exercises:', JSON.stringify(exercises.map(e => ({ instance_id: e.instance_id, sets: e.sets?.map(s => s.id) }))));
+      
       const exFound = findExercise(exercises, target.exercise_instance_id);
       if (!exFound) {
         return fail(res, 'TARGET_NOT_FOUND', 'Exercise not found', { exercise_instance_id: target.exercise_instance_id }, 404);
       }
+      
+      console.log('[patchActiveWorkout] Found exercise, looking for set:', target.set_id);
+      console.log('[patchActiveWorkout] Exercise sets:', JSON.stringify(exFound.exercise.sets?.map(s => ({ id: s.id, status: s.status }))));
+      
       const setFound = findSet(exFound.exercise, target.set_id);
       if (!setFound) {
         return fail(res, 'TARGET_NOT_FOUND', 'Set not found', { set_id: target.set_id }, 404);

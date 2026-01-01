@@ -31,6 +31,9 @@ class FocusModeWorkoutService: ObservableObject {
     /// Track sets that are currently being synced
     @Published private(set) var pendingSyncSets: Set<String> = []
     
+    /// Continuations waiting for exercise sync to complete
+    private var syncContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
+    
     // MARK: - Dependencies
     
     private let apiClient = ApiClient.shared
@@ -280,11 +283,13 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     /// Add a new exercise to the workout
+    /// NOTE: Does NOT use optimistic updates to avoid race conditions.
+    /// Exercise only appears after server confirmation.
     func addExercise(
         exercise: Exercise,
         withSets initialSets: [FocusModeSet]? = nil
     ) async throws {
-        guard var workout = workout else {
+        guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
         
@@ -307,14 +312,6 @@ class FocusModeWorkoutService: ObservableObject {
             sets: defaultSets
         )
         
-        // Mark as pending sync BEFORE adding to local state
-        pendingSyncExercises.insert(newInstanceId)
-        defer { pendingSyncExercises.remove(newInstanceId) }
-        
-        // Apply optimistically
-        workout.exercises.append(newExercise)
-        self.workout = workout
-        
         // Use dedicated addExercise endpoint
         let request = AddExerciseRequest(
             workoutId: workout.id,
@@ -328,19 +325,22 @@ class FocusModeWorkoutService: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
         
+        print("[addExercise] Sending exercise with sets: \(defaultSets.map { $0.id })")
+        
         let response: AddExerciseResponse = try await apiClient.postJSON("addExercise", body: request)
         
         if !response.success {
-            // Remove from local state on failure
-            if let exIdx = self.workout?.exercises.firstIndex(where: { $0.instanceId == newInstanceId }) {
-                self.workout?.exercises.remove(at: exIdx)
-            }
             throw FocusModeError.syncFailed(response.error ?? "Failed to add exercise")
         }
         
-        await MainActor.run {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        }
+        // Only add to local state AFTER server confirmation
+        var updatedWorkout = self.workout!
+        updatedWorkout.exercises.append(newExercise)
+        self.workout = updatedWorkout
+        
+        print("[addExercise] Added exercise to local state with sets: \(newExercise.sets.map { $0.id })")
+        
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
     /// Remove a set from an exercise
