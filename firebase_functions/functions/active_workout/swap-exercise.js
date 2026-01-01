@@ -40,6 +40,7 @@ async function swapExerciseHandler(req, res) {
   }
 }
 
-exports.swapExercise = onRequest(requireFlexibleAuth(swapExerciseHandler));
-
-
+exports.swapExercise = onRequest(
+  { invoker: 'public' },
+  requireFlexibleAuth(swapExerciseHandler)
+);

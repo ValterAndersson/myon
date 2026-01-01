@@ -5,6 +5,10 @@ const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
 
+/**
+ * Cancel (discard) an active workout.
+ * Sets status to 'cancelled' and end_time.
+ */
 async function cancelActiveWorkoutHandler(req, res) {
   try {
     if (req.method !== 'POST') {
@@ -25,6 +29,7 @@ async function cancelActiveWorkoutHandler(req, res) {
   }
 }
 
-exports.cancelActiveWorkout = onRequest(requireFlexibleAuth(cancelActiveWorkoutHandler));
-
-
+exports.cancelActiveWorkout = onRequest(
+  { invoker: 'public' },
+  requireFlexibleAuth(cancelActiveWorkoutHandler)
+);

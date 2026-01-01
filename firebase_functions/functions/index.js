@@ -190,11 +190,11 @@ exports.getActiveWorkout = functions.https.onRequest((req, res) => requireFlexib
 exports.logSet = logSet;
 exports.patchActiveWorkout = patchActiveWorkout;
 exports.autofillExercise = autofillExercise;
-// Legacy v1 endpoints
-exports.addExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(addExercise)(req, res));
-exports.swapExercise = functions.https.onRequest((req, res) => requireFlexibleAuth(swapExercise)(req, res));
-exports.completeActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(completeActiveWorkout)(req, res));
-exports.cancelActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(cancelActiveWorkout)(req, res));
+// v2 endpoints (already wrapped with onRequest internally)
+exports.addExercise = addExercise;
+exports.swapExercise = swapExercise;
+exports.completeActiveWorkout = completeActiveWorkout;
+exports.cancelActiveWorkout = cancelActiveWorkout;
 
 // StrengthOS Operations
 exports.streamAgentNormalized = functions.https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));

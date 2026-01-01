@@ -148,4 +148,7 @@ async function completeActiveWorkoutHandler(req, res) {
   }
 }
 
-exports.completeActiveWorkout = onRequest(requireFlexibleAuth(completeActiveWorkoutHandler));
+exports.completeActiveWorkout = onRequest(
+  { invoker: 'public' },
+  requireFlexibleAuth(completeActiveWorkoutHandler)
+);
