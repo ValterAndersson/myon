@@ -614,6 +614,21 @@ enum FocusModeGridCell: Equatable, Hashable {
             return id
         }
     }
+    
+    var isWeight: Bool {
+        if case .weight = self { return true }
+        return false
+    }
+    
+    var isReps: Bool {
+        if case .reps = self { return true }
+        return false
+    }
+    
+    var isRir: Bool {
+        if case .rir = self { return true }
+        return false
+    }
 }
 
 // MARK: - Preview

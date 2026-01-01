@@ -55,8 +55,25 @@ struct FocusModeSetGrid: View {
                             selectedCell: selected,
                             set: set,
                             exerciseId: exercise.instanceId,
+                            allSets: exercise.sets,
                             onValueChange: { field, value in
                                 onPatchField(exercise.instanceId, set.id, field, value)
+                            },
+                            onBatchValueChange: { field, value, scope in
+                                // Apply to multiple sets based on scope
+                                let currentIndex = exercise.sets.firstIndex { $0.id == set.id } ?? 0
+                                let targetSets: [FocusModeSet]
+                                switch scope {
+                                case .allWorking:
+                                    targetSets = exercise.sets.filter { !$0.isWarmup }
+                                case .remaining:
+                                    targetSets = Array(exercise.sets.dropFirst(currentIndex).filter { !$0.isWarmup })
+                                case .thisOnly:
+                                    targetSets = [set]
+                                }
+                                for targetSet in targetSets {
+                                    onPatchField(exercise.instanceId, targetSet.id, field, value)
+                                }
                             },
                             onLogSet: {
                                 let weight = set.displayWeight
@@ -366,17 +383,28 @@ struct FocusModeEditingDock: View {
     let selectedCell: FocusModeGridCell
     let set: FocusModeSet
     let exerciseId: String
+    let allSets: [FocusModeSet]
     
     let onValueChange: (String, Any) -> Void
+    let onBatchValueChange: (String, Any, FocusModeEditScope) -> Void
     let onLogSet: () -> Void
     let onDismiss: () -> Void
     
     @State private var isEditingText = false
     @State private var textInputValue = ""
+    @State private var editScope: FocusModeEditScope = .thisOnly
     @FocusState private var textFieldFocused: Bool
+    
+    private var isWarmup: Bool { set.isWarmup }
+    private var currentSetIndex: Int { allSets.firstIndex { $0.id == set.id } ?? 0 }
     
     var body: some View {
         VStack(spacing: Space.sm) {
+            // Scope selector (only for working sets)
+            if !isWarmup && (selectedCell.isWeight || selectedCell.isReps) {
+                scopeSelector
+            }
+            
             HStack(alignment: .center, spacing: Space.md) {
                 valueEditor
                 
@@ -415,6 +443,45 @@ struct FocusModeEditingDock: View {
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
         .background(ColorsToken.Neutral.n100.opacity(0.95))
+    }
+    
+    // MARK: - Scope Selector
+    
+    private var scopeSelector: some View {
+        HStack(spacing: Space.xs) {
+            Text("Apply to:")
+                .font(.system(size: 12))
+                .foregroundColor(ColorsToken.Text.secondary)
+            
+            ForEach(FocusModeEditScope.allCases, id: \.rawValue) { scope in
+                Button {
+                    editScope = scope
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    Text(scopeLabel(scope))
+                        .font(.system(size: 11, weight: editScope == scope ? .semibold : .regular))
+                        .foregroundColor(editScope == scope ? .white : ColorsToken.Text.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(editScope == scope ? ColorsToken.Brand.primary : ColorsToken.Background.secondary)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            Spacer()
+        }
+    }
+    
+    private func scopeLabel(_ scope: FocusModeEditScope) -> String {
+        let workingSets = allSets.filter { !$0.isWarmup }
+        let remainingCount = workingSets.dropFirst(currentSetIndex).count
+        
+        switch scope {
+        case .allWorking: return "All (\(workingSets.count))"
+        case .remaining: return "Remain (\(remainingCount))"
+        case .thisOnly: return "This"
+        }
     }
     
     // MARK: - Value Editor
