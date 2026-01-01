@@ -54,9 +54,12 @@ struct FocusModeWorkoutScreen: View {
                 workoutStartView
             }
         }
+        .navigationTitle("")  // Empty title but forces nav bar to show
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarBackground(ColorsToken.Background.primary, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)  // Hide default back button since we provide custom
+        .toolbar(.visible, for: .navigationBar)  // Force navigation bar to be visible
         .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if service.workout != nil {
