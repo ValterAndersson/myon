@@ -395,8 +395,9 @@ struct FocusModeEditingDock: View {
     @State private var editScope: FocusModeEditScope = .thisOnly
     @FocusState private var textFieldFocused: Bool
     
-    private var isWarmup: Bool { set.isWarmup }
-    private var currentSetIndex: Int { allSets.firstIndex { $0.id == set.id } ?? 0 }
+    private var isWarmup: Bool { currentSet.isWarmup }
+    private var currentSet: FocusModeSet { set }
+    private var currentSetIndex: Int { allSets.firstIndex { $0.id == currentSet.id } ?? 0 }
     
     var body: some View {
         VStack(spacing: Space.sm) {
