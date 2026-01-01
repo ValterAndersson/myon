@@ -233,38 +233,33 @@ class FocusModeWorkoutService: ObservableObject {
         )
         addSetLocally(exerciseInstanceId: exerciseInstanceId, set: newSet)
         
-        // 2. Build request - use target_* keys for planned set prescriptions
+        // 2. Build request - use reps/rir/weight (not target_*) per backend schema
         let idempotencyKey = idempotencyHelper.generate(context: "addSet", setId: newSetId)
         
-        var addValue: [String: Any] = [
-            "id": newSetId,
-            "set_type": setType.rawValue,
-            "status": "planned",
-            "target_reps": reps,
-            "target_rir": rir ?? 2
-        ]
-        if let weight = weight {
-            addValue["target_weight"] = weight
-        }
-        
-        let op = PatchOperationDTO(
-            op: "add_set",
-            target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: nil),
-            field: nil,
-            value: AnyCodable(addValue.compactMapValues { $0 })
+        // Use typed struct to ensure proper JSON encoding
+        let addSetValue = AddSetValueDTO(
+            id: newSetId,
+            setType: setType.rawValue,
+            status: "planned",
+            reps: reps,
+            rir: rir ?? 2,
+            weight: weight  // Nullable for bodyweight
         )
         
-        let request = PatchActiveWorkoutRequest(
+        let request = AddSetPatchRequest(
             workoutId: workout.id,
-            ops: [op],
+            op: AddSetOperationDTO(
+                op: "add_set",
+                target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: nil),
+                value: addSetValue
+            ),
             cause: "user_edit",
             uiSource: "add_set_button",
             idempotencyKey: idempotencyKey,
-            clientTimestamp: ISO8601DateFormatter().string(from: Date()),
-            aiScope: nil
+            clientTimestamp: ISO8601DateFormatter().string(from: Date())
         )
         
-        return try await syncPatch(request)
+        return try await syncAddSetPatch(request)
     }
     
     /// Add a new exercise to the workout
@@ -468,6 +463,20 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    private func syncAddSetPatch(_ request: AddSetPatchRequest) async throws -> WorkoutTotals {
+        isSyncing = true
+        defer { isSyncing = false }
+        
+        let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
+        
+        if response.success, let totals = response.totals {
+            self.workout?.totals = totals
+            return totals
+        } else {
+            throw FocusModeError.syncFailed(response.error ?? "Unknown error")
+        }
+    }
+    
     // MARK: - Optimistic Updates
     
     private func applyLogSetLocally(
@@ -561,6 +570,11 @@ class FocusModeWorkoutService: ObservableObject {
                 if let stringValue = value as? String,
                    let status = FocusModeSetStatus(rawValue: stringValue) {
                     workout.exercises[exIdx].sets[setIdx].status = status
+                }
+            case "set_type":
+                if let stringValue = value as? String,
+                   let setType = FocusModeSetType(rawValue: stringValue) {
+                    workout.exercises[exIdx].sets[setIdx].setType = setType
                 }
             default:
                 break
@@ -755,6 +769,34 @@ private struct PatchOperationDTO: Encodable {
     let value: AnyCodable?
 }
 
+// MARK: - Add Set Operation DTOs
+
+/// Typed DTO for add_set operation to ensure proper JSON encoding
+private struct AddSetOperationDTO: Encodable {
+    let op: String
+    let target: PatchTargetDTO
+    let value: AddSetValueDTO
+}
+
+/// Typed value for add_set (matches backend Zod schema exactly)
+private struct AddSetValueDTO: Encodable {
+    let id: String
+    let setType: String
+    let status: String
+    let reps: Int
+    let rir: Int
+    let weight: Double?  // Nullable for bodyweight
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case setType = "set_type"
+        case status
+        case reps
+        case rir
+        case weight
+    }
+}
+
 private struct PatchTargetDTO: Encodable {
     let exerciseInstanceId: String
     let setId: String?
@@ -804,6 +846,35 @@ private struct PatchActiveWorkoutResponse: Decodable {
         case eventId = "event_id"
         case totals
         case error
+    }
+}
+
+/// Specialized request for add_set to ensure proper encoding (wraps single op in array)
+private struct AddSetPatchRequest: Encodable {
+    let workoutId: String
+    let op: AddSetOperationDTO
+    let cause: String
+    let uiSource: String
+    let idempotencyKey: String
+    let clientTimestamp: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case ops
+        case cause
+        case uiSource = "ui_source"
+        case idempotencyKey = "idempotency_key"
+        case clientTimestamp = "client_timestamp"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workoutId, forKey: .workoutId)
+        try container.encode([op], forKey: .ops)  // Wrap single op in array
+        try container.encode(cause, forKey: .cause)
+        try container.encode(uiSource, forKey: .uiSource)
+        try container.encode(idempotencyKey, forKey: .idempotencyKey)
+        try container.encode(clientTimestamp, forKey: .clientTimestamp)
     }
 }
 
