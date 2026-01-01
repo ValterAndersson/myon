@@ -67,9 +67,9 @@ class FocusModeWorkoutService: ObservableObject {
         let serverUpdatedAt = parseISO8601Date(response.updatedAt)
         
         // Parse status from server (default to inProgress for new workouts)
-        let serverStatus: FocusModeWorkoutStatus
+        let serverStatus: FocusModeWorkout.WorkoutStatus
         if let statusString = response.status {
-            serverStatus = FocusModeWorkoutStatus(rawValue: statusString) ?? .inProgress
+            serverStatus = FocusModeWorkout.WorkoutStatus(rawValue: statusString) ?? .inProgress
         } else {
             serverStatus = .inProgress
         }
