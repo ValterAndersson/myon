@@ -983,44 +983,53 @@ When user "undoes" a done set (done → planned):
 
 ## 8. iOS Architecture
 
-### 8.1 Local-First State Management
+### 8.1 Local-First State Management with MutationCoordinator
 
-The iOS app uses a **local-first** architecture where the UI is driven by local state, not Firestore listeners.
+The iOS app uses a **local-first** architecture where optimistic updates are applied immediately, and sync is handled via a `MutationCoordinator` actor that ensures proper ordering and dependency satisfaction.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        LOCAL-FIRST ARCHITECTURE                              │
+│                    LOCAL-FIRST ARCHITECTURE (Current)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                    FocusModeViewModel                                │   │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │   │
-│  │  │  LOCAL STATE (Authoritative during editing)                  │    │   │
-│  │  │  • exercises: [FocusModeExercise]                           │    │   │
-│  │  │  • totals: WorkoutTotals                                     │    │   │
-│  │  │  • pendingEdits: [SetKey: PendingEdit]                      │    │   │
-│  │  └─────────────────────────────────────────────────────────────┘    │   │
-│  │                              │                                       │   │
-│  │                              │ Drives                                │   │
-│  │                              ▼                                       │   │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │   │
-│  │  │  UI (SetGridView, etc.)                                      │    │   │
-│  │  │  • Renders from local state                                  │    │   │
-│  │  │  • Never waits for server                                    │    │   │
-│  │  └─────────────────────────────────────────────────────────────┘    │   │
+│  │  FocusModeWorkoutScreen (UI)                                        │   │
+│  │  └── Observes: workout, isLoading, error, exerciseSyncState         │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                              │                                              │
-│                              │ Commits (async)                              │
+│                              │ User Actions                                 │
 │                              ▼                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  FIRESTORE (Background sync)                                         │   │
-│  │  • Receives commits on commit points                                 │   │
-│  │  • Never overwrites active edits                                     │   │
-│  │  • Reconciliation only on app foreground                            │   │
+│  │  FocusModeWorkoutService (@MainActor, ObservableObject)             │   │
+│  │  ├── workout: FocusModeWorkout?      - Local state (source of truth)│   │
+│  │  ├── exerciseSyncState: [String: EntitySyncState]  - Per-entity UI  │   │
+│  │  ├── currentSessionId: UUID?         - Validates callbacks          │   │
+│  │  └── mutationCoordinator             - Handles sync ordering        │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
+│                              │ Optimistic Update + Enqueue                  │
+│                              ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  MutationCoordinator (actor)                                        │   │
+│  │  ├── pending: [QueuedMutation]     - Waiting for dependencies       │   │
+│  │  ├── ackExercises: Set<String>     - Server-confirmed exercises     │   │
+│  │  ├── ackSets: Set<SetKey>          - Server-confirmed sets          │   │
+│  │  ├── sessionId: UUID               - Prevents stale callbacks       │   │
+│  │  └── inFlight: QueuedMutation?     - Currently executing            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                              │ Network Calls                                │
+│                              ▼                                              │
+│  Backend API (addExercise, patchActiveWorkout, logSet, etc.)               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Components:**
+
+| Component | Responsibility |
+|-----------|----------------|
+| `FocusModeWorkoutService` | Local-first state, optimistic updates, coordinator orchestration |
+| `MutationCoordinator` | Serial queue, dependency ordering, retries, reconciliation |
+| `FocusModeWorkout` | Domain model for workout state |
+| `exerciseSyncState` | Per-entity sync tracking for UI indicators |
 
 ### 8.2 Commit Points
 
