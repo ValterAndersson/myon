@@ -613,7 +613,7 @@ private struct StartActiveWorkoutResponse: Decodable {
 
 private struct StartActiveWorkoutData: Decodable {
     let workoutId: String?
-    let activeWorkoutDoc: ActiveWorkoutDoc?
+    let activeWorkoutDoc: StartActiveWorkoutDocDTO?
     
     enum CodingKeys: String, CodingKey {
         case workoutId = "workout_id"
@@ -621,7 +621,7 @@ private struct StartActiveWorkoutData: Decodable {
     }
 }
 
-private struct ActiveWorkoutDoc: Decodable {
+private struct StartActiveWorkoutDocDTO: Decodable {
     let id: String?
     let userId: String?
     let name: String?
