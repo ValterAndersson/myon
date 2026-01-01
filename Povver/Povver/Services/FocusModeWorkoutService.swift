@@ -24,6 +24,13 @@ class FocusModeWorkoutService: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var isSyncing: Bool = false
     
+    /// Track exercises that are currently being synced to the server
+    /// Patches to sets in these exercises should wait for sync to complete
+    @Published private(set) var pendingSyncExercises: Set<String> = []
+    
+    /// Track sets that are currently being synced
+    @Published private(set) var pendingSyncSets: Set<String> = []
+    
     // MARK: - Dependencies
     
     private let apiClient = ApiClient.shared
@@ -118,6 +125,11 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
         
+        // Wait for exercise to finish syncing before logging
+        if pendingSyncExercises.contains(exerciseInstanceId) {
+            try await waitForExerciseSync(exerciseInstanceId)
+        }
+        
         // 1. Apply optimistically to local state
         applyLogSetLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, weight: weight, reps: reps, rir: rir, isFailure: isFailure)
         
@@ -173,6 +185,11 @@ class FocusModeWorkoutService: ObservableObject {
     ) async throws -> WorkoutTotals {
         guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
+        }
+        
+        // Wait for exercise to finish syncing before patching
+        if pendingSyncExercises.contains(exerciseInstanceId) {
+            try await waitForExerciseSync(exerciseInstanceId)
         }
         
         // 1. Apply optimistically
@@ -290,6 +307,10 @@ class FocusModeWorkoutService: ObservableObject {
             sets: defaultSets
         )
         
+        // Mark as pending sync BEFORE adding to local state
+        pendingSyncExercises.insert(newInstanceId)
+        defer { pendingSyncExercises.remove(newInstanceId) }
+        
         // Apply optimistically
         workout.exercises.append(newExercise)
         self.workout = workout
@@ -310,6 +331,10 @@ class FocusModeWorkoutService: ObservableObject {
         let response: AddExerciseResponse = try await apiClient.postJSON("addExercise", body: request)
         
         if !response.success {
+            // Remove from local state on failure
+            if let exIdx = self.workout?.exercises.firstIndex(where: { $0.instanceId == newInstanceId }) {
+                self.workout?.exercises.remove(at: exIdx)
+            }
             throw FocusModeError.syncFailed(response.error ?? "Failed to add exercise")
         }
         
@@ -448,6 +473,22 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     // MARK: - Private Helpers
+    
+    /// Wait for an exercise to finish syncing (max 3 seconds)
+    private func waitForExerciseSync(_ exerciseInstanceId: String) async throws {
+        let maxWaitTime: TimeInterval = 3.0
+        let pollInterval: TimeInterval = 0.1
+        let startTime = Date()
+        
+        while pendingSyncExercises.contains(exerciseInstanceId) {
+            if Date().timeIntervalSince(startTime) > maxWaitTime {
+                // Timeout - proceed anyway, server will return 404 and user can retry
+                print("[FocusModeWorkoutService] Timeout waiting for exercise sync: \(exerciseInstanceId)")
+                break
+            }
+            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+    }
     
     private func syncPatch(_ request: PatchActiveWorkoutRequest) async throws -> WorkoutTotals {
         isSyncing = true
