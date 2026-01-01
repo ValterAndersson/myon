@@ -19,15 +19,6 @@ protocol CloudFunctionServiceProtocol {
     func updateTemplate(id: String, template: WorkoutTemplate) async throws
     func deleteTemplate(id: String, userId: String) async throws
     
-    // Routine operations
-    func getRoutines(userId: String) async throws -> [Routine]
-    func getRoutine(id: String, userId: String) async throws -> Routine
-    func createRoutine(routine: Routine) async throws -> String
-    func updateRoutine(id: String, routine: Routine) async throws
-    func deleteRoutine(id: String, userId: String) async throws
-    func setActiveRoutine(routineId: String, userId: String) async throws
-    func getActiveRoutine(userId: String) async throws -> Routine?
-    
     // Workout operations
     func getWorkouts(userId: String) async throws -> [Workout]
     func getWorkout(id: String, userId: String) async throws -> Workout
@@ -91,46 +82,6 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
     func deleteTemplate(id: String, userId: String) async throws {
         let params = ["id": id, "userId": userId]
         _ = try await callFunction(name: "deleteTemplate", data: params)
-    }
-    
-    // MARK: - Routine Operations
-    
-    func getRoutines(userId: String) async throws -> [Routine] {
-        let data = try await callFunction(name: "getUserRoutines", data: ["userId": userId])
-        return try JSONDecoder().decode([Routine].self, from: data)
-    }
-    
-    func getRoutine(id: String, userId: String) async throws -> Routine {
-        let data = try await callFunction(name: "getRoutine", data: ["id": id, "userId": userId])
-        return try JSONDecoder().decode(Routine.self, from: data)
-    }
-    
-    func createRoutine(routine: Routine) async throws -> String {
-        let data = try JSONEncoder().encode(routine)
-        let params = ["routine": String(data: data, encoding: .utf8)!]
-        let result = try await callFunction(name: "createRoutine", data: params)
-        return try JSONDecoder().decode(String.self, from: result)
-    }
-    
-    func updateRoutine(id: String, routine: Routine) async throws {
-        let data = try JSONEncoder().encode(routine)
-        let params = ["id": id, "routine": String(data: data, encoding: .utf8)!]
-        _ = try await callFunction(name: "updateRoutine", data: params)
-    }
-    
-    func deleteRoutine(id: String, userId: String) async throws {
-        let params = ["id": id, "userId": userId]
-        _ = try await callFunction(name: "deleteRoutine", data: params)
-    }
-    
-    func setActiveRoutine(routineId: String, userId: String) async throws {
-        let params = ["routineId": routineId, "userId": userId]
-        _ = try await callFunction(name: "setActiveRoutine", data: params)
-    }
-    
-    func getActiveRoutine(userId: String) async throws -> Routine? {
-        let data = try await callFunction(name: "getActiveRoutine", data: ["userId": userId])
-        return try? JSONDecoder().decode(Routine.self, from: data)
     }
     
     // MARK: - Workout Operations

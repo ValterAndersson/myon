@@ -49,7 +49,8 @@ class TemplateManager: ObservableObject {
             }
         }
         
-        let repository = TemplateRepository()
+        // Use CloudFunctionService for template operations
+        let service = CloudFunctionService()
         
         // Check if this is an edit (existing template with userId set) or create new
         let isEditing = !template.userId.isEmpty && template.createdAt < template.updatedAt
@@ -57,11 +58,11 @@ class TemplateManager: ObservableObject {
         do {
             if isEditing {
                 // Update existing template
-                try await repository.updateTemplate(template)
+                try await service.updateTemplate(id: template.id, template: template)
                 return template.id
             } else {
                 // Create new template
-                let templateId = try await repository.createTemplate(template)
+                let templateId = try await service.createTemplate(template: template)
                 return templateId
             }
         } catch {
@@ -69,10 +70,10 @@ class TemplateManager: ObservableObject {
             template.analytics = nil
             
             if isEditing {
-                try await repository.updateTemplate(template)
+                try await service.updateTemplate(id: template.id, template: template)
                 return template.id
             } else {
-                let templateId = try await repository.createTemplate(template)
+                let templateId = try await service.createTemplate(template: template)
                 return templateId
             }
         }
@@ -277,12 +278,36 @@ class TemplateManager: ObservableObject {
             return
         }
         
-        let analytics = StimulusCalculator.calculateTemplateAnalytics(
-            template: template,
-            exercises: exercisesToUse
-        )
+        // Calculate simple analytics without external dependency
+        var totalSets = 0
+        var totalReps = 0
+        var projectedVolume: Double = 0
+        var volumeByMuscle: [String: Double] = [:]
         
-        currentAnalytics = analytics
+        for templateExercise in template.exercises {
+            // Find matching exercise to get muscle group info
+            let matchingExercise = exercisesToUse.first { $0.id == templateExercise.exerciseId }
+            let primaryMuscle = matchingExercise?.primaryMuscleGroup ?? "Unknown"
+            
+            for set in templateExercise.sets {
+                totalSets += 1
+                totalReps += set.reps
+                let setVolume = set.weight * Double(set.reps)
+                projectedVolume += setVolume
+                volumeByMuscle[primaryMuscle, default: 0] += setVolume
+            }
+        }
+        
+        // Estimate duration: ~2 min per set average (including rest)
+        let estimatedDuration = totalSets * 2
+        
+        currentAnalytics = TemplateAnalytics(
+            totalSets: totalSets,
+            totalReps: totalReps,
+            projectedVolume: projectedVolume,
+            projectedVolumePerMuscleGroup: volumeByMuscle,
+            estimatedDuration: estimatedDuration
+        )
     }
     
     // MARK: - Private Helpers
@@ -330,4 +355,4 @@ class TemplateManager: ObservableObject {
             self.pendingUpdates.removeAll()
         }
     }
-} 
+}

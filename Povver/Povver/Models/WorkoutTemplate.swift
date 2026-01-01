@@ -1,5 +1,33 @@
 import Foundation
 
+// MARK: - Template Analytics
+
+struct TemplateAnalytics: Codable, Equatable {
+    var totalSets: Int
+    var totalReps: Int
+    var projectedVolume: Double
+    var projectedVolumePerMuscleGroup: [String: Double]
+    var estimatedDuration: Int // in minutes
+    
+    init(totalSets: Int = 0, totalReps: Int = 0, projectedVolume: Double = 0, projectedVolumePerMuscleGroup: [String: Double] = [:], estimatedDuration: Int = 0) {
+        self.totalSets = totalSets
+        self.totalReps = totalReps
+        self.projectedVolume = projectedVolume
+        self.projectedVolumePerMuscleGroup = projectedVolumePerMuscleGroup
+        self.estimatedDuration = estimatedDuration
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case totalSets = "total_sets"
+        case totalReps = "total_reps"
+        case projectedVolume = "projected_volume"
+        case projectedVolumePerMuscleGroup = "projected_volume_per_muscle_group"
+        case estimatedDuration = "estimated_duration"
+    }
+}
+
+// MARK: - Workout Template
+
 struct WorkoutTemplate: Codable, Identifiable, Equatable {
     let id: String
     let userId: String
@@ -54,4 +82,4 @@ struct WorkoutTemplateSet: Codable, Identifiable, Equatable {
         case weight
         case duration
     }
-} 
+}
