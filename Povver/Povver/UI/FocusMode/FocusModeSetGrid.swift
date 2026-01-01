@@ -13,6 +13,14 @@
 
 import SwiftUI
 
+// MARK: - Edit Scope (Apply to All/Remaining/This)
+
+enum FocusModeEditScope: String, CaseIterable {
+    case allWorking = "All Working"
+    case remaining = "Remaining"
+    case thisOnly = "This Only"
+}
+
 struct FocusModeSetGrid: View {
     let exercise: FocusModeExercise
     @Binding var selectedCell: FocusModeGridCell?
@@ -24,6 +32,9 @@ struct FocusModeSetGrid: View {
     
     // Row height - larger than typical for gym use (big fingers, sweat)
     private let rowHeight: CGFloat = 52
+    
+    // Set type picker state
+    @State private var setTypePickerSetId: String? = nil
     
     var body: some View {
         VStack(spacing: 0) {
@@ -78,6 +89,28 @@ struct FocusModeSetGrid: View {
             
             // Add set button
             addSetButton
+        }
+        .sheet(isPresented: Binding(
+            get: { setTypePickerSetId != nil },
+            set: { if !$0 { setTypePickerSetId = nil } }
+        )) {
+            if let setId = setTypePickerSetId {
+                FocusModeSetTypePickerSheet(
+                    setId: setId,
+                    exerciseId: exercise.instanceId,
+                    currentType: exercise.sets.first { $0.id == setId }?.setType ?? .working,
+                    isFailure: exercise.sets.first { $0.id == setId }?.tags?.isFailure ?? false,
+                    onSelectType: { newType in
+                        onPatchField(exercise.instanceId, setId, "set_type", newType.rawValue)
+                        setTypePickerSetId = nil
+                    },
+                    onToggleFailure: { isFailure in
+                        onPatchField(exercise.instanceId, setId, "is_failure", isFailure)
+                        setTypePickerSetId = nil
+                    },
+                    onDismiss: { setTypePickerSetId = nil }
+                )
+            }
         }
     }
     
@@ -171,22 +204,27 @@ struct FocusModeSetGrid: View {
     // MARK: - Column Cells
     
     private func setNumberCell(set: FocusModeSet, index: Int, width: CGFloat) -> some View {
-        HStack(spacing: 4) {
-            Text(displayNumber(for: index, set: set))
-                .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                .foregroundColor(set.isWarmup ? ColorsToken.Text.secondary : ColorsToken.Text.primary)
-            
-            // Set type badge
-            if let badge = setTypeBadge(for: set) {
-                Text(badge)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 18, height: 18)
-                    .background(set.tags?.isFailure == true ? ColorsToken.State.error : ColorsToken.State.warning)
-                    .clipShape(Circle())
+        Button {
+            setTypePickerSetId = set.id
+        } label: {
+            HStack(spacing: 4) {
+                Text(displayNumber(for: index, set: set))
+                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                    .foregroundColor(set.isWarmup ? ColorsToken.Text.secondary : ColorsToken.Text.primary)
+                
+                // Set type badge
+                if let badge = setTypeBadge(for: set) {
+                    Text(badge)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 18, height: 18)
+                        .background(set.tags?.isFailure == true ? ColorsToken.State.error : ColorsToken.State.warning)
+                        .clipShape(Circle())
+                }
             }
+            .frame(width: width, alignment: .leading)
         }
-        .frame(width: width, alignment: .leading)
+        .buttonStyle(PlainButtonStyle())
     }
     
     private func valueCell(
@@ -402,15 +440,50 @@ struct FocusModeEditingDock: View {
                 onValueChange("weight", max(0, newValue))
             }
             
-            VStack(spacing: 0) {
-                Text(formatWeight(set.displayWeight))
-                    .font(.system(size: 28, weight: .bold).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.primary)
-                Text("kg")
-                    .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Text.secondary)
+            // Tappable value → TextField for direct keyboard input
+            if isEditingText {
+                VStack(spacing: 0) {
+                    TextField("", text: $textInputValue)
+                        .font(.system(size: 24, weight: .bold).monospacedDigit())
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.center)
+                        .focused($textFieldFocused)
+                        .frame(width: 80)
+                        .onSubmit { commitTextInput() }
+                        .onChange(of: textFieldFocused) { _, focused in
+                            if !focused { commitTextInput() }
+                        }
+                    Text("kg")
+                        .font(.system(size: 11))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                }
+                .frame(width: 90)
+            } else {
+                Button {
+                    let weight = set.displayWeight ?? 0
+                    textInputValue = weight > 0 ? formatWeight(weight) : ""
+                    isEditingText = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        textFieldFocused = true
+                    }
+                } label: {
+                    VStack(spacing: 0) {
+                        Text(formatWeight(set.displayWeight))
+                            .font(.system(size: 28, weight: .bold).monospacedDigit())
+                            .foregroundColor(ColorsToken.Text.primary)
+                        Text("kg")
+                            .font(.system(size: 12))
+                            .foregroundColor(ColorsToken.Text.secondary)
+                    }
+                    .frame(width: 80)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .frame(width: 80)
             
             stepButton(systemName: "plus", disabled: false) {
                 let newValue = (set.displayWeight ?? 0) + 2.5
@@ -426,21 +499,81 @@ struct FocusModeEditingDock: View {
                 onValueChange("reps", max(1, newValue))
             }
             
-            VStack(spacing: 0) {
-                Text("\(set.displayReps ?? 10)")
-                    .font(.system(size: 28, weight: .bold).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.primary)
-                Text("reps")
-                    .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Text.secondary)
+            // Tappable value → TextField for direct keyboard input
+            if isEditingText {
+                VStack(spacing: 0) {
+                    TextField("", text: $textInputValue)
+                        .font(.system(size: 24, weight: .bold).monospacedDigit())
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .focused($textFieldFocused)
+                        .frame(width: 70)
+                        .onSubmit { commitTextInput() }
+                        .onChange(of: textFieldFocused) { _, focused in
+                            if !focused { commitTextInput() }
+                        }
+                    Text("reps")
+                        .font(.system(size: 11))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                }
+                .frame(width: 80)
+            } else {
+                Button {
+                    textInputValue = "\(set.displayReps ?? 10)"
+                    isEditingText = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        textFieldFocused = true
+                    }
+                } label: {
+                    VStack(spacing: 0) {
+                        Text("\(set.displayReps ?? 10)")
+                            .font(.system(size: 28, weight: .bold).monospacedDigit())
+                            .foregroundColor(ColorsToken.Text.primary)
+                        Text("reps")
+                            .font(.system(size: 12))
+                            .foregroundColor(ColorsToken.Text.secondary)
+                    }
+                    .frame(width: 70)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                    )
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .frame(width: 70)
             
             stepButton(systemName: "plus", disabled: (set.displayReps ?? 0) >= 30) {
                 let newValue = (set.displayReps ?? 10) + 1
                 onValueChange("reps", min(30, newValue))
             }
         }
+    }
+    
+    // MARK: - Text Input Commit
+    
+    private func commitTextInput() {
+        isEditingText = false
+        textFieldFocused = false
+        
+        let trimmed = textInputValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        switch selectedCell {
+        case .weight:
+            if let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")) {
+                let rounded = (value * 4).rounded() / 4  // Round to nearest 0.25kg
+                onValueChange("weight", max(0, rounded))
+            }
+        case .reps:
+            if let value = Int(trimmed) {
+                onValueChange("reps", min(30, max(1, value)))
+            }
+        default:
+            break
+        }
+        
+        textInputValue = ""
     }
     
     private var rirEditor: some View {
@@ -495,6 +628,119 @@ struct FocusModeEditingDock: View {
         case 2: return ColorsToken.Brand.primary
         default: return ColorsToken.Text.secondary
         }
+    }
+}
+
+// MARK: - Set Type Picker Sheet
+
+struct FocusModeSetTypePickerSheet: View {
+    let setId: String
+    let exerciseId: String
+    let currentType: FocusModeSetType
+    let isFailure: Bool
+    let onSelectType: (FocusModeSetType) -> Void
+    let onToggleFailure: (Bool) -> Void
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Set Type")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.lg)
+                    .padding(.bottom, Space.sm)
+                
+                VStack(spacing: 0) {
+                    setTypeOption(type: .warmup, title: "Warm-up", icon: "flame", color: ColorsToken.Text.secondary)
+                    Divider().padding(.leading, 56)
+                    setTypeOption(type: .working, title: "Working Set", icon: "dumbbell", color: ColorsToken.Brand.primary)
+                    Divider().padding(.leading, 56)
+                    setTypeOption(type: .dropset, title: "Drop Set", icon: "arrow.down.circle", color: ColorsToken.State.warning)
+                }
+                .background(ColorsToken.Surface.card)
+                
+                // Failure toggle (separate from set type)
+                Text("Modifiers")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.xl)
+                    .padding(.bottom, Space.sm)
+                
+                VStack(spacing: 0) {
+                    Button {
+                        onToggleFailure(!isFailure)
+                    } label: {
+                        HStack(spacing: Space.md) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(ColorsToken.State.error)
+                                .frame(width: 32)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Failure")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(ColorsToken.Text.primary)
+                                Text("Mark this set as taken to failure")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(ColorsToken.Text.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: isFailure ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 22))
+                                .foregroundColor(isFailure ? ColorsToken.State.error : ColorsToken.Text.secondary.opacity(0.3))
+                        }
+                        .padding(.horizontal, Space.lg)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                .background(ColorsToken.Surface.card)
+                
+                Spacer()
+            }
+            .background(ColorsToken.Background.primary)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { onDismiss() }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(ColorsToken.Brand.primary)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+    
+    private func setTypeOption(type: FocusModeSetType, title: String, icon: String, color: Color) -> some View {
+        Button { onSelectType(type) } label: {
+            HStack(spacing: Space.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(color)
+                    .frame(width: 32)
+                
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(ColorsToken.Text.primary)
+                
+                Spacer()
+                
+                if currentType == type {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(ColorsToken.Brand.primary)
+                }
+            }
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
