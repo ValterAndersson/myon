@@ -1,41 +1,30 @@
 import SwiftUI
 
 enum MainTab {
-    case chat, routines, templates, canvas, components
+    case home, workout
+    #if DEBUG
+    case components
+    #endif
 }
 
 struct MainTabsView: View {
-    @State private var selected: MainTab = .chat
+    @State private var selected: MainTab = .home
 
     var body: some View {
         TabView(selection: $selected) {
-            // Chat Home
+            // Home (Chat)
             NavigationStack {
                 ChatHomeEntry()
             }
-            .tabItem { Label("Chat", systemImage: "message") }
-            .tag(MainTab.chat)
+            .tabItem { Label("Home", systemImage: "house") }
+            .tag(MainTab.home)
 
-            // Routines
-            RoutinesListView()
-                .tabItem { Label("Routines", systemImage: "figure.run") }
-                .tag(MainTab.routines)
-
-            // Templates
-            TemplatesListView()
-                .tabItem { Label("Templates", systemImage: "doc.text") }
-                .tag(MainTab.templates)
-
-            // Canvas
-            Group {
-                if let uid = AuthService.shared.currentUser?.uid {
-                    NavigationStack { CanvasScreen(userId: uid, canvasId: nil, purpose: "ad_hoc", entryContext: nil) }
-                } else {
-                    NavigationStack { EmptyState(title: "Not signed in", message: "Login to view canvas.") }
-                }
+            // Start Workout (Focus Mode)
+            NavigationStack {
+                FocusModeWorkoutScreen()
             }
-            .tabItem { Label("Canvas", systemImage: "square.grid.2x2") }
-            .tag(MainTab.canvas)
+            .tabItem { Label("Start Workout", systemImage: "figure.strengthtraining.traditional") }
+            .tag(MainTab.workout)
 
             // Components Gallery (Development only)
             #if DEBUG
