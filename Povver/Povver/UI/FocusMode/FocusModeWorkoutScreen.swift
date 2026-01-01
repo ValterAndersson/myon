@@ -500,11 +500,18 @@ struct FocusModeWorkoutScreen: View {
             do {
                 try await service.cancelWorkout()
                 print("✅ Workout discarded")
+                // Dismiss after successful cancel
+                await MainActor.run {
+                    dismiss()
+                }
             } catch {
                 print("❌ Failed to discard workout: \(error)")
+                // Still dismiss even on error (local state is cleared)
+                await MainActor.run {
+                    dismiss()
+                }
             }
         }
-        dismiss()
     }
     
     private func finishWorkout() {
@@ -514,11 +521,17 @@ struct FocusModeWorkoutScreen: View {
                 let archivedId = try await service.completeWorkout()
                 print("✅ Workout completed and archived with ID: \(archivedId)")
                 // TODO: Show summary screen with archivedId
+                await MainActor.run {
+                    dismiss()
+                }
             } catch {
                 print("❌ Failed to complete workout: \(error)")
+                // Still dismiss on error
+                await MainActor.run {
+                    dismiss()
+                }
             }
         }
-        dismiss()
     }
     
     // MARK: - Loading View
