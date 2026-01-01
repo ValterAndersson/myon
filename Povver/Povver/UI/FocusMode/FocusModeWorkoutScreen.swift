@@ -688,25 +688,18 @@ struct FocusModeWorkoutScreen: View {
     private var addExerciseButton: some View {
         Button { presentSheet(.exerciseSearch) } label: {
             HStack(spacing: Space.sm) {
-                if service.isSyncing {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .frame(width: 20, height: 20)
-                } else {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20))
-                }
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 20))
                 Text("Add Exercise")
                     .font(.system(size: 15, weight: .medium))
             }
-            .foregroundColor(service.isSyncing ? ColorsToken.Text.muted : ColorsToken.Brand.primary)
+            .foregroundColor(ColorsToken.Brand.primary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(service.isSyncing ? ColorsToken.Background.secondary : ColorsToken.Brand.primary.opacity(0.08))
+            .background(ColorsToken.Brand.primary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
-        .disabled(service.isSyncing)
     }
     
     // MARK: - Timer
