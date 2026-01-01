@@ -289,7 +289,7 @@ class FocusModeWorkoutService: ObservableObject {
         // Reset coordinator and get its session ID (must match for callbacks to work)
         await mutationCoordinator.reset()
         currentSessionId = await mutationCoordinator.getSessionId()
-        print("[FocusModeWorkoutService] New session: \(currentSessionId!)")
+        FocusModeLogger.shared.sessionReset(newSessionId: currentSessionId!.uuidString)
         
         let request = StartActiveWorkoutRequest(
             name: name,

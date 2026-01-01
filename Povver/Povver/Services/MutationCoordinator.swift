@@ -333,7 +333,7 @@ actor MutationCoordinator {
         inFlight = nil
         isReconciling = false
         workoutId = nil
-        print("[MutationCoordinator] Reset complete, new sessionId: \(sessionId)")
+        FocusModeLogger.shared.coordinatorReset(sessionId: sessionId.uuidString)
     }
     
     // MARK: - Enqueue
