@@ -16,9 +16,12 @@ struct FocusModeExerciseSearch: View {
     
     @State private var searchText = ""
     @State private var selectedMuscleGroup: String?
+    @State private var showingExerciseDetail: Exercise?
     
-    // Quick access muscle groups
-    private let muscleGroups = ["Chest", "Back", "Shoulders", "Arms", "Legs", "Core"]
+    // Actual primary muscles from the data (populated from viewModel)
+    private var availableMuscles: [String] {
+        viewModel.primaryMuscles.sorted()
+    }
     
     var body: some View {
         NavigationStack {
@@ -26,8 +29,10 @@ struct FocusModeExerciseSearch: View {
                 // Search bar
                 searchBar
                 
-                // Quick muscle filter chips
-                muscleFilterChips
+                // Quick muscle filter chips - use actual muscles from data
+                if !availableMuscles.isEmpty {
+                    muscleFilterChips
+                }
                 
                 // Exercise list
                 if viewModel.isLoading {
@@ -51,10 +56,13 @@ struct FocusModeExerciseSearch: View {
         .task {
             await viewModel.loadExercises()
         }
-        .onChange(of: searchText) { newValue in
+        .onChange(of: searchText) { _, newValue in
             Task {
                 await viewModel.searchExercises(query: newValue)
             }
+        }
+        .sheet(item: $showingExerciseDetail) { exercise in
+            ExerciseDetailSheet(exercise: exercise)
         }
     }
     
@@ -105,18 +113,17 @@ struct FocusModeExerciseSearch: View {
                     }
                 )
                 
-                ForEach(muscleGroups, id: \.self) { muscle in
+                ForEach(availableMuscles.prefix(8), id: \.self) { muscle in
                     FilterChip(
-                        label: muscle,
-                        isSelected: selectedMuscleGroup == muscle.lowercased(),
+                        label: muscle.capitalized.replacingOccurrences(of: "_", with: " "),
+                        isSelected: selectedMuscleGroup == muscle,
                         onTap: {
-                            let muscleValue = muscle.lowercased()
-                            if selectedMuscleGroup == muscleValue {
+                            if selectedMuscleGroup == muscle {
                                 selectedMuscleGroup = nil
                                 Task { await viewModel.filterByPrimaryMuscle(nil) }
                             } else {
-                                selectedMuscleGroup = muscleValue
-                                Task { await viewModel.filterByPrimaryMuscle(muscleValue) }
+                                selectedMuscleGroup = muscle
+                                Task { await viewModel.filterByPrimaryMuscle(muscle) }
                             }
                         }
                     )
@@ -133,13 +140,19 @@ struct FocusModeExerciseSearch: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.exercises) { exercise in
-                    ExerciseRow(exercise: exercise) {
-                        onSelect(exercise)
-                        dismiss()
-                    }
+                    ExerciseRow(
+                        exercise: exercise,
+                        onTap: {
+                            onSelect(exercise)
+                            dismiss()
+                        },
+                        onInfo: {
+                            showingExerciseDetail = exercise
+                        }
+                    )
                     
                     Divider()
-                        .padding(.leading, 60)
+                        .padding(.leading, Space.md)
                 }
             }
             .padding(.bottom, Space.xl)
@@ -164,19 +177,23 @@ struct FocusModeExerciseSearch: View {
     // MARK: - Empty View
     
     private var emptyView: some View {
-        VStack {
+        VStack(spacing: Space.md) {
             Spacer()
-            Image(systemName: "dumbbell")
-                .font(.system(size: 40))
-                .foregroundColor(ColorsToken.Text.secondary)
             Text("No exercises found")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(ColorsToken.Text.secondary)
-                .padding(.top, Space.md)
             if !searchText.isEmpty {
                 Text("Try a different search term")
                     .font(.system(size: 14))
                     .foregroundColor(ColorsToken.Text.muted)
+            }
+            if selectedMuscleGroup != nil {
+                Button("Clear filter") {
+                    selectedMuscleGroup = nil
+                    Task { await viewModel.filterByPrimaryMuscle(nil) }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(ColorsToken.Brand.primary)
             }
             Spacer()
         }
@@ -204,19 +221,17 @@ private struct FilterChip: View {
     }
 }
 
-// MARK: - Exercise Row
+// MARK: - Exercise Row (Simplified - no icons)
 
 private struct ExerciseRow: View {
     let exercise: Exercise
     let onTap: () -> Void
+    let onInfo: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: Space.md) {
-                // Exercise icon/avatar
-                exerciseIcon
-                
-                // Exercise info
+        HStack(spacing: Space.md) {
+            // Exercise info - tap to add
+            Button(action: onTap) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise.capitalizedName)
                         .font(.system(size: 15, weight: .medium))
@@ -228,67 +243,162 @@ private struct ExerciseRow: View {
                         .foregroundColor(ColorsToken.Text.secondary)
                         .lineLimit(1)
                 }
-                
-                Spacer()
-                
-                // Add indicator
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 20))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Info button
+            Button(action: onInfo) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Add button
+            Button(action: onTap) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 22))
                     .foregroundColor(ColorsToken.Brand.primary)
             }
-            .padding(.horizontal, Space.md)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
+            .buttonStyle(PlainButtonStyle())
         }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
-    private var exerciseIcon: some View {
-        ZStack {
-            Circle()
-                .fill(muscleGroupColor.opacity(0.15))
-                .frame(width: 44, height: 44)
-            
-            Image(systemName: muscleGroupIcon)
-                .font(.system(size: 18))
-                .foregroundColor(muscleGroupColor)
-        }
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
     
     private var exerciseSubtitle: String {
-        let parts = [
-            exercise.capitalizedEquipment,
-            exercise.capitalizedPrimaryMuscles.joined(separator: ", ")
-        ].filter { !$0.isEmpty }
-        return parts.joined(separator: " • ")
+        let muscles = exercise.capitalizedPrimaryMuscles.joined(separator: ", ")
+        let equipment = exercise.capitalizedEquipment
+        
+        if !muscles.isEmpty && !equipment.isEmpty {
+            return "\(muscles) • \(equipment)"
+        } else if !muscles.isEmpty {
+            return muscles
+        } else if !equipment.isEmpty {
+            return equipment
+        }
+        return ""
     }
+}
+
+// MARK: - Exercise Detail Sheet
+
+struct ExerciseDetailSheet: View {
+    let exercise: Exercise
+    @Environment(\.dismiss) private var dismiss
     
-    private var muscleGroupColor: Color {
-        let primary = exercise.primaryMuscles.first?.lowercased() ?? ""
-        switch primary {
-        case _ where primary.contains("chest"): return ColorsToken.Brand.primary
-        case _ where primary.contains("back"), _ where primary.contains("lat"): return .orange
-        case _ where primary.contains("shoulder"), _ where primary.contains("delt"): return .purple
-        case _ where primary.contains("bicep"), _ where primary.contains("tricep"), _ where primary.contains("arm"): return .green
-        case _ where primary.contains("quad"), _ where primary.contains("hamstring"), _ where primary.contains("glute"), _ where primary.contains("leg"): return .red
-        case _ where primary.contains("core"), _ where primary.contains("ab"): return .yellow
-        default: return ColorsToken.Text.secondary
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    // Header
+                    VStack(alignment: .leading, spacing: Space.sm) {
+                        Text(exercise.capitalizedName)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(ColorsToken.Text.primary)
+                        
+                        if !exercise.capitalizedEquipment.isEmpty {
+                            Label(exercise.capitalizedEquipment, systemImage: "dumbbell")
+                                .font(.system(size: 14))
+                                .foregroundColor(ColorsToken.Text.secondary)
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    // Muscles
+                    if !exercise.primaryMuscles.isEmpty {
+                        infoSection(title: "Primary Muscles") {
+                            Text(exercise.capitalizedPrimaryMuscles.joined(separator: ", "))
+                                .font(.system(size: 15))
+                                .foregroundColor(ColorsToken.Text.primary)
+                        }
+                    }
+                    
+                    if !exercise.secondaryMuscles.isEmpty {
+                        infoSection(title: "Secondary Muscles") {
+                            Text(exercise.capitalizedSecondaryMuscles.joined(separator: ", "))
+                                .font(.system(size: 15))
+                                .foregroundColor(ColorsToken.Text.primary)
+                        }
+                    }
+                    
+                    // Movement info
+                    if !exercise.movementType.isEmpty {
+                        infoSection(title: "Movement Type") {
+                            Text(exercise.capitalizedMovementType)
+                                .font(.system(size: 15))
+                                .foregroundColor(ColorsToken.Text.primary)
+                        }
+                    }
+                    
+                    // Level
+                    if !exercise.level.isEmpty {
+                        infoSection(title: "Difficulty") {
+                            Text(exercise.capitalizedLevel)
+                                .font(.system(size: 15))
+                                .foregroundColor(ColorsToken.Text.primary)
+                        }
+                    }
+                    
+                    // Execution notes
+                    if !exercise.executionNotes.isEmpty {
+                        infoSection(title: "Execution Notes") {
+                            ForEach(exercise.executionNotes, id: \.self) { note in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Text("•")
+                                    Text(note)
+                                }
+                                .font(.system(size: 14))
+                                .foregroundColor(ColorsToken.Text.primary)
+                            }
+                        }
+                    }
+                    
+                    // Common mistakes
+                    if !exercise.commonMistakes.isEmpty {
+                        infoSection(title: "Common Mistakes") {
+                            ForEach(exercise.commonMistakes, id: \.self) { mistake in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Text("•")
+                                    Text(mistake)
+                                }
+                                .font(.system(size: 14))
+                                .foregroundColor(ColorsToken.Text.primary)
+                            }
+                        }
+                    }
+                }
+                .padding(Space.lg)
+            }
+            .background(ColorsToken.Background.primary)
+            .navigationTitle("Exercise Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
     
-    private var muscleGroupIcon: String {
-        let primary = exercise.primaryMuscles.first?.lowercased() ?? ""
-        switch primary {
-        case _ where primary.contains("chest"): return "figure.arms.open"
-        case _ where primary.contains("back"), _ where primary.contains("lat"): return "figure.mixed.cardio"
-        case _ where primary.contains("shoulder"), _ where primary.contains("delt"): return "figure.martial.arts"
-        case _ where primary.contains("bicep"), _ where primary.contains("tricep"), _ where primary.contains("arm"): return "figure.strengthtraining.functional"
-        case _ where primary.contains("quad"), _ where primary.contains("hamstring"), _ where primary.contains("glute"), _ where primary.contains("leg"): return "figure.walk"
-        case _ where primary.contains("core"), _ where primary.contains("ab"): return "figure.core.training"
-        default: return "dumbbell"
+    private func infoSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(ColorsToken.Text.secondary)
+                .textCase(.uppercase)
+            
+            content()
         }
     }
 }
+
+// Make Exercise conform to Identifiable for sheet binding
+extension Exercise: @retroactive Identifiable {}
 
 // MARK: - Preview
 

@@ -26,6 +26,10 @@ struct FocusModeWorkoutScreen: View {
     @State private var showingExerciseSearch = false
     @State private var showingCancelConfirmation = false
     @State private var showingCompleteConfirmation = false
+    @State private var showingSettings = false
+    @State private var showingAIPanel = false
+    @State private var elapsedTime: TimeInterval = 0
+    @State private var timer: Timer?
     
     init(
         templateId: String? = nil,
@@ -47,51 +51,73 @@ struct FocusModeWorkoutScreen: View {
                 } else if let workout = service.workout {
                     workoutContent(workout)
                 } else {
-                    emptyStartView
+                    workoutStartView
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        if service.workout != nil {
-                            showingCancelConfirmation = true
-                        } else {
-                            dismiss()
+                    if service.workout != nil {
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.primary)
                         }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(ColorsToken.Text.primary)
+                    } else {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.primary)
+                        }
                     }
                 }
                 
                 ToolbarItem(placement: .principal) {
-                    workoutTimer
+                    workoutHeader
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if service.workout != nil {
-                        Button("Finish") {
-                            showingCompleteConfirmation = true
+                        HStack(spacing: Space.md) {
+                            // AI button (placeholder)
+                            Button {
+                                showingAIPanel = true
+                            } label: {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(ColorsToken.Brand.primary)
+                            }
+                            
+                            Button("Finish") {
+                                showingCompleteConfirmation = true
+                            }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(ColorsToken.Brand.primary)
                         }
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
                     }
                 }
             }
         }
         .interactiveDismissDisabled(service.workout != nil)
-        .confirmationDialog("Cancel Workout?", isPresented: $showingCancelConfirmation) {
+        .confirmationDialog("Workout Options", isPresented: $showingSettings) {
             Button("Discard Workout", role: .destructive) {
+                stopTimer()
+                Task {
+                    // TODO: Cancel workout via service
+                }
                 dismiss()
             }
             Button("Keep Logging", role: .cancel) { }
         } message: {
-            Text("Your progress will not be saved.")
+            Text("Your progress will not be saved if you discard.")
         }
         .confirmationDialog("Finish Workout?", isPresented: $showingCompleteConfirmation) {
             Button("Complete Workout") {
+                stopTimer()
                 Task {
                     // TODO: Complete workout and show summary
                     dismiss()
@@ -104,9 +130,109 @@ struct FocusModeWorkoutScreen: View {
                 addExercise(exercise)
             }
         }
+        .sheet(isPresented: $showingAIPanel) {
+            aiPanelPlaceholder
+        }
         .task {
             await startWorkoutIfNeeded()
         }
+    }
+    
+    // MARK: - Workout Start View
+    
+    private var workoutStartView: some View {
+        ScrollView {
+            VStack(spacing: Space.xl) {
+                Spacer(minLength: 40)
+                
+                // Icon
+                Image(systemName: "figure.strengthtraining.traditional")
+                    .font(.system(size: 48))
+                    .foregroundColor(ColorsToken.Brand.primary)
+                
+                Text("Start a Workout")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(ColorsToken.Text.primary)
+                
+                // Start Options
+                VStack(spacing: Space.md) {
+                    // Empty Workout
+                    startOptionButton(
+                        icon: "plus.circle.fill",
+                        title: "Start Empty Workout",
+                        subtitle: "Add exercises as you go",
+                        isPrimary: true
+                    ) {
+                        Task { await startEmptyWorkout() }
+                    }
+                    
+                    // Next Scheduled (placeholder - would need routine cursor)
+                    startOptionButton(
+                        icon: "calendar",
+                        title: "Next Scheduled",
+                        subtitle: "No routine set up",
+                        isDisabled: true
+                    ) {
+                        // TODO: Start from routine cursor
+                    }
+                    
+                    // From Template
+                    startOptionButton(
+                        icon: "doc.on.doc",
+                        title: "From Template",
+                        subtitle: "Choose from saved templates",
+                        isDisabled: false
+                    ) {
+                        // TODO: Show template picker
+                    }
+                }
+                .padding(.horizontal, Space.lg)
+                
+                Spacer()
+            }
+            .padding(.top, Space.xl)
+        }
+    }
+    
+    private func startOptionButton(
+        icon: String,
+        title: String,
+        subtitle: String,
+        isPrimary: Bool = false,
+        isDisabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: Space.md) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white : ColorsToken.Brand.primary))
+                    .frame(width: 32)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white : ColorsToken.Text.primary))
+                    
+                    Text(subtitle)
+                        .font(.system(size: 13))
+                        .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white.opacity(0.8) : ColorsToken.Text.secondary))
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white.opacity(0.8) : ColorsToken.Text.secondary))
+            }
+            .padding(.horizontal, Space.lg)
+            .padding(.vertical, 16)
+            .background(isPrimary ? ColorsToken.Brand.primary : ColorsToken.Surface.card)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.6 : 1)
     }
     
     // MARK: - Workout Content
@@ -131,19 +257,11 @@ struct FocusModeWorkoutScreen: View {
                 // Add Exercise Button
                 addExerciseButton
                     .padding(.top, Space.lg)
-                    .padding(.bottom, 100) // Extra padding for keyboard/editing dock
+                    .padding(.bottom, 40)
             }
             .padding(.horizontal, Space.md)
         }
         .scrollDismissesKeyboard(.interactively)
-        
-        // Floating totals bar at bottom
-        if !workout.exercises.isEmpty {
-            VStack {
-                Spacer()
-                workoutTotalsBar(workout.totals)
-            }
-        }
     }
     
     // MARK: - Loading View
@@ -158,56 +276,56 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    // MARK: - Empty Start View
+    // MARK: - Workout Header
     
-    private var emptyStartView: some View {
-        VStack(spacing: Space.xl) {
-            Image(systemName: "figure.strengthtraining.traditional")
-                .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Brand.primary)
-            
-            Text("Ready to Lift")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
-            
-            Text("Start an empty workout and add exercises as you go")
-                .font(.system(size: 15))
-                .foregroundColor(ColorsToken.Text.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Space.xl)
-            
-            Button {
-                Task {
-                    await startEmptyWorkout()
-                }
-            } label: {
-                Text("Start Empty Workout")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(ColorsToken.Brand.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-            }
-            .padding(.horizontal, Space.xl)
-        }
-    }
-    
-    // MARK: - Workout Timer
-    
-    private var workoutTimer: some View {
+    private var workoutHeader: some View {
         Group {
             if let workout = service.workout {
-                let duration = Date().timeIntervalSince(workout.startTime)
-                Text(formatDuration(duration))
-                    .font(.system(size: 17, weight: .semibold).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.primary)
+                VStack(spacing: 0) {
+                    Text(workout.name ?? "Workout")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(ColorsToken.Text.primary)
+                        .lineLimit(1)
+                    
+                    Text(formatDuration(elapsedTime))
+                        .font(.system(size: 12, weight: .medium).monospacedDigit())
+                        .foregroundColor(ColorsToken.Text.secondary)
+                }
             } else {
-                Text("Focus Mode")
+                Text("Start Workout")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(ColorsToken.Text.primary)
             }
         }
+    }
+    
+    // MARK: - AI Panel Placeholder
+    
+    private var aiPanelPlaceholder: some View {
+        NavigationStack {
+            VStack(spacing: Space.xl) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 48))
+                    .foregroundColor(ColorsToken.Brand.primary)
+                
+                Text("Copilot")
+                    .font(.system(size: 20, weight: .semibold))
+                
+                Text("AI assistance coming soon")
+                    .font(.system(size: 15))
+                    .foregroundColor(ColorsToken.Text.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ColorsToken.Background.primary)
+            .navigationTitle("Copilot")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { showingAIPanel = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
     
     // MARK: - Add Exercise Button
@@ -229,44 +347,33 @@ struct FocusModeWorkoutScreen: View {
         .buttonStyle(PlainButtonStyle())
     }
     
-    // MARK: - Workout Totals Bar
+    // MARK: - Timer
     
-    private func workoutTotalsBar(_ totals: WorkoutTotals) -> some View {
-        HStack(spacing: Space.lg) {
-            totalsStat(value: "\(totals.sets)", label: "Sets")
-            totalsStat(value: "\(totals.reps)", label: "Reps")
-            totalsStat(value: formatVolume(totals.volume), label: "Volume")
-            
-            Spacer()
-            
-            if service.isSyncing {
-                ProgressView()
-                    .scaleEffect(0.8)
+    private func startTimer() {
+        guard let workout = service.workout else { return }
+        elapsedTime = Date().timeIntervalSince(workout.startTime)
+        
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                if let workout = service.workout {
+                    elapsedTime = Date().timeIntervalSince(workout.startTime)
+                }
             }
         }
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.md)
-        .background(
-            ColorsToken.Surface.raised
-                .shadow(color: Color.black.opacity(0.1), radius: 8, y: -2)
-        )
     }
     
-    private func totalsStat(value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.system(size: 18, weight: .bold).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundColor(ColorsToken.Text.secondary)
-        }
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
     }
     
     // MARK: - Actions
     
     private func startWorkoutIfNeeded() async {
-        guard service.workout == nil else { return }
+        guard service.workout == nil else {
+            startTimer()
+            return
+        }
         
         if sourceTemplateId != nil || sourceRoutineId != nil {
             do {
@@ -275,6 +382,7 @@ struct FocusModeWorkoutScreen: View {
                     sourceTemplateId: sourceTemplateId,
                     sourceRoutineId: sourceRoutineId
                 )
+                startTimer()
             } catch {
                 print("Failed to start workout: \(error)")
             }
@@ -283,7 +391,8 @@ struct FocusModeWorkoutScreen: View {
     
     private func startEmptyWorkout() async {
         do {
-            _ = try await service.startWorkout(name: "Quick Workout")
+            _ = try await service.startWorkout(name: "Workout")
+            startTimer()
         } catch {
             print("Failed to start workout: \(error)")
         }
@@ -368,13 +477,6 @@ struct FocusModeWorkoutScreen: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%02d:%02d", minutes, seconds)
-    }
-    
-    private func formatVolume(_ volume: Double) -> String {
-        if volume >= 1000 {
-            return String(format: "%.1fk", volume / 1000)
-        }
-        return "\(Int(volume))"
     }
 }
 
@@ -510,26 +612,6 @@ enum FocusModeGridCell: Equatable, Hashable {
         switch self {
         case .weight(_, let id), .reps(_, let id), .rir(_, let id), .done(_, let id):
             return id
-        }
-    }
-}
-
-// MARK: - Exercise Search Sheet (Placeholder)
-
-private struct ExerciseSearchSheet: View {
-    let onSelect: (Exercise) -> Void
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationStack {
-            Text("Exercise Search")
-                .navigationTitle("Add Exercise")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cancel") { dismiss() }
-                    }
-                }
         }
     }
 }
