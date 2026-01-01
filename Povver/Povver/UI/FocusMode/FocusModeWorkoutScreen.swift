@@ -99,11 +99,11 @@ struct FocusModeWorkoutScreen: View {
             }
             Button("Cancel", role: .cancel) { }
         }
-        .confirmationDialog("Discard Workout?", isPresented: $showingCancelConfirmation) {
+        .alert("Discard Workout?", isPresented: $showingCancelConfirmation) {
+            Button("Keep Logging", role: .cancel) { }
             Button("Discard", role: .destructive) {
                 discardWorkout()
             }
-            Button("Keep Logging", role: .cancel) { }
         } message: {
             Text("Your progress will not be saved.")
         }
@@ -369,7 +369,17 @@ struct FocusModeWorkoutScreen: View {
                             Button {
                                 showingStartTimeEditor = true
                             } label: {
-                                Label("Edit Start Time", systemImage: "calendar")
+                                Label("Edit Start Time", systemImage: "clock")
+                            }
+                            
+                            if !workout.exercises.isEmpty {
+                                Button {
+                                    withAnimation {
+                                        isEditingOrder.toggle()
+                                    }
+                                } label: {
+                                    Label(isEditingOrder ? "Done Reordering" : "Reorder Exercises", systemImage: "arrow.up.arrow.down")
+                                }
                             }
                             
                             Divider()
@@ -436,15 +446,31 @@ struct FocusModeWorkoutScreen: View {
     
     private var startTimeEditorSheet: some View {
         NavigationStack {
-            Form {
+            VStack(spacing: Space.lg) {
+                // Time picker
                 DatePicker(
                     "Start Time",
                     selection: $editingStartTime,
                     in: ...Date(),
-                    displayedComponents: [.date, .hourAndMinute]
+                    displayedComponents: [.hourAndMinute]
                 )
-                .datePickerStyle(.graphical)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                
+                // Timezone info
+                HStack {
+                    Image(systemName: "globe")
+                        .foregroundColor(ColorsToken.Text.secondary)
+                    Text(TimeZone.current.identifier)
+                        .font(.system(size: 14))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, Space.lg)
+                
+                Spacer()
             }
+            .padding(.top, Space.lg)
             .navigationTitle("Edit Start Time")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -464,7 +490,7 @@ struct FocusModeWorkoutScreen: View {
                 editingStartTime = service.workout?.startTime ?? Date()
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(300)])
     }
     
     private func formatStartTime(_ date: Date) -> String {

@@ -122,7 +122,7 @@ struct FocusModeSetGrid: View {
                         setTypePickerSetId = nil
                     },
                     onToggleFailure: { isFailure in
-                        onPatchField(exercise.instanceId, setId, "is_failure", isFailure)
+                        onPatchField(exercise.instanceId, setId, "tags.is_failure", isFailure)
                         setTypePickerSetId = nil
                     },
                     onDismiss: { setTypePickerSetId = nil }

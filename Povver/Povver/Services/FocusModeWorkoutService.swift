@@ -576,6 +576,14 @@ class FocusModeWorkoutService: ObservableObject {
                    let setType = FocusModeSetType(rawValue: stringValue) {
                     workout.exercises[exIdx].sets[setIdx].setType = setType
                 }
+            case "tags.is_failure":
+                if let boolValue = value as? Bool {
+                    if workout.exercises[exIdx].sets[setIdx].tags == nil {
+                        workout.exercises[exIdx].sets[setIdx].tags = FocusModeSetTags(isFailure: boolValue)
+                    } else {
+                        workout.exercises[exIdx].sets[setIdx].tags?.isFailure = boolValue
+                    }
+                }
             default:
                 break
             }
