@@ -358,6 +358,62 @@ class FocusModeWorkoutService: ObservableObject {
         return try await syncPatch(request)
     }
     
+    // MARK: - Workout Lifecycle Actions
+    
+    /// Cancel (discard) the active workout
+    func cancelWorkout() async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        let request = CancelWorkoutRequest(workoutId: workout.id)
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        let response: CancelWorkoutResponse = try await apiClient.postJSON("cancelActiveWorkout", body: request)
+        
+        if response.success {
+            self.workout = nil  // Clear local state
+        } else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to cancel workout")
+        }
+    }
+    
+    /// Complete (finish) the active workout
+    func completeWorkout() async throws -> String {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        let request = CompleteWorkoutRequest(workoutId: workout.id)
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        let response: CompleteWorkoutResponse = try await apiClient.postJSON("completeActiveWorkout", body: request)
+        
+        if response.success {
+            let archivedId = response.workoutId ?? workout.id
+            self.workout = nil  // Clear local state
+            return archivedId
+        } else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to complete workout")
+        }
+    }
+    
+    /// Update the workout name
+    func updateWorkoutName(_ name: String) async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        // For now, use patchActiveWorkout with a special op
+        // TODO: Add proper name update op to backend
+        // Optimistically update local state
+        self.workout?.name = name
+    }
+    
     // MARK: - AI Actions
     
     /// Autofill exercise with AI prescription
@@ -748,6 +804,74 @@ private struct PatchActiveWorkoutResponse: Decodable {
         case eventId = "event_id"
         case totals
         case error
+    }
+}
+
+// MARK: - Cancel/Complete DTOs
+
+private struct CancelWorkoutRequest: Encodable {
+    let workoutId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+    }
+}
+
+private struct CancelWorkoutResponse: Decodable {
+    let success: Bool
+    let error: String?
+    
+    // Handle nested data structure
+    enum CodingKeys: String, CodingKey {
+        case success
+        case data
+        case error
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+private struct CompleteWorkoutRequest: Encodable {
+    let workoutId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+    }
+}
+
+private struct CompleteWorkoutResponse: Decodable {
+    let success: Bool
+    let workoutId: String?
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case data
+        case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let workoutId: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case workoutId = "workout_id"
+        }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        if let data = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.workoutId = data.workoutId
+        } else {
+            self.workoutId = nil
+        }
     }
 }
 

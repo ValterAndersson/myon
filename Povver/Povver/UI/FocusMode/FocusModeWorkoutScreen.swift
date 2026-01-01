@@ -68,11 +68,7 @@ struct FocusModeWorkoutScreen: View {
         .interactiveDismissDisabled(service.workout != nil)
         .confirmationDialog("Workout Options", isPresented: $showingSettings) {
             Button("Discard Workout", role: .destructive) {
-                stopTimer()
-                Task {
-                    // TODO: Cancel workout via service
-                }
-                dismiss()
+                discardWorkout()
             }
             Button("Keep Logging", role: .cancel) { }
         } message: {
@@ -80,11 +76,7 @@ struct FocusModeWorkoutScreen: View {
         }
         .confirmationDialog("Finish Workout?", isPresented: $showingCompleteConfirmation) {
             Button("Complete Workout") {
-                stopTimer()
-                Task {
-                    // TODO: Complete workout and show summary
-                    dismiss()
-                }
+                finishWorkout()
             }
             Button("Keep Logging", role: .cancel) { }
         }
@@ -456,17 +448,38 @@ struct FocusModeWorkoutScreen: View {
     private func updateWorkoutName(_ name: String) {
         guard !name.isEmpty else { return }
         Task {
-            // TODO: Update workout name via service
-            // For now just update locally
-            print("Update workout name to: \(name)")
+            do {
+                try await service.updateWorkoutName(name)
+                print("✅ Workout name updated to: \(name)")
+            } catch {
+                print("❌ Failed to update workout name: \(error)")
+            }
         }
     }
     
     private func discardWorkout() {
         stopTimer()
         Task {
-            // TODO: Call cancelActiveWorkout endpoint
-            print("Discarding workout...")
+            do {
+                try await service.cancelWorkout()
+                print("✅ Workout discarded")
+            } catch {
+                print("❌ Failed to discard workout: \(error)")
+            }
+        }
+        dismiss()
+    }
+    
+    private func finishWorkout() {
+        stopTimer()
+        Task {
+            do {
+                let archivedId = try await service.completeWorkout()
+                print("✅ Workout completed and archived with ID: \(archivedId)")
+                // TODO: Show summary screen with archivedId
+            } catch {
+                print("❌ Failed to complete workout: \(error)")
+            }
         }
         dismiss()
     }
