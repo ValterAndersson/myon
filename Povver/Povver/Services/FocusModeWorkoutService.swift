@@ -139,29 +139,56 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     /// Perform reconciliation: fetch latest workout state from server
+    /// Uses selective hydration: only updates positions and totals, not exercise/set state
+    /// This preserves user's local work while correcting structural integrity
     private func performReconciliation() async {
-        guard let workoutId = workout?.id else { return }
+        guard var currentWorkout = workout else { return }
         
         do {
             // Fetch latest workout state via POST (since ApiClient only supports postJSON)
-            let request = GetActiveWorkoutRequest(workoutId: workoutId)
+            let request = GetActiveWorkoutRequest(workoutId: currentWorkout.id)
             let response: GetActiveWorkoutResponse = try await apiClient.postJSON("getActiveWorkout", body: request)
             
-            if response.success, let data = response.data {
-                // Update local workout from server state
-                let serverWorkout = FocusModeWorkout(from: data)
-                self.workout = serverWorkout
+            if response.success, let serverData = response.data {
+                // SELECTIVE HYDRATION: Only update positions and totals, not exercise/set state
                 
-                // Build set keys from server data
-                let exerciseIds = serverWorkout.exercises.map { $0.instanceId }
-                let setKeys = serverWorkout.exercises.flatMap { ex in
+                // 1. Update totals from server (source of truth)
+                if let serverTotals = serverData.totals {
+                    currentWorkout.totals = serverTotals
+                }
+                
+                // 2. Build lookup of server positions by instanceId
+                let serverPositions: [String: Int] = Dictionary(
+                    uniqueKeysWithValues: (serverData.exercises ?? []).map { ($0.instanceId, $0.position) }
+                )
+                
+                // 3. Update positions for exercises that exist on server
+                for i in currentWorkout.exercises.indices {
+                    let instanceId = currentWorkout.exercises[i].instanceId
+                    if let serverPosition = serverPositions[instanceId] {
+                        currentWorkout.exercises[i].position = serverPosition
+                    }
+                }
+                
+                // 4. Remove exercises that don't exist on server (deleted)
+                let serverExerciseIds = Set((serverData.exercises ?? []).map { $0.instanceId })
+                currentWorkout.exercises.removeAll { !serverExerciseIds.contains($0.instanceId) }
+                
+                // 5. Sort by position to match server order
+                currentWorkout.exercises.sort { $0.position < $1.position }
+                
+                self.workout = currentWorkout
+                
+                // Build set keys from updated workout
+                let exerciseIds = currentWorkout.exercises.map { $0.instanceId }
+                let setKeys = currentWorkout.exercises.flatMap { ex in
                     ex.sets.map { SetKey(exerciseInstanceId: ex.instanceId, setId: $0.id) }
                 }
                 
                 // Complete reconciliation
                 await mutationCoordinator.finishReconcile(exerciseIds: exerciseIds, setKeys: setKeys)
                 
-                print("[FocusModeWorkoutService] Reconciliation complete")
+                print("[FocusModeWorkoutService] Reconciliation complete (selective hydration)")
             }
         } catch {
             print("[FocusModeWorkoutService] Reconciliation failed: \(error)")
@@ -550,20 +577,32 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
-    /// Update the workout name
+    /// Update the workout name with optimistic updates and coordinator sync
     func updateWorkoutName(_ name: String) async throws {
-        guard workout != nil else {
+        guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
         
+        // Validate: name cannot be empty
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw FocusModeError.syncFailed("Workout name cannot be empty")
+        }
+        
         // Optimistically update local state
-        self.workout?.name = name
-        // TODO: Add proper name update op to backend
+        self.workout?.name = trimmedName
+        
+        // Enqueue to coordinator with coalescing (last-write-wins)
+        await mutationCoordinator.setWorkout(workout.id)
+        await mutationCoordinator.enqueue(.patchWorkoutMetadata(
+            field: .name,
+            value: .string(trimmedName)
+        ))
     }
     
-    /// Update the workout start time (adjusts timer)
+    /// Update the workout start time (adjusts timer) with validation and coordinator sync
     func updateStartTime(_ newStartTime: Date) async throws {
-        guard workout != nil else {
+        guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
         
@@ -572,9 +611,26 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.syncFailed("Start time cannot be in the future")
         }
         
+        // Validate: start time cannot be more than 24 hours ago
+        let maxPastTime: TimeInterval = 24 * 60 * 60  // 24 hours
+        guard Date().timeIntervalSince(newStartTime) <= maxPastTime else {
+            throw FocusModeError.syncFailed("Start time cannot be more than 24 hours ago")
+        }
+        
         // Optimistically update local state
         self.workout?.startTime = newStartTime
-        // TODO: Add proper start time update op to backend
+        
+        // Convert to ISO8601 string for backend
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let isoString = isoFormatter.string(from: newStartTime)
+        
+        // Enqueue to coordinator with coalescing (last-write-wins)
+        await mutationCoordinator.setWorkout(workout.id)
+        await mutationCoordinator.enqueue(.patchWorkoutMetadata(
+            field: .startTime,
+            value: .string(isoString)
+        ))
     }
     
     /// Reorder exercises and sync to backend
