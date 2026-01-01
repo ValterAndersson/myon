@@ -10,6 +10,11 @@
  */
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
+
+// Function options - allow public invocations (auth handled at application level)
+const functionOptions = {
+  invoker: 'public',
+};
 const admin = require('firebase-admin');
 const { fail, ok } = require('../utils/response');
 const { PatchActiveWorkoutSchema } = require('../utils/validators');
@@ -416,4 +421,4 @@ async function patchActiveWorkoutHandler(req, res) {
   }
 }
 
-exports.patchActiveWorkout = onRequest(requireFlexibleAuth(patchActiveWorkoutHandler));
+exports.patchActiveWorkout = onRequest(functionOptions, requireFlexibleAuth(patchActiveWorkoutHandler));
