@@ -415,16 +415,23 @@ struct ScopeSegmentedControl: View {
 
 // MARK: - Reorder Row (Collapsed)
 
+/// Compact exercise row for reorder mode.
+/// Shows drag handle prominently with visual lift (shadow + scale).
 struct ExerciseReorderRow: View {
     let exercise: FocusModeExercise
     
+    /// Track if this row is being dragged (for visual feedback)
+    @State private var isDragging = false
+    
     var body: some View {
         HStack(spacing: Space.md) {
-            // Drag handle - prominent
+            // Drag handle - prominent and interactive
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
-                .frame(width: 24)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(ColorsToken.Brand.primary)
+                .frame(width: 28, height: 28)
+                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
@@ -453,6 +460,8 @@ struct ExerciseReorderRow: View {
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
                 .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
         )
+        // Elevated appearance to signal "draggable"
+        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 2)
         .contentShape(Rectangle())
     }
 }
