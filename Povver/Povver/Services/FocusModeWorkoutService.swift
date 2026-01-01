@@ -62,20 +62,104 @@ class FocusModeWorkoutService: ObservableObject {
     }
     
     /// Handle mutation coordinator state changes
+    @MainActor
     private func handleMutationStateChange(_ change: MutationStateChange) async {
         switch change {
         case .syncSuccess(let mutation):
             print("[FocusModeWorkoutService] Mutation synced: \(mutation)")
             isSyncing = false
+            // Remove from pending tracking
+            handleMutationSynced(mutation)
             
         case .syncFailed(let mutation, let error):
             print("[FocusModeWorkoutService] Mutation failed: \(mutation), error: \(error)")
             self.error = error
             isSyncing = false
+            // Rollback optimistic state on failure
+            rollbackMutation(mutation)
             
         case .needsReconcile:
-            print("[FocusModeWorkoutService] Reconciliation needed - TODO: fetch latest state")
-            // TODO: Fetch latest workout state and call mutationCoordinator.finishReconcile()
+            print("[FocusModeWorkoutService] Reconciliation needed - fetching latest state")
+            await performReconciliation()
+        }
+    }
+    
+    /// Remove entity from pending sync tracking
+    private func handleMutationSynced(_ mutation: WorkoutMutation) {
+        switch mutation {
+        case .addExercise(let instanceId, _, _, _, _):
+            pendingSyncExercises.remove(instanceId)
+            notifySyncContinuations(exerciseId: instanceId)
+        case .addSet(let exerciseInstanceId, let setId, _, _, _, _):
+            pendingSyncSets.remove(setId)
+            _ = exerciseInstanceId // Used for logging
+        default:
+            break
+        }
+    }
+    
+    /// Rollback optimistic state on sync failure
+    private func rollbackMutation(_ mutation: WorkoutMutation) {
+        guard var workout = workout else { return }
+        
+        switch mutation {
+        case .addExercise(let instanceId, _, _, _, _):
+            // Remove optimistically added exercise
+            workout.exercises.removeAll { $0.instanceId == instanceId }
+            pendingSyncExercises.remove(instanceId)
+            self.workout = workout
+            print("[FocusModeWorkoutService] Rolled back exercise: \(instanceId)")
+            
+        case .addSet(let exId, let setId, _, _, _, _):
+            // Remove optimistically added set
+            if let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exId }) {
+                workout.exercises[exIdx].sets.removeAll { $0.id == setId }
+            }
+            pendingSyncSets.remove(setId)
+            self.workout = workout
+            
+        default:
+            // Other mutations don't have optimistic state that needs rollback
+            break
+        }
+    }
+    
+    /// Notify waiting continuations that exercise sync completed
+    private func notifySyncContinuations(exerciseId: String) {
+        if let continuations = syncContinuations.removeValue(forKey: exerciseId) {
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
+    }
+    
+    /// Perform reconciliation: fetch latest workout state from server
+    private func performReconciliation() async {
+        guard let workoutId = workout?.id else { return }
+        
+        do {
+            // Fetch latest workout state
+            let response: GetActiveWorkoutResponse = try await apiClient.getJSON("getActiveWorkout?workout_id=\(workoutId)")
+            
+            if response.success, let data = response.data {
+                // Update local workout from server state
+                let serverWorkout = FocusModeWorkout(from: data)
+                self.workout = serverWorkout
+                
+                // Build set keys from server data
+                let exerciseIds = serverWorkout.exercises.map { $0.instanceId }
+                let setKeys = serverWorkout.exercises.flatMap { ex in
+                    ex.sets.map { SetKey(exerciseInstanceId: ex.instanceId, setId: $0.id) }
+                }
+                
+                // Complete reconciliation
+                await mutationCoordinator.finishReconcile(exerciseIds: exerciseIds, setKeys: setKeys)
+                
+                print("[FocusModeWorkoutService] Reconciliation complete")
+            }
+        } catch {
+            print("[FocusModeWorkoutService] Reconciliation failed: \(error)")
+            self.error = "Failed to sync with server"
         }
     }
     
@@ -1224,7 +1308,119 @@ private struct AddExerciseResponse: Decodable {
     }
 }
 
+// MARK: - Get Active Workout DTOs (for reconciliation)
+
+private struct GetActiveWorkoutResponse: Decodable {
+    let success: Bool
+    let data: GetActiveWorkoutData?
+    let error: String?
+}
+
+private struct GetActiveWorkoutData: Decodable {
+    let id: String
+    let userId: String?
+    let name: String?
+    let status: String?
+    let exercises: [GetActiveWorkoutExerciseDTO]?
+    let totals: WorkoutTotals?
+    let startTime: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case name
+        case status
+        case exercises
+        case totals
+        case startTime = "start_time"
+    }
+}
+
+private struct GetActiveWorkoutExerciseDTO: Decodable {
+    let instanceId: String
+    let exerciseId: String
+    let name: String
+    let position: Int
+    let sets: [GetActiveWorkoutSetDTO]?
+    
+    enum CodingKeys: String, CodingKey {
+        case instanceId = "instance_id"
+        case exerciseId = "exercise_id"
+        case name
+        case position
+        case sets
+    }
+}
+
+private struct GetActiveWorkoutSetDTO: Decodable {
+    let id: String
+    let setType: String?
+    let status: String?
+    let targetWeight: Double?
+    let targetReps: Int?
+    let targetRir: Int?
+    let weight: Double?
+    let reps: Int?
+    let rir: Int?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case setType = "set_type"
+        case status
+        case targetWeight = "target_weight"
+        case targetReps = "target_reps"
+        case targetRir = "target_rir"
+        case weight, reps, rir
+    }
+}
+
 // MARK: - Extensions for DTO conversion
+
+extension FocusModeWorkout {
+    /// Initialize from GetActiveWorkoutData (used in reconciliation)
+    fileprivate init(from data: GetActiveWorkoutData) {
+        let exercises = (data.exercises ?? []).map { exDto -> FocusModeExercise in
+            let sets = (exDto.sets ?? []).map { setDto -> FocusModeSet in
+                FocusModeSet(
+                    id: setDto.id,
+                    setType: FocusModeSetType(rawValue: setDto.setType ?? "working") ?? .working,
+                    status: FocusModeSetStatus(rawValue: setDto.status ?? "planned") ?? .planned,
+                    targetWeight: setDto.targetWeight,
+                    targetReps: setDto.targetReps,
+                    targetRir: setDto.targetRir,
+                    weight: setDto.weight,
+                    reps: setDto.reps,
+                    rir: setDto.rir
+                )
+            }
+            return FocusModeExercise(
+                instanceId: exDto.instanceId,
+                exerciseId: exDto.exerciseId,
+                name: exDto.name,
+                position: exDto.position,
+                sets: sets
+            )
+        }
+        
+        let status = FocusModeWorkout.WorkoutStatus(rawValue: data.status ?? "in_progress") ?? .inProgress
+        let startTime = parseISO8601Date(data.startTime) ?? Date()
+        
+        self.init(
+            id: data.id,
+            userId: data.userId ?? "",
+            status: status,
+            sourceTemplateId: nil,
+            sourceRoutineId: nil,
+            name: data.name,
+            exercises: exercises,
+            totals: data.totals ?? WorkoutTotals(),
+            startTime: startTime,
+            endTime: nil,
+            createdAt: Date(),
+            updatedAt: nil
+        )
+    }
+}
 
 extension FocusModeExercise {
     fileprivate init(from dto: ExerciseDTO) {
