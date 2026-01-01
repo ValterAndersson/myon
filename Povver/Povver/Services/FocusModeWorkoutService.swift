@@ -55,15 +55,14 @@ class FocusModeWorkoutService: ObservableObject {
     /// Wire mutation coordinator callbacks
     private func setupMutationCoordinator() {
         // Note: The MutationCoordinator is an actor, so we set up the callback
-        // using a nonisolated closure that will be called from within the actor.
-        // The callback dispatches to MainActor for state updates.
-        Task { @MainActor in
-            let service = self
-            await mutationCoordinator.setStateChangeHandler { change in
-                await MainActor.run {
-                    Task {
-                        await service.handleMutationStateChange(change)
-                    }
+        // using a closure that will be called from within the actor.
+        // Since this class is @MainActor, we're already on MainActor.
+        Task {
+            await mutationCoordinator.setStateChangeHandler { [weak self] change in
+                guard let self = self else { return }
+                // Use Task.detached to avoid actor re-entrancy issues
+                Task { @MainActor [weak self] in
+                    await self?.handleMutationStateChange(change)
                 }
             }
         }
