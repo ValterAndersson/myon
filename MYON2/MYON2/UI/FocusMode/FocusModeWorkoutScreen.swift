@@ -247,8 +247,8 @@ struct FocusModeWorkoutScreen: View {
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.md)
         .background(
-            ColorsToken.Surface.elevated
-                .shadow(color: .black.opacity(0.1), radius: 8, y: -2)
+            ColorsToken.Surface.raised
+                .shadow(color: Color.black.opacity(0.1), radius: 8, y: -2)
         )
     }
     

@@ -176,7 +176,7 @@ struct FocusModeExerciseSearch: View {
             if !searchText.isEmpty {
                 Text("Try a different search term")
                     .font(.system(size: 14))
-                    .foregroundColor(ColorsToken.Text.tertiary)
+                    .foregroundColor(ColorsToken.Text.muted)
             }
             Spacer()
         }
