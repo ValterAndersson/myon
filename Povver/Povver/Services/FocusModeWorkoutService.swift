@@ -434,6 +434,24 @@ class FocusModeWorkoutService: ObservableObject {
         self.workout?.name = name
     }
     
+    /// Reorder exercises locally
+    /// NOTE: Currently local-only, backend sync not implemented yet
+    func reorderExercises(from source: IndexSet, to destination: Int) {
+        guard var workout = workout else { return }
+        
+        workout.exercises.move(fromOffsets: source, toOffset: destination)
+        
+        // Update positions to match new order
+        for (index, _) in workout.exercises.enumerated() {
+            workout.exercises[index].position = index
+        }
+        
+        self.workout = workout
+        
+        // TODO: Sync to backend when reorder endpoint is available
+        print("[FocusModeWorkoutService] Reordered exercises locally")
+    }
+    
     // MARK: - AI Actions
     
     /// Autofill exercise with AI prescription

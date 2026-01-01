@@ -296,14 +296,24 @@ struct FocusModeWorkoutScreen: View {
     // MARK: - Reorder Exercises
     
     private func reorderExercises(from source: IndexSet, to destination: Int) {
-        // TODO: Call service to reorder exercises
-        // For now this just triggers UI feedback
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // SwiftUI's List onMove has a bug where it doesn't properly update
+        // when the data source changes during the animation. 
+        // Workaround: Exit edit mode briefly to force UI refresh.
+        withAnimation {
+            isEditingOrder = false
+        }
         
-        // The actual reorder would need to:
-        // 1. Update positions in Firestore
-        // 2. Refresh the workout from service
-        print("Reorder from \(source) to \(destination)")
+        // Apply the reorder to the service
+        service.reorderExercises(from: source, to: destination)
+        
+        // Re-enter edit mode after a brief delay to show updated order
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation {
+                isEditingOrder = true
+            }
+        }
+        
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
     // MARK: - Custom Header Bar
