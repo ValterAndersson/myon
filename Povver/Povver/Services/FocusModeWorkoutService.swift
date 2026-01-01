@@ -76,11 +76,14 @@ class FocusModeWorkoutService: ObservableObject {
         switch change {
         case .syncSuccess(let mutation):
             print("[FocusModeWorkoutService] Mutation synced: \(mutation)")
-            // Coordinator handles dependencies - no additional tracking needed
+            // Update entity sync state on success
+            updateEntitySyncState(mutation: mutation, state: .synced)
             
         case .syncFailed(let mutation, let error):
             print("[FocusModeWorkoutService] Mutation failed: \(mutation), error: \(error)")
             self.error = error
+            // Update entity sync state on failure
+            updateEntitySyncState(mutation: mutation, state: .failed(error))
             // Rollback optimistic state on failure
             rollbackMutation(mutation)
             
@@ -88,6 +91,27 @@ class FocusModeWorkoutService: ObservableObject {
             print("[FocusModeWorkoutService] Reconciliation needed - fetching latest state")
             await performReconciliation()
         }
+    }
+    
+    /// Update per-entity sync state for UI indicators
+    private func updateEntitySyncState(mutation: WorkoutMutation, state: EntitySyncState) {
+        switch mutation {
+        case .addExercise(let instanceId, _, _, _, _):
+            exerciseSyncState[instanceId] = state
+        case .addSet(let exerciseInstanceId, _, _, _, _, _),
+             .removeSet(let exerciseInstanceId, _),
+             .patchSet(let exerciseInstanceId, _, _, _),
+             .logSet(let exerciseInstanceId, _, _, _, _, _):
+            // For set mutations, we track at the exercise level
+            exerciseSyncState[exerciseInstanceId] = state
+        default:
+            break
+        }
+    }
+    
+    /// Mark an exercise as syncing (called before enqueue)
+    private func markExerciseSyncing(_ exerciseInstanceId: String) {
+        exerciseSyncState[exerciseInstanceId] = .syncing
     }
     
     /// Rollback optimistic state on sync failure
@@ -427,7 +451,10 @@ class FocusModeWorkoutService: ObservableObject {
             )
         }
         
-        // 3. Enqueue to coordinator (fire-and-forget, coordinator handles sync/rollback)
+        // 3. Mark as syncing for UI indicator
+        markExerciseSyncing(newInstanceId)
+        
+        // 4. Enqueue to coordinator (fire-and-forget, coordinator handles sync/rollback)
         await mutationCoordinator.setWorkout(workout.id)
         await mutationCoordinator.enqueue(.addExercise(
             instanceId: newInstanceId,
