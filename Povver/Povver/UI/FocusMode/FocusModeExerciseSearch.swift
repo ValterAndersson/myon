@@ -503,11 +503,11 @@ struct ExerciseFilterSheet: View {
                     .disabled(filters.isEmpty)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Apply") {
+                    // Changed from "Apply" to "Done" - primary Apply is at bottom
+                    Button("Done") {
                         onApply()
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(ColorsToken.Text.secondary)
                 }
             }
             .safeAreaInset(edge: .bottom) {

@@ -373,22 +373,26 @@ struct FocusModeSetGrid: View {
     }
     
     /// Returns display info for the set number column
-    /// - Warmups: "W" (secondary color)
-    /// - Working sets: numbered 1, 2, 3... (primary color)
+    /// - Warmups: "WU" (secondary color)
+    /// - Working sets: numbered 1, 2, 3... (1-based, primary color)
     /// - Drop sets: "D" (warning color)
     /// - Failure sets: "F" (error color)
-    private func displayNumber(for index: Int, set: FocusModeSet) -> SetDisplayInfo {
-        // Calculate the working set index (drop sets and failure sets still count)
-        let workingIndex = exercise.sets.prefix(index + 1).filter { !$0.isWarmup }.count
-        
+    /// 
+    /// Note: displayIndex is the 0-based index within the already-filtered section
+    /// (warmupSets or workingSets), NOT the original exercise.sets array.
+    private func displayNumber(for displayIndex: Int, set: FocusModeSet) -> SetDisplayInfo {
         if set.isWarmup {
-            return SetDisplayInfo(text: "W", color: ColorsToken.Text.secondary, isLetter: true)
+            // Warmups show as "WU" (or just "W" if space constrained)
+            return SetDisplayInfo(text: "WU", color: ColorsToken.Text.secondary, isLetter: true)
         } else if set.tags?.isFailure == true {
+            // Failure sets get "F" indicator
             return SetDisplayInfo(text: "F", color: ColorsToken.State.error, isLetter: true)
         } else if set.setType == .dropset {
+            // Drop sets get "D" indicator
             return SetDisplayInfo(text: "D", color: ColorsToken.State.warning, isLetter: true)
         } else {
-            return SetDisplayInfo(text: "\(workingIndex)", color: ColorsToken.Text.primary, isLetter: false)
+            // Working sets are 1-based: displayIndex 0 → "1", displayIndex 1 → "2", etc.
+            return SetDisplayInfo(text: "\(displayIndex + 1)", color: ColorsToken.Text.primary, isLetter: false)
         }
     }
     
@@ -413,9 +417,8 @@ struct FocusModeSetGrid: View {
            selected.setId == set.id {
             return ColorsToken.Surface.focusedRow
         }
-        if set.isDone {
-            return ColorsToken.State.success.opacity(0.05)
-        }
+        // Removed green tint for completed sets - checkmark alone is enough
+        // Keeping subtle warmup background for visual grouping
         if set.isWarmup {
             return ColorsToken.Background.secondary.opacity(0.3)
         }
