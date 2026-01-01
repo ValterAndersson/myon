@@ -38,6 +38,7 @@ enum LogCategory: String {
     case sse = "SSE"
     case http = "HTTP"
     case firestore = "Firestore"
+    case focusMode = "FocusMode"
 }
 
 enum LogLevel: String {
@@ -463,6 +464,94 @@ final class SessionLogger {
         print(output)
     }
     
+    // MARK: - Focus Mode Logging
+    
+    /// Log workout session lifecycle
+    func logFocusModeSession(
+        event: FocusModeSessionEvent,
+        workoutId: String,
+        sessionId: String? = nil,
+        details: [String: Any]? = nil
+    ) {
+        guard DebugLogger.enabled else { return }
+        
+        let emoji = event.emoji
+        let eventName = event.rawValue.uppercased()
+        
+        var output = "[\(timestamp())] \(emoji) [FocusMode] \(eventName) workout=\(workoutId.prefix(8))..."
+        
+        if let sessionId = sessionId {
+            output += " session=\(sessionId.prefix(8))..."
+        }
+        
+        if DebugLogger.verbose, let details = details, !details.isEmpty {
+            output += "\n  Details: \(formatJSON(details))"
+        }
+        
+        print(output)
+    }
+    
+    /// Log mutation operations
+    func logFocusModeMutation(
+        phase: MutationPhase,
+        type: String,
+        exerciseId: String? = nil,
+        setId: String? = nil,
+        details: [String: Any]? = nil,
+        error: Error? = nil
+    ) {
+        guard DebugLogger.enabled else { return }
+        
+        let emoji = phase.emoji
+        let phaseName = phase.rawValue
+        
+        var output = "[\(timestamp())] \(emoji) [FocusMode] \(type) (\(phaseName))"
+        
+        if let exId = exerciseId {
+            output += " exercise=\(exId.prefix(8))..."
+        }
+        if let sId = setId {
+            output += " set=\(sId.prefix(8))..."
+        }
+        
+        if let error = error {
+            output += " error=\"\(error.localizedDescription)\""
+        }
+        
+        if DebugLogger.verbose, let details = details, !details.isEmpty {
+            output += "\n  \(formatJSON(details))"
+        }
+        
+        print(output)
+    }
+    
+    /// Log coordinator state changes
+    func logFocusModeCoordinator(
+        event: CoordinatorEvent,
+        pending: Int = 0,
+        inFlight: String? = nil,
+        context: [String: Any]? = nil
+    ) {
+        guard DebugLogger.enabled else { return }
+        
+        let emoji = event.emoji
+        
+        var output = "[\(timestamp())] \(emoji) [Coordinator] \(event.rawValue)"
+        
+        if pending > 0 {
+            output += " pending=\(pending)"
+        }
+        if let mutation = inFlight {
+            output += " inFlight=\(mutation)"
+        }
+        
+        if DebugLogger.verbose, let context = context, !context.isEmpty {
+            output += "\n  \(formatJSON(context))"
+        }
+        
+        print(output)
+    }
+    
     // MARK: - Firestore Logging
     
     func logFirestoreSnapshot(collection: String, documentCount: Int, source: String) {
@@ -710,6 +799,216 @@ struct AgentEventLogger {
             category: .sse,
             message: "SSE Stream Error",
             error: error
+        )
+    }
+}
+
+// MARK: - Focus Mode Event Types
+
+/// Workout session lifecycle events
+enum FocusModeSessionEvent: String {
+    case started = "workout_started"
+    case resumed = "workout_resumed"
+    case completed = "workout_completed"
+    case cancelled = "workout_cancelled"
+    case reset = "session_reset"
+    
+    var emoji: String {
+        switch self {
+        case .started: return "🏋️"
+        case .resumed: return "▶️"
+        case .completed: return "✅"
+        case .cancelled: return "🚫"
+        case .reset: return "🔄"
+        }
+    }
+}
+
+/// Mutation lifecycle phases
+enum MutationPhase: String {
+    case optimistic = "optimistic"
+    case enqueued = "enqueued"
+    case executing = "executing"
+    case synced = "synced"
+    case failed = "failed"
+    case rolledBack = "rolled_back"
+    
+    var emoji: String {
+        switch self {
+        case .optimistic: return "⚡"
+        case .enqueued: return "📥"
+        case .executing: return "🔄"
+        case .synced: return "✅"
+        case .failed: return "❌"
+        case .rolledBack: return "↩️"
+        }
+    }
+}
+
+/// Coordinator state events
+enum CoordinatorEvent: String {
+    case reset = "reset"
+    case enqueue = "enqueue"
+    case execute = "execute"
+    case ack = "ack"
+    case waitingDependency = "waiting_dependency"
+    case reconcileStart = "reconcile_start"
+    case reconcileComplete = "reconcile_complete"
+    case retry = "retry"
+    
+    var emoji: String {
+        switch self {
+        case .reset: return "🔄"
+        case .enqueue: return "📥"
+        case .execute: return "⚙️"
+        case .ack: return "✅"
+        case .waitingDependency: return "⏳"
+        case .reconcileStart: return "🔍"
+        case .reconcileComplete: return "✅"
+        case .retry: return "🔁"
+        }
+    }
+}
+
+// MARK: - Focus Mode Logger Convenience
+
+/// Convenience wrapper for Focus Mode logging
+struct FocusModeLogger {
+    static let shared = FocusModeLogger()
+    
+    private init() {}
+    
+    // MARK: - Session Logging
+    
+    func sessionStarted(workoutId: String, sessionId: String, name: String?) {
+        SessionLogger.shared.logFocusModeSession(
+            event: .started,
+            workoutId: workoutId,
+            sessionId: sessionId,
+            details: name != nil ? ["name": name!] : nil
+        )
+    }
+    
+    func sessionCompleted(workoutId: String, archivedId: String) {
+        SessionLogger.shared.logFocusModeSession(
+            event: .completed,
+            workoutId: workoutId,
+            details: ["archived_id": archivedId]
+        )
+    }
+    
+    func sessionCancelled(workoutId: String) {
+        SessionLogger.shared.logFocusModeSession(
+            event: .cancelled,
+            workoutId: workoutId
+        )
+    }
+    
+    func sessionReset(newSessionId: String) {
+        SessionLogger.shared.logFocusModeSession(
+            event: .reset,
+            workoutId: "N/A",
+            sessionId: newSessionId
+        )
+    }
+    
+    // MARK: - Mutation Logging
+    
+    func addExercise(phase: MutationPhase, exerciseId: String, name: String, setCount: Int) {
+        SessionLogger.shared.logFocusModeMutation(
+            phase: phase,
+            type: "addExercise",
+            exerciseId: exerciseId,
+            details: ["name": name, "sets": setCount]
+        )
+    }
+    
+    func addSet(phase: MutationPhase, exerciseId: String, setId: String) {
+        SessionLogger.shared.logFocusModeMutation(
+            phase: phase,
+            type: "addSet",
+            exerciseId: exerciseId,
+            setId: setId
+        )
+    }
+    
+    func logSet(phase: MutationPhase, exerciseId: String, setId: String, weight: Double?, reps: Int) {
+        SessionLogger.shared.logFocusModeMutation(
+            phase: phase,
+            type: "logSet",
+            exerciseId: exerciseId,
+            setId: setId,
+            details: ["weight": weight ?? 0, "reps": reps]
+        )
+    }
+    
+    func patchField(phase: MutationPhase, exerciseId: String, setId: String, field: String, value: Any) {
+        SessionLogger.shared.logFocusModeMutation(
+            phase: phase,
+            type: "patch:\(field)",
+            exerciseId: exerciseId,
+            setId: setId,
+            details: ["value": "\(value)"]
+        )
+    }
+    
+    func mutationFailed(type: String, exerciseId: String?, setId: String?, error: Error) {
+        SessionLogger.shared.logFocusModeMutation(
+            phase: .failed,
+            type: type,
+            exerciseId: exerciseId,
+            setId: setId,
+            error: error
+        )
+    }
+    
+    // MARK: - Coordinator Logging
+    
+    func coordinatorReset(sessionId: String) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .reset,
+            context: ["session_id": sessionId]
+        )
+    }
+    
+    func coordinatorEnqueue(mutation: String, pendingCount: Int) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .enqueue,
+            pending: pendingCount,
+            context: ["mutation": mutation]
+        )
+    }
+    
+    func coordinatorExecute(mutation: String, attempt: Int) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .execute,
+            inFlight: mutation,
+            context: ["attempt": attempt]
+        )
+    }
+    
+    func coordinatorAck(type: String, entityId: String) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .ack,
+            context: ["type": type, "entity": entityId]
+        )
+    }
+    
+    func coordinatorWaiting(pendingCount: Int) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .waitingDependency,
+            pending: pendingCount
+        )
+    }
+    
+    func coordinatorReconcileStart() {
+        SessionLogger.shared.logFocusModeCoordinator(event: .reconcileStart)
+    }
+    
+    func coordinatorReconcileComplete(exercises: Int, sets: Int) {
+        SessionLogger.shared.logFocusModeCoordinator(
+            event: .reconcileComplete,
+            context: ["exercises": exercises, "sets": sets]
         )
     }
 }
