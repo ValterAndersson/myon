@@ -117,6 +117,13 @@ const PatchOpSchema = z.discriminatedUnion('op', [
       set_id: IdSchema,
     }),
   }),
+  // Reorder exercises
+  z.object({
+    op: z.literal('reorder_exercises'),
+    value: z.object({
+      order: z.array(IdSchema).min(1),  // Array of exercise instance IDs in new order
+    }),
+  }),
 ]);
 
 const PatchActiveWorkoutSchema = z.object({

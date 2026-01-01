@@ -434,8 +434,7 @@ class FocusModeWorkoutService: ObservableObject {
         self.workout?.name = name
     }
     
-    /// Reorder exercises locally
-    /// NOTE: Currently local-only, backend sync not implemented yet
+    /// Reorder exercises and sync to backend
     func reorderExercises(from source: IndexSet, to destination: Int) {
         guard var workout = workout else { return }
         
@@ -448,8 +447,36 @@ class FocusModeWorkoutService: ObservableObject {
         
         self.workout = workout
         
-        // TODO: Sync to backend when reorder endpoint is available
-        print("[FocusModeWorkoutService] Reordered exercises locally")
+        // Get new order as array of instance IDs
+        let newOrder = workout.exercises.map { $0.instanceId }
+        
+        // Sync to backend (fire and forget - don't block UI)
+        Task {
+            await syncReorderToBackend(workoutId: workout.id, order: newOrder)
+        }
+        
+        print("[FocusModeWorkoutService] Reordered exercises: \(newOrder)")
+    }
+    
+    /// Sync exercise reorder to backend
+    private func syncReorderToBackend(workoutId: String, order: [String]) async {
+        let idempotencyKey = idempotencyHelper.generate(context: "reorder", exerciseId: order.joined(separator: "-"))
+        
+        let request = ReorderExercisesRequest(
+            workoutId: workoutId,
+            order: order,
+            idempotencyKey: idempotencyKey,
+            clientTimestamp: ISO8601DateFormatter().string(from: Date())
+        )
+        
+        do {
+            let _: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
+            print("[FocusModeWorkoutService] Reorder synced to backend")
+        } catch {
+            print("[FocusModeWorkoutService] Reorder sync failed: \(error)")
+            // Don't rollback - local state is source of truth during session
+            // Order will be preserved when workout is completed
+        }
     }
     
     // MARK: - AI Actions
@@ -1010,6 +1037,54 @@ private struct CompleteWorkoutResponse: Decodable {
         } else {
             self.workoutId = nil
         }
+    }
+}
+
+// MARK: - Reorder Exercises DTOs
+
+private struct ReorderExercisesRequest: Encodable {
+    let workoutId: String
+    let order: [String]
+    let idempotencyKey: String
+    let clientTimestamp: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case ops
+        case cause
+        case uiSource = "ui_source"
+        case idempotencyKey = "idempotency_key"
+        case clientTimestamp = "client_timestamp"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workoutId, forKey: .workoutId)
+        
+        // Build the reorder_exercises op
+        let op = ReorderOpDTO(order: order)
+        try container.encode([op], forKey: .ops)
+        
+        try container.encode("user_edit", forKey: .cause)
+        try container.encode("reorder_exercises", forKey: .uiSource)
+        try container.encode(idempotencyKey, forKey: .idempotencyKey)
+        try container.encode(clientTimestamp, forKey: .clientTimestamp)
+    }
+}
+
+private struct ReorderOpDTO: Encodable {
+    let op = "reorder_exercises"
+    let order: [String]
+    
+    enum CodingKeys: String, CodingKey {
+        case op
+        case value
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(op, forKey: .op)
+        try container.encode(["order": order], forKey: .value)
     }
 }
 

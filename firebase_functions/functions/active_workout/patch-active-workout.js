@@ -97,8 +97,8 @@ function validateHomogeneous(ops) {
     }
   }
   
-  // For add_set and remove_set, only one op allowed
-  if ((opType === 'add_set' || opType === 'remove_set') && ops.length > 1) {
+  // For add_set, remove_set, and reorder_exercises, only one op allowed
+  if ((opType === 'add_set' || opType === 'remove_set' || opType === 'reorder_exercises') && ops.length > 1) {
     return { valid: false, error: 'MULTIPLE_STRUCTURAL_OPS', message: `Only one ${opType} op allowed per request` };
   }
   
@@ -367,6 +367,40 @@ async function patchActiveWorkoutHandler(req, res) {
         path: `/exercises/${exFound.index}/sets/${setFound.index}`,
       });
     }
+    
+    if (opType === 'reorder_exercises') {
+      const op = ops[0];
+      const newOrder = op.value?.order;  // Array of exercise instance IDs in new order
+      
+      if (!Array.isArray(newOrder) || newOrder.length === 0) {
+        return fail(res, 'INVALID_ARGUMENT', 'reorder_exercises requires order array', null, 400);
+      }
+      
+      // Validate all exercise IDs exist
+      const existingIds = new Set(exercises.map(e => e.instance_id));
+      for (const id of newOrder) {
+        if (!existingIds.has(id)) {
+          return fail(res, 'TARGET_NOT_FOUND', `Exercise not found: ${id}`, null, 404);
+        }
+      }
+      
+      // Create lookup map for new positions
+      const orderMap = {};
+      newOrder.forEach((id, idx) => {
+        orderMap[id] = idx;
+      });
+      
+      // Sort exercises by new order and update positions
+      exercises = exercises
+        .sort((a, b) => (orderMap[a.instance_id] ?? 999) - (orderMap[b.instance_id] ?? 999))
+        .map((ex, idx) => ({ ...ex, position: idx }));
+      
+      diffOps.push({
+        op: 'replace',
+        path: '/exercises',
+        value: newOrder,  // Just store the order for the event
+      });
+    }
 
     // 7. Recompute totals
     const totals = computeTotals(exercises);
@@ -374,19 +408,32 @@ async function patchActiveWorkoutHandler(req, res) {
     // 8. Determine event type
     let eventType;
     if (opType === 'set_field') {
-      eventType = fieldsChanged.includes('status') ? 'set_updated' : 'set_updated';
+      eventType = 'set_updated';
     } else if (opType === 'add_set') {
       eventType = 'set_added';
-    } else {
+    } else if (opType === 'remove_set') {
       eventType = 'set_removed';
+    } else if (opType === 'reorder_exercises') {
+      eventType = 'exercises_reordered';
+    } else {
+      eventType = 'workout_updated';
     }
 
     // 9. Create event (avoid undefined values for Firestore)
     const eventRef = db.collection(`users/${userId}/active_workouts/${workoutId}/events`).doc();
-    const eventPayload = {
-      exercise_instance_id: ops[0].target.exercise_instance_id,
-      set_id: ops[0].target.set_id || ops[0].value?.id || null,
-    };
+    
+    // Build payload based on op type
+    let eventPayload;
+    if (opType === 'reorder_exercises') {
+      eventPayload = {
+        new_order: ops[0].value?.order || [],
+      };
+    } else {
+      eventPayload = {
+        exercise_instance_id: ops[0].target?.exercise_instance_id || null,
+        set_id: ops[0].target?.set_id || ops[0].value?.id || null,
+      };
+    }
     if (fieldsChanged.length > 0) eventPayload.fields_changed = fieldsChanged;
     
     const event = {
