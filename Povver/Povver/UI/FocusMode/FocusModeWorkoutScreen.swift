@@ -457,15 +457,18 @@ struct FocusModeWorkoutScreen: View {
     private var startTimeEditorSheet: some View {
         NavigationStack {
             VStack(spacing: Space.lg) {
-                // Time picker
+                Spacer()
+                
+                // Time picker - use graphical style to avoid UIKit conflict
                 DatePicker(
                     "Start Time",
                     selection: $editingStartTime,
                     in: ...Date(),
                     displayedComponents: [.hourAndMinute]
                 )
-                .datePickerStyle(.wheel)
+                .datePickerStyle(.graphical)
                 .labelsHidden()
+                .frame(maxHeight: 200)
                 
                 // Timezone info
                 HStack {
@@ -500,7 +503,7 @@ struct FocusModeWorkoutScreen: View {
                 editingStartTime = service.workout?.startTime ?? Date()
             }
         }
-        .presentationDetents([.height(300)])
+        .presentationDetents([.medium])
     }
     
     private func formatStartTime(_ date: Date) -> String {
