@@ -42,6 +42,12 @@ enum SyncState: Equatable {
 
 // MARK: - Mutation Types
 
+/// Metadata field types for coalescing (last-write-wins)
+enum MetadataField: String, Equatable {
+    case name = "name"
+    case startTime = "start_time"
+}
+
 /// All mutation types that go through the coordinator
 enum WorkoutMutation: Equatable {
     case addExercise(instanceId: String, exerciseId: String, name: String, position: Int, sets: [MutationSetData])
@@ -51,6 +57,8 @@ enum WorkoutMutation: Equatable {
     case patchSet(exerciseInstanceId: String, setId: String, field: String, value: AnyCodableValue)
     case reorderExercises(order: [String])
     case logSet(exerciseInstanceId: String, setId: String, weight: Double?, reps: Int, rir: Int?, isFailure: Bool?)
+    /// Patch workout-level metadata (name, start_time) with coalescing semantics
+    case patchWorkoutMetadata(field: MetadataField, value: AnyCodableValue)
     
     /// Get the exercise instance ID this mutation depends on (if any)
     var exerciseDependency: String? {
@@ -183,6 +191,9 @@ actor MutationCoordinator {
     
     // MARK: - State
     
+    /// Session ID to prevent stale callbacks from corrupting new workouts
+    private var sessionId: UUID = UUID()
+    
     /// Acknowledged exercises (server confirmed)
     private var ackExercises: Set<String> = []
     
@@ -204,16 +215,21 @@ actor MutationCoordinator {
     /// API client reference
     private let apiClient = ApiClient.shared
     
-    /// Callback to update local state on success/failure
-    private var onStateChange: ((MutationStateChange) async -> Void)?
+    /// Callback to update local state on success/failure (includes sessionId for staleness check)
+    private var onStateChange: ((MutationStateChange, UUID) async -> Void)?
     
     /// Set the state change handler (called from service setup)
-    func setStateChangeHandler(_ handler: @escaping (MutationStateChange) async -> Void) {
+    func setStateChangeHandler(_ handler: @escaping (MutationStateChange, UUID) async -> Void) {
         self.onStateChange = handler
     }
     
     /// Current workout ID
     private var workoutId: String?
+    
+    /// Get current session ID (for verification in callbacks)
+    func getSessionId() -> UUID {
+        return sessionId
+    }
     
     // MARK: - Initialization
     
@@ -233,13 +249,16 @@ actor MutationCoordinator {
     }
     
     /// Reset coordinator state (on workout end/cancel)
+    /// Generates new sessionId so any in-flight callbacks are ignored
     func reset() {
+        sessionId = UUID()  // Invalidate all in-flight callbacks
         ackExercises.removeAll()
         ackSets.removeAll()
         pending.removeAll()
         inFlight = nil
         isReconciling = false
         workoutId = nil
+        print("[MutationCoordinator] Reset complete, new sessionId: \(sessionId)")
     }
     
     // MARK: - Enqueue
@@ -249,6 +268,9 @@ actor MutationCoordinator {
         // If this is a remove operation, purge dependent mutations first
         purgeDependents(for: mutation)
         
+        // Coalesce metadata mutations (last-write-wins)
+        coalesceMutationIfNeeded(mutation)
+        
         let queued = QueuedMutation(mutation: mutation)
         pending.append(queued)
         
@@ -256,6 +278,25 @@ actor MutationCoordinator {
         
         // Trigger processing
         await processLoop()
+    }
+    
+    /// Coalesce metadata mutations - remove any pending patch of the same type (last-write-wins)
+    private func coalesceMutationIfNeeded(_ mutation: WorkoutMutation) {
+        switch mutation {
+        case .patchWorkoutMetadata(let field, _):
+            // Remove any pending metadata patch of the same field type
+            pending.removeAll { queued in
+                if case .patchWorkoutMetadata(let existingField, _) = queued.mutation {
+                    if existingField == field {
+                        print("[MutationCoordinator] Coalesced metadata mutation for field: \(field)")
+                        return true
+                    }
+                }
+                return false
+            }
+        default:
+            break
+        }
     }
     
     // MARK: - Processing Loop
@@ -276,11 +317,14 @@ actor MutationCoordinator {
             
             let result = await execute(queued)
             
+            // Capture sessionId before any async work
+            let capturedSessionId = sessionId
+            
             if result.isSuccess {
                 markAck(queued.mutation)
-                await onStateChange?(.syncSuccess(queued.mutation))
+                await onStateChange?(.syncSuccess(queued.mutation), capturedSessionId)
             } else {
-                await handleFailure(queued, result: result)
+                await handleFailure(queued, result: result, sessionId: capturedSessionId)
             }
             
             inFlight = nil
@@ -362,7 +406,7 @@ actor MutationCoordinator {
     
     // MARK: - Failure Handling
     
-    private func handleFailure(_ queued: QueuedMutation, result: MutationResult) async {
+    private func handleFailure(_ queued: QueuedMutation, result: MutationResult, sessionId: UUID) async {
         switch result {
         case .networkError, .serverError:
             // Retry with backoff if under max attempts
@@ -376,14 +420,14 @@ actor MutationCoordinator {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             } else {
                 // Max retries exceeded
-                await onStateChange?(.syncFailed(queued.mutation, "Network error after \(maxRetries) attempts"))
+                await onStateChange?(.syncFailed(queued.mutation, "Network error after \(maxRetries) attempts"), sessionId)
             }
             
         case .targetNotFound:
             // DON'T retry. Trigger reconciliation.
             print("[MutationCoordinator] TARGET_NOT_FOUND - triggering reconcile")
-            await triggerReconcile()
-            await onStateChange?(.syncFailed(queued.mutation, "Entity not found on server"))
+            await triggerReconcile(sessionId: sessionId)
+            await onStateChange?(.syncFailed(queued.mutation, "Entity not found on server"), sessionId)
             
         case .success:
             break  // Already handled
@@ -392,14 +436,14 @@ actor MutationCoordinator {
     
     // MARK: - Reconciliation
     
-    private func triggerReconcile() async {
+    private func triggerReconcile(sessionId: UUID) async {
         guard !isReconciling else { return }
         
         isReconciling = true
         print("[MutationCoordinator] Starting reconciliation")
         
         // Notify service to fetch latest state
-        await onStateChange?(.needsReconcile)
+        await onStateChange?(.needsReconcile, sessionId)
         
         // Note: The service should call finishReconcile() after fetching
     }
@@ -523,6 +567,16 @@ actor MutationCoordinator {
                     idempotencyKey: queued.id
                 )
                 let _: LogSetMutationResponse = try await apiClient.postJSON("logSet", body: request)
+                return .success
+                
+            case .patchWorkoutMetadata(let field, let value):
+                let request = PatchMetadataRequest(
+                    workoutId: workoutId,
+                    field: field.rawValue,
+                    value: value,
+                    idempotencyKey: queued.id
+                )
+                let _: PatchResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
                 return .success
             }
         } catch {
@@ -821,5 +875,39 @@ private struct LogSetMutationResponse: Decodable {
         case eventId = "event_id"
         case totals
         case error
+    }
+}
+
+/// Request for patching workout-level metadata (name, start_time)
+private struct PatchMetadataRequest: Encodable {
+    let workoutId: String
+    let field: String  // "name" or "start_time"
+    let value: AnyCodableValue
+    let idempotencyKey: String
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case ops, cause
+        case uiSource = "ui_source"
+        case idempotencyKey = "idempotency_key"
+        case clientTimestamp = "client_timestamp"
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workoutId, forKey: .workoutId)
+        
+        // Build the metadata patch op - workout-level field, no target
+        let op: [String: Any] = [
+            "op": "set_workout_field",
+            "field": field,
+            "value": value.rawValue
+        ]
+        
+        try container.encode([AnyCodable(op)], forKey: .ops)
+        try container.encode("user_edit", forKey: .cause)
+        try container.encode("header_edit", forKey: .uiSource)
+        try container.encode(idempotencyKey, forKey: .idempotencyKey)
+        try container.encode(ISO8601DateFormatter().string(from: Date()), forKey: .clientTimestamp)
     }
 }
