@@ -62,7 +62,7 @@ struct FocusModeExerciseSearch: View {
             }
         }
         .sheet(item: $showingExerciseDetail) { exercise in
-            ExerciseDetailSheet(exercise: exercise)
+            FocusModeExerciseDetailSheet(exercise: exercise)
         }
     }
     
@@ -284,9 +284,9 @@ private struct ExerciseRow: View {
     }
 }
 
-// MARK: - Exercise Detail Sheet
+// MARK: - Exercise Detail Sheet (Focus Mode variant)
 
-struct ExerciseDetailSheet: View {
+struct FocusModeExerciseDetailSheet: View {
     let exercise: Exercise
     @Environment(\.dismiss) private var dismiss
     
@@ -396,9 +396,6 @@ struct ExerciseDetailSheet: View {
         }
     }
 }
-
-// Make Exercise conform to Identifiable for sheet binding
-extension Exercise: @retroactive Identifiable {}
 
 // MARK: - Preview
 
