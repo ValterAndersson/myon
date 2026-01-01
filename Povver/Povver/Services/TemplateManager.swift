@@ -287,7 +287,7 @@ class TemplateManager: ObservableObject {
         for templateExercise in template.exercises {
             // Find matching exercise to get muscle group info
             let matchingExercise = exercisesToUse.first { $0.id == templateExercise.exerciseId }
-            let primaryMuscle = matchingExercise?.primaryMuscleGroup ?? "Unknown"
+            let primaryMuscle = matchingExercise?.primaryMuscles.first ?? "Unknown"
             
             for set in templateExercise.sets {
                 totalSets += 1
