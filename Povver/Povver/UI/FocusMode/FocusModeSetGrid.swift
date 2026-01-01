@@ -483,45 +483,29 @@ struct FocusModeEditingDock: View {
     
     // MARK: - Scope Selector
     
+    /// Counts for the scope segmented control (live updates)
+    private var scopeCounts: (this: Int, remaining: Int, all: Int) {
+        let workingSets = allSets.filter { !$0.isWarmup }
+        let currentWorkingIndex = workingSets.firstIndex { $0.id == set.id } ?? 0
+        // Remaining = sets after current one (including current for 1-based UX)
+        let remainingCount = workingSets.count - currentWorkingIndex
+        return (this: 1, remaining: remainingCount, all: workingSets.count)
+    }
+    
     private var scopeSelector: some View {
         HStack(spacing: Space.xs) {
             Text("Apply to:")
                 .font(.system(size: 12))
                 .foregroundColor(ColorsToken.Text.secondary)
             
-            ForEach(FocusModeEditScope.allCases, id: \.rawValue) { scope in
-                Button {
-                    editScope = scope
-                    UISelectionFeedbackGenerator().selectionChanged()
-                } label: {
-                    Text(scopeLabel(scope))
-                        .font(.system(size: 11, weight: editScope == scope ? .semibold : .regular))
-                        .foregroundColor(editScope == scope ? .white : ColorsToken.Text.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(editScope == scope ? ColorsToken.Brand.primary : ColorsToken.Background.secondary)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
+            ScopeSegmentedControl(
+                selectedScope: $editScope,
+                thisCount: scopeCounts.this,
+                remainingCount: scopeCounts.remaining,
+                allCount: scopeCounts.all
+            )
             
             Spacer()
-        }
-    }
-    
-    private func scopeLabel(_ scope: FocusModeEditScope) -> String {
-        let workingSets = allSets.filter { !$0.isWarmup }
-        
-        // Find index of current set within working sets (not allSets)
-        let currentWorkingIndex = workingSets.firstIndex { $0.id == set.id } ?? 0
-        
-        // Remaining = sets after current one (not including current)
-        let remainingCount = workingSets.count - currentWorkingIndex - 1
-        
-        switch scope {
-        case .allWorking: return "All (\(workingSets.count))"
-        case .remaining: return "Remain (\(max(0, remainingCount)))"
-        case .thisOnly: return "This"
         }
     }
     
@@ -718,16 +702,17 @@ struct FocusModeEditingDock: View {
     
     // MARK: - Helpers
     
+    /// Smaller, quieter +/- controls (spec #9: value dominates, controls recede)
     private func stepButton(systemName: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button {
             action()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
             Image(systemName: systemName)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundColor(disabled ? ColorsToken.Text.secondary.opacity(0.3) : ColorsToken.Brand.primary)
-                .frame(width: 50, height: 50)
-                .background(ColorsToken.Background.secondary)
+                .frame(width: 40, height: 40)
+                .background(ColorsToken.Background.secondary.opacity(0.6))
                 .clipShape(Circle())
         }
         .buttonStyle(PlainButtonStyle())
