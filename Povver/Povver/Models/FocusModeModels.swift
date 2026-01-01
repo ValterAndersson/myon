@@ -9,6 +9,25 @@
 
 import Foundation
 
+// MARK: - Sync State
+
+/// Sync state for entities (not persisted to server)
+enum FocusModeSyncState: Equatable {
+    case synced
+    case pending
+    case failed(String)  // Error message
+    
+    var isPending: Bool {
+        if case .pending = self { return true }
+        return false
+    }
+    
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
 // MARK: - Set Status
 
 enum FocusModeSetStatus: String, Codable, CaseIterable {
@@ -73,6 +92,9 @@ struct FocusModeSet: Codable, Identifiable, Equatable {
     var rir: Int?
     
     var tags: FocusModeSetTags?
+    
+    /// Sync state (not persisted to server)
+    var syncState: FocusModeSyncState = .synced
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -145,6 +167,9 @@ struct FocusModeExercise: Codable, Identifiable, Equatable {
     var position: Int
     var sets: [FocusModeSet]
     
+    /// Sync state (not persisted to server)
+    var syncState: FocusModeSyncState = .synced
+    
     var id: String { instanceId }
     
     enum CodingKeys: String, CodingKey {
@@ -153,6 +178,7 @@ struct FocusModeExercise: Codable, Identifiable, Equatable {
         case name
         case position
         case sets
+        // syncState is not in CodingKeys - not persisted
     }
     
     // MARK: - Computed Properties
