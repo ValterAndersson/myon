@@ -590,37 +590,54 @@ private struct StartActiveWorkoutRequest: Encodable {
     }
 }
 
+/// The server wraps the workout data in a "data" object
 private struct StartActiveWorkoutResponse: Decodable {
     let success: Bool
+    let data: StartActiveWorkoutData?
+    let error: String?
+    
+    // Convenience accessors that unwrap from data
+    var workoutId: String? { data?.workoutId ?? data?.activeWorkoutDoc?.id }
+    var userId: String? { data?.activeWorkoutDoc?.userId }
+    var name: String? { data?.activeWorkoutDoc?.name }
+    var status: String? { data?.activeWorkoutDoc?.status }
+    var exercises: [ExerciseDTO]? { nil } // Parse from activeWorkoutDoc if needed
+    var totals: WorkoutTotals? { data?.activeWorkoutDoc?.totals }
+    var sourceTemplateId: String? { data?.activeWorkoutDoc?.sourceTemplateId }
+    var sourceRoutineId: String? { data?.activeWorkoutDoc?.sourceRoutineId }
+    var startTime: String? { nil } // Firebase timestamps don't serialize as strings
+    var endTime: String? { nil }
+    var createdAt: String? { nil }
+    var updatedAt: String? { nil }
+}
+
+private struct StartActiveWorkoutData: Decodable {
     let workoutId: String?
+    let activeWorkoutDoc: ActiveWorkoutDoc?
+    
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case activeWorkoutDoc = "active_workout_doc"
+    }
+}
+
+private struct ActiveWorkoutDoc: Decodable {
+    let id: String?
     let userId: String?
     let name: String?
     let status: String?
-    let exercises: [ExerciseDTO]?
-    let startTime: String?
-    let endTime: String?
-    let createdAt: String?
-    let updatedAt: String?
     let totals: WorkoutTotals?
     let sourceTemplateId: String?
     let sourceRoutineId: String?
-    let error: String?
     
     enum CodingKeys: String, CodingKey {
-        case success
-        case workoutId = "workout_id"
+        case id
         case userId = "user_id"
         case name
         case status
-        case exercises
-        case startTime = "start_time"
-        case endTime = "end_time"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
         case totals
         case sourceTemplateId = "source_template_id"
         case sourceRoutineId = "source_routine_id"
-        case error
     }
 }
 
