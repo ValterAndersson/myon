@@ -248,13 +248,11 @@ class TemplateManager: ObservableObject {
     // MARK: - Analytics
     private func loadExercisesAndCalculateAnalytics() {
         Task {
-            if await exercisesViewModel.exercises.isEmpty {
+            if exercisesViewModel.exercises.isEmpty {
                 await exercisesViewModel.loadExercises()
             }
-            let exercises = await exercisesViewModel.exercises
-            await MainActor.run {
-                self.calculateAnalytics(with: exercises)
-            }
+            let exercises = exercisesViewModel.exercises
+            self.calculateAnalytics(with: exercises)
         }
     }
     
@@ -342,7 +340,9 @@ class TemplateManager: ObservableObject {
         // Debounce updates to prevent UI lag during rapid typing
         updateTimer?.invalidate()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
-            self?.flushPendingUpdates()
+            Task { @MainActor in
+                self?.flushPendingUpdates()
+            }
         }
     }
     

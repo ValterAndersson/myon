@@ -123,7 +123,7 @@ struct ThoughtTrackView: View {
         .background(isExpanded ? ColorsToken.Surface.default.opacity(0.3) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         // Auto-collapse when track becomes complete (only once)
-        .onChange(of: track.isComplete) { isComplete in
+        .onChange(of: track.isComplete) { _, isComplete in
             if isComplete && !hasAutoCollapsed {
                 // Delay collapse slightly so user sees the final state
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {

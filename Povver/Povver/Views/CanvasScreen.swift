@@ -57,7 +57,7 @@ struct CanvasScreen: View {
             }
         }
         .onDisappear { vm.stop() }
-        .onChange(of: vm.isReady) { ready in
+        .onChange(of: vm.isReady) { _, ready in
             guard ready, !didInvokeAgent, let cid = vm.canvasId else { return }
             if let msg = computeAgentMessage(from: entryContext) {
                 didInvokeAgent = true
@@ -300,12 +300,8 @@ extension CanvasScreen {
                 if let exerciseName = action.payload?["exercise_name"],
                    let field = action.payload?["field"],
                    let currentValue = action.payload?["current_value"] {
-                    let prompt = """
-                    Please update the \(field) for '\(exerciseName)' from \(currentValue) - what should the new value be?
-                    """
                     // For now, just log - TODO: implement inline number picker
                     print("[CanvasScreen] edit_set: \(exerciseName) \(field)=\(currentValue)")
-                    // firePrompt(prompt, resetCards: false)  // Could ask agent, but better to do inline
                 }
                 
             case "adjust_workout":

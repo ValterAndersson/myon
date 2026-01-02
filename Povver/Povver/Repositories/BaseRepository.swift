@@ -21,7 +21,7 @@ class FirestoreRepository<T: Codable>: BaseRepository {
     }
     
     func create(_ item: T) async throws {
-        try await collection.addDocument(from: item)
+        try collection.addDocument(from: item)
     }
     
     func read(id: String) async throws -> T? {
@@ -30,7 +30,7 @@ class FirestoreRepository<T: Codable>: BaseRepository {
     }
     
     func update(_ item: T, id: String) async throws {
-        try await collection.document(id).setData(from: item)
+        try collection.document(id).setData(from: item)
     }
     
     func delete(id: String) async throws {
@@ -41,4 +41,4 @@ class FirestoreRepository<T: Codable>: BaseRepository {
         let snapshot = try await collection.getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: T.self) }
     }
-} 
+}

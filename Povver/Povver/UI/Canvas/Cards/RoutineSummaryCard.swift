@@ -349,7 +349,7 @@ public struct RoutineSummaryCard: View {
     }
     
     private func removeExercise(at index: Int, from workoutId: String) {
-        withAnimation(.easeOut(duration: 0.2)) {
+        _ = withAnimation(.easeOut(duration: 0.2)) {
             editableExercises[workoutId]?.remove(at: index)
         }
     }

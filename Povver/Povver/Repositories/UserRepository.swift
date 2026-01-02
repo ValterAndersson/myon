@@ -22,7 +22,7 @@ class UserRepository {
     
     func updateUser(userId: String, user: User) async throws {
         do {
-            try await db.collection(collection).document(userId).setData(from: user, merge: true)
+            try db.collection(collection).document(userId).setData(from: user, merge: true)
         } catch {
             print("[UserRepository] updateUser error for userId \(userId): \(error)")
             throw error
@@ -105,7 +105,7 @@ class UserRepository {
         }
         let userRef = db.collection("users").document(id)
         let attributesRef = userRef.collection("user_attributes").document(id)
-        try await attributesRef.setData(from: attributes)
+        try attributesRef.setData(from: attributes)
     }
     
     func getUserAttributes(userId: String) async throws -> UserAttributes? {
@@ -125,7 +125,7 @@ class UserRepository {
     func addLinkedDevice(_ device: LinkedDevice, userId: String) async throws {
         let userRef = db.collection("users").document(userId)
         let devicesRef = userRef.collection("linked_devices").document(device.id)
-        try await devicesRef.setData(from: device)
+        try devicesRef.setData(from: device)
     }
     
     func removeLinkedDevice(deviceId: String, userId: String) async throws {
@@ -183,4 +183,4 @@ enum UserRepositoryError: LocalizedError {
             return "User not found"
         }
     }
-} 
+}

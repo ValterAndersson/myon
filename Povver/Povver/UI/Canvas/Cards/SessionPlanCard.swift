@@ -99,7 +99,7 @@ public struct SessionPlanCard: View {
                 editableExercises = exercises
             }
         }
-        .onChange(of: model.data) { newData in
+        .onChange(of: model.data) { _, newData in
             if case .sessionPlan(let exercises) = newData {
                 editableExercises = exercises
             }

@@ -5,13 +5,14 @@ import FirebaseFirestore
 class AuthService: ObservableObject {
     static let shared = AuthService()
     private let db = Firestore.firestore()
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
     
     @Published var isAuthenticated = false
     @Published var currentUser: FirebaseAuth.User?
     
     private init() {
         // Listen for auth state changes
-        Auth.auth().addStateDidChangeListener { [weak self] _, user in
+        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             self?.isAuthenticated = user != nil
             self?.currentUser = user
             
@@ -68,4 +69,4 @@ class AuthService: ObservableObject {
     func signOut() throws {
         try Auth.auth().signOut()
     }
-} 
+}

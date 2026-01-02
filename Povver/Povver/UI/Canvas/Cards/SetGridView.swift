@@ -460,8 +460,8 @@ private struct InlineEditingDock: View {
                         .focused($textFieldFocused)
                         .frame(width: 80)
                         .onSubmit { commitTextInput() }
-                        .onChange(of: textFieldFocused) { focused in
-                            if !focused { commitTextInput() }
+                        .onChange(of: textFieldFocused) { _, newFocused in
+                            if !newFocused { commitTextInput() }
                         }
                     Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
                 }
@@ -508,8 +508,8 @@ private struct InlineEditingDock: View {
                         .focused($textFieldFocused)
                         .frame(width: 70)
                         .onSubmit { commitTextInput() }
-                        .onChange(of: textFieldFocused) { focused in
-                            if !focused { commitTextInput() }
+                        .onChange(of: textFieldFocused) { _, newFocused in
+                            if !newFocused { commitTextInput() }
                         }
                     Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
                 }

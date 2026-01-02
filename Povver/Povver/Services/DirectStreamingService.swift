@@ -595,7 +595,7 @@ class DirectStreamingService: ObservableObject {
         let isFenceOpen = fenceCount % 2 == 1
 
         if let idx = cutIndex {
-            var commit = String(text[..<idx])
+            let commit = String(text[..<idx])
             if isFenceOpen {
                 // Keep everything if fence is open
                 return ("", text)
@@ -937,13 +937,13 @@ class DirectStreamingService: ObservableObject {
         if let query = args["query"] as? String {
             displayParts.append("\"\(query)\"")
         }
-        if let templateId = args["template_id"] as? String {
+        if args["template_id"] != nil {
             displayParts.append("template")
         }
-        if let workoutId = args["workout_id"] as? String {
+        if args["workout_id"] != nil {
             displayParts.append("workout")
         }
-        if let routineId = args["routine_id"] as? String {
+        if args["routine_id"] != nil {
             displayParts.append("routine")
         }
         

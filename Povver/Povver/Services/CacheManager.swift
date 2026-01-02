@@ -27,9 +27,9 @@ private struct CacheEntry<T: Codable>: Codable {
 }
 
 // MARK: - Cache Manager Protocol
-protocol CacheManagerProtocol {
-    func get<T: Codable>(_ key: String, type: T.Type) async -> T?
-    func set<T: Codable>(_ key: String, value: T, ttl: TimeInterval?) async
+protocol CacheManagerProtocol: Sendable {
+    func get<T: Codable & Sendable>(_ key: String, type: T.Type) async -> T?
+    func set<T: Codable & Sendable>(_ key: String, value: T, ttl: TimeInterval?) async
     func invalidate(matching pattern: String) async
     func invalidateAll() async
     func preload(keys: [String]) async
@@ -90,7 +90,7 @@ actor CacheManager: CacheManagerProtocol {
     
     // MARK: - Public Methods
     
-    func get<T: Codable>(_ key: String, type: T.Type) async -> T? {
+    func get<T: Codable & Sendable>(_ key: String, type: T.Type) async -> T? {
         let nsKey = key as NSString
         
         // Level 1: Memory cache (fastest)
@@ -118,7 +118,7 @@ actor CacheManager: CacheManagerProtocol {
         return nil
     }
     
-    func set<T: Codable>(_ key: String, value: T, ttl: TimeInterval? = nil) async {
+    func set<T: Codable & Sendable>(_ key: String, value: T, ttl: TimeInterval? = nil) async {
         let entry = CacheEntry(
             value: value,
             timestamp: Date(),
@@ -340,4 +340,4 @@ private extension String {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
     }
-} 
+}

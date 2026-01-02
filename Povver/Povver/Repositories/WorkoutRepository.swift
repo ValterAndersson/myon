@@ -28,7 +28,7 @@ class WorkoutRepository {
     
     func createWorkout(userId: String, workout: Workout) async throws -> String {
         return try await retry(times: 3, delay: 0.5) { [self] in
-            let ref = try await self.db.collection("users").document(userId).collection("workouts").addDocument(from: workout)
+            let ref = try self.db.collection("users").document(userId).collection("workouts").addDocument(from: workout)
             logger.debug("Workout created for user: \(userId)")
             return ref.documentID
         }
@@ -36,7 +36,7 @@ class WorkoutRepository {
     
     func updateWorkout(userId: String, id: String, workout: Workout) async throws {
         try await retry(times: 3, delay: 0.5) { [self] in
-            try await self.db.collection("users").document(userId).collection("workouts").document(id).setData(from: workout, merge: true)
+            try self.db.collection("users").document(userId).collection("workouts").document(id).setData(from: workout, merge: true)
             logger.debug("Workout updated for user: \(userId)")
         }
     }

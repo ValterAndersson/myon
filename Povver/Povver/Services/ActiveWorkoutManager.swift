@@ -21,7 +21,7 @@ class UserService: ObservableObject {
         Task {
             do {
                 // Load user attributes to get weight format
-                let attributes = try await userRepository.getUserAttributes(userId: userId)
+                _ = try await userRepository.getUserAttributes(userId: userId)
                 
                 // Also get the format from the document data
                 let db = Firestore.firestore()
@@ -730,4 +730,4 @@ enum WorkoutError: Error {
             return "Failed to save workout"
         }
     }
-} 
+}

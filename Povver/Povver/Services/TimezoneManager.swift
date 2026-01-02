@@ -2,7 +2,7 @@ import Foundation
 import FirebaseFirestore
 
 /// Centralized timezone management - simple storage and retrieval
-class TimezoneManager {
+final class TimezoneManager: @unchecked Sendable {
     static let shared = TimezoneManager()
     
     private let userRepository = UserRepository()
@@ -207,4 +207,4 @@ enum TimezoneError: LocalizedError {
             return "TimezoneManager was deallocated"
         }
     }
-} 
+}

@@ -40,7 +40,7 @@ struct StreamOverlay: View {
                 }
             }
         }
-        .onChange(of: isThinking) { newValue in
+        .onChange(of: isThinking) { _, newValue in
             if newValue {
                 withAnimation {
                     animationRotation = 360

@@ -340,10 +340,11 @@ class FocusModeWorkoutService: ObservableObject {
     
     /// Load existing active workout (for resume)
     func loadWorkout(workoutId: String) async throws {
-        isLoading = true
-        defer { isLoading = false }
-        
         // TODO: Call getActiveWorkout endpoint
+        // When implemented:
+        // isLoading = true
+        // defer { isLoading = false }
+        // ... actual implementation ...
     }
     
     // MARK: - Log Set (Hot Path)

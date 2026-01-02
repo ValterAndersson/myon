@@ -561,7 +561,7 @@ final class CanvasViewModel: ObservableObject {
         eventsListener?.remove()
         let db = Firestore.firestore()
         let eventsRef = db.collection("users").document(userId).collection("canvases").document(canvasId).collection("events").order(by: "created_at", descending: true).limit(to: 50)
-        eventsListener = eventsRef.addSnapshotListener { [weak self] snap, _ in
+        eventsListener = eventsRef.addSnapshotListener { snap, _ in
             guard let docs = snap?.documents else { return }
             for doc in docs {
                 if let payload = doc.data()["payload"] as? [String: Any], let correlation = payload["correlation_id"] as? String {

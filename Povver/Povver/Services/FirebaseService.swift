@@ -51,12 +51,12 @@ class FirebaseService: FirebaseServiceProtocol {
     }
     
     func addDocument<T: Codable>(collection: String, data: T) async throws -> String {
-        let docRef = try await db.collection(collection).addDocument(from: data)
+        let docRef = try db.collection(collection).addDocument(from: data)
         return docRef.documentID
     }
     
     func updateDocument<T: Codable>(collection: String, documentId: String, data: T) async throws {
-        try await db.collection(collection).document(documentId).setData(from: data)
+        try db.collection(collection).document(documentId).setData(from: data)
     }
     
     func deleteDocument(collection: String, documentId: String) async throws {
@@ -92,15 +92,15 @@ class FirebaseService: FirebaseServiceProtocol {
     }
     
     func addDocumentToSubcollection<T: Codable>(parentCollection: String, parentDocumentId: String, subcollection: String, data: T) async throws -> String {
-        let docRef = try await db.collection(parentCollection).document(parentDocumentId).collection(subcollection).addDocument(from: data)
+        let docRef = try db.collection(parentCollection).document(parentDocumentId).collection(subcollection).addDocument(from: data)
         return docRef.documentID
     }
     
     func updateDocumentInSubcollection<T: Codable>(parentCollection: String, parentDocumentId: String, subcollection: String, documentId: String, data: T) async throws {
-        try await db.collection(parentCollection).document(parentDocumentId).collection(subcollection).document(documentId).setData(from: data)
+        try db.collection(parentCollection).document(parentDocumentId).collection(subcollection).document(documentId).setData(from: data)
     }
     
     func deleteDocumentFromSubcollection(parentCollection: String, parentDocumentId: String, subcollection: String, documentId: String) async throws {
         try await db.collection(parentCollection).document(parentDocumentId).collection(subcollection).document(documentId).delete()
     }
-} 
+}

@@ -86,28 +86,28 @@ struct WorkspaceTimelineView: View {
                 scrollToBottom(proxy: proxy, animated: false)
             }
             // STICKY BOTTOM: Scroll when event count changes
-            .onChange(of: events.count) { newCount in
+            .onChange(of: events.count) { _, _ in
                 guard shouldAutoScroll else { return }
                 // Small delay to allow SwiftUI to render
                 scrollToBottom(proxy: proxy, animated: true)
             }
             // STICKY BOTTOM: Scroll when card count changes  
-            .onChange(of: embeddedCards.count) { newCount in
+            .onChange(of: embeddedCards.count) { _, _ in
                 guard shouldAutoScroll else { return }
                 scrollToBottom(proxy: proxy, animated: true)
             }
             // STICKY BOTTOM: Scroll when last event ID changes (for in-place updates)
-            .onChange(of: events.last?.id) { _ in
+            .onChange(of: events.last?.id) { _, _ in
                 guard shouldAutoScroll else { return }
                 scrollToBottom(proxy: proxy, animated: true)
             }
             // STICKY BOTTOM: Scroll when last card ID changes
-            .onChange(of: embeddedCards.last?.id) { _ in
+            .onChange(of: embeddedCards.last?.id) { _, _ in
                 guard shouldAutoScroll else { return }
                 scrollToBottom(proxy: proxy, animated: true)
             }
             // STICKY BOTTOM: Also scroll when timeline items change (catches synthesized events)
-            .onChange(of: timelineItems.count) { newCount in
+            .onChange(of: timelineItems.count) { _, newCount in
                 guard shouldAutoScroll else { return }
                 // Only scroll if count actually increased
                 if newCount > lastScrolledItemCount {
@@ -116,7 +116,7 @@ struct WorkspaceTimelineView: View {
                 }
             }
             // Re-enable auto-scroll when new streaming starts
-            .onChange(of: hasActiveThinking) { isActive in
+            .onChange(of: hasActiveThinking) { _, isActive in
                 if isActive {
                     shouldAutoScroll = true
                     lastScrolledItemCount = 0  // Reset so we scroll on new items
@@ -124,7 +124,7 @@ struct WorkspaceTimelineView: View {
                 }
             }
             // HIGH-FREQUENCY SCROLL: Also trigger on any event timestamp change
-            .onChange(of: events.last?.createdAt) { _ in
+            .onChange(of: events.last?.createdAt) { _, _ in
                 guard shouldAutoScroll else { return }
                 scrollToBottom(proxy: proxy, animated: true)
             }

@@ -26,7 +26,7 @@ struct CanvasActions {
         ApplyActionRequestDTO(canvasId: canvasId, expected_version: nil, action: CanvasActionDTO(type: "UNDO", card_id: nil, payload: nil, by: "user", idempotency_key: UUID().uuidString))
     }
     static func logSet(canvasId: String, workoutId: String, exerciseId: String, setIndex: Int, reps: Int, rir: Int, weight: Double?) -> ApplyActionRequestDTO {
-        var payload: [String: AnyCodable] = [
+        let payload: [String: AnyCodable] = [
             "workout_id": AnyCodable(workoutId),
             "exercise_id": AnyCodable(exerciseId),
             "set_index": AnyCodable(setIndex),
@@ -35,5 +35,3 @@ struct CanvasActions {
         return ApplyActionRequestDTO(canvasId: canvasId, expected_version: nil, action: CanvasActionDTO(type: "LOG_SET", card_id: nil, payload: payload, by: "user", idempotency_key: UUID().uuidString))
     }
 }
-
-

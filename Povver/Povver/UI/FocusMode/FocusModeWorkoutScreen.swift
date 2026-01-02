@@ -420,7 +420,7 @@ struct FocusModeWorkoutScreen: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: Space.sm) {
                 if let workout = service.workout {
-                    // LEFT ZONE: Name + Subline
+                    // LEFT ZONE: Name + Subline (minimum width, truncates gracefully)
                     VStack(alignment: .leading, spacing: 2) {
                         Button {
                             editingName = workout.name ?? "Workout"
@@ -430,6 +430,7 @@ struct FocusModeWorkoutScreen: View {
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(ColorsToken.Text.primary)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                         .buttonStyle(PlainButtonStyle())
                         
@@ -439,26 +440,29 @@ struct FocusModeWorkoutScreen: View {
                             Text(formatStartTime(workout.startTime))
                                 .font(.system(size: 13))
                                 .foregroundColor(ColorsToken.Text.secondary)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
-                    .layoutPriority(1)
+                    .frame(minWidth: 60)  // Minimum width to prevent total collapse
+                    .layoutPriority(2)    // Higher priority = gets more space, yields less
                     
-                    Spacer(minLength: Space.sm)
+                    Spacer(minLength: 4)
                     
-                    // CENTER ZONE: Timer Pill with Progress
+                    // CENTER ZONE: Timer Pill (lowest priority, yields first when space is tight)
                     TimerPill(
                         elapsedTime: elapsedTime,
                         completedSets: completedSets,
                         totalSets: totalSets
                     )
-                    .layoutPriority(2)
+                    .layoutPriority(0)    // Lowest priority = yields space first
                     
-                    Spacer(minLength: Space.sm)
+                    Spacer(minLength: 4)
                     
                     // RIGHT ZONE: Coach, Reorder, Ellipsis
                     // fixedSize prevents compression wrapping
-                    HStack(spacing: Space.sm) {
+                    HStack(spacing: Space.xs) {
                         // Coach button (primary AI action)
                         CoachButton {
                             presentSheet(.coach)
