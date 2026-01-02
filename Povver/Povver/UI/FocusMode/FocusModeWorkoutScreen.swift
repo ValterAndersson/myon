@@ -37,9 +37,10 @@ struct FocusModeWorkoutScreen: View {
     @State private var isHeroCollapsed = false
     @State private var measuredHeroHeight: CGFloat = 280  // Will be measured dynamically
     
-    // Hysteresis thresholds (relative to hero bottom)
-    private let collapseThreshold: CGFloat = 40   // Collapse when hero 40pt from fully gone
-    private let expandThreshold: CGFloat = 70     // Expand when hero 70pt from fully gone
+    // Debug: Show scroll values (set to true for debugging)
+    #if DEBUG
+    @State private var debugScrollMinY: CGFloat = 0
+    #endif
     
     // Timer state
     @State private var elapsedTime: TimeInterval = 0
@@ -479,22 +480,29 @@ struct FocusModeWorkoutScreen: View {
             }
             .coordinateSpace(name: "workoutScroll")
             .onPreferenceChange(HeroScrollStatePreferenceKey.self) { state in
-                // Hysteresis-based collapse detection using measured hero height
-                let heroHeight = state.heroHeight
+                // Simple collapse detection:
+                // Collapse when hero's top edge goes above 0 (meaning some scrolling has happened)
+                // Use hysteresis to avoid flickering
                 let minY = state.minY
+                let heroHeight = state.heroHeight
                 
-                // Calculate thresholds relative to hero bottom (minY + heroHeight)
-                // Collapse when hero bottom is less than collapseThreshold above scroll top
-                let shouldCollapse = minY < -heroHeight + collapseThreshold
-                // Expand when hero bottom is more than expandThreshold above scroll top
-                let shouldExpand = minY > -heroHeight + expandThreshold
+                // Hero bottom position = minY + heroHeight
+                // When hero bottom < 100pt, hero is mostly scrolled off -> collapse
+                // When hero bottom > 150pt, hero is back in view -> expand
+                let heroBottom = minY + heroHeight
+                let collapseThreshold: CGFloat = 100  // Collapse when only 100pt of hero visible
+                let expandThreshold: CGFloat = 150   // Expand when 150pt of hero visible
+                
+                #if DEBUG
+                debugScrollMinY = minY
+                #endif
                 
                 // Only update if crossing threshold in correct direction (hysteresis)
-                if shouldCollapse && !isHeroCollapsed {
+                if heroBottom < collapseThreshold && !isHeroCollapsed {
                     withAnimation(.easeInOut(duration: 0.15)) { 
                         isHeroCollapsed = true 
                     }
-                } else if shouldExpand && isHeroCollapsed {
+                } else if heroBottom > expandThreshold && isHeroCollapsed {
                     withAnimation(.easeInOut(duration: 0.15)) { 
                         isHeroCollapsed = false 
                     }
@@ -545,42 +553,123 @@ struct FocusModeWorkoutScreen: View {
         (service.workout?.exercises.count ?? 0) >= 2
     }
     
-    // MARK: - Nav Bar with ZStack Centering
+    // MARK: - Nav Bar (Fixed Height, Proper Layout)
     
-    /// Nav bar with true visual centering via ZStack:
-    /// - Bottom layer: HStack with left zone + right zone
-    /// - Top layer: Timer centered via frame(maxWidth: .infinity)
-    /// 
-    /// Key rules:
-    /// - Timer is ALWAYS tappable (not gated by collapse)
-    /// - Timer opacity: 0.65 when hero visible, 1.0 when collapsed
-    /// - Coach/Reorder/More appear only when collapsed AND not reordering
-    /// - Finish is disabled while reordering
+    /// Nav bar with fixed height and proper centering:
+    /// - Single HStack with left spacer / center timer / right actions
+    /// - Timer is ALWAYS tappable
+    /// - Icons appear only when collapsed
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             if service.workout != nil {
-                ZStack {
-                    // BOTTOM LAYER: Left + Right zones
-                    HStack(alignment: .center) {
-                        // LEFT ZONE: Workout name when collapsed (provides context)
-                        leftNavZone
-                        
-                        Spacer()
-                        
-                        // RIGHT ZONE: Collapsed actions + Finish
-                        rightNavZone
+                HStack(spacing: 0) {
+                    // LEFT ZONE: Workout name when collapsed OR empty spacer
+                    Group {
+                        if showCollapsedActions, let name = service.workout?.name {
+                            Text(name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: 100, alignment: .leading)
+                        } else {
+                            // Invisible placeholder to balance layout
+                            Color.clear.frame(width: 20)
+                        }
                     }
                     
-                    // TOP LAYER: Timer always centered
+                    Spacer()
+                    
+                    // CENTER ZONE: Timer (always tappable)
                     NavCompactTimer(elapsedTime: elapsedTime) {
                         presentSheet(.startTimeEditor)
                     }
                     .opacity(isHeroCollapsed ? 1.0 : 0.65)
-                    // Timer is ALWAYS tappable - no hit testing gate
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    Spacer()
+                    
+                    // RIGHT ZONE: Collapsed actions + Finish
+                    HStack(spacing: 2) {
+                        // Coach icon - only when collapsed and not reordering
+                        Button {
+                            presentSheet(.coach)
+                        } label: {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(ColorsToken.Brand.primary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(showCollapsedActions ? 1.0 : 0)
+                        .allowsHitTesting(showCollapsedActions)
+                        .accessibilityHidden(!showCollapsedActions)
+                        .accessibilityLabel("Coach")
+                        
+                        // Reorder icon - only when collapsed, has exercises, and not reordering
+                        Button {
+                            if canReorder { toggleReorderMode() }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(showCollapsedActions && canReorder ? 1.0 : 0)
+                        .allowsHitTesting(showCollapsedActions && canReorder)
+                        .accessibilityHidden(!(showCollapsedActions && canReorder))
+                        .accessibilityLabel("Reorder exercises")
+                        
+                        // More menu - only when collapsed and not reordering
+                        Menu {
+                            Button {
+                                editingName = service.workout?.name ?? "Workout"
+                                showingNameEditor = true
+                            } label: {
+                                Label("Edit Workout Name", systemImage: "pencil")
+                            }
+                            
+                            Button { presentSheet(.startTimeEditor) } label: {
+                                Label("Adjust Start Time", systemImage: "clock")
+                            }
+                            
+                            Button { /* TODO: Add note */ } label: {
+                                Label("Add Note", systemImage: "note.text")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.secondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .opacity(showCollapsedActions ? 1.0 : 0)
+                        .allowsHitTesting(showCollapsedActions)
+                        .accessibilityHidden(!showCollapsedActions)
+                        
+                        // Finish button - always visible, disabled while reordering
+                        Button {
+                            presentSheet(.finishWorkout)
+                        } label: {
+                            Text("Finish")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, Space.md)
+                                .frame(height: 36)
+                                .background(screenMode.isReordering 
+                                    ? ColorsToken.Brand.emeraldFill.opacity(0.4) 
+                                    : ColorsToken.Brand.emeraldFill)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .disabled(screenMode.isReordering)
+                        .contentShape(Capsule())
+                    }
                 }
+                .frame(height: 52)  // Fixed nav bar height
                 .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.sm)
                 .animation(.easeInOut(duration: 0.2), value: isHeroCollapsed)
                 .animation(.easeInOut(duration: 0.2), value: screenMode.isReordering)
             } else {
@@ -603,112 +692,13 @@ struct FocusModeWorkoutScreen: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
+                .frame(height: 52)  // Fixed nav bar height
                 .padding(.horizontal, Space.md)
-                .padding(.vertical, Space.sm)
             }
             
             Divider()
         }
         .background(ColorsToken.Background.screen)
-    }
-    
-    /// Left nav zone: shows workout name when collapsed for context
-    @ViewBuilder
-    private var leftNavZone: some View {
-        if showCollapsedActions, let name = service.workout?.name {
-            Text(name)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        } else {
-            // Empty spacer to balance layout
-            Color.clear
-                .frame(width: 1)
-        }
-    }
-    
-    /// Right nav zone: Coach + Reorder + More + Finish
-    @ViewBuilder
-    private var rightNavZone: some View {
-        HStack(spacing: Space.xs) {
-            // Coach icon - only when collapsed and not reordering
-            Button {
-                presentSheet(.coach)
-            } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(ColorsToken.Brand.primary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .opacity(showCollapsedActions ? 1.0 : 0)
-            .allowsHitTesting(showCollapsedActions)
-            .accessibilityHidden(!showCollapsedActions)
-            .accessibilityLabel("Coach")
-            
-            // Reorder icon - only when collapsed, has exercises, and not reordering
-            Button {
-                if canReorder { toggleReorderMode() }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .opacity(showCollapsedActions && canReorder ? 1.0 : 0)
-            .allowsHitTesting(showCollapsedActions && canReorder)
-            .accessibilityHidden(!(showCollapsedActions && canReorder))
-            .accessibilityLabel("Reorder exercises")
-            
-            // More menu - only when collapsed and not reordering
-            Menu {
-                Button {
-                    editingName = service.workout?.name ?? "Workout"
-                    showingNameEditor = true
-                } label: {
-                    Label("Edit Workout Name", systemImage: "pencil")
-                }
-                
-                Button { presentSheet(.startTimeEditor) } label: {
-                    Label("Adjust Start Time", systemImage: "clock")
-                }
-                
-                Button { /* TODO: Add note */ } label: {
-                    Label("Add Note", systemImage: "note.text")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .opacity(showCollapsedActions ? 1.0 : 0)
-            .allowsHitTesting(showCollapsedActions)
-            .accessibilityHidden(!showCollapsedActions)
-            
-            // Finish button - always visible, disabled while reordering
-            Button {
-                presentSheet(.finishWorkout)
-            } label: {
-                Text("Finish")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, Space.md)
-                    .frame(height: 44)  // 44pt tap target
-                    .background(screenMode.isReordering 
-                        ? ColorsToken.Brand.emeraldFill.opacity(0.4) 
-                        : ColorsToken.Brand.emeraldFill)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(PlainButtonStyle())
-            .disabled(screenMode.isReordering)
-            .contentShape(Capsule())
-        }
     }
     
     // MARK: - Start Time Editor Sheet
