@@ -60,33 +60,44 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
 
 // MARK: - Timer Pill
 
+/// Timer pill that adapts to available space using ViewThatFits.
+/// Priority: Full timer + progress > Timer only > Nothing (never happens)
 struct TimerPill: View {
     let elapsedTime: TimeInterval
     let completedSets: Int
     let totalSets: Int
     
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            // Full version: timer + progress
+            timerPillContent(showProgress: true)
+            
+            // Compact version: timer only
+            timerPillContent(showProgress: false)
+        }
+    }
+    
+    @ViewBuilder
+    private func timerPillContent(showProgress: Bool) -> some View {
         HStack(spacing: Space.xs) {
             Text(formatDuration(elapsedTime))
                 .font(.system(size: 14, weight: .medium).monospacedDigit())
                 .foregroundColor(ColorsToken.Text.primary)
-                .lineLimit(1)
             
-            if totalSets > 0 {
+            if showProgress && totalSets > 0 {
                 Text("·")
                     .foregroundColor(ColorsToken.Text.muted)
                 
                 Text("\(completedSets)/\(totalSets)")
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundColor(ColorsToken.Text.secondary)
-                    .lineLimit(1)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)  // Prevent internal wrapping
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
         .background(ColorsToken.Background.secondary)
         .clipShape(Capsule())
+        .fixedSize(horizontal: true, vertical: false)  // Each variant is fixed, but ViewThatFits picks which one
     }
     
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -126,35 +137,20 @@ struct CoachButton: View {
 
 // MARK: - Reorder Toggle Button
 
-/// Reorder toggle that collapses to icon-only on compact widths using ViewThatFits
+/// Reorder toggle - icon-only in header to save space
 struct ReorderToggleButton: View {
     let isReordering: Bool
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            ViewThatFits(in: .horizontal) {
-                // Preferred: text + icon
-                HStack(spacing: 4) {
-                    Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
-                        .font(.system(size: 12, weight: .medium))
-                    Text(isReordering ? "Done" : "Reorder")
-                        .font(.system(size: 14, weight: .medium))
-                }
+            Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
+                .font(.system(size: 16, weight: .medium))
                 .foregroundColor(isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
-                .padding(.horizontal, Space.sm)
-                .padding(.vertical, Space.xs)
-                
-                // Fallback: icon only
-                Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
-                    .frame(width: 32, height: 32)
-            }
+                .frame(width: 32, height: 32)
         }
         .buttonStyle(PlainButtonStyle())
         .accessibilityLabel(isReordering ? "Done reordering" : "Reorder exercises")
-        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

@@ -447,17 +447,17 @@ struct FocusModeWorkoutScreen: View {
                     }
                     .frame(minWidth: 70, alignment: .leading)
                     
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 4)
                     
-                    // CENTER ZONE: Timer Pill (fixed size, won't wrap internally)
+                    // CENTER ZONE: Timer Pill (uses ViewThatFits internally to collapse when tight)
                     TimerPill(
                         elapsedTime: elapsedTime,
                         completedSets: completedSets,
                         totalSets: totalSets
                     )
-                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(-1)  // Yields space first before left zone
                     
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 4)
                     
                     // RIGHT ZONE: Coach, Reorder, Ellipsis (fixed size, won't compress)
                     HStack(spacing: Space.xs) {
