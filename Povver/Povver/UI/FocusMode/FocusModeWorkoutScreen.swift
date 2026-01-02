@@ -399,19 +399,11 @@ struct FocusModeWorkoutScreen: View {
             // Normal mode: Hero + exercise sections with scroll tracking
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: []) {
-                    // Scroll offset tracker - must be first, always rendered
-                    // This GeometryReader continuously reports scroll position
-                    GeometryReader { geo in
-                        let scrollY = geo.frame(in: .named("workoutScroll")).minY
-                        Color.clear
-                            .preference(key: ScrollOffsetPreferenceKey.self, value: scrollY)
-                    }
-                    .frame(height: 0)
-                    
                     // Constant 8pt top padding - always present, no jumpiness
                     Color.clear.frame(height: Space.sm)
                     
                     // HERO: Workout identity + large timer
+                    // Use .onGeometryChange for continuous scroll tracking (iOS 16+)
                     WorkoutHero(
                         workoutName: workout.name ?? "Workout",
                         startTime: workout.startTime,
@@ -434,6 +426,40 @@ struct FocusModeWorkoutScreen: View {
                             handleHeroMenuAction(action, workout: workout)
                         }
                     )
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named("workoutScroll"))
+                    } action: { newFrame in
+                        // Continuous scroll tracking via onGeometryChange
+                        let heroBottom = newFrame.maxY
+                        let collapseThreshold: CGFloat = 100
+                        let expandThreshold: CGFloat = 150
+                        
+                        #if DEBUG
+                        debugScrollMinY = newFrame.minY
+                        // Throttled debug logging
+                        if Int(newFrame.minY) % 50 == 0 {
+                            print("🔍 [ScrollDebug] heroMinY=\(Int(newFrame.minY)) heroMaxY=\(Int(heroBottom)) collapsed=\(isHeroCollapsed)")
+                        }
+                        #endif
+                        
+                        // Hysteresis-based collapse detection
+                        if heroBottom < collapseThreshold && !isHeroCollapsed {
+                            print("🔍 [ScrollDebug] → COLLAPSING")
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isHeroCollapsed = true
+                            }
+                        } else if heroBottom > expandThreshold && isHeroCollapsed {
+                            print("🔍 [ScrollDebug] → EXPANDING")
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isHeroCollapsed = false
+                            }
+                        }
+                        
+                        // Update measured height
+                        if newFrame.height > 0 {
+                            measuredHeroHeight = newFrame.height
+                        }
+                    }
                     
                     // Empty state OR exercise list
                     if workout.exercises.isEmpty {
