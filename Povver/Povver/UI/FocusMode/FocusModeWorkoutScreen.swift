@@ -138,6 +138,7 @@ struct FocusModeWorkoutScreen: View {
             .background(ColorsToken.Background.screen)
         }
         .navigationBarHidden(true)
+        .toolbar(.hidden, for: .tabBar)  // Hide tab bar in Focus Mode
         .interactiveDismissDisabled(service.workout != nil)
         .onChange(of: screenMode) { _, newMode in
             // Sync List editMode with screenMode
@@ -186,6 +187,23 @@ struct FocusModeWorkoutScreen: View {
             }
         case .startTimeEditor:
             startTimeEditorSheet
+        case .finishWorkout:
+            FinishWorkoutSheet(
+                elapsedTime: elapsedTime,
+                completedSets: completedSets,
+                totalSets: totalSets,
+                onComplete: {
+                    activeSheet = nil
+                    finishWorkout()
+                },
+                onDiscard: {
+                    activeSheet = nil
+                    showingCancelConfirmation = true
+                },
+                onDismiss: {
+                    activeSheet = nil
+                }
+            )
         case .setTypePicker, .moreActions:
             // Handled in FocusModeSetGrid
             EmptyView()
@@ -435,12 +453,8 @@ struct FocusModeWorkoutScreen: View {
                         addExerciseButton
                             .padding(.top, Space.lg)
                         
-                        // Bottom CTA: Finish + Discard
-                        WorkoutBottomCTA(
-                            onFinish: { showingCompleteConfirmation = true },
-                            onDiscard: { showingCancelConfirmation = true },
-                            safeAreaBottom: safeAreaBottom
-                        )
+                        // Bottom spacer for scroll padding (no duplicate CTAs)
+                        Spacer(minLength: safeAreaBottom + Space.xl)
                     }
                 }
                 .padding(.horizontal, Space.md)
@@ -480,10 +494,15 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Minimal Nav Bar (Actions Only)
     
-    /// Strong-inspired minimal nav bar:
-    /// - Left: Empty (balanced with spacing)
-    /// - Center: Compact timer ONLY when hero is scrolled away
-    /// - Right: Coach icon + Reorder icon + Finish button
+    /// Minimal nav bar with action deduplication:
+    /// - Left: Empty (balanced)
+    /// - Center: Timer always visible, opacity fades based on hero visibility
+    /// - Right: Coach + Reorder (opacity + hit testing) + Finish button
+    /// 
+    /// Key rules:
+    /// - Timer is always rendered, but hit testing only when collapsed
+    /// - Coach/Reorder are always rendered (no reflow), but faded when hero visible
+    /// - Finish is always visible and tappable
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: Space.sm) {
@@ -491,34 +510,56 @@ struct FocusModeWorkoutScreen: View {
                     // LEFT ZONE: Empty, provides balance
                     Spacer()
                     
-                    // CENTER ZONE: Compact timer (only when hero collapsed)
-                    if isHeroCollapsed {
-                        NavCompactTimer(elapsedTime: elapsedTime) {
-                            presentSheet(.startTimeEditor)
-                        }
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    // CENTER ZONE: Timer always visible, but hit testing only when collapsed
+                    NavCompactTimer(elapsedTime: elapsedTime) {
+                        presentSheet(.startTimeEditor)
                     }
+                    .opacity(isHeroCollapsed ? 1.0 : 0.4)
+                    .allowsHitTesting(isHeroCollapsed)
                     
                     Spacer()
                     
-                    // RIGHT ZONE: Icon-only actions + Finish button
+                    // RIGHT ZONE: Always render all icons (no reflow), toggle opacity + hit testing
                     HStack(spacing: Space.xs) {
-                        // Coach icon (icon-only in nav)
-                        CoachIconButton {
-                            presentSheet(.coach)
-                        }
-                        
-                        // Reorder icon (only if exercises exist)
-                        if let workout = service.workout, !workout.exercises.isEmpty {
-                            ReorderToggleButton(
-                                isReordering: screenMode.isReordering,
-                                action: toggleReorderMode
-                            )
-                        }
-                        
-                        // Finish button (labeled, primary action)
+                        // Coach icon - always rendered, faded when hero visible
                         Button {
-                            showingCompleteConfirmation = true
+                            presentSheet(.coach)
+                        } label: {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(ColorsToken.Brand.primary)
+                                .frame(width: 44, height: 44)  // 44pt hit target
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(isHeroCollapsed ? 1.0 : 0)
+                        .allowsHitTesting(isHeroCollapsed)
+                        .accessibilityLabel("Coach")
+                        
+                        // Reorder icon - always rendered (even if no exercises), faded when hero visible
+                        // When <2 exercises, reserve slot but disable
+                        let hasEnoughExercises = (service.workout?.exercises.count ?? 0) >= 2
+                        Button {
+                            if hasEnoughExercises { toggleReorderMode() }
+                        } label: {
+                            Image(systemName: screenMode.isReordering ? "checkmark" : "arrow.up.arrow.down")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(
+                                    hasEnoughExercises
+                                        ? (screenMode.isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
+                                        : ColorsToken.Text.muted
+                                )
+                                .frame(width: 44, height: 44)  // 44pt hit target
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(isHeroCollapsed ? 1.0 : 0)
+                        .allowsHitTesting(isHeroCollapsed && hasEnoughExercises)
+                        .accessibilityLabel(screenMode.isReordering ? "Done reordering" : "Reorder exercises")
+                        
+                        // Finish button - always visible and tappable
+                        Button {
+                            presentSheet(.finishWorkout)
                         } label: {
                             Text("Finish")
                                 .font(.system(size: 15, weight: .semibold))
@@ -545,7 +586,10 @@ struct FocusModeWorkoutScreen: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 17, weight: .medium))
                             .foregroundColor(ColorsToken.Text.secondary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
             .padding(.horizontal, Space.md)

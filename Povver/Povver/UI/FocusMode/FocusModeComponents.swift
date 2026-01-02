@@ -44,6 +44,7 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
     case coach
     case exerciseSearch
     case startTimeEditor
+    case finishWorkout
     case setTypePicker(exerciseId: String, setId: String)
     case moreActions(exerciseId: String)
     
@@ -52,9 +53,147 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
         case .coach: return "coach"
         case .exerciseSearch: return "exerciseSearch"
         case .startTimeEditor: return "startTimeEditor"
+        case .finishWorkout: return "finishWorkout"
         case .setTypePicker(let exId, let setId): return "setTypePicker-\(exId)-\(setId)"
         case .moreActions(let exId): return "moreActions-\(exId)"
         }
+    }
+}
+
+// MARK: - Finish Workout Sheet
+
+/// Summary sheet for completing or discarding a workout
+/// Opened from nav Finish button - provides two-step confirmation flow
+struct FinishWorkoutSheet: View {
+    let elapsedTime: TimeInterval
+    let completedSets: Int
+    let totalSets: Int
+    let onComplete: () -> Void
+    let onDiscard: () -> Void
+    let onDismiss: () -> Void
+    
+    @State private var isLoading = false
+    @State private var errorMessage: String? = nil
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: Space.xl) {
+                // Summary stats
+                VStack(spacing: Space.lg) {
+                    // Duration
+                    statRow(
+                        icon: "clock.fill",
+                        label: "Duration",
+                        value: formatDuration(elapsedTime)
+                    )
+                    
+                    // Sets completed
+                    statRow(
+                        icon: "checkmark.circle.fill",
+                        label: "Sets Completed",
+                        value: "\(completedSets)/\(totalSets)"
+                    )
+                }
+                .padding(.top, Space.xl)
+                
+                Spacer()
+                
+                // Error message
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.system(size: 14))
+                        .foregroundColor(ColorsToken.State.error)
+                        .padding(.horizontal, Space.lg)
+                }
+                
+                // Action buttons
+                VStack(spacing: Space.sm) {
+                    // Complete - Primary CTA
+                    Button {
+                        isLoading = true
+                        onComplete()
+                    } label: {
+                        HStack(spacing: Space.sm) {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text("Complete Workout")
+                                .font(.system(size: 17, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(ColorsToken.Brand.emeraldFill)
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isLoading)
+                    
+                    // Discard - Destructive secondary
+                    Button {
+                        onDiscard()
+                    } label: {
+                        Text("Discard Workout")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(ColorsToken.State.error)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isLoading)
+                    .padding(.top, Space.xs)
+                }
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.xl)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ColorsToken.Background.primary)
+            .navigationTitle("Finish Workout")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                    .disabled(isLoading)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isLoading)
+    }
+    
+    private func statRow(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: Space.md) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(ColorsToken.Brand.primary)
+                .frame(width: 40)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.system(size: 14))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                
+                Text(value)
+                    .font(.system(size: 20, weight: .semibold).monospacedDigit())
+                    .foregroundColor(ColorsToken.Text.primary)
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, Space.lg)
+    }
+    
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+        let seconds = Int(interval) % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
@@ -262,32 +401,30 @@ struct WorkoutHero: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            // Title row with menu
-            HStack(alignment: .top) {
+            // Title row with menu - ellipsis pinned top-right
+            HStack(alignment: .top, spacing: Space.sm) {
+                // Title block with constraints
                 VStack(alignment: .leading, spacing: 4) {
-                    // Workout name (tappable to edit)
+                    // Workout name (tappable to edit) - lineLimit(2) + truncation
                     Button(action: onNameTap) {
-                        HStack(spacing: 4) {
-                            Text(workoutName)
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(ColorsToken.Text.primary)
-                            
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(ColorsToken.Text.muted)
-                        }
+                        Text(workoutName)
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(ColorsToken.Text.primary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .multilineTextAlignment(.leading)
                     }
                     .buttonStyle(PlainButtonStyle())
                     
-                    // Date/time subtitle
+                    // Date/time subtitle - lineLimit(1)
                     Text(formatStartTime(startTime))
                         .font(.system(size: 14))
                         .foregroundColor(ColorsToken.Text.secondary)
+                        .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 
-                Spacer()
-                
-                // Ellipsis menu
+                // Ellipsis menu - pinned, never affected by title wrap
                 Menu {
                     Button { onMenuAction(.editName) } label: {
                         Label("Edit Name", systemImage: "pencil")
@@ -315,18 +452,18 @@ struct WorkoutHero: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .fixedSize()  // Ellipsis never compresses
             }
             
-            // Large timer (tappable to edit start time)
+            // Large timer (tappable to edit start time) - guaranteed minimum space
             Button(action: onTimerTap) {
                 Text(formatDuration(elapsedTime))
                     .font(.system(size: 48, weight: .light).monospacedDigit())
                     .foregroundColor(ColorsToken.Text.primary)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, Space.md)
             }
             .buttonStyle(PlainButtonStyle())
-            .frame(minHeight: 44)
+            .frame(minHeight: 72)  // Guaranteed vertical space for timer
             .contentShape(Rectangle())
             
             // Progress microcopy
@@ -420,6 +557,7 @@ struct EmptyStateCard: View {
             // Bullet list instructions
             VStack(alignment: .leading, spacing: Space.sm) {
                 instructionRow(icon: "plus.circle", text: "Add an exercise from the library")
+                instructionRow(icon: "sparkles", text: "Or tap Coach for suggestions")
                 instructionRow(icon: "hand.tap", text: "Tap weight/reps to edit values")
                 instructionRow(icon: "checkmark.circle", text: "Tap ✓ to mark a set done")
             }
