@@ -492,8 +492,8 @@ struct FocusModeWorkoutScreen: View {
                         addExerciseButton
                             .padding(.top, Space.lg)
                         
-                        // Bottom spacer for scroll padding (no duplicate CTAs)
-                        Spacer(minLength: safeAreaBottom + Space.xl)
+                        // Bottom CTA Section: Finish + Discard
+                        bottomCTASection(safeAreaBottom: safeAreaBottom)
                     }
                 }
                 .padding(.horizontal, Space.md)
@@ -574,55 +574,28 @@ struct FocusModeWorkoutScreen: View {
         (service.workout?.exercises.count ?? 0) >= 2
     }
     
-    // MARK: - Nav Bar (ZStack for True Centering)
+    // MARK: - Nav Bar (Simplified: Timer center, Reorder, AI)
     
-    /// Nav bar using ZStack to truly center the timer:
-    /// - Bottom layer: HStack with left/right content
-    /// - Top layer: Timer centered absolutely
-    /// - Timer is ALWAYS tappable
-    /// - Icons appear only when collapsed
+    /// Simplified nav bar:
+    /// - Timer always centered
+    /// - Reorder + AI icons appear on right when collapsed
+    /// - No ellipsis, no Finish button (moved to bottom)
+    /// - No workout title
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             if service.workout != nil {
                 ZStack {
-                    // CENTER LAYER: Timer (truly centered, regardless of left/right content)
+                    // CENTER LAYER: Timer (truly centered)
                     NavCompactTimer(elapsedTime: elapsedTime) {
                         presentSheet(.startTimeEditor)
                     }
                     .opacity(isHeroCollapsed ? 1.0 : 0.65)
                     
-                    // OVERLAY LAYER: Left and Right zones
-                    HStack(spacing: 0) {
-                        // LEFT ZONE: Workout name when collapsed
-                        if showCollapsedActions, let name = service.workout?.name {
-                            Text(name)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(ColorsToken.Text.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: 80, alignment: .leading)
-                        }
-                        
+                    // RIGHT ZONE ONLY: Reorder + AI icons (order: Reorder, AI)
+                    HStack {
                         Spacer()
                         
-                        // RIGHT ZONE: Collapsed actions + Finish
-                        HStack(spacing: 2) {
-                            // Coach icon - only when collapsed and not reordering
-                            Button {
-                                presentSheet(.coach)
-                            } label: {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(ColorsToken.Brand.primary)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .opacity(showCollapsedActions ? 1.0 : 0)
-                            .allowsHitTesting(showCollapsedActions)
-                            .accessibilityHidden(!showCollapsedActions)
-                            .accessibilityLabel("Coach")
-                            
+                        HStack(spacing: 4) {
                             // Reorder icon - only when collapsed, has exercises, and not reordering
                             Button {
                                 if canReorder { toggleReorderMode() }
@@ -639,50 +612,21 @@ struct FocusModeWorkoutScreen: View {
                             .accessibilityHidden(!(showCollapsedActions && canReorder))
                             .accessibilityLabel("Reorder exercises")
                             
-                            // More menu - only when collapsed and not reordering
-                            Menu {
-                                Button {
-                                    editingName = service.workout?.name ?? "Workout"
-                                    showingNameEditor = true
-                                } label: {
-                                    Label("Edit Workout Name", systemImage: "pencil")
-                                }
-                                
-                                Button { presentSheet(.startTimeEditor) } label: {
-                                    Label("Adjust Start Time", systemImage: "clock")
-                                }
-                                
-                                Button { /* TODO: Add note */ } label: {
-                                    Label("Add Note", systemImage: "note.text")
-                                }
+                            // Coach/AI icon - only when collapsed and not reordering
+                            Button {
+                                presentSheet(.coach)
                             } label: {
-                                Image(systemName: "ellipsis.circle")
+                                Image(systemName: "sparkles")
                                     .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(ColorsToken.Text.secondary)
+                                    .foregroundColor(ColorsToken.Brand.primary)
                                     .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
                             }
+                            .buttonStyle(PlainButtonStyle())
                             .opacity(showCollapsedActions ? 1.0 : 0)
                             .allowsHitTesting(showCollapsedActions)
                             .accessibilityHidden(!showCollapsedActions)
-                            
-                            // Finish button - always visible, disabled while reordering
-                            Button {
-                                presentSheet(.finishWorkout)
-                            } label: {
-                                Text("Finish")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, Space.md)
-                                    .frame(height: 36)
-                                    .background(screenMode.isReordering 
-                                        ? ColorsToken.Brand.emeraldFill.opacity(0.4) 
-                                        : ColorsToken.Brand.emeraldFill)
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .disabled(screenMode.isReordering)
-                            .contentShape(Capsule())
+                            .accessibilityLabel("Coach")
                         }
                     }
                 }
@@ -907,6 +851,40 @@ struct FocusModeWorkoutScreen: View {
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
+    }
+    
+    // MARK: - Bottom CTA Section
+    
+    /// Bottom CTA section with Finish and Discard buttons
+    /// This replaces the nav bar Finish button for better layout
+    private func bottomCTASection(safeAreaBottom: CGFloat) -> some View {
+        VStack(spacing: Space.md) {
+            // Finish Workout - Primary CTA
+            Button {
+                presentSheet(.finishWorkout)
+            } label: {
+                Text("Finish Workout")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(ColorsToken.Brand.emeraldFill)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Discard Workout - Destructive secondary (text link style)
+            Button {
+                showingCancelConfirmation = true
+            } label: {
+                Text("Discard Workout")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(ColorsToken.State.error)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.top, Space.xl)
+        .padding(.bottom, safeAreaBottom + Space.lg)
     }
     
     // MARK: - Timer
