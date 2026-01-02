@@ -470,21 +470,33 @@ struct EmptyStateCard: View {
 // MARK: - Reorder Mode Banner
 
 struct ReorderModeBanner: View {
+    var onDone: (() -> Void)? = nil
+    
     var body: some View {
         HStack {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(ColorsToken.Brand.primary)
             
             Text("Reorder exercises")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(ColorsToken.Text.primary)
             
             Spacer()
+            
+            // Done button to exit reorder mode
+            if let onDone = onDone {
+                Button(action: onDone) {
+                    Text("Done")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(ColorsToken.Brand.primary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Brand.accent100.opacity(0.5))
+        .background(ColorsToken.Brand.primary.opacity(0.08))
     }
 }
 

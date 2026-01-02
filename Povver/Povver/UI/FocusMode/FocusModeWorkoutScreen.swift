@@ -119,7 +119,7 @@ struct FocusModeWorkoutScreen: View {
                 
                 // Reorder mode banner
                 if screenMode.isReordering {
-                    ReorderModeBanner()
+                    ReorderModeBanner(onDone: toggleReorderMode)
                 }
                 
                 // Main content
