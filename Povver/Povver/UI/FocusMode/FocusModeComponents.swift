@@ -68,18 +68,25 @@ struct FinishWorkoutSheet: View {
     let elapsedTime: TimeInterval
     let completedSets: Int
     let totalSets: Int
+    let exerciseCount: Int
     let onComplete: () -> Void
     let onDiscard: () -> Void
     let onDismiss: () -> Void
     
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
+    @State private var showDiscardConfirmation = false
+    
+    /// Complete is disabled when there are no exercises
+    private var canComplete: Bool {
+        exerciseCount > 0
+    }
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: Space.xl) {
-                // Summary stats
-                VStack(spacing: Space.lg) {
+            VStack(spacing: Space.lg) {
+                // Summary stats - tighter spacing
+                VStack(spacing: Space.md) {
                     // Duration
                     statRow(
                         icon: "clock.fill",
@@ -93,10 +100,15 @@ struct FinishWorkoutSheet: View {
                         label: "Sets Completed",
                         value: "\(completedSets)/\(totalSets)"
                     )
+                    
+                    // Exercise count
+                    statRow(
+                        icon: "dumbbell.fill",
+                        label: "Exercises",
+                        value: "\(exerciseCount)"
+                    )
                 }
-                .padding(.top, Space.xl)
-                
-                Spacer()
+                .padding(.top, Space.lg)
                 
                 // Error message
                 if let error = errorMessage {
@@ -106,8 +118,10 @@ struct FinishWorkoutSheet: View {
                         .padding(.horizontal, Space.lg)
                 }
                 
-                // Action buttons
-                VStack(spacing: Space.sm) {
+                Spacer(minLength: Space.lg)
+                
+                // Action buttons - tighter grouping
+                VStack(spacing: Space.md) {
                     // Complete - Primary CTA
                     Button {
                         isLoading = true
@@ -123,27 +137,32 @@ struct FinishWorkoutSheet: View {
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(ColorsToken.Brand.emeraldFill)
+                        .frame(height: 52)
+                        .background(canComplete ? ColorsToken.Brand.emeraldFill : ColorsToken.Brand.emeraldFill.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     }
                     .buttonStyle(PlainButtonStyle())
-                    .disabled(isLoading)
+                    .disabled(isLoading || !canComplete)
                     
-                    // Discard - Destructive secondary
+                    // Discard - Outlined destructive button
                     Button {
-                        onDiscard()
+                        showDiscardConfirmation = true
                     } label: {
                         Text("Discard Workout")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(ColorsToken.State.error)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
+                                    .stroke(ColorsToken.State.error, lineWidth: 1.5)
+                            )
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(isLoading)
-                    .padding(.top, Space.xs)
                 }
                 .padding(.horizontal, Space.lg)
-                .padding(.bottom, Space.xl)
+                .padding(.bottom, Space.lg)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(ColorsToken.Background.primary)
@@ -157,6 +176,14 @@ struct FinishWorkoutSheet: View {
                     .disabled(isLoading)
                 }
             }
+            .confirmationDialog("Discard Workout?", isPresented: $showDiscardConfirmation) {
+                Button("Discard", role: .destructive) {
+                    onDiscard()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Your progress will not be saved.")
+            }
         }
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
@@ -166,17 +193,17 @@ struct FinishWorkoutSheet: View {
     private func statRow(icon: String, label: String, value: String) -> some View {
         HStack(spacing: Space.md) {
             Image(systemName: icon)
-                .font(.system(size: 24))
+                .font(.system(size: 22))
                 .foregroundColor(ColorsToken.Brand.primary)
-                .frame(width: 40)
+                .frame(width: 36)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(ColorsToken.Text.secondary)
                 
                 Text(value)
-                    .font(.system(size: 20, weight: .semibold).monospacedDigit())
+                    .font(.system(size: 18, weight: .semibold).monospacedDigit())
                     .foregroundColor(ColorsToken.Text.primary)
             }
             
@@ -199,19 +226,54 @@ struct FinishWorkoutSheet: View {
 
 // MARK: - Hero Visibility PreferenceKey
 
-/// PreferenceKey to track hero visibility based on scroll position
+/// PreferenceKey to track hero scroll state with measured values
+struct HeroScrollStatePreferenceKey: PreferenceKey {
+    struct Value: Equatable {
+        let minY: CGFloat
+        let heroHeight: CGFloat
+        
+        static var defaultValue: Value { Value(minY: 0, heroHeight: 280) }
+    }
+    
+    static var defaultValue: Value = .defaultValue
+    
+    static func reduce(value: inout Value, nextValue: () -> Value) {
+        value = nextValue()
+    }
+}
+
+/// View modifier to report hero scroll state with measured height
+/// Place this at the bottom of the hero card to measure its height
+struct HeroScrollStateReader: View {
+    var body: some View {
+        GeometryReader { geo in
+            let frame = geo.frame(in: .named("workoutScroll"))
+            Color.clear
+                .preference(
+                    key: HeroScrollStatePreferenceKey.self,
+                    value: HeroScrollStatePreferenceKey.Value(
+                        minY: frame.minY,
+                        heroHeight: frame.height
+                    )
+                )
+        }
+        .frame(height: 0)
+    }
+}
+
+/// Legacy compatibility - maps to new system
 struct HeroVisibilityPreferenceKey: PreferenceKey {
-    static var defaultValue: Bool = true  // Hero visible by default
+    static var defaultValue: Bool = true
     
     static func reduce(value: inout Bool, nextValue: () -> Bool) {
         value = nextValue()
     }
 }
 
-/// View modifier to report hero visibility based on its position
+/// Legacy compatibility view
 struct HeroVisibilityReader: View {
     let heroHeight: CGFloat
-    let threshold: CGFloat  // How much of hero must be hidden to trigger collapse
+    let threshold: CGFloat
     
     var body: some View {
         GeometryReader { geo in
@@ -227,7 +289,14 @@ struct HeroVisibilityReader: View {
 
 // MARK: - Nav Compact Timer
 
-/// Compact timer for nav bar center - tappable, fixed width to prevent layout shift
+/// Compact timer for nav bar center - ALWAYS tappable, fixed width to prevent layout shift
+/// 
+/// Key design rules:
+/// - Always tappable (no hit testing gate based on collapse state)
+/// - Opacity controlled externally (0.65 when hero visible, 1.0 when collapsed)
+/// - Stable minWidth of 72pt for mm:ss format (prevents jitter on 09:59 → 10:00)
+/// - Uses .foregroundStyle(.primary) to ensure it never looks disabled
+/// - 44pt minimum tap target for accessibility
 struct NavCompactTimer: View {
     let elapsedTime: TimeInterval
     let onTap: () -> Void
@@ -236,16 +305,18 @@ struct NavCompactTimer: View {
         Button(action: onTap) {
             Text(formatDuration(elapsedTime))
                 .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
-                .frame(minWidth: 64, alignment: .center)
+                .foregroundStyle(.primary)  // Never looks disabled
+                .frame(minWidth: 72, alignment: .center)  // Stable width for mm:ss → h:mm:ss
                 .padding(.horizontal, Space.sm)
                 .padding(.vertical, 6)
                 .background(ColorsToken.Background.secondary)
                 .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
-        .frame(minWidth: 80, minHeight: 44)  // 44pt hit target
+        .frame(minWidth: 88, minHeight: 44)  // 44pt hit target, accommodates h:mm:ss
         .contentShape(Rectangle())
+        .accessibilityLabel("Workout duration: \(formatAccessibleDuration(elapsedTime))")
+        .accessibilityHint("Tap to adjust start time")
     }
     
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -257,6 +328,17 @@ struct NavCompactTimer: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    private func formatAccessibleDuration(_ interval: TimeInterval) -> String {
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+        let seconds = Int(interval) % 60
+        
+        if hours > 0 {
+            return "\(hours) hours, \(minutes) minutes, \(seconds) seconds"
+        }
+        return "\(minutes) minutes, \(seconds) seconds"
     }
 }
 

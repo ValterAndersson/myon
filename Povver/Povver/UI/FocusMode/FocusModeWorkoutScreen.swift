@@ -33,8 +33,13 @@ struct FocusModeWorkoutScreen: View {
     // Reorder toggle debounce
     @State private var isReorderTransitioning = false
     
-    // Scroll tracking for hero collapse
+    // Scroll tracking for hero collapse with hysteresis
     @State private var isHeroCollapsed = false
+    @State private var measuredHeroHeight: CGFloat = 280  // Will be measured dynamically
+    
+    // Hysteresis thresholds (relative to hero bottom)
+    private let collapseThreshold: CGFloat = 40   // Collapse when hero 40pt from fully gone
+    private let expandThreshold: CGFloat = 70     // Expand when hero 70pt from fully gone
     
     // Timer state
     @State private var elapsedTime: TimeInterval = 0
@@ -192,6 +197,7 @@ struct FocusModeWorkoutScreen: View {
                 elapsedTime: elapsedTime,
                 completedSets: completedSets,
                 totalSets: totalSets,
+                exerciseCount: service.workout?.exercises.count ?? 0,
                 onComplete: {
                     activeSheet = nil
                     finishWorkout()
@@ -369,13 +375,11 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Workout Content
     
-    /// Height of the hero for collapse detection
-    private let heroHeight: CGFloat = 280
-    
     @ViewBuilder
     private func workoutContent(_ workout: FocusModeWorkout, safeAreaBottom: CGFloat) -> some View {
         if screenMode.isReordering {
             // Reorder mode: simplified list with drag handles
+            // All other interactions are disabled
             List {
                 ForEach(workout.exercises) { exercise in
                     ExerciseReorderRow(exercise: exercise)
@@ -394,10 +398,11 @@ struct FocusModeWorkoutScreen: View {
             // Normal mode: Hero + exercise sections with scroll tracking
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: []) {
-                    // Hero visibility tracker (invisible, at top)
-                    HeroVisibilityReader(heroHeight: heroHeight, threshold: 60)
+                    // Constant 8pt top padding - always present, no jumpiness
+                    Color.clear.frame(height: Space.sm)
                     
                     // HERO: Workout identity + large timer
+                    // Use background GeometryReader to measure hero height
                     WorkoutHero(
                         workoutName: workout.name ?? "Workout",
                         startTime: workout.startTime,
@@ -420,7 +425,20 @@ struct FocusModeWorkoutScreen: View {
                             handleHeroMenuAction(action, workout: workout)
                         }
                     )
-                    .padding(.top, Space.md)
+                    .background(
+                        // Measure hero scroll position for hysteresis-based collapse detection
+                        GeometryReader { geo in
+                            let frame = geo.frame(in: .named("workoutScroll"))
+                            Color.clear
+                                .preference(
+                                    key: HeroScrollStatePreferenceKey.self,
+                                    value: HeroScrollStatePreferenceKey.Value(
+                                        minY: frame.minY,
+                                        heroHeight: frame.height
+                                    )
+                                )
+                        }
+                    )
                     
                     // Empty state OR exercise list
                     if workout.exercises.isEmpty {
@@ -449,7 +467,7 @@ struct FocusModeWorkoutScreen: View {
                             .padding(.top, Space.md)
                         }
                         
-                        // Add Exercise Button
+                        // Add Exercise Button (hidden during reorder mode via parent check)
                         addExerciseButton
                             .padding(.top, Space.lg)
                         
@@ -460,9 +478,31 @@ struct FocusModeWorkoutScreen: View {
                 .padding(.horizontal, Space.md)
             }
             .coordinateSpace(name: "workoutScroll")
-            .onPreferenceChange(HeroVisibilityPreferenceKey.self) { isVisible in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isHeroCollapsed = !isVisible
+            .onPreferenceChange(HeroScrollStatePreferenceKey.self) { state in
+                // Hysteresis-based collapse detection using measured hero height
+                let heroHeight = state.heroHeight
+                let minY = state.minY
+                
+                // Calculate thresholds relative to hero bottom (minY + heroHeight)
+                // Collapse when hero bottom is less than collapseThreshold above scroll top
+                let shouldCollapse = minY < -heroHeight + collapseThreshold
+                // Expand when hero bottom is more than expandThreshold above scroll top
+                let shouldExpand = minY > -heroHeight + expandThreshold
+                
+                // Only update if crossing threshold in correct direction (hysteresis)
+                if shouldCollapse && !isHeroCollapsed {
+                    withAnimation(.easeInOut(duration: 0.15)) { 
+                        isHeroCollapsed = true 
+                    }
+                } else if shouldExpand && isHeroCollapsed {
+                    withAnimation(.easeInOut(duration: 0.15)) { 
+                        isHeroCollapsed = false 
+                    }
+                }
+                
+                // Update measured height for future reference
+                if heroHeight > 0 {
+                    measuredHeroHeight = heroHeight
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -492,88 +532,60 @@ struct FocusModeWorkoutScreen: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
-    // MARK: - Minimal Nav Bar (Actions Only)
+    // MARK: - Computed Flags for Nav
     
-    /// Minimal nav bar with action deduplication:
-    /// - Left: Empty (balanced)
-    /// - Center: Timer always visible, opacity fades based on hero visibility
-    /// - Right: Coach + Reorder (opacity + hit testing) + Finish button
+    /// Whether to show collapsed actions (Coach/Reorder/More)
+    /// True when hero is collapsed AND not in reorder mode
+    private var showCollapsedActions: Bool {
+        isHeroCollapsed && !screenMode.isReordering
+    }
+    
+    /// Whether reorder is possible (>= 2 exercises)
+    private var canReorder: Bool {
+        (service.workout?.exercises.count ?? 0) >= 2
+    }
+    
+    // MARK: - Nav Bar with ZStack Centering
+    
+    /// Nav bar with true visual centering via ZStack:
+    /// - Bottom layer: HStack with left zone + right zone
+    /// - Top layer: Timer centered via frame(maxWidth: .infinity)
     /// 
     /// Key rules:
-    /// - Timer is always rendered, but hit testing only when collapsed
-    /// - Coach/Reorder are always rendered (no reflow), but faded when hero visible
-    /// - Finish is always visible and tappable
+    /// - Timer is ALWAYS tappable (not gated by collapse)
+    /// - Timer opacity: 0.65 when hero visible, 1.0 when collapsed
+    /// - Coach/Reorder/More appear only when collapsed AND not reordering
+    /// - Finish is disabled while reordering
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: Space.sm) {
-                if service.workout != nil {
-                    // LEFT ZONE: Empty, provides balance
-                    Spacer()
+            if service.workout != nil {
+                ZStack {
+                    // BOTTOM LAYER: Left + Right zones
+                    HStack(alignment: .center) {
+                        // LEFT ZONE: Workout name when collapsed (provides context)
+                        leftNavZone
+                        
+                        Spacer()
+                        
+                        // RIGHT ZONE: Collapsed actions + Finish
+                        rightNavZone
+                    }
                     
-                    // CENTER ZONE: Timer always visible, but hit testing only when collapsed
+                    // TOP LAYER: Timer always centered
                     NavCompactTimer(elapsedTime: elapsedTime) {
                         presentSheet(.startTimeEditor)
                     }
-                    .opacity(isHeroCollapsed ? 1.0 : 0.4)
-                    .allowsHitTesting(isHeroCollapsed)
-                    
-                    Spacer()
-                    
-                    // RIGHT ZONE: Always render all icons (no reflow), toggle opacity + hit testing
-                    HStack(spacing: Space.xs) {
-                        // Coach icon - always rendered, faded when hero visible
-                        Button {
-                            presentSheet(.coach)
-                        } label: {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(ColorsToken.Brand.primary)
-                                .frame(width: 44, height: 44)  // 44pt hit target
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .opacity(isHeroCollapsed ? 1.0 : 0)
-                        .allowsHitTesting(isHeroCollapsed)
-                        .accessibilityLabel("Coach")
-                        
-                        // Reorder icon - always rendered (even if no exercises), faded when hero visible
-                        // When <2 exercises, reserve slot but disable
-                        let hasEnoughExercises = (service.workout?.exercises.count ?? 0) >= 2
-                        Button {
-                            if hasEnoughExercises { toggleReorderMode() }
-                        } label: {
-                            Image(systemName: screenMode.isReordering ? "checkmark" : "arrow.up.arrow.down")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(
-                                    hasEnoughExercises
-                                        ? (screenMode.isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
-                                        : ColorsToken.Text.muted
-                                )
-                                .frame(width: 44, height: 44)  // 44pt hit target
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .opacity(isHeroCollapsed ? 1.0 : 0)
-                        .allowsHitTesting(isHeroCollapsed && hasEnoughExercises)
-                        .accessibilityLabel(screenMode.isReordering ? "Done reordering" : "Reorder exercises")
-                        
-                        // Finish button - always visible and tappable
-                        Button {
-                            presentSheet(.finishWorkout)
-                        } label: {
-                            Text("Finish")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, Space.md)
-                                .padding(.vertical, 8)
-                                .background(ColorsToken.Brand.emeraldFill)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                } else {
-                    // Pre-workout state
+                    .opacity(isHeroCollapsed ? 1.0 : 0.65)
+                    // Timer is ALWAYS tappable - no hit testing gate
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.sm)
+                .animation(.easeInOut(duration: 0.2), value: isHeroCollapsed)
+                .animation(.easeInOut(duration: 0.2), value: screenMode.isReordering)
+            } else {
+                // Pre-workout state
+                HStack {
                     Text("Start Workout")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(ColorsToken.Text.primary)
@@ -591,14 +603,112 @@ struct FocusModeWorkoutScreen: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
+                .padding(.horizontal, Space.md)
+                .padding(.vertical, Space.sm)
             }
-            .padding(.horizontal, Space.md)
-            .padding(.vertical, Space.sm)
-            .animation(.easeInOut(duration: 0.2), value: isHeroCollapsed)
             
             Divider()
         }
         .background(ColorsToken.Background.screen)
+    }
+    
+    /// Left nav zone: shows workout name when collapsed for context
+    @ViewBuilder
+    private var leftNavZone: some View {
+        if showCollapsedActions, let name = service.workout?.name {
+            Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(ColorsToken.Text.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            // Empty spacer to balance layout
+            Color.clear
+                .frame(width: 1)
+        }
+    }
+    
+    /// Right nav zone: Coach + Reorder + More + Finish
+    @ViewBuilder
+    private var rightNavZone: some View {
+        HStack(spacing: Space.xs) {
+            // Coach icon - only when collapsed and not reordering
+            Button {
+                presentSheet(.coach)
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(ColorsToken.Brand.primary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            .opacity(showCollapsedActions ? 1.0 : 0)
+            .allowsHitTesting(showCollapsedActions)
+            .accessibilityHidden(!showCollapsedActions)
+            .accessibilityLabel("Coach")
+            
+            // Reorder icon - only when collapsed, has exercises, and not reordering
+            Button {
+                if canReorder { toggleReorderMode() }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            .opacity(showCollapsedActions && canReorder ? 1.0 : 0)
+            .allowsHitTesting(showCollapsedActions && canReorder)
+            .accessibilityHidden(!(showCollapsedActions && canReorder))
+            .accessibilityLabel("Reorder exercises")
+            
+            // More menu - only when collapsed and not reordering
+            Menu {
+                Button {
+                    editingName = service.workout?.name ?? "Workout"
+                    showingNameEditor = true
+                } label: {
+                    Label("Edit Workout Name", systemImage: "pencil")
+                }
+                
+                Button { presentSheet(.startTimeEditor) } label: {
+                    Label("Adjust Start Time", systemImage: "clock")
+                }
+                
+                Button { /* TODO: Add note */ } label: {
+                    Label("Add Note", systemImage: "note.text")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .opacity(showCollapsedActions ? 1.0 : 0)
+            .allowsHitTesting(showCollapsedActions)
+            .accessibilityHidden(!showCollapsedActions)
+            
+            // Finish button - always visible, disabled while reordering
+            Button {
+                presentSheet(.finishWorkout)
+            } label: {
+                Text("Finish")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, Space.md)
+                    .frame(height: 44)  // 44pt tap target
+                    .background(screenMode.isReordering 
+                        ? ColorsToken.Brand.emeraldFill.opacity(0.4) 
+                        : ColorsToken.Brand.emeraldFill)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(screenMode.isReordering)
+            .contentShape(Capsule())
+        }
     }
     
     // MARK: - Start Time Editor Sheet
