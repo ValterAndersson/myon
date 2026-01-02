@@ -606,6 +606,63 @@ class FocusModeWorkoutService: ObservableObject {
         return try await syncPatch(request)
     }
     
+    /// Remove an exercise from the workout
+    func removeExercise(exerciseInstanceId: String) async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+        
+        // 1. Apply optimistically - remove exercise immediately
+        var updatedWorkout = workout
+        updatedWorkout.exercises.removeAll { $0.instanceId == exerciseInstanceId }
+        
+        // Update positions
+        for i in updatedWorkout.exercises.indices {
+            updatedWorkout.exercises[i].position = i
+        }
+        
+        // Recalculate totals
+        updatedWorkout.totals = recalculateTotals(for: updatedWorkout)
+        
+        self.workout = updatedWorkout
+        
+        // Haptic feedback
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        
+        print("[removeExercise] Optimistically removed exercise: \(exerciseInstanceId)")
+        
+        // 2. Build and send request
+        let idempotencyKey = idempotencyHelper.generate(context: "removeExercise", exerciseId: exerciseInstanceId)
+        
+        let op = PatchOperationDTO(
+            op: "remove_exercise",
+            target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: nil),
+            field: nil,
+            value: nil
+        )
+        
+        let request = PatchActiveWorkoutRequest(
+            workoutId: workout.id,
+            ops: [op],
+            cause: "user_edit",
+            uiSource: "menu_delete",
+            idempotencyKey: idempotencyKey,
+            clientTimestamp: ISO8601DateFormatter().string(from: Date()),
+            aiScope: nil
+        )
+        
+        do {
+            let _ = try await syncPatch(request)
+            print("[removeExercise] Synced to backend")
+        } catch {
+            print("[removeExercise] Sync failed: \(error)")
+            // Rollback: re-fetch from server or restore
+            // For now, we don't rollback since local state is source of truth during session
+            self.error = "Failed to sync exercise removal"
+            throw error
+        }
+    }
+    
     // MARK: - Workout Lifecycle Actions
     
     /// Cancel (discard) the active workout
@@ -1216,9 +1273,37 @@ private struct PatchActiveWorkoutResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case eventId = "event_id"
-        case totals
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let success: Bool?
+        let eventId: String?
+        let totals: WorkoutTotals?
+        
+        enum CodingKeys: String, CodingKey {
+            case success
+            case eventId = "event_id"
+            case totals
+        }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Get top-level success
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // Try to decode from nested data wrapper (new response format)
+        if let data = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.eventId = data.eventId
+            self.totals = data.totals
+        } else {
+            self.eventId = nil
+            self.totals = nil
+        }
     }
 }
 

@@ -36,6 +36,7 @@ struct FocusModeWorkoutScreen: View {
     // Scroll tracking for hero collapse with hysteresis
     @State private var isHeroCollapsed = false
     @State private var measuredHeroHeight: CGFloat = 280  // Will be measured dynamically
+    @State private var hasInitializedScroll = false  // Guards against false initial collapse
     
     // Debug: Show scroll values (set to true for debugging)
     #if DEBUG
@@ -434,15 +435,31 @@ struct FocusModeWorkoutScreen: View {
                         let collapseThreshold: CGFloat = 100
                         let expandThreshold: CGFloat = 150
                         
+                        // Update measured height
+                        if newFrame.height > 0 {
+                            measuredHeroHeight = newFrame.height
+                        }
+                        
                         #if DEBUG
                         debugScrollMinY = newFrame.minY
                         // Throttled debug logging
                         if Int(newFrame.minY) % 50 == 0 {
-                            print("🔍 [ScrollDebug] heroMinY=\(Int(newFrame.minY)) heroMaxY=\(Int(heroBottom)) collapsed=\(isHeroCollapsed)")
+                            print("🔍 [ScrollDebug] heroMinY=\(Int(newFrame.minY)) heroMaxY=\(Int(heroBottom)) collapsed=\(isHeroCollapsed) initialized=\(hasInitializedScroll)")
                         }
                         #endif
                         
-                        // Hysteresis-based collapse detection
+                        // GUARD: On first render, confirm hero is visible before allowing collapse
+                        // This prevents false collapse when onGeometryChange fires with stale values
+                        if !hasInitializedScroll {
+                            // Hero is considered "properly visible" when bottom > expandThreshold
+                            if heroBottom > expandThreshold {
+                                hasInitializedScroll = true
+                                print("🔍 [ScrollDebug] ✅ Scroll initialized (heroBottom=\(Int(heroBottom)))")
+                            }
+                            return  // Skip collapse detection until initialized
+                        }
+                        
+                        // Hysteresis-based collapse detection (only after initialization)
                         if heroBottom < collapseThreshold && !isHeroCollapsed {
                             print("🔍 [ScrollDebug] → COLLAPSING")
                             withAnimation(.easeInOut(duration: 0.15)) {
@@ -454,11 +471,6 @@ struct FocusModeWorkoutScreen: View {
                                 isHeroCollapsed = false
                             }
                         }
-                        
-                        // Update measured height
-                        if newFrame.height > 0 {
-                            measuredHeroHeight = newFrame.height
-                        }
                     }
                     
                     // Empty state OR exercise list
@@ -468,6 +480,11 @@ struct FocusModeWorkoutScreen: View {
                             presentSheet(.exerciseSearch)
                         }
                         .padding(.top, Space.lg)
+                        
+                        // No bottom CTA for empty state - discard is in hero ellipsis menu
+                        // Just add safe area padding
+                        Color.clear
+                            .frame(height: safeAreaBottom + Space.lg)
                     } else {
                         // Exercises - each as a card with full set grid
                         ForEach(workout.exercises) { exercise in
@@ -482,6 +499,7 @@ struct FocusModeWorkoutScreen: View {
                                     onPatchField: patchField,
                                     onAddSet: { addSet(to: exercise.instanceId) },
                                     onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
+                                    onRemoveExercise: { removeExercise(exerciseId: exercise.instanceId) },
                                     onAutofill: { autofillExercise(exercise.instanceId) }
                                 )
                             }
@@ -574,60 +592,61 @@ struct FocusModeWorkoutScreen: View {
         (service.workout?.exercises.count ?? 0) >= 2
     }
     
-    // MARK: - Nav Bar (Simplified: Timer center, Reorder, AI)
+    // MARK: - Nav Bar (Balanced: Name left, Timer center, Actions right)
     
-    /// Simplified nav bar:
+    /// Balanced nav bar (P0.4 + P0.5):
+    /// - Workout name on left when collapsed (context)
     /// - Timer always centered
-    /// - Reorder + AI icons appear on right when collapsed
-    /// - No ellipsis, no Finish button (moved to bottom)
-    /// - No workout title
+    /// - Coach + Reorder + More icons on right when collapsed
+    /// - All icons use opacity/hitTesting for stable layout (no reflow)
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             if service.workout != nil {
-                ZStack {
-                    // CENTER LAYER: Timer (truly centered)
+                // Simple header: Timer (left), Reorder + AI (right)
+                // No workout name, no ellipsis menu
+                HStack(spacing: 0) {
+                    // Timer on left (hidden when hero visible)
                     NavCompactTimer(elapsedTime: elapsedTime) {
                         presentSheet(.startTimeEditor)
                     }
-                    .opacity(isHeroCollapsed ? 1.0 : 0.65)
+                    .opacity(showCollapsedActions ? 1.0 : 0)
+                    .allowsHitTesting(showCollapsedActions)
                     
-                    // RIGHT ZONE ONLY: Reorder + AI icons (order: Reorder, AI)
-                    HStack {
-                        Spacer()
-                        
-                        HStack(spacing: 4) {
-                            // Reorder icon - only when collapsed, has exercises, and not reordering
-                            Button {
-                                if canReorder { toggleReorderMode() }
-                            } label: {
-                                Image(systemName: "arrow.up.arrow.down")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .opacity(showCollapsedActions && canReorder ? 1.0 : 0)
-                            .allowsHitTesting(showCollapsedActions && canReorder)
-                            .accessibilityHidden(!(showCollapsedActions && canReorder))
-                            .accessibilityLabel("Reorder exercises")
-                            
-                            // Coach/AI icon - only when collapsed and not reordering
-                            Button {
-                                presentSheet(.coach)
-                            } label: {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(ColorsToken.Brand.primary)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .opacity(showCollapsedActions ? 1.0 : 0)
-                            .allowsHitTesting(showCollapsedActions)
-                            .accessibilityHidden(!showCollapsedActions)
-                            .accessibilityLabel("Coach")
+                    Spacer()
+                    
+                    // Reorder + AI icons on right
+                    HStack(spacing: 2) {
+                        // Reorder icon
+                        Button {
+                            if canReorder { toggleReorderMode() }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(showCollapsedActions && canReorder ? 1.0 : 0)
+                        .allowsHitTesting(showCollapsedActions && canReorder)
+                        .accessibilityHidden(!(showCollapsedActions && canReorder))
+                        .accessibilityLabel("Reorder exercises")
+                        
+                        // AI/Coach icon
+                        Button {
+                            presentSheet(.coach)
+                        } label: {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(ColorsToken.Brand.primary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .opacity(showCollapsedActions ? 1.0 : 0)
+                        .allowsHitTesting(showCollapsedActions)
+                        .accessibilityHidden(!showCollapsedActions)
+                        .accessibilityLabel("Coach")
                     }
                 }
                 .frame(height: 52)  // Fixed nav bar height
@@ -887,6 +906,41 @@ struct FocusModeWorkoutScreen: View {
         .padding(.bottom, safeAreaBottom + Space.lg)
     }
     
+    // MARK: - Empty State CTA Section
+    
+    /// CTA section for empty workout state
+    /// Shows disabled Finish button (no exercises) and enabled Discard button
+    private func emptyStateCTASection(safeAreaBottom: CGFloat) -> some View {
+        VStack(spacing: Space.md) {
+            // Finish Workout - Disabled (no exercises yet)
+            Button {
+                // Does nothing - disabled
+            } label: {
+                Text("Finish Workout")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(ColorsToken.Brand.emeraldFill.opacity(0.4))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+            }
+            .buttonStyle(PlainButtonStyle())
+            .disabled(true)
+            
+            // Discard Workout - Enabled
+            Button {
+                showingCancelConfirmation = true
+            } label: {
+                Text("Discard Workout")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(ColorsToken.State.error)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.top, Space.xl)
+        .padding(.bottom, safeAreaBottom + Space.lg)
+    }
+    
     // MARK: - Timer
     
     /// Start the elapsed time timer. Guards against double-start.
@@ -1026,6 +1080,16 @@ struct FocusModeWorkoutScreen: View {
                 _ = try await service.removeSet(exerciseInstanceId: exerciseId, setId: setId)
             } catch {
                 print("Remove set failed: \(error)")
+            }
+        }
+    }
+    
+    private func removeExercise(exerciseId: String) {
+        Task {
+            do {
+                try await service.removeExercise(exerciseInstanceId: exerciseId)
+            } catch {
+                print("Remove exercise failed: \(error)")
             }
         }
     }
@@ -1173,7 +1237,10 @@ struct FocusModeExerciseSectionNew: View {
     let onPatchField: (String, String, String, Any) -> Void
     let onAddSet: () -> Void
     let onRemoveSet: (String) -> Void
+    let onRemoveExercise: () -> Void
     let onAutofill: () -> Void
+    
+    @State private var showRemoveConfirmation = false
     
     /// Derive selectedCell from screenMode for this exercise
     private var selectedCell: Binding<FocusModeGridCell?> {
@@ -1284,7 +1351,7 @@ struct FocusModeExerciseSectionNew: View {
                     Label("Auto-fill Sets", systemImage: "sparkles")
                 }
                 Button(role: .destructive) {
-                    // TODO: Remove exercise
+                    showRemoveConfirmation = true
                 } label: {
                     Label("Remove Exercise", systemImage: "trash")
                 }
@@ -1297,6 +1364,14 @@ struct FocusModeExerciseSectionNew: View {
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
+        .confirmationDialog("Remove \(exercise.name)?", isPresented: $showRemoveConfirmation) {
+            Button("Remove", role: .destructive) {
+                onRemoveExercise()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will remove the exercise and all its sets from this workout.")
+        }
     }
 }
 

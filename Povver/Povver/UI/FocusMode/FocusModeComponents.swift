@@ -84,31 +84,37 @@ struct FinishWorkoutSheet: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: Space.lg) {
-                // Summary stats - tighter spacing
-                VStack(spacing: Space.md) {
-                    // Duration
-                    statRow(
-                        icon: "clock.fill",
-                        label: "Duration",
-                        value: formatDuration(elapsedTime)
-                    )
+            VStack(spacing: 0) {
+                // Summary stats - compact card
+                VStack(spacing: Space.sm) {
+                    // Duration - featured stat
+                    VStack(spacing: 4) {
+                        Text(formatDuration(elapsedTime))
+                            .font(.system(size: 44, weight: .light).monospacedDigit())
+                            .foregroundColor(ColorsToken.Text.primary)
+                        Text("Duration")
+                            .font(.system(size: 13))
+                            .foregroundColor(ColorsToken.Text.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Space.md)
                     
-                    // Sets completed
-                    statRow(
-                        icon: "checkmark.circle.fill",
-                        label: "Sets Completed",
-                        value: "\(completedSets)/\(totalSets)"
-                    )
+                    Divider()
+                        .padding(.horizontal, Space.lg)
                     
-                    // Exercise count
-                    statRow(
-                        icon: "dumbbell.fill",
-                        label: "Exercises",
-                        value: "\(exerciseCount)"
-                    )
+                    // Secondary stats row
+                    HStack(spacing: Space.xl) {
+                        statColumn(value: "\(completedSets)/\(totalSets)", label: "Sets")
+                        
+                        Rectangle()
+                            .fill(ColorsToken.Stroke.card)
+                            .frame(width: 1, height: 36)
+                        
+                        statColumn(value: "\(exerciseCount)", label: "Exercises")
+                    }
+                    .padding(.vertical, Space.sm)
                 }
-                .padding(.top, Space.lg)
+                .padding(.top, Space.md)
                 
                 // Error message
                 if let error = errorMessage {
@@ -116,12 +122,13 @@ struct FinishWorkoutSheet: View {
                         .font(.system(size: 14))
                         .foregroundColor(ColorsToken.State.error)
                         .padding(.horizontal, Space.lg)
+                        .padding(.top, Space.sm)
                 }
                 
-                Spacer(minLength: Space.lg)
+                Spacer(minLength: Space.md)
                 
                 // Action buttons - tighter grouping
-                VStack(spacing: Space.md) {
+                VStack(spacing: Space.sm) {
                     // Complete - Primary CTA
                     Button {
                         isLoading = true
@@ -131,6 +138,9 @@ struct FinishWorkoutSheet: View {
                             if isLoading {
                                 ProgressView()
                                     .tint(.white)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 18))
                             }
                             Text("Complete Workout")
                                 .font(.system(size: 17, weight: .semibold))
@@ -144,19 +154,21 @@ struct FinishWorkoutSheet: View {
                     .buttonStyle(PlainButtonStyle())
                     .disabled(isLoading || !canComplete)
                     
-                    // Discard - Outlined destructive button
+                    // Discard - Full width destructive button (more prominent)
                     Button {
                         showDiscardConfirmation = true
                     } label: {
-                        Text("Discard Workout")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(ColorsToken.State.error)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                                    .stroke(ColorsToken.State.error, lineWidth: 1.5)
-                            )
+                        HStack(spacing: Space.sm) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 15))
+                            Text("Discard Workout")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(ColorsToken.State.error)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(ColorsToken.State.error.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     }
                     .buttonStyle(PlainButtonStyle())
                     .disabled(isLoading)
@@ -190,26 +202,15 @@ struct FinishWorkoutSheet: View {
         .interactiveDismissDisabled(isLoading)
     }
     
-    private func statRow(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 22))
-                .foregroundColor(ColorsToken.Brand.primary)
-                .frame(width: 36)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
-                
-                Text(value)
-                    .font(.system(size: 18, weight: .semibold).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.primary)
-            }
-            
-            Spacer()
+    private func statColumn(value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 20, weight: .semibold).monospacedDigit())
+                .foregroundColor(ColorsToken.Text.primary)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(ColorsToken.Text.secondary)
         }
-        .padding(.horizontal, Space.lg)
     }
     
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -635,6 +636,8 @@ struct WorkoutHero: View {
 /// Instructional card shown when workout has no exercises
 struct EmptyStateCard: View {
     let onAddExercise: () -> Void
+    var onFinishWorkout: (() -> Void)? = nil
+    var onDiscardWorkout: (() -> Void)? = nil
     
     var body: some View {
         VStack(spacing: Space.lg) {
@@ -1047,6 +1050,100 @@ struct ExerciseReorderRow: View {
         // Elevated appearance to signal "draggable"
         .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 2)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Swipe To Delete Row
+
+/// Custom swipe-to-delete wrapper for use in VStack/LazyVStack
+/// Since .swipeActions only works in List, this provides similar functionality
+struct SwipeToDeleteRow<Content: View>: View {
+    let onDelete: () -> Void
+    @ViewBuilder let content: () -> Content
+    
+    @State private var offset: CGFloat = 0
+    @State private var isRevealed = false
+    
+    private let deleteButtonWidth: CGFloat = 80
+    private let deleteThreshold: CGFloat = 60
+    private let fullSwipeThreshold: CGFloat = 150
+    
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete button (revealed behind content)
+            HStack {
+                Spacer()
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(width: deleteButtonWidth, height: 52)
+                        .background(ColorsToken.State.error)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Main content with gesture
+            content()
+                .background(ColorsToken.Surface.card)
+                .offset(x: offset)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let translation = value.translation.width
+                            // Only allow left swipe (negative translation)
+                            if translation < 0 {
+                                // Elastic effect - harder to drag past button width
+                                if abs(translation) > deleteButtonWidth {
+                                    let overDrag = abs(translation) - deleteButtonWidth
+                                    offset = -deleteButtonWidth - (overDrag * 0.3)
+                                } else {
+                                    offset = translation
+                                }
+                            } else if isRevealed {
+                                // Allow swipe right to close
+                                offset = min(0, -deleteButtonWidth + translation)
+                            }
+                        }
+                        .onEnded { value in
+                            let translation = value.translation.width
+                            
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                // Full swipe triggers delete
+                                if abs(translation) > fullSwipeThreshold && translation < 0 {
+                                    offset = -UIScreen.main.bounds.width
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                        onDelete()
+                                    }
+                                    return
+                                }
+                                
+                                // Partial swipe reveals/hides button
+                                if translation < -deleteThreshold {
+                                    offset = -deleteButtonWidth
+                                    isRevealed = true
+                                } else {
+                                    offset = 0
+                                    isRevealed = false
+                                }
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    TapGesture()
+                        .onEnded {
+                            if isRevealed {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    offset = 0
+                                    isRevealed = false
+                                }
+                            }
+                        }
+                )
+        }
+        .clipped()
     }
 }
 

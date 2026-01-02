@@ -265,7 +265,7 @@ public struct SessionPlanCard: View {
     }
     
     private func removeExercise(at index: Int) {
-        withAnimation(.easeOut(duration: 0.2)) {
+        _ = withAnimation(.easeOut(duration: 0.2)) {
             editableExercises.remove(at: index)
         }
     }

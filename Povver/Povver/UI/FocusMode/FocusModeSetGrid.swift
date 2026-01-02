@@ -99,8 +99,16 @@ struct FocusModeSetGrid: View {
     @ViewBuilder
     private func setRowWithEditor(set: FocusModeSet, displayIndex: Int, isWarmupSection: Bool) -> some View {
         VStack(spacing: 0) {
-            setRow(set: set, index: displayIndex)
-                .contentShape(Rectangle())
+            // Set row with custom swipe-to-delete
+            SwipeToDeleteRow(
+                onDelete: {
+                    onRemoveSet(set.id)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                },
+                content: {
+                    setRow(set: set, index: displayIndex)
+                }
+            )
             
             // Inline editing dock
             if let selected = selectedCell,
@@ -382,8 +390,8 @@ struct FocusModeSetGrid: View {
     /// (warmupSets or workingSets), NOT the original exercise.sets array.
     private func displayNumber(for displayIndex: Int, set: FocusModeSet) -> SetDisplayInfo {
         if set.isWarmup {
-            // Warmups show as "WU" (or just "W" if space constrained)
-            return SetDisplayInfo(text: "WU", color: ColorsToken.Text.secondary, isLetter: true)
+            // Warmups show as "W" (compact to fit in single line)
+            return SetDisplayInfo(text: "W", color: ColorsToken.Text.secondary, isLetter: true)
         } else if set.tags?.isFailure == true {
             // Failure sets get "F" indicator
             return SetDisplayInfo(text: "F", color: ColorsToken.State.error, isLetter: true)
