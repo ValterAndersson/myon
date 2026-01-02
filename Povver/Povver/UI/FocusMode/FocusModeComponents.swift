@@ -58,6 +58,87 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
     }
 }
 
+// MARK: - Hero Visibility PreferenceKey
+
+/// PreferenceKey to track hero visibility based on scroll position
+struct HeroVisibilityPreferenceKey: PreferenceKey {
+    static var defaultValue: Bool = true  // Hero visible by default
+    
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = nextValue()
+    }
+}
+
+/// View modifier to report hero visibility based on its position
+struct HeroVisibilityReader: View {
+    let heroHeight: CGFloat
+    let threshold: CGFloat  // How much of hero must be hidden to trigger collapse
+    
+    var body: some View {
+        GeometryReader { geo in
+            let minY = geo.frame(in: .named("workoutScroll")).minY
+            let isVisible = minY > -heroHeight + threshold
+            
+            Color.clear
+                .preference(key: HeroVisibilityPreferenceKey.self, value: isVisible)
+        }
+        .frame(height: 0)
+    }
+}
+
+// MARK: - Nav Compact Timer
+
+/// Compact timer for nav bar center - tappable, fixed width to prevent layout shift
+struct NavCompactTimer: View {
+    let elapsedTime: TimeInterval
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            Text(formatDuration(elapsedTime))
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .foregroundColor(ColorsToken.Text.primary)
+                .frame(minWidth: 64, alignment: .center)
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, 6)
+                .background(ColorsToken.Background.secondary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .frame(minWidth: 80, minHeight: 44)  // 44pt hit target
+        .contentShape(Rectangle())
+    }
+    
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+        let seconds = Int(interval) % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Coach Icon Button (Icon-Only for Nav Bar)
+
+/// Icon-only Coach button for nav bar - saves space
+struct CoachIconButton: View {
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(ColorsToken.Brand.primary)
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel("Coach")
+    }
+}
+
 // MARK: - Timer Pill
 
 /// Timer pill that adapts to available space using ViewThatFits.
@@ -151,6 +232,238 @@ struct ReorderToggleButton: View {
         }
         .buttonStyle(PlainButtonStyle())
         .accessibilityLabel(isReordering ? "Done reordering" : "Reorder exercises")
+    }
+}
+
+// MARK: - Workout Hero
+
+/// Hero section at top of workout content - shows workout identity + large timer
+/// Scrolls away, triggering compact timer in nav bar
+struct WorkoutHero: View {
+    let workoutName: String
+    let startTime: Date
+    let elapsedTime: TimeInterval
+    let completedSets: Int
+    let totalSets: Int
+    let hasExercises: Bool
+    
+    let onNameTap: () -> Void
+    let onTimerTap: () -> Void
+    let onCoachTap: () -> Void
+    let onReorderTap: () -> Void
+    let onMenuAction: (HeroMenuAction) -> Void
+    
+    enum HeroMenuAction {
+        case editName
+        case editStartTime
+        case reorder
+        case discard
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            // Title row with menu
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Workout name (tappable to edit)
+                    Button(action: onNameTap) {
+                        HStack(spacing: 4) {
+                            Text(workoutName)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(ColorsToken.Text.primary)
+                            
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.muted)
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    // Date/time subtitle
+                    Text(formatStartTime(startTime))
+                        .font(.system(size: 14))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                }
+                
+                Spacer()
+                
+                // Ellipsis menu
+                Menu {
+                    Button { onMenuAction(.editName) } label: {
+                        Label("Edit Name", systemImage: "pencil")
+                    }
+                    
+                    Button { onMenuAction(.editStartTime) } label: {
+                        Label("Edit Start Time", systemImage: "clock")
+                    }
+                    
+                    if hasExercises {
+                        Button { onMenuAction(.reorder) } label: {
+                            Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
+                        }
+                    }
+                    
+                    Divider()
+                    
+                    Button(role: .destructive) { onMenuAction(.discard) } label: {
+                        Label("Discard Workout", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 22))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+            }
+            
+            // Large timer (tappable to edit start time)
+            Button(action: onTimerTap) {
+                Text(formatDuration(elapsedTime))
+                    .font(.system(size: 48, weight: .light).monospacedDigit())
+                    .foregroundColor(ColorsToken.Text.primary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, Space.md)
+            }
+            .buttonStyle(PlainButtonStyle())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            
+            // Progress microcopy
+            if totalSets > 0 {
+                Text("\(completedSets)/\(totalSets) sets completed")
+                    .font(.system(size: 14).monospacedDigit())
+                    .foregroundColor(ColorsToken.Text.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            
+            // Action strip: Coach + Reorder pills
+            HStack(spacing: Space.sm) {
+                // Coach pill (primary)
+                CoachButton(action: onCoachTap)
+                
+                // Reorder pill (if exercises exist)
+                if hasExercises {
+                    Button(action: onReorderTap) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Reorder")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .padding(.horizontal, Space.md)
+                        .padding(.vertical, Space.sm)
+                        .background(ColorsToken.Background.secondary)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, Space.sm)
+        }
+        .padding(Space.lg)
+        .background(ColorsToken.Surface.card)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: CornerRadiusToken.card)
+                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+        )
+    }
+    
+    private func formatStartTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        
+        if calendar.isDateInToday(date) {
+            formatter.dateFormat = "'Today at' h:mm a"
+        } else if calendar.isDateInYesterday(date) {
+            formatter.dateFormat = "'Yesterday at' h:mm a"
+        } else {
+            formatter.dateFormat = "MMM d 'at' h:mm a"
+        }
+        
+        return formatter.string(from: date)
+    }
+    
+    private func formatDuration(_ interval: TimeInterval) -> String {
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+        let seconds = Int(interval) % 60
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Empty State Card
+
+/// Instructional card shown when workout has no exercises
+struct EmptyStateCard: View {
+    let onAddExercise: () -> Void
+    
+    var body: some View {
+        VStack(spacing: Space.lg) {
+            // Icon
+            Image(systemName: "dumbbell")
+                .font(.system(size: 36))
+                .foregroundColor(ColorsToken.Brand.primary.opacity(0.6))
+            
+            // Title
+            Text("Start by adding an exercise")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(ColorsToken.Text.primary)
+            
+            // Bullet list instructions
+            VStack(alignment: .leading, spacing: Space.sm) {
+                instructionRow(icon: "plus.circle", text: "Add an exercise from the library")
+                instructionRow(icon: "hand.tap", text: "Tap weight/reps to edit values")
+                instructionRow(icon: "checkmark.circle", text: "Tap ✓ to mark a set done")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Space.lg)
+            
+            // Primary CTA
+            Button(action: onAddExercise) {
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18))
+                    Text("Add Exercise")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(ColorsToken.Brand.emeraldFill)
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+            }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.horizontal, Space.md)
+            .padding(.top, Space.sm)
+        }
+        .padding(.vertical, Space.xl)
+        .background(ColorsToken.Surface.card)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
+        .overlay(
+            RoundedRectangle(cornerRadius: CornerRadiusToken.card)
+                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+        )
+    }
+    
+    private func instructionRow(icon: String, text: String) -> some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(ColorsToken.Brand.primary)
+                .frame(width: 20)
+            
+            Text(text)
+                .font(.system(size: 14))
+                .foregroundColor(ColorsToken.Text.secondary)
+        }
     }
 }
 

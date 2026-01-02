@@ -33,6 +33,9 @@ struct FocusModeWorkoutScreen: View {
     // Reorder toggle debounce
     @State private var isReorderTransitioning = false
     
+    // Scroll tracking for hero collapse
+    @State private var isHeroCollapsed = false
+    
     // Timer state
     @State private var elapsedTime: TimeInterval = 0
     @State private var timer: Timer?
@@ -348,6 +351,9 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Workout Content
     
+    /// Height of the hero for collapse detection
+    private let heroHeight: CGFloat = 280
+    
     @ViewBuilder
     private func workoutContent(_ workout: FocusModeWorkout, safeAreaBottom: CGFloat) -> some View {
         if screenMode.isReordering {
@@ -367,42 +373,100 @@ struct FocusModeWorkoutScreen: View {
             .scrollContentBackground(.hidden)
             .environment(\.editMode, $listEditMode)
         } else {
-            // Normal mode: full exercise sections with bottom CTA
+            // Normal mode: Hero + exercise sections with scroll tracking
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: []) {
-                    // Exercises - each as a card with full set grid
-                    ForEach(workout.exercises) { exercise in
-                        let isActive = exercise.instanceId == activeExerciseId
-                        
-                        ExerciseCardContainer(isActive: isActive) {
-                            FocusModeExerciseSectionNew(
-                                exercise: exercise,
-                                isActive: isActive,
-                                screenMode: $screenMode,
-                                onLogSet: logSet,
-                                onPatchField: patchField,
-                                onAddSet: { addSet(to: exercise.instanceId) },
-                                onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
-                                onAutofill: { autofillExercise(exercise.instanceId) }
-                            )
+                    // Hero visibility tracker (invisible, at top)
+                    HeroVisibilityReader(heroHeight: heroHeight, threshold: 60)
+                    
+                    // HERO: Workout identity + large timer
+                    WorkoutHero(
+                        workoutName: workout.name ?? "Workout",
+                        startTime: workout.startTime,
+                        elapsedTime: elapsedTime,
+                        completedSets: completedSets,
+                        totalSets: totalSets,
+                        hasExercises: !workout.exercises.isEmpty,
+                        onNameTap: {
+                            editingName = workout.name ?? "Workout"
+                            showingNameEditor = true
+                        },
+                        onTimerTap: {
+                            presentSheet(.startTimeEditor)
+                        },
+                        onCoachTap: {
+                            presentSheet(.coach)
+                        },
+                        onReorderTap: toggleReorderMode,
+                        onMenuAction: { action in
+                            handleHeroMenuAction(action, workout: workout)
                         }
-                        .padding(.top, Space.md)
-                    }
-                    
-                    // Add Exercise Button
-                    addExerciseButton
-                        .padding(.top, Space.lg)
-                    
-                    // Bottom CTA: Finish + Discard
-                    WorkoutBottomCTA(
-                        onFinish: { showingCompleteConfirmation = true },
-                        onDiscard: { showingCancelConfirmation = true },
-                        safeAreaBottom: safeAreaBottom
                     )
+                    .padding(.top, Space.md)
+                    
+                    // Empty state OR exercise list
+                    if workout.exercises.isEmpty {
+                        // Empty state: instructional card
+                        EmptyStateCard {
+                            presentSheet(.exerciseSearch)
+                        }
+                        .padding(.top, Space.lg)
+                    } else {
+                        // Exercises - each as a card with full set grid
+                        ForEach(workout.exercises) { exercise in
+                            let isActive = exercise.instanceId == activeExerciseId
+                            
+                            ExerciseCardContainer(isActive: isActive) {
+                                FocusModeExerciseSectionNew(
+                                    exercise: exercise,
+                                    isActive: isActive,
+                                    screenMode: $screenMode,
+                                    onLogSet: logSet,
+                                    onPatchField: patchField,
+                                    onAddSet: { addSet(to: exercise.instanceId) },
+                                    onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
+                                    onAutofill: { autofillExercise(exercise.instanceId) }
+                                )
+                            }
+                            .padding(.top, Space.md)
+                        }
+                        
+                        // Add Exercise Button
+                        addExerciseButton
+                            .padding(.top, Space.lg)
+                        
+                        // Bottom CTA: Finish + Discard
+                        WorkoutBottomCTA(
+                            onFinish: { showingCompleteConfirmation = true },
+                            onDiscard: { showingCancelConfirmation = true },
+                            safeAreaBottom: safeAreaBottom
+                        )
+                    }
                 }
                 .padding(.horizontal, Space.md)
             }
+            .coordinateSpace(name: "workoutScroll")
+            .onPreferenceChange(HeroVisibilityPreferenceKey.self) { isVisible in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isHeroCollapsed = !isVisible
+                }
+            }
             .scrollDismissesKeyboard(.interactively)
+        }
+    }
+    
+    /// Handle hero menu actions
+    private func handleHeroMenuAction(_ action: WorkoutHero.HeroMenuAction, workout: FocusModeWorkout) {
+        switch action {
+        case .editName:
+            editingName = workout.name ?? "Workout"
+            showingNameEditor = true
+        case .editStartTime:
+            presentSheet(.startTimeEditor)
+        case .reorder:
+            toggleReorderMode()
+        case .discard:
+            showingCancelConfirmation = true
         }
     }
     
@@ -414,93 +478,57 @@ struct FocusModeWorkoutScreen: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
-    // MARK: - Custom Header Bar (3-Zone Layout)
+    // MARK: - Minimal Nav Bar (Actions Only)
     
+    /// Strong-inspired minimal nav bar:
+    /// - Left: Empty (balanced with spacing)
+    /// - Center: Compact timer ONLY when hero is scrolled away
+    /// - Right: Coach icon + Reorder icon + Finish button
     private var customHeaderBar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: Space.sm) {
-                if let workout = service.workout {
-                    // LEFT ZONE: Name + Subline (flexible, truncates gracefully)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Button {
-                            editingName = workout.name ?? "Workout"
-                            showingNameEditor = true
-                        } label: {
-                            Text(workout.name ?? "Workout")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(ColorsToken.Text.primary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        Button {
+                if service.workout != nil {
+                    // LEFT ZONE: Empty, provides balance
+                    Spacer()
+                    
+                    // CENTER ZONE: Compact timer (only when hero collapsed)
+                    if isHeroCollapsed {
+                        NavCompactTimer(elapsedTime: elapsedTime) {
                             presentSheet(.startTimeEditor)
-                        } label: {
-                            Text(formatStartTimeCompact(workout.startTime))
-                                .font(.system(size: 13))
-                                .foregroundColor(ColorsToken.Text.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
-                    .frame(minWidth: 70, alignment: .leading)
                     
-                    Spacer(minLength: 4)
+                    Spacer()
                     
-                    // CENTER ZONE: Timer Pill (uses ViewThatFits internally to collapse when tight)
-                    TimerPill(
-                        elapsedTime: elapsedTime,
-                        completedSets: completedSets,
-                        totalSets: totalSets
-                    )
-                    .layoutPriority(-1)  // Yields space first before left zone
-                    
-                    Spacer(minLength: 4)
-                    
-                    // RIGHT ZONE: Coach, Reorder, Ellipsis (fixed size, won't compress)
+                    // RIGHT ZONE: Icon-only actions + Finish button
                     HStack(spacing: Space.xs) {
-                        // Coach button (primary AI action)
-                        CoachButton {
+                        // Coach icon (icon-only in nav)
+                        CoachIconButton {
                             presentSheet(.coach)
                         }
                         
-                        // Reorder toggle (top-level, not in menu)
-                        if !workout.exercises.isEmpty {
+                        // Reorder icon (only if exercises exist)
+                        if let workout = service.workout, !workout.exercises.isEmpty {
                             ReorderToggleButton(
                                 isReordering: screenMode.isReordering,
                                 action: toggleReorderMode
                             )
                         }
                         
-                        // Ellipsis for secondary actions only
-                        Menu {
-                            Button {
-                                editingName = workout.name ?? "Workout"
-                                showingNameEditor = true
-                            } label: {
-                                Label("Edit Name", systemImage: "pencil")
-                            }
-                            
-                            Button {
-                                presentSheet(.startTimeEditor)
-                            } label: {
-                                Label("Edit Start Time", systemImage: "clock")
-                            }
-                            
-                            Divider()
-                            
-                            Button(role: .destructive) {
-                                showingCancelConfirmation = true
-                            } label: {
-                                Label("Discard Workout", systemImage: "trash")
-                            }
+                        // Finish button (labeled, primary action)
+                        Button {
+                            showingCompleteConfirmation = true
                         } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 20))
-                                .foregroundColor(ColorsToken.Text.secondary)
+                            Text("Finish")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, Space.md)
+                                .padding(.vertical, 8)
+                                .background(ColorsToken.Brand.emeraldFill)
+                                .clipShape(Capsule())
                         }
+                        .buttonStyle(PlainButtonStyle())
                     }
                     .fixedSize(horizontal: true, vertical: false)
                 } else {
@@ -522,26 +550,11 @@ struct FocusModeWorkoutScreen: View {
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
+            .animation(.easeInOut(duration: 0.2), value: isHeroCollapsed)
             
             Divider()
         }
         .background(ColorsToken.Background.screen)
-    }
-    
-    /// Compact date format for header (uses short formats to save space)
-    private func formatStartTimeCompact(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        let calendar = Calendar.current
-        
-        if calendar.isDateInToday(date) {
-            formatter.dateFormat = "h:mm a"  // Just time for today
-        } else if calendar.isDateInYesterday(date) {
-            formatter.dateFormat = "'Yesterday'"
-        } else {
-            formatter.dateFormat = "MMM d"  // Short date
-        }
-        
-        return formatter.string(from: date)
     }
     
     // MARK: - Start Time Editor Sheet
