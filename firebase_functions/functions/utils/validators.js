@@ -104,7 +104,7 @@ const PatchOpSchema = z.discriminatedUnion('op', [
       set_type: z.enum(['warmup', 'working', 'dropset']),
       reps: z.number().int().min(1).max(30),             // 1-30 for planned sets
       rir: z.number().int().min(0).max(5),
-      weight: z.number().nonnegative().nullable(),
+      weight: z.number().nonnegative().nullable().optional(),  // Optional, defaults to null
       status: z.literal('planned'),                       // Must be 'planned'
       tags: z.object({}).optional(),
     }),
