@@ -399,11 +399,19 @@ struct FocusModeWorkoutScreen: View {
             // Normal mode: Hero + exercise sections with scroll tracking
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: []) {
+                    // Scroll offset tracker - must be first, always rendered
+                    // This GeometryReader continuously reports scroll position
+                    GeometryReader { geo in
+                        let scrollY = geo.frame(in: .named("workoutScroll")).minY
+                        Color.clear
+                            .preference(key: ScrollOffsetPreferenceKey.self, value: scrollY)
+                    }
+                    .frame(height: 0)
+                    
                     // Constant 8pt top padding - always present, no jumpiness
                     Color.clear.frame(height: Space.sm)
                     
                     // HERO: Workout identity + large timer
-                    // Use background GeometryReader to measure hero height
                     WorkoutHero(
                         workoutName: workout.name ?? "Workout",
                         startTime: workout.startTime,
@@ -424,20 +432,6 @@ struct FocusModeWorkoutScreen: View {
                         onReorderTap: toggleReorderMode,
                         onMenuAction: { action in
                             handleHeroMenuAction(action, workout: workout)
-                        }
-                    )
-                    .background(
-                        // Measure hero scroll position for hysteresis-based collapse detection
-                        GeometryReader { geo in
-                            let frame = geo.frame(in: .named("workoutScroll"))
-                            Color.clear
-                                .preference(
-                                    key: HeroScrollStatePreferenceKey.self,
-                                    value: HeroScrollStatePreferenceKey.Value(
-                                        minY: frame.minY,
-                                        heroHeight: frame.height
-                                    )
-                                )
                         }
                     )
                     
@@ -479,24 +473,26 @@ struct FocusModeWorkoutScreen: View {
                 .padding(.horizontal, Space.md)
             }
             .coordinateSpace(name: "workoutScroll")
-            .onPreferenceChange(HeroScrollStatePreferenceKey.self) { state in
-                // Simple collapse detection:
-                // Collapse when hero's top edge goes above 0 (meaning some scrolling has happened)
-                // Use hysteresis to avoid flickering
-                let minY = state.minY
-                let heroHeight = state.heroHeight
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { scrollY in
+                // Scroll offset based collapse detection:
+                // scrollY = 0 when at top, becomes negative when scrolling up
+                // Hero is at offset 8 (spacer) with height ~280
+                // Hero bottom = 8 + 280 = 288
+                // When scrolled, hero bottom = 288 + scrollY
                 
-                // Hero bottom position = minY + heroHeight
-                // When hero bottom < 100pt, hero is mostly scrolled off -> collapse
-                // When hero bottom > 150pt, hero is back in view -> expand
-                let heroBottom = minY + heroHeight
+                let heroStartY: CGFloat = Space.sm  // 8pt spacer
+                let heroHeight = measuredHeroHeight  // ~280pt
+                let heroBottom = heroStartY + heroHeight + scrollY
+                
                 let collapseThreshold: CGFloat = 100  // Collapse when only 100pt of hero visible
                 let expandThreshold: CGFloat = 150   // Expand when 150pt of hero visible
                 
                 #if DEBUG
-                debugScrollMinY = minY
-                // Debug log to understand scroll behavior
-                print("🔍 [ScrollDebug] minY=\(Int(minY)) heroHeight=\(Int(heroHeight)) heroBottom=\(Int(heroBottom)) collapsed=\(isHeroCollapsed)")
+                debugScrollMinY = scrollY
+                // Debug log to understand scroll behavior (throttled - only log on significant change)
+                if abs(scrollY.truncatingRemainder(dividingBy: 50)) < 5 {
+                    print("🔍 [ScrollDebug] scrollY=\(Int(scrollY)) heroBottom=\(Int(heroBottom)) collapsed=\(isHeroCollapsed)")
+                }
                 #endif
                 
                 // Only update if crossing threshold in correct direction (hysteresis)
@@ -510,11 +506,6 @@ struct FocusModeWorkoutScreen: View {
                     withAnimation(.easeInOut(duration: 0.15)) { 
                         isHeroCollapsed = false 
                     }
-                }
-                
-                // Update measured height for future reference
-                if heroHeight > 0 {
-                    measuredHeroHeight = heroHeight
                 }
             }
             .scrollDismissesKeyboard(.interactively)
