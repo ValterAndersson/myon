@@ -83,7 +83,7 @@ const ScoreSetSchema = z.object({ actual: z.object({ reps: z.number(), rir: z.nu
  * - set_field ops must target same set
  */
 const PatchOpSchema = z.discriminatedUnion('op', [
-  // Field update
+  // Field update on a set
   z.object({
     op: z.literal('set_field'),
     target: z.object({
@@ -91,6 +91,12 @@ const PatchOpSchema = z.discriminatedUnion('op', [
       set_id: IdSchema,
     }),
     field: z.enum(['weight', 'reps', 'rir', 'status', 'set_type', 'tags.is_failure']),
+    value: z.any(),
+  }),
+  // Field update on the workout itself (name, start_time, etc.)
+  z.object({
+    op: z.literal('set_workout_field'),
+    field: z.enum(['name', 'start_time']),
     value: z.any(),
   }),
   // Add set

@@ -97,8 +97,8 @@ function validateHomogeneous(ops) {
     }
   }
   
-  // For add_set, remove_set, and reorder_exercises, only one op allowed
-  if ((opType === 'add_set' || opType === 'remove_set' || opType === 'reorder_exercises') && ops.length > 1) {
+  // For add_set, remove_set, reorder_exercises, and set_workout_field, only one op allowed
+  if ((opType === 'add_set' || opType === 'remove_set' || opType === 'reorder_exercises' || opType === 'set_workout_field') && ops.length > 1) {
     return { valid: false, error: 'MULTIPLE_STRUCTURAL_OPS', message: `Only one ${opType} op allowed per request` };
   }
   
@@ -401,6 +401,35 @@ async function patchActiveWorkoutHandler(req, res) {
         value: newOrder,  // Just store the order for the event
       });
     }
+    
+    // Handle workout-level field updates (name, start_time)
+    let workoutFieldUpdates = {};
+    if (opType === 'set_workout_field') {
+      const op = ops[0];
+      const { field, value } = op;
+      
+      if (field === 'start_time') {
+        // Parse the ISO 8601 string to a Firestore Timestamp
+        const parsedDate = new Date(value);
+        if (isNaN(parsedDate.getTime())) {
+          return fail(res, 'VALIDATION_ERROR', 'Invalid start_time format', null, 400);
+        }
+        workoutFieldUpdates.start_time = admin.firestore.Timestamp.fromDate(parsedDate);
+        fieldsChanged.push('start_time');
+      } else if (field === 'name') {
+        if (typeof value !== 'string' || value.trim().length === 0) {
+          return fail(res, 'VALIDATION_ERROR', 'Invalid name', null, 400);
+        }
+        workoutFieldUpdates.name = value.trim();
+        fieldsChanged.push('name');
+      }
+      
+      diffOps.push({
+        op: 'replace',
+        path: `/${field}`,
+        value: value,
+      });
+    }
 
     // 7. Recompute totals
     const totals = computeTotals(exercises);
@@ -452,6 +481,7 @@ async function patchActiveWorkoutHandler(req, res) {
     await workoutRef.update({
       exercises,
       totals,
+      ...workoutFieldUpdates,  // Include workout-level field updates (name, start_time)
       updated_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
