@@ -70,6 +70,7 @@ struct TimerPill: View {
             Text(formatDuration(elapsedTime))
                 .font(.system(size: 14, weight: .medium).monospacedDigit())
                 .foregroundColor(ColorsToken.Text.primary)
+                .lineLimit(1)
             
             if totalSets > 0 {
                 Text("·")
@@ -78,13 +79,14 @@ struct TimerPill: View {
                 Text("\(completedSets)/\(totalSets)")
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
                     .foregroundColor(ColorsToken.Text.secondary)
+                    .lineLimit(1)
             }
         }
+        .fixedSize(horizontal: true, vertical: false)  // Prevent internal wrapping
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
         .background(ColorsToken.Background.secondary)
         .clipShape(Capsule())
-        .frame(minWidth: 80) // Prevent jitter
     }
     
     private func formatDuration(_ interval: TimeInterval) -> String {

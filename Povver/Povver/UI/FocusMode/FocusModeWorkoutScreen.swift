@@ -420,7 +420,7 @@ struct FocusModeWorkoutScreen: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: Space.sm) {
                 if let workout = service.workout {
-                    // LEFT ZONE: Name + Subline (minimum width, truncates gracefully)
+                    // LEFT ZONE: Name + Subline (flexible, truncates gracefully)
                     VStack(alignment: .leading, spacing: 2) {
                         Button {
                             editingName = workout.name ?? "Workout"
@@ -437,31 +437,29 @@ struct FocusModeWorkoutScreen: View {
                         Button {
                             presentSheet(.startTimeEditor)
                         } label: {
-                            Text(formatStartTime(workout.startTime))
+                            Text(formatStartTimeCompact(workout.startTime))
                                 .font(.system(size: 13))
                                 .foregroundColor(ColorsToken.Text.secondary)
                                 .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
+                                .truncationMode(.middle)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
-                    .frame(minWidth: 60)  // Minimum width to prevent total collapse
-                    .layoutPriority(2)    // Higher priority = gets more space, yields less
+                    .frame(minWidth: 70, alignment: .leading)
                     
-                    Spacer(minLength: 4)
+                    Spacer(minLength: 8)
                     
-                    // CENTER ZONE: Timer Pill (lowest priority, yields first when space is tight)
+                    // CENTER ZONE: Timer Pill (fixed size, won't wrap internally)
                     TimerPill(
                         elapsedTime: elapsedTime,
                         completedSets: completedSets,
                         totalSets: totalSets
                     )
-                    .layoutPriority(0)    // Lowest priority = yields space first
+                    .fixedSize(horizontal: true, vertical: false)
                     
-                    Spacer(minLength: 4)
+                    Spacer(minLength: 8)
                     
-                    // RIGHT ZONE: Coach, Reorder, Ellipsis
-                    // fixedSize prevents compression wrapping
+                    // RIGHT ZONE: Coach, Reorder, Ellipsis (fixed size, won't compress)
                     HStack(spacing: Space.xs) {
                         // Coach button (primary AI action)
                         CoachButton {
@@ -528,6 +526,22 @@ struct FocusModeWorkoutScreen: View {
             Divider()
         }
         .background(ColorsToken.Background.screen)
+    }
+    
+    /// Compact date format for header (uses short formats to save space)
+    private func formatStartTimeCompact(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        
+        if calendar.isDateInToday(date) {
+            formatter.dateFormat = "h:mm a"  // Just time for today
+        } else if calendar.isDateInYesterday(date) {
+            formatter.dateFormat = "'Yesterday'"
+        } else {
+            formatter.dateFormat = "MMM d"  // Short date
+        }
+        
+        return formatter.string(from: date)
     }
     
     // MARK: - Start Time Editor Sheet
