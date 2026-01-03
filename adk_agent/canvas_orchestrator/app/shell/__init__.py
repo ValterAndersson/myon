@@ -22,7 +22,7 @@ from app.shell.router import (
     route_message,
     execute_fast_lane,
 )
-from app.shell.agent import ShellAgent, create_shell_agent
+from app.shell.agent import ShellAgent, create_shell_agent, root_agent
 from app.shell.planner import (
     ToolPlan,
     generate_plan,
@@ -52,6 +52,7 @@ __all__ = [
     "route_message",
     "execute_fast_lane",
     # Agent
+    "root_agent",
     "ShellAgent",
     "create_shell_agent",
     # Planner
