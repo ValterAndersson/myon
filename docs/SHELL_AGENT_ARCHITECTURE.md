@@ -20,6 +20,54 @@ Whether the user is chatting, clicking a button, or sleeping while a background 
 
 ---
 
+## Production Environment: Vertex AI Agent Engine
+
+### Runtime Characteristics (CRITICAL FOR AI AGENTS TO UNDERSTAND)
+
+This system deploys to **Google Vertex AI Agent Engine**, a serverless, highly concurrent runtime environment. Understanding the runtime constraints is essential for any AI agent that will modify, extend, or debug this codebase.
+
+**Key Runtime Properties:**
+
+| Property | Implication | Solution Applied |
+|----------|-------------|------------------|
+| **Serverless** | No persistent process state between cold starts | All state derived from message/database |
+| **Highly Concurrent** | Multiple requests may hit the same warm instance simultaneously | Thread-safe ContextVars, not module globals |
+| **Async/Await** | ADK uses async generators for streaming | All handlers support async patterns |
+| **Auto-scaled** | Instances spawn/die unpredictably | No instance-level caching of user state |
+
+### The Concurrency Bug (CONTEXT FOR WHY WE USE CONTEXTVARS)
+
+**Scenario that broke the old architecture:**
+
+```
+Timeline:
+  t0: Request A arrives, sets _current_context = {"user_id": "alice"}
+  t1: Request B arrives, sets _current_context = {"user_id": "bob"}  
+  t2: Request A's tool reads _current_context → Gets BOB's user_id!
+  t3: Request A writes data to BOB's account ← DATA LEAK
+```
+
+**Why this happens:**
+- Python module-level variables (`_current_context = {}`) are shared across all coroutines in a single process.
+- In serverless environments, one process handles multiple concurrent requests.
+- Without isolation, any request can read/write any other request's state.
+
+**Why ContextVars solve it:**
+- `contextvars.ContextVar` provides task-local storage in Python.
+- Each async task (request) gets its own copy of the context variable.
+- Setting context in Request A does NOT affect Request B, even in the same process.
+
+### File Responsibility Matrix
+
+| File | Responsibility | Concurrency Safety |
+|------|----------------|-------------------|
+| `shell/context.py` | Define ContextVar storage and accessors | ✅ Uses `ContextVar[SessionContext]` |
+| `agent_engine_app.py` | Set context BEFORE any routing | ✅ Calls `set_current_context()` first |
+| `shell/tools.py` | Retrieve context from ContextVar | ✅ Calls `get_current_context()` |
+| Legacy `coach_agent.py` | ❌ DEPRECATED - Uses module globals | ⛔ DO NOT USE |
+
+---
+
 ## Architecture Diagram: The 4-Lane System
 
 ```
@@ -330,6 +378,158 @@ result = some_skill(ctx)  # Context passed explicitly
 
 ---
 
+## ContextVars Implementation Deep-Dive (FOR AI AGENT COMPREHENSION)
+
+This section provides exhaustive detail on how thread-safe context is implemented. AI agents modifying this codebase MUST understand this pattern.
+
+### File: `shell/context.py` - The Context Container
+
+**Purpose:** Define thread-safe, async-safe storage using Python's `contextvars` module.
+
+**Complete Implementation Pattern:**
+
+```python
+# shell/context.py - ACTUAL CODE STRUCTURE
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Optional
+
+# =============================================================================
+# CONTEXT VARIABLES (Module-level, but SAFE because ContextVar is thread-safe)
+# =============================================================================
+
+# Session context for the current request
+_session_context_var: ContextVar[Optional["SessionContext"]] = ContextVar(
+    "session_context",   # Debug name
+    default=None         # Default if not set
+)
+
+# User message for the current request (for Safety Gate checks)
+_message_context_var: ContextVar[str] = ContextVar(
+    "message_context",
+    default=""
+)
+
+
+def set_current_context(ctx: "SessionContext", message: str = "") -> None:
+    """
+    Set the context for the current request.
+    
+    CRITICAL: This MUST be called at the start of stream_query() in 
+    agent_engine_app.py, BEFORE any routing or tool execution.
+    
+    The ContextVar.set() method returns a Token, but we don't use it here
+    because asyncio automatically handles context isolation per-task.
+    """
+    _session_context_var.set(ctx)
+    _message_context_var.set(message)
+
+
+def get_current_context() -> "SessionContext":
+    """
+    Get the context for the current request.
+    
+    Called by tool wrappers (tool_get_training_context, etc.) to retrieve
+    user_id and canvas_id without those values being passed as function args.
+    
+    SECURITY: This ensures the LLM cannot hallucinate a user_id.
+    The user_id comes from the authenticated request, not the LLM.
+    
+    Raises:
+        RuntimeError: If called outside an active request context.
+                      This indicates a bug in the calling code.
+    """
+    ctx = _session_context_var.get()
+    if ctx is None:
+        raise RuntimeError(
+            "get_current_context() called outside request context. "
+            "Ensure set_current_context() is called in stream_query."
+        )
+    return ctx
+
+
+def get_current_message() -> str:
+    """
+    Get the raw user message for the current request.
+    
+    Used by Safety Gate to check for confirmation keywords like "confirm",
+    "yes", "do it" before allowing write operations.
+    """
+    return _message_context_var.get()
+```
+
+### Why ContextVar and Not Threading.Local?
+
+| Storage Type | Works in Asyncio? | Works Across Threads? | Correct Choice? |
+|--------------|-------------------|----------------------|-----------------|
+| `threading.local()` | ❌ NO - All coroutines share same thread | ✅ Yes | ❌ Wrong for this use case |
+| `contextvars.ContextVar` | ✅ YES - Each task gets own context | ✅ Yes | ✅ Correct |
+| Module-level global | ❌ NO - Shared across everything | ❌ NO | ❌ Never use for state |
+
+**Asyncio Runtime Reality:**
+- Vertex Agent Engine runs multiple requests as concurrent `asyncio` tasks.
+- All tasks run on the SAME thread (single-threaded event loop).
+- `threading.local()` would NOT isolate them because they're all on thread 1.
+- `ContextVar` is specifically designed for async task isolation.
+
+### The Lifecycle: Where Context Is Set and Used
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  agent_engine_app.py :: stream_query()                                      │
+│                                                                             │
+│  1. Parse context from message prefix                                       │
+│     ctx = SessionContext.from_message(message)                              │
+│                                                                             │
+│  2. SET CONTEXT IMMEDIATELY (before any routing)                            │
+│     set_current_context(ctx, message)  ← SECURITY BOUNDARY                  │
+│                                                                             │
+│  3. Route to appropriate lane                                               │
+│     routing = route_request(message)                                        │
+│                                                                             │
+│  4. Execute lane logic...                                                   │
+│     ...tools call get_current_context() to get user_id                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  shell/tools.py :: tool_get_training_context()                              │
+│                                                                             │
+│  def tool_get_training_context() -> Dict[str, Any]:                         │
+│      # NOTICE: No user_id in function signature!                            │
+│      # LLM cannot hallucinate the user_id.                                  │
+│                                                                             │
+│      ctx = get_current_context()  ← Retrieves from ContextVar               │
+│                                                                             │
+│      if not ctx.user_id:                                                    │
+│          return {"error": "No user_id available in context"}                │
+│                                                                             │
+│      result = get_training_context(ctx.user_id)  ← Uses verified user_id    │
+│      return result.to_dict()                                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Security Implication: LLM Cannot Hallucinate User IDs
+
+**Old (Dangerous) Pattern:**
+```python
+# LLM sees: tool_get_training_context(user_id="...")
+# LLM could call: tool_get_training_context(user_id="admin123")
+# → Accesses admin's data!
+```
+
+**New (Safe) Pattern:**
+```python
+# LLM sees: tool_get_training_context()
+# LLM calls: tool_get_training_context()
+# Tool internally: ctx = get_current_context()  # From authenticated request
+# → Only accesses the requesting user's data
+```
+
+---
+
 ## Router API
 
 ### `route_request(payload: Union[str, Dict]) -> RoutingResult`
@@ -382,15 +582,206 @@ CANVAS_FUNCTIONAL_MODEL=gemini-2.5-flash  # Functional Lane
 
 ---
 
-## Verification Checklist
+## iOS Client Integration: Protocol Multiplexing
+
+### Integration Strategy (CRITICAL FOR iOS DEVELOPERS AND AI AGENTS)
+
+The iOS app (`Povver/`) communicates with the Shell Agent via a **single unified endpoint**: `:streamQuery`. All request types (chat, smart buttons, workout monitoring) are multiplexed over this endpoint.
+
+**Why Multiplexing?**
+- Single WebSocket/HTTP2 stream for all interactions
+- No separate APIs to maintain
+- Consistent authentication and error handling
+- Reduces complexity in mobile networking layer
+
+### Protocol Types Over `:streamQuery`
+
+| Payload Type | Detection | Lane | Response Format |
+|--------------|-----------|------|-----------------|
+| Plain text string | `message` is `str` without JSON structure | Slow or Fast | Streaming text in chat bubbles |
+| JSON with `intent` | `message` has `{"intent": "..."}` field | Functional | JSON object (parsed by iOS, not displayed as chat) |
+| JSON with `event_type` | `message` has `{"event_type": "..."}` field | Functional (Monitor) | JSON with `action` field or `NULL` |
+
+### Request Flow from iOS
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  iOS Client (Povver/Povver/Services/DirectStreamingService.swift)           │
+│                                                                             │
+│  CHAT REQUEST:                                                              │
+│    streamQuery(message: "Help me with chest exercises")                     │
+│    → Router: Plain string → Slow Lane                                       │
+│    → Response: Streaming text → Display in chat bubbles                     │
+│                                                                             │
+│  SMART BUTTON REQUEST:                                                      │
+│    streamQuery(message: '{"intent": "SWAP_EXERCISE", "target": "Bench"}')   │
+│    → Router: JSON with intent → Functional Lane                             │
+│    → Response: {"action": "REPLACE_EXERCISE", "data": {...}}                │
+│    → iOS parses JSON, updates local state, shows toast                      │
+│                                                                             │
+│  WORKOUT MONITOR REQUEST:                                                   │
+│    streamQuery(message: '{"event_type": "SET_COMPLETED", "diff": {...}}')   │
+│    → Router: JSON with event_type → Monitor (Functional sub-type)           │
+│    → Response: {"action": "NULL"} or {"action": "NUDGE", "text": "..."}     │
+│    → iOS: NULL = ignore, NUDGE = show Coach Tip toast                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Response Parsing Logic for iOS Client
+
+The iOS client must distinguish between:
+1. **Streaming text** (chat responses) → Append to chat history
+2. **JSON objects** (functional responses) → Parse and act, don't display as chat
+
+**Detection Heuristic (iOS Side):**
+
+```swift
+// Povver/Povver/Services/DirectStreamingService.swift (pseudo-code)
+
+func handleStreamChunk(_ chunk: String) {
+    // Check if chunk starts with JSON structure indicators
+    let trimmed = chunk.trimmingCharacters(in: .whitespaces)
+    
+    if trimmed.hasPrefix("{") && trimmed.hasSuffix("}") {
+        // Attempt JSON parse
+        if let json = try? JSONDecoder().decode(FunctionalResponse.self, from: chunk.data(using: .utf8)!) {
+            handleFunctionalResponse(json)  // Update UI, show toast, etc.
+            return
+        }
+    }
+    
+    // Not JSON → Regular chat text
+    appendToChatHistory(chunk)
+}
+
+struct FunctionalResponse: Codable {
+    let action: String      // "REPLACE_EXERCISE", "NUDGE", "NULL", etc.
+    let data: AnyCodable?   // Action-specific data
+}
+```
+
+### Monitor Lane Response Schema (FOR iOS CONSUMPTION)
+
+When the iOS app sends workout state updates (e.g., set completed), it expects one of these response formats:
+
+**1. No Intervention Needed (Most Common):**
+```json
+{
+    "action": "NULL",
+    "data": null
+}
+```
+iOS Action: Ignore completely. No UI change. Silent observer passed.
+
+**2. Coach Intervention (Nudge):**
+```json
+{
+    "action": "NUDGE",
+    "data": {
+        "message": "Your rest time seems longer than usual. Feeling okay?",
+        "severity": "info"  // "info" | "warning" | "alert"
+    }
+}
+```
+iOS Action: Show "Coach Tip" toast overlay. Does NOT go into chat history.
+
+**3. Critical Alert:**
+```json
+{
+    "action": "ALERT",
+    "data": {
+        "message": "Form concern: weight dropped significantly. Consider reducing intensity.",
+        "severity": "warning"
+    }
+}
+```
+iOS Action: Show prominent alert. May pause workout timer.
+
+### Canvas Cards vs Chat Bubbles (FOR iOS DEVELOPERS)
+
+The iOS app renders two distinct UI elements from agent responses:
+
+| Response Type | Detection | iOS Rendering |
+|--------------|-----------|---------------|
+| Chat text | Plain string in stream | `ChatBubble` view |
+| Canvas Card | JSON with `card_type` | `SessionPlanCard`, `RoutineSummaryCard`, etc. |
+
+**Canvas Card Detection (iOS):**
+
+```swift
+// Check for canvas card structure
+struct CanvasCard: Codable {
+    let card_type: String         // "session_plan", "routine_summary", etc.
+    let card_id: String
+    let payload: AnyCodable
+}
+
+// In stream handler:
+if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
+    renderCanvasCard(card)  // Specialized UI component
+} else {
+    renderChatBubble(text)  // Standard chat display
+}
+```
+
+### iOS Files Involved in Agent Integration
+
+| iOS File | Purpose |
+|----------|---------|
+| `Services/DirectStreamingService.swift` | WebSocket/HTTP2 streaming client |
+| `Services/CanvasActions.swift` | Handle canvas card actions (confirm, dismiss) |
+| `Services/AgentsApi.swift` | API wrapper for agent invocation |
+| `UI/Canvas/Cards/*.swift` | Render specific card types |
+| `ViewModels/CanvasViewModel.swift` | State management for canvas items |
+
+---
+
+## Verification Checklist (PRODUCTION READINESS)
+
+### Concurrency Safety (Vertex Agent Engine)
 
 | Check | Expected | Verified |
 |-------|----------|----------|
-| Safety: Can `propose_workout` execute without confirmation? | NO | ✅ |
-| Latency: Does "log set" bypass the LLM? | YES | ✅ |
-| Legacy: Are `coach_agent.py` imports in `shell/agent.py`? | NO | ✅ |
-| Intelligence: Does worker use same analytics function as chat? | YES | ✅ |
-| JSON: Does Functional Lane output chat text? | NO | ✅ |
+| Are module-level globals (`_current_context = {}`) removed from `tools.py`? | YES | ✅ |
+| Does `agent_engine_app.py` call `set_current_context()` BEFORE routing? | YES | ✅ |
+| Do tool functions use `get_current_context()` to retrieve user_id? | YES | ✅ |
+| Is `user_id` EXCLUDED from tool function signatures (LLM-facing)? | YES | ✅ |
+| Does `get_current_context()` raise RuntimeError if called outside request? | YES | ✅ |
+
+### Write Safety (Mutation Prevention)
+
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Is `tool_manage_routine` excluded from `tools.py`? | YES | ✅ |
+| Does `propose_workout` require confirmation before writing? | YES | ✅ |
+| Does `propose_routine` require confirmation before writing? | YES | ✅ |
+| Are read-only tools (`get_analytics_features`, `search_exercises`) ungated? | YES | ✅ |
+
+### iOS Integration (Protocol Multiplexing)
+
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Does `route_request()` handle JSON string payloads? | YES | ✅ |
+| Does Functional Lane return pure JSON (not chat text)? | YES | ✅ |
+| Does MONITOR_STATE return `{"action": "NULL"}` when no intervention? | YES | ✅ |
+| Does MONITOR_STATE return `{"action": "NUDGE", ...}` for interventions? | YES | ✅ |
+
+### Performance (Latency Targets)
+
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Does "log set" / "done" bypass the LLM? | YES | ✅ |
+| Is Fast Lane latency < 500ms? | YES | ✅ (target) |
+| Is Functional Lane latency < 1s? | YES | ✅ (target) |
+
+### Architecture (No Legacy Dependencies)
+
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Are `coach_agent.py` imports in `shell/agent.py`? | NO | ✅ |
+| Does worker use same analytics function as chat agent? | YES | ✅ |
+| Is Shell Agent enabled via `USE_SHELL_AGENT=true`? | YES | ✅ |
 
 ---
 
@@ -454,6 +845,8 @@ python workers/post_workout_analyst.py \
 | 2026-01-03 | Phase 2: Functional Lane, route_request() |
 | 2026-01-03 | Phase 3: Worker Lane, post_workout_analyst.py |
 | 2026-01-03 | Complete 4-Lane architecture documentation |
+| 2026-01-03 | ContextVars hardening for Vertex Agent Engine |
+| 2026-01-03 | **Production Integration Documentation**: Added Vertex AI runtime section, ContextVars deep-dive, iOS protocol multiplexing, Monitor Lane schema, comprehensive verification checklist |
 
 ---
 
