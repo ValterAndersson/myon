@@ -1,24 +1,63 @@
 """
-Shell Agent - Single unified agent with Coach persona.
+Shell Agent - Single unified agent with consistent persona.
 
-This module implements the simplified Single Shell Agent architecture:
-- Router: Fast lane bypass for copilot commands
-- ShellAgent: Unified agent with all tools (Planning + Coaching)
-- Skills: Pure Python functions, no globals
+Replaces the Router + Sub-Agents architecture with:
+- Fast Lane: Regex patterns → direct skill execution (no LLM)
+- Slow Lane: ShellAgent (gemini-2.5-pro) with unified instruction
 
-The Shell Agent uses gemini-2.5-pro for complex reasoning.
-Fast lane requests bypass the LLM entirely for sub-500ms response times.
+Modules:
+- context: Per-request context (no global state)
+- router: Fast/Slow lane routing
+- instruction: Unified Coach + Planner instruction
+- agent: ShellAgent definition
+- safety_gate: Write operation confirmation
+- critic: Response validation for complex advice
 """
 
-from app.shell.agent import root_agent, ShellAgent, handle_message
 from app.shell.context import SessionContext
-from app.shell.router import route_message, Lane
+from app.shell.router import (
+    Lane,
+    RoutingResult,
+    route_message,
+    execute_fast_lane,
+)
+from app.shell.agent import ShellAgent, create_shell_agent
+from app.shell.safety_gate import (
+    WriteOperation,
+    SafetyDecision,
+    check_safety_gate,
+    check_message_for_confirmation,
+    format_confirmation_prompt,
+)
+from app.shell.critic import (
+    CriticSeverity,
+    CriticFinding,
+    CriticResult,
+    run_critic,
+    should_run_critic,
+)
 
 __all__ = [
-    "root_agent",
-    "ShellAgent",
-    "handle_message",
+    # Context
     "SessionContext",
-    "route_message",
+    # Router
     "Lane",
+    "RoutingResult",
+    "route_message",
+    "execute_fast_lane",
+    # Agent
+    "ShellAgent",
+    "create_shell_agent",
+    # Safety Gate
+    "WriteOperation",
+    "SafetyDecision",
+    "check_safety_gate",
+    "check_message_for_confirmation",
+    "format_confirmation_prompt",
+    # Critic
+    "CriticSeverity",
+    "CriticFinding",
+    "CriticResult",
+    "run_critic",
+    "should_run_critic",
 ]
