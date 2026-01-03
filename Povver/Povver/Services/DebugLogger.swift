@@ -378,6 +378,9 @@ final class SessionLogger {
     }
     
     func logSSEEvent(type: String, content: [String: Any]?, agent: String? = nil, metadata: [String: Any]? = nil) {
+        // SUPPRESS HEARTBEATS - They provide zero value and spam logs
+        let suppressedEvents = ["heartbeat", "ping", "keep_alive", "keepalive"]
+        if suppressedEvents.contains(type.lowercased()) { return }
         guard DebugLogger.enabled else { return }
         
         let emoji = sseEventEmoji(type)
@@ -510,6 +513,15 @@ final class SessionLogger {
         case "routing", "route": return "🔀"
         case "clarification_request": return "❓"
         case "heartbeat", "ping": return "💓"
+        // Shell Agent Pipeline Events
+        case "lane_routing", "router": return "🛤️"
+        case "tool_planner", "planner": return "📋"
+        case "executor": return "⚡"
+        case "critic": return "🔍"
+        case "safety_gate": return "🔒"
+        case "fast_lane": return "⚡"
+        case "slow_lane": return "🧠"
+        case "functional_lane": return "🔧"
         case "user_prompt": return "👤"
         case "user_response": return "👤"
         default: return "📌"
