@@ -164,9 +164,10 @@ def tool_search_exercises(
     equipment: Optional[str] = None,
     query: Optional[str] = None,
     limit: int = 15,
+    fields: str = "lean",
 ) -> Dict[str, Any]:
     """
-    Search the exercise catalog. Returns lean exercise data for workout planning.
+    Search the exercise catalog.
     
     IMPORTANT: Use muscle_group for body-part searches.
     Use movement_type (not split) for push/pull/legs programming.
@@ -190,15 +191,21 @@ def tool_search_exercises(
         
         query: Free text search for exercise names.
         
-        limit: Max results (default 15, keep low to save context)
+        limit: Max results (default 15)
+        
+        fields: Output format. Choose based on need:
+            "minimal" - id + name only (smallest, for large searches)
+            "lean" - id, name, category, equipment (default, good for planning)
+            "full" - all fields (when you need muscles, instructions, etc.)
     
     Returns:
-        Lean list with: id, name, category, equipment (first only)
+        List of exercises with fields based on 'fields' parameter
     
     Strategy:
         - PPL: movement_type="push" / "pull" / muscle_group="legs"
         - Upper/Lower: muscle_group="chest,back" / muscle_group="legs"
         - If sparse results, drop filters and proceed with best available
+        - Use fields="minimal" for large result sets to save context
     """
     result = search_exercises(
         muscle_group=muscle_group,
@@ -207,6 +214,7 @@ def tool_search_exercises(
         equipment=equipment,
         query=query,
         limit=limit,
+        fields=fields,
     )
     return result.to_dict()
 

@@ -177,6 +177,7 @@ class CanvasFunctionsClient:
         difficulty: Optional[str] = None,
         query: Optional[str] = None,
         limit: int = 20,
+        fields: str = "full",
     ) -> Dict[str, Any]:
         """Search the exercises catalog from Firestore.
         
@@ -220,6 +221,8 @@ class CanvasFunctionsClient:
         if query:
             params.append(f"query={query}")
         params.append(f"limit={limit}")
+        if fields and fields != "full":
+            params.append(f"fields={fields}")
         query_string = "&".join(params)
         return self._http.get(f"searchExercises?{query_string}")
 

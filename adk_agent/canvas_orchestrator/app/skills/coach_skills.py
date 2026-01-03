@@ -306,22 +306,24 @@ def search_exercises(
     equipment: Optional[str] = None,
     query: Optional[str] = None,
     limit: int = 10,
+    fields: str = "full",
 ) -> SkillResult:
     """
     Search exercise catalog.
     
     Args:
-        muscle_group: Target muscle group
+        muscle_group: Target muscle group (comma-separated OK)
         movement_type: push, pull, hinge, squat, etc.
         category: compound, isolation, bodyweight
         equipment: barbell, dumbbell, cable, machine
         query: Free text search
         limit: Max results (default 10)
+        fields: Output format - "minimal" (id+name), "lean" (id+name+category+equipment), "full" (all)
         
     Returns:
         SkillResult with list of exercises
     """
-    logger.info("search_exercises query=%s muscle=%s", query, muscle_group)
+    logger.info("search_exercises query=%s muscle=%s fields=%s", query, muscle_group, fields)
     
     try:
         resp = _get_client().search_exercises(
@@ -331,6 +333,7 @@ def search_exercises(
             equipment=equipment,
             query=query,
             limit=limit,
+            fields=fields,
         )
         
         success, data, error_details = parse_api_response(resp)
@@ -341,24 +344,12 @@ def search_exercises(
         logger.error("search_exercises exception: %s", e)
         return SkillResult(success=False, error=str(e))
     
+    # Return items directly from API (projection is handled server-side via fields param)
     items = data.get("items") or []
-    
-    # LEAN response format to minimize context window usage.
-    # Only include fields the agent needs for selection + tool calls.
-    # Full metadata was causing context bloat and output truncation.
-    exercises = [
-        {
-            "id": ex.get("id"),
-            "name": ex.get("name"),
-            "category": ex.get("category"),  # compound/isolation - needed for selection
-            "equipment": (ex.get("equipment") or [])[:1],  # Just first equipment, not all
-        }
-        for ex in items
-    ]
     
     return SkillResult(
         success=True,
-        data={"items": exercises, "count": len(exercises)}
+        data={"items": items, "count": len(items), "fields": fields}
     )
 
 

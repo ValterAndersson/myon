@@ -97,7 +97,8 @@ async function searchExercisesHandler(req, res) {
     limit,
     includeMerged,
     canonicalOnly,
-    skipCache // Allow bypassing cache for admin/debug
+    skipCache, // Allow bypassing cache for admin/debug
+    fields // Output format: "minimal" (id+name), "lean" (id+name+category+equipment), "full" (all)
   } = req.query || {};
 
   try {
@@ -301,7 +302,29 @@ async function searchExercisesHandler(req, res) {
     setCachedExercises(cacheKey, exercises, cacheParams);
     console.log('[ExerciseCache] Cached results', { count: exercises.length });
 
-    return ok(res, { items: exercises, count: exercises.length, source: 'fresh', filters: {
+    // Apply field projection based on 'fields' parameter
+    // "minimal" = id + name only (smallest token footprint)
+    // "lean" = id, name, category, first equipment
+    // "full" = all fields (default)
+    let outputExercises = exercises;
+    const fieldsMode = String(fields || 'full').toLowerCase();
+    
+    if (fieldsMode === 'minimal') {
+      outputExercises = exercises.map(ex => ({
+        id: ex.id,
+        name: ex.name,
+      }));
+    } else if (fieldsMode === 'lean') {
+      outputExercises = exercises.map(ex => ({
+        id: ex.id,
+        name: ex.name,
+        category: ex.category,
+        equipment: Array.isArray(ex.equipment) ? ex.equipment.slice(0, 1) : [],
+      }));
+    }
+    // else "full" - return as-is
+
+    return ok(res, { items: outputExercises, count: outputExercises.length, source: 'fresh', fields: fieldsMode, filters: {
       query: query || null,
       category: category || null,
       muscleGroup: muscleGroup || null,
