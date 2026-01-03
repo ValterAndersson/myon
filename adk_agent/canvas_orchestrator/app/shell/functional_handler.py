@@ -70,22 +70,59 @@ class FunctionalHandler:
     
     @property
     def client(self):
-        """Lazy-load Gemini client."""
+        """
+        Lazy-load Gemini client.
+        
+        Uses Vertex AI (ADC) for GCP deployments, falls back to genai for local dev.
+        """
         if self._client is None:
+            # Try Vertex AI first (for Cloud Run / GCP environment)
             try:
-                import google.generativeai as genai
-                genai.configure()  # Uses GOOGLE_API_KEY or application default credentials
-                self._client = genai.GenerativeModel(
+                import vertexai
+                from vertexai.generative_models import GenerativeModel, GenerationConfig
+                
+                # Initialize with ADC (Application Default Credentials)
+                project = os.getenv("GOOGLE_PROJECT") or os.getenv("GCP_PROJECT")
+                location = os.getenv("GOOGLE_LOCATION", "us-central1")
+                if project:
+                    vertexai.init(project=project, location=location)
+                else:
+                    vertexai.init()  # Uses default project from ADC
+                
+                self._client = GenerativeModel(
                     FUNCTIONAL_MODEL,
                     system_instruction=FUNCTIONAL_INSTRUCTION,
-                    generation_config={
-                        "temperature": FUNCTIONAL_TEMPERATURE,
-                        "response_mime_type": "application/json",
-                    },
+                    generation_config=GenerationConfig(
+                        temperature=FUNCTIONAL_TEMPERATURE,
+                        response_mime_type="application/json",
+                    ),
                 )
-            except Exception as e:
-                logger.error("Failed to initialize Gemini client: %s", e)
-                raise
+                logger.info("FunctionalHandler using Vertex AI (ADC)")
+                
+            except Exception as vertex_err:
+                # Fallback to google-generativeai for local development
+                logger.warning("Vertex AI init failed (%s), falling back to genai", vertex_err)
+                try:
+                    import google.generativeai as genai
+                    
+                    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                    if api_key:
+                        genai.configure(api_key=api_key)
+                    else:
+                        genai.configure()  # Try without explicit key
+                    
+                    self._client = genai.GenerativeModel(
+                        FUNCTIONAL_MODEL,
+                        system_instruction=FUNCTIONAL_INSTRUCTION,
+                        generation_config={
+                            "temperature": FUNCTIONAL_TEMPERATURE,
+                            "response_mime_type": "application/json",
+                        },
+                    )
+                    logger.info("FunctionalHandler using google-generativeai (API key)")
+                except Exception as e:
+                    logger.error("Failed to initialize Gemini client: %s", e)
+                    raise
         return self._client
     
     async def handle(
@@ -168,7 +205,7 @@ class FunctionalHandler:
             limit=10,
         )
         
-        if not search_result.success or not search_result.data.get("exercises"):
+        if not search_result.success or not search_result.data.get("items"):
             return FunctionalResult(
                 success=False,
                 action="ERROR",
@@ -176,7 +213,7 @@ class FunctionalHandler:
                 intent="SWAP_EXERCISE",
             )
         
-        alternatives = search_result.data["exercises"]
+        alternatives = search_result.data.get("items", [])
         
         # 2. Use Flash to select best match
         prompt = f"""Select the best alternative to replace "{target}".

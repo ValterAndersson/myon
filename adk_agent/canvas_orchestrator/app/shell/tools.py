@@ -96,10 +96,13 @@ def tool_get_analytics_features(
     if not ctx.user_id:
         return {"error": "No user_id available in context"}
     
+    # Convert muscle_group to muscles list (coach_skills uses 'muscles' param)
+    muscles = [muscle_group] if muscle_group else None
+    
     result = get_analytics_features(
         user_id=ctx.user_id,
         weeks=weeks,
-        muscle_group=muscle_group,
+        muscles=muscles,
         exercise_ids=exercise_ids,
     )
     return result.to_dict()

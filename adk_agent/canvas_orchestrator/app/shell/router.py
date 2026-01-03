@@ -278,6 +278,17 @@ def execute_fast_lane(
                 "result": result.to_dict(),
             }
         
+        elif routing.intent == "MONITOR_SKIP":
+            # Non-significant monitor event - silent acknowledgment
+            return {
+                "lane": "fast",
+                "intent": routing.intent,
+                "result": {
+                    "success": True,
+                    "message": "",  # Silent - no user-facing message
+                },
+            }
+        
         # Fallback for unhandled intents
         return {
             "lane": "fast",
