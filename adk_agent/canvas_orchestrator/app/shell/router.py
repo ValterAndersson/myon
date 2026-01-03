@@ -1,21 +1,26 @@
 """
-Router - Fast Lane bypass + Slow Lane handoff.
+Router - 4-Lane request routing for the Shell Agent architecture.
 
-Fast Lane: Regex patterns match copilot commands → execute skills directly (no LLM)
-Slow Lane: Pass to Shell Agent for CoT reasoning
+Lanes:
+- Fast Lane: Regex → direct skill execution (no LLM, <500ms)
+- Slow Lane: Shell Agent (gemini-2.5-pro) for conversational CoT
+- Functional Lane: gemini-2.5-flash for structured JSON in/out (Smart Buttons)
+- Worker Lane: Background scripts (triggered by PubSub, not routed)
 
 Model assignment:
 - Fast Lane: No LLM (direct skill execution)
 - Slow Lane: gemini-2.5-pro (Shell Agent)
+- Functional Lane: gemini-2.5-flash (JSON only, temp=0)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from app.shell.context import SessionContext
 
@@ -24,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 class Lane(str, Enum):
     """Request processing lanes."""
-    FAST = "fast"    # Bypass LLM entirely - direct skill execution
-    SLOW = "slow"    # Route to Shell Agent for reasoning
-    ADMIN = "admin"  # System commands (future)
+    FAST = "fast"           # Bypass LLM entirely - direct skill execution
+    SLOW = "slow"           # Route to Shell Agent for conversational reasoning
+    FUNCTIONAL = "func"     # Route to Flash for JSON-only logic (Smart Buttons)
+    ADMIN = "admin"         # System commands (future)
 
 
 @dataclass
@@ -296,9 +302,142 @@ def execute_fast_lane(
         }
 
 
+# ============================================================================
+# FUNCTIONAL LANE INTENTS (JSON payloads from UI)
+# These are handled by gemini-2.5-flash with JSON-only output.
+# ============================================================================
+
+FUNCTIONAL_INTENTS = frozenset([
+    "SWAP_EXERCISE",        # Swap exercise for alternative
+    "AUTOFILL_SET",         # Auto-fill set with predicted values
+    "SUGGEST_WEIGHT",       # Suggest weight for next set
+    "MONITOR_STATE",        # Silent observer for workout state
+])
+
+# Monitor: Significant events that trigger Flash analysis
+MONITOR_SIGNIFICANT_EVENTS = frozenset([
+    "SET_COMPLETED",
+    "WORKOUT_COMPLETED",
+    "EXERCISE_SWAPPED",
+])
+
+
+def route_request(payload: Union[str, Dict[str, Any]]) -> RoutingResult:
+    """
+    Route request to appropriate lane. Handles both text and JSON payloads.
+    
+    This is the main entry point for the 4-Lane architecture.
+    
+    Args:
+        payload: Either:
+            - str: Text message → route via regex (Fast/Slow lane)
+            - Dict: JSON payload → route via intent field (Functional lane)
+    
+    Returns:
+        RoutingResult with lane and intent information
+    """
+    # Handle string payloads (traditional text messages)
+    if isinstance(payload, str):
+        # Try to parse as JSON first (frontend may serialize JSON as string)
+        try:
+            parsed = json.loads(payload)
+            if isinstance(parsed, dict):
+                return _route_dict_payload(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # Fall back to text routing
+        return route_message(payload)
+    
+    # Handle dict payloads directly
+    if isinstance(payload, dict):
+        return _route_dict_payload(payload)
+    
+    # Fallback
+    logger.warning("route_request: Unknown payload type: %s", type(payload))
+    return RoutingResult(
+        lane=Lane.SLOW,
+        intent=None,
+        confidence="low",
+        matched_rule="type_fallback",
+    )
+
+
+def _route_dict_payload(payload: Dict[str, Any]) -> RoutingResult:
+    """
+    Route a JSON payload based on its structure.
+    
+    Routing rules:
+    1. Has "intent" field → Functional Lane
+    2. Has "workout_state" field → Monitor (Functional sub-type)
+    3. Has "message" field → Extract and route as text
+    4. Otherwise → Slow Lane (let Shell figure it out)
+    """
+    # Check for explicit intent (Smart Buttons)
+    intent = payload.get("intent")
+    if intent:
+        if intent in FUNCTIONAL_INTENTS:
+            logger.info("FUNCTIONAL LANE: intent=%s", intent)
+            return RoutingResult(
+                lane=Lane.FUNCTIONAL,
+                intent=intent,
+                confidence="high",
+                matched_rule="json:intent",
+            )
+        else:
+            # Unknown intent, but still structured → Slow Lane
+            logger.info("SLOW LANE (unknown intent): %s", intent)
+            return RoutingResult(
+                lane=Lane.SLOW,
+                intent=intent,
+                confidence="medium",
+                matched_rule="json:unknown_intent",
+            )
+    
+    # Check for workout state diff (Monitor pattern)
+    if "workout_state" in payload or "state_diff" in payload:
+        event_type = payload.get("event_type", "")
+        
+        # Heuristic Gate: Only trigger Flash for significant events
+        if event_type in MONITOR_SIGNIFICANT_EVENTS:
+            logger.info("FUNCTIONAL LANE (monitor): event=%s", event_type)
+            return RoutingResult(
+                lane=Lane.FUNCTIONAL,
+                intent="MONITOR_STATE",
+                confidence="high",
+                matched_rule="json:monitor_significant",
+            )
+        else:
+            # Non-significant event → acknowledge without LLM
+            logger.debug("MONITOR SKIP: event=%s (not significant)", event_type)
+            return RoutingResult(
+                lane=Lane.FAST,
+                intent="MONITOR_SKIP",
+                confidence="high",
+                matched_rule="json:monitor_skip",
+            )
+    
+    # Check for message field (hybrid payload)
+    message = payload.get("message")
+    if message and isinstance(message, str):
+        return route_message(message)
+    
+    # Fallback to Slow Lane
+    logger.info("SLOW LANE (json fallback)")
+    return RoutingResult(
+        lane=Lane.SLOW,
+        intent=None,
+        confidence="low",
+        matched_rule="json:fallback",
+    )
+
+
 __all__ = [
     "Lane",
     "RoutingResult", 
     "route_message",
+    "route_request",
     "execute_fast_lane",
+    "FUNCTIONAL_INTENTS",
+    "MONITOR_SIGNIFICANT_EVENTS",
 ]
