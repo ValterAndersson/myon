@@ -272,15 +272,26 @@ final class SessionLogger {
         guard DebugLogger.enabled else { return }
         
         let statusEmoji = statusCode >= 200 && statusCode < 300 ? "✅" : "❌"
+        let latencyCategory = categorizeLatency(durationMs)
         
-        var output = """
+        var output = ""
         
-        [\(timestamp())] 📥 HTTP RESPONSE (\(durationMs)ms) \(statusEmoji) \(statusCode)
+        // Add latency warning banner for slow requests
+        if latencyCategory == .slow || latencyCategory == .critical {
+            output += "\n" + latencyBanner(durationMs: durationMs, operation: "\(method) \(endpoint)")
+        }
+        
+        output += """
+        
+        [\(timestamp())] 📥 HTTP RESPONSE (\(durationMs)ms \(latencyCategory.badge)) \(statusEmoji) \(statusCode)
           \(method) \(endpoint)
         """
         
-        if let body = body {
+        if DebugLogger.verbose, let body = body {
             output += "\n  Body: \(formatJSON(body))"
+        } else if let body = body as? [String: Any] {
+            // Compact mode: show key fields only
+            output += "\n  Body: \(compactSummary(body))"
         }
         
         if let error = error {
@@ -288,6 +299,58 @@ final class SessionLogger {
         }
         
         print(output)
+    }
+    
+    // MARK: - Latency Classification
+    
+    enum LatencyCategory {
+        case fast      // < 1s
+        case normal    // 1-3s
+        case slow      // 3-5s
+        case critical  // > 5s
+        
+        var badge: String {
+            switch self {
+            case .fast: return "⚡"
+            case .normal: return ""
+            case .slow: return "🐢"
+            case .critical: return "🔥🐢"
+            }
+        }
+    }
+    
+    private func categorizeLatency(_ ms: Int) -> LatencyCategory {
+        switch ms {
+        case 0..<1000: return .fast
+        case 1000..<3000: return .normal
+        case 3000..<5000: return .slow
+        default: return .critical
+        }
+    }
+    
+    private func latencyBanner(durationMs: Int, operation: String) -> String {
+        let secs = String(format: "%.1fs", Double(durationMs) / 1000.0)
+        return """
+        ⚠️━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ⚠️  SLOW REQUEST: \(secs) — \(operation)
+        ⚠️━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """
+    }
+    
+    private func compactSummary(_ dict: [String: Any]) -> String {
+        let keyFields = ["success", "sessionId", "canvasId", "isNew", "error", "message"]
+        var parts: [String] = []
+        
+        for key in keyFields {
+            if let value = dict[key] {
+                parts.append("\(key)=\(value)")
+            }
+        }
+        
+        if parts.isEmpty {
+            return "{\(dict.keys.prefix(3).joined(separator: ", "))...}"
+        }
+        return "{ \(parts.joined(separator: ", ")) }"
     }
     
     // MARK: - SSE Logging
@@ -351,17 +414,86 @@ final class SessionLogger {
         print(output)
     }
     
-    func logSSEStreamEnd(eventCount: Int, durationMs: Int) {
+    func logSSEStreamEnd(eventCount: Int, durationMs: Int, lane: String? = nil, tokenCount: Int? = nil) {
         guard DebugLogger.enabled else { return }
         
-        let output = """
+        let latencyCategory = categorizeLatency(durationMs)
+        let laneEmoji = laneEmoji(lane)
         
-        [\(timestamp())] 🏁 SSE STREAM END
-          Events: \(eventCount)
+        var output = ""
+        
+        // Add warning banner for slow SSE streams
+        if latencyCategory == .slow || latencyCategory == .critical {
+            output += "\n" + latencyBanner(durationMs: durationMs, operation: "Agent Response")
+        }
+        
+        output += """
+        
+        [\(timestamp())] 🏁 SSE STREAM END \(latencyCategory.badge)
           Duration: \(durationMs)ms
-        
+          Events: \(eventCount)
         """
+        
+        if let lane = lane {
+            output += "\n  Lane: \(laneEmoji) \(lane.uppercased())"
+        }
+        
+        if let tokens = tokenCount {
+            output += "\n  Tokens: ~\(tokens)"
+        }
+        
+        output += "\n"
+        
         print(output)
+    }
+    
+    /// Log a complete request summary (call at end of interaction)
+    func logRequestSummary(
+        message: String,
+        lane: String,
+        agentPath: [String],
+        totalDurationMs: Int,
+        toolCalls: Int = 0,
+        tokenEstimate: Int? = nil
+    ) {
+        guard DebugLogger.enabled else { return }
+        
+        let latencyCategory = categorizeLatency(totalDurationMs)
+        let laneEmoji = laneEmoji(lane)
+        let preview = String(message.prefix(50)).replacingOccurrences(of: "\n", with: " ")
+        
+        var output = """
+        
+        ┌──────────────────────────────────────────────────────────────────────────────────┐
+        │ 📊 REQUEST SUMMARY                                                                │
+        ├──────────────────────────────────────────────────────────────────────────────────┤
+        │ Message: "\(preview)\(message.count > 50 ? "..." : "")"
+        │ Lane:    \(laneEmoji) \(lane.uppercased())
+        │ Agents:  \(agentPath.joined(separator: " → "))
+        │ Duration: \(totalDurationMs)ms \(latencyCategory.badge)
+        """
+        
+        if toolCalls > 0 {
+            output += "\n│ Tools:   \(toolCalls) call(s)"
+        }
+        
+        if let tokens = tokenEstimate {
+            output += "\n│ Tokens:  ~\(tokens)"
+        }
+        
+        output += "\n└──────────────────────────────────────────────────────────────────────────────────┘\n"
+        
+        print(output)
+    }
+    
+    private func laneEmoji(_ lane: String?) -> String {
+        switch lane?.lowercased() {
+        case "fast": return "⚡"
+        case "slow": return "🧠"
+        case "functional", "func": return "🔧"
+        case "worker": return "👷"
+        default: return "❓"
+        }
     }
     
     private func sseEventEmoji(_ type: String) -> String {
