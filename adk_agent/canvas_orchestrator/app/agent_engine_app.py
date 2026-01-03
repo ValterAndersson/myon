@@ -79,45 +79,104 @@ class AgentEngineApp(AdkApp):
         **kwargs,
     ) -> Generator[dict, None, None]:
         """
-        Query with Fast Lane bypass.
+        Query with Full Pipeline: Fast Lane bypass, Tool Planner, Critic.
         
-        Fast Lane patterns (regex-matched) execute skills directly
-        without invoking the LLM, achieving sub-500ms response times.
+        Pipeline stages:
+        1. Router: Determine Fast/Slow lane
+        2. Fast Lane: Execute skills directly (no LLM, <500ms)
+        3. Slow Lane: Generate plan → Execute with LLM → Critic check
         
         Only active when USE_SHELL_AGENT=true.
         """
-        # === FAST LANE CHECK (only when USE_SHELL_AGENT=true) ===
+        routing = None
+        plan = None
+        
+        # === ROUTING + FAST LANE CHECK ===
         if USE_SHELL_AGENT:
             try:
                 from app.shell.router import route_message, execute_fast_lane, Lane
                 from app.shell.context import SessionContext
+                from app.shell.planner import generate_plan, should_generate_plan
                 
                 routing = route_message(message)
                 
+                # === FAST LANE: Direct skill execution ===
                 if routing.lane == Lane.FAST:
                     logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
                     
-                    # Execute skill directly - no LLM
                     ctx = SessionContext.from_message(message)
                     result = execute_fast_lane(routing, message, ctx)
                     
-                    # Yield as single streaming chunk (ADK format)
                     yield self._format_fast_lane_response(result, routing.intent)
                     return
+                
+                # === TOOL PLANNER: Generate plan for Slow Lane ===
+                if should_generate_plan(routing):
+                    plan = generate_plan(routing, message)
+                    logger.info("PLANNER: Generated plan for %s", routing.intent)
                     
             except ImportError as e:
-                logger.warning("Fast lane import failed: %s - falling back to LLM", e)
+                logger.warning("Shell module import failed: %s - falling back to standard", e)
             except Exception as e:
-                logger.error("Fast lane error: %s - falling back to LLM", e)
+                logger.error("Shell pipeline error: %s - falling back to standard", e)
         
-        # === SLOW LANE: Standard ADK flow ===
-        logger.info("SLOW LANE: %s", message[:50])
-        yield from super().stream_query(
+        # === SLOW LANE: LLM execution with optional plan injection ===
+        logger.info("SLOW LANE: %s (intent=%s)", message[:50], routing.intent if routing else "unknown")
+        
+        # Inject planning context if available
+        augmented_message = message
+        if plan and not plan.skip_planning:
+            plan_prompt = plan.to_system_prompt()
+            augmented_message = f"{message}\n\n{plan_prompt}"
+            logger.info("PLANNER: Injected plan for %s", plan.intent)
+        
+        # Collect response for critic pass
+        collected_text = []
+        
+        for chunk in super().stream_query(
             user_id=user_id,
             session_id=session_id,
-            message=message,
+            message=augmented_message,
             **kwargs,
-        )
+        ):
+            # Collect text for critic
+            if USE_SHELL_AGENT:
+                try:
+                    candidates = chunk.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        for part in parts:
+                            if "text" in part:
+                                collected_text.append(part["text"])
+                except Exception:
+                    pass
+            
+            yield chunk
+        
+        # === CRITIC PASS: Validate response for complex intents ===
+        if USE_SHELL_AGENT and routing and collected_text:
+            try:
+                from app.shell.critic import run_critic, should_run_critic
+                
+                full_response = "".join(collected_text)
+                
+                if should_run_critic(routing.intent, len(full_response)):
+                    critic_result = run_critic(
+                        response=full_response,
+                        response_type="coaching" if "ANALYZE" in (routing.intent or "") else "general",
+                    )
+                    
+                    if critic_result.has_errors:
+                        logger.warning("CRITIC: Response failed safety check: %s", 
+                                      critic_result.error_messages)
+                        # Log error but don't block - already streamed
+                    elif critic_result.findings:
+                        logger.info("CRITIC: %d warnings (passed)", len(critic_result.findings))
+                        
+            except ImportError as e:
+                logger.debug("Critic import failed: %s", e)
+            except Exception as e:
+                logger.warning("Critic error: %s", e)
     
     def _format_fast_lane_response(self, result: dict, intent: str) -> dict:
         """

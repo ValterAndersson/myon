@@ -10,6 +10,7 @@ Modules:
 - router: Fast/Slow lane routing
 - instruction: Unified Coach + Planner instruction
 - agent: ShellAgent definition
+- planner: Tool planning for Slow Lane requests
 - safety_gate: Write operation confirmation
 - critic: Response validation for complex advice
 """
@@ -22,6 +23,11 @@ from app.shell.router import (
     execute_fast_lane,
 )
 from app.shell.agent import ShellAgent, create_shell_agent
+from app.shell.planner import (
+    ToolPlan,
+    generate_plan,
+    should_generate_plan,
+)
 from app.shell.safety_gate import (
     WriteOperation,
     SafetyDecision,
@@ -48,6 +54,10 @@ __all__ = [
     # Agent
     "ShellAgent",
     "create_shell_agent",
+    # Planner
+    "ToolPlan",
+    "generate_plan",
+    "should_generate_plan",
     # Safety Gate
     "WriteOperation",
     "SafetyDecision",
