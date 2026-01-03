@@ -146,7 +146,13 @@ async function searchExercisesHandler(req, res) {
     }
     
     if (muscleGroup) {
-      addArrayFilter('muscles.category', muscleGroup, false);
+      // Support comma-separated muscle groups (e.g., "chest,back,shoulders")
+      const muscleArr = String(muscleGroup).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
+      if (muscleArr.length > 1) {
+        addArrayFilter('muscles.category', muscleArr, true); // array-contains-any
+      } else if (muscleArr.length === 1) {
+        addArrayFilter('muscles.category', muscleArr[0], false); // array-contains
+      }
     }
     if (equipment) {
       const equipArr = String(equipment).split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
