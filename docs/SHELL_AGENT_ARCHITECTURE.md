@@ -1,8 +1,10 @@
-# Shell Agent Architecture
+# Shell Agent Architecture: 4-Lane "Shared Brain" System
 
 ## Executive Summary
 
-The Shell Agent consolidates the previous "Router + Sub-Agents" (CoachAgent, PlannerAgent) architecture into a **single unified agent** with consistent persona. This document provides comprehensive implementation details for the current state on branch `refactor/single-shell-agent`.
+The Shell Agent architecture consolidates the previous "Router + Sub-Agents" (CoachAgent, PlannerAgent) into a **4-Lane unified system** with consistent persona and shared intelligence. The core principle: **"Shared Skills, Distinct Runtimes."**
+
+Whether the user is chatting, clicking a button, or sleeping while a background job runs, the system uses the **exact same logic functions** (`app/skills/`), just invoked differently.
 
 ### Problems Solved
 
@@ -13,79 +15,62 @@ The Shell Agent consolidates the previous "Router + Sub-Agents" (CoachAgent, Pla
 | **Dead Ends** | "That's not my domain" responses | Shell handles everything |
 | **Global State Leakage** | `_context` dicts persisted across requests | Per-request immutable `SessionContext` |
 | **Latency** | All requests went through LLM | Fast Lane bypasses LLM for copilot commands |
+| **Smart Buttons** | No support for structured UI actions | Functional Lane with Flash |
+| **Background Analysis** | No offline processing | Worker Lane with shared skills |
 
 ---
 
-## Architecture Diagram
+## Architecture Diagram: The 4-Lane System
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         VERTEX AGENT ENGINE                                     │
+│                              ENTRY POINT                                        │
+│                         agent_engine_app.py                                     │
 │                                                                                 │
-│  ┌───────────────────────────────────────────────────────────────────────────┐  │
-│  │                      AgentEngineApp.stream_query()                        │  │
-│  │                                                                           │  │
-│  │   USER MESSAGE                                                            │  │
-│  │        │                                                                  │  │
-│  │        ▼                                                                  │  │
-│  │   ┌─────────────────────────────────────────────────────────────────┐     │  │
-│  │   │                       ROUTER                                    │     │  │
-│  │   │  • Parse context prefix (canvas_id, user_id, corr_id)          │     │  │
-│  │   │  • Match Fast Lane regex patterns                               │     │  │
-│  │   │  • Match Slow Lane patterns (for observability)                 │     │  │
-│  │   │  • Extract signals (has_first_person, has_metric_word, etc.)    │     │  │
-│  │   └─────────────────────────────────────────────────────────────────┘     │  │
-│  │        │                                                                  │  │
-│  │   ┌────┴────┐                                                             │  │
-│  │   │         │                                                             │  │
-│  │   ▼         ▼                                                             │  │
-│  │  FAST      SLOW                                                           │  │
-│  │  LANE      LANE                                                           │  │
-│  │   │         │                                                             │  │
-│  │   │         ▼                                                             │  │
-│  │   │   ┌─────────────────────────────────────────────────────────────┐     │  │
-│  │   │   │                    TOOL PLANNER                             │     │  │
-│  │   │   │  • Generates internal plan for complex intents              │     │  │
-│  │   │   │  • Template-based: ANALYZE_PROGRESS, PLAN_ROUTINE, etc.     │     │  │
-│  │   │   │  • Injects plan as system prompt to guide LLM               │     │  │
-│  │   │   └─────────────────────────────────────────────────────────────┘     │  │
-│  │   │         │                                                             │  │
-│  │   │         ▼                                                             │  │
-│  │   │   ┌─────────────────────────────────────────────────────────────┐     │  │
-│  │   │   │                    SHELL AGENT                              │     │  │
-│  │   │   │  • Model: gemini-2.5-pro                                    │     │  │
-│  │   │   │  • Unified instruction (Coach + Planner combined)           │     │  │
-│  │   │   │  • All tools from both legacy agents                        │     │  │
-│  │   │   │  • Native CoT reasoning                                     │     │  │
-│  │   │   └─────────────────────────────────────────────────────────────┘     │  │
-│  │   │         │                                                             │  │
-│  │   │         ▼                                                             │  │
-│  │   │   ┌─────────────────────────────────────────────────────────────┐     │  │
-│  │   │   │                    SAFETY GATE                              │     │  │
-│  │   │   │  • For write operations (propose_workout, propose_routine)  │     │  │
-│  │   │   │  • Enforces dry_run unless explicit confirmation            │     │  │
-│  │   │   │  • Detects confirmation keywords in messages                │     │  │
-│  │   │   └─────────────────────────────────────────────────────────────┘     │  │
-│  │   │         │                                                             │  │
-│  │   ▼         ▼                                                             │  │
-│  │ ┌───────────────────────────────────────────────────────────────────┐     │  │
-│  │ │                    RESPONSE STREAM                                │     │  │
-│  │ │  • Chunks yielded to client in real-time                          │     │  │
-│  │ │  • Text collected for critic pass                                 │     │  │
-│  │ └───────────────────────────────────────────────────────────────────┘     │  │
-│  │        │                                                                  │  │
-│  │        ▼                                                                  │  │
-│  │   ┌─────────────────────────────────────────────────────────────────┐     │  │
-│  │   │                    CRITIC PASS                                  │     │  │
-│  │   │  • Post-response validation (async, non-blocking)               │     │  │
-│  │   │  • Safety pattern detection (dangerous advice)                  │     │  │
-│  │   │  • Hallucination detection (claims without data)                │     │  │
-│  │   │  • Artifact quality checks                                      │     │  │
-│  │   │  • Logs warnings, doesn't block (already streamed)              │     │  │
-│  │   └─────────────────────────────────────────────────────────────────┘     │  │
-│  │                                                                           │  │
-│  └───────────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────────┘
+│   REQUEST (str or JSON)                                                         │
+│          │                                                                      │
+│          ▼                                                                      │
+│   ┌─────────────────────────────────────────────────────────────────────────┐   │
+│   │                          ROUTER                                         │   │
+│   │                     route_request()                                     │   │
+│   │  1. Try json.loads(message) for JSON payloads                           │   │
+│   │  2. Check for "intent" field → Functional Lane                          │   │
+│   │  3. Check regex patterns → Fast Lane or Slow Lane                       │   │
+│   └─────────────────────────────────────────────────────────────────────────┘   │
+│          │                                                                      │
+│   ┌──────┼──────────────────┬─────────────────────────────┐                     │
+│   │      │                  │                             │                     │
+│   ▼      ▼                  ▼                             │                     │
+│                                                           │                     │
+│  LANE 1              LANE 2                LANE 3         │    LANE 4           │
+│  FAST                SLOW                  FUNCTIONAL     │    WORKER           │
+│  ────────            ────────              ─────────────  │    ────────         │
+│                                                           │                     │
+│  Regex Match →       Shell Agent →         Flash Agent →  │    PubSub →         │
+│  copilot_skills      CoT Reasoning         JSON Logic     │    Standalone       │
+│                                                           │                     │
+│  Model: NONE         Model: Pro            Model: Flash   │    Model: Pro       │
+│  Latency: <500ms     Latency: 2-5s         Latency: <1s   │    Latency: N/A     │
+│                                                           │                     │
+│  Input: Text         Input: Text           Input: JSON    │    Trigger: Event   │
+│  Output: Text        Output: Stream        Output: JSON   │    Output: DB Write │
+│                                                           │                     │
+│  Example:            Example:              Example:       │    Example:         │
+│  "done"              "create PPL"          SWAP_EXERCISE  │    workout_complete │
+│  "8 @ 100"           "how's my chest?"     MONITOR_STATE  │    → InsightCard    │
+│                                                           │                     │
+└───────────────────────────────────────────────────────────┴─────────────────────┘
+                                    │
+                                    ▼
+                      ┌─────────────────────────────────┐
+                      │       SHARED SKILLS             │
+                      │       app/skills/               │
+                      │                                 │
+                      │  • coach_skills.py (analytics)  │
+                      │  • planner_skills.py (artifacts)│
+                      │  • copilot_skills.py (logging)  │
+                      │  • gated_planner.py (safety)    │
+                      └─────────────────────────────────┘
 ```
 
 ---
@@ -93,96 +78,240 @@ The Shell Agent consolidates the previous "Router + Sub-Agents" (CoachAgent, Pla
 ## File Structure
 
 ```
-adk_agent/canvas_orchestrator/app/
-├── agent_engine_app.py      # Entry point with full pipeline
-├── agent_multi.py           # Feature flag routing (USE_SHELL_AGENT)
-├── agent.py                 # Legacy entry point (for backwards compat)
+adk_agent/canvas_orchestrator/
+├── app/
+│   ├── agent_engine_app.py       # Entry point - routes to 4 lanes
+│   ├── agent_multi.py            # Feature flag (USE_SHELL_AGENT)
+│   │
+│   ├── shell/                    # Shell Agent module
+│   │   ├── __init__.py
+│   │   ├── context.py            # Per-request SessionContext (immutable)
+│   │   ├── router.py             # 4-Lane routing with route_request()
+│   │   ├── instruction.py        # Unified Coach + Planner voice
+│   │   ├── agent.py              # ShellAgent (gemini-2.5-pro)
+│   │   ├── tools.py              # Tool definitions from pure skills
+│   │   ├── planner.py            # Intent-specific tool planning
+│   │   ├── safety_gate.py        # Write operation confirmation
+│   │   ├── critic.py             # Response validation
+│   │   └── functional_handler.py # Functional Lane (Flash, JSON)
+│   │
+│   ├── skills/                   # SHARED BRAIN - Pure logic
+│   │   ├── __init__.py
+│   │   ├── copilot_skills.py     # Lane 1: log_set, get_next_set
+│   │   ├── coach_skills.py       # Analytics, user data
+│   │   ├── planner_skills.py     # Artifact creation
+│   │   └── gated_planner.py      # Safety Gate wrapper
+│   │
+│   └── agents/                   # LEGACY (deprecated)
+│       ├── coach_agent.py
+│       ├── planner_agent.py
+│       └── orchestrator.py
 │
-├── shell/                   # NEW: Shell Agent module
-│   ├── __init__.py          # Module exports
-│   ├── context.py           # Per-request SessionContext (immutable)
-│   ├── router.py            # Fast/Slow lane routing with regex
-│   ├── instruction.py       # Unified Coach + Planner instruction
-│   ├── agent.py             # ShellAgent definition (gemini-2.5-pro)
-│   ├── planner.py           # Tool planning for Slow Lane
-│   ├── safety_gate.py       # Write operation confirmation
-│   └── critic.py            # Response validation
-│
-├── skills/                  # NEW: Pure function skills
-│   ├── __init__.py          # Module exports
-│   ├── copilot_skills.py    # Fast Lane (log_set, get_next_set)
-│   ├── coach_skills.py      # Analytics (from coach_agent.py)
-│   └── planner_skills.py    # Artifacts (from planner_agent.py)
-│
-└── agents/                  # LEGACY: To be deprecated
-    ├── coach_agent.py       # Tools still imported by ShellAgent
-    ├── planner_agent.py     # Tools still imported by ShellAgent
-    └── orchestrator.py      # Legacy router (not used when USE_SHELL_AGENT=true)
+└── workers/                      # Lane 4: Background workers
+    └── post_workout_analyst.py   # Post-workout insight generation
 ```
 
 ---
 
-## Component Details
+## Lane Details
 
-### 1. Router (`shell/router.py`)
+### Lane 1: Fast Lane (Copilot Commands)
 
-The Router is the first stage of the pipeline. It determines whether a message should go to the Fast Lane (bypass LLM) or Slow Lane (use Shell Agent).
+**Purpose:** Immediate execution of known commands with no LLM involved.
 
-#### Fast Lane Patterns
+| Aspect | Value |
+|--------|-------|
+| **Input** | Text matching regex patterns |
+| **Model** | None (pure Python) |
+| **Latency** | < 500ms |
+| **Output** | Formatted text response |
 
-These regex patterns match **unambiguous copilot commands** that require no reasoning:
-
-| Pattern | Intent | Example | Action |
-|---------|--------|---------|--------|
-| `^(log\|done\|finished\|completed)(\s+set)?$` | LOG_SET | "done", "log set" | Log current set |
-| `^(\d+)\s*@\s*(\d+(?:\.\d+)?)\s*(kg\|lbs?)?$` | LOG_SET_SHORTHAND | "8 @ 100", "8@100kg" | Log with explicit reps/weight |
-| `^next(\s+set)?$` | NEXT_SET | "next", "next set" | Get next set target |
-| `^what.?s\s+next\??$` | NEXT_SET | "what's next?" | Get next set target |
-| `^(rest\|resting\|ok\|ready)$` | REST_ACK | "rest", "ok" | Acknowledge rest period |
-
-#### Slow Lane Patterns (for observability)
-
-These patterns help with logging/telemetry but still route to Shell Agent:
+**Patterns:**
 
 | Pattern | Intent | Example |
 |---------|--------|---------|
-| `\b(create\|build\|make\|design\|plan)\s+...\s+(routine\|program\|workout\|split)` | PLAN_ARTIFACT | "create a PPL routine" |
-| `\b(i\s+(want\|need)\|give\s+me)\s+...\s+(routine\|program)` | PLAN_ROUTINE | "I want a new routine" |
-| `\bhow.?s\s+my\s+(progress\|chest\|back\|...)` | ANALYZE_PROGRESS | "how's my chest progress?" |
-| `\bstart\s+...\s+(workout\|session\|training)` | START_WORKOUT | "start my workout" |
+| `^(log\|done\|finished)(\s+set)?$` | LOG_SET | "done", "log set" |
+| `^(\d+)\s*@\s*(\d+)$` | LOG_SET_SHORTHAND | "8 @ 100" |
+| `^next(\s+set)?$` | NEXT_SET | "next" |
+| `^(rest\|ok\|ready)$` | REST_ACK | "rest" |
 
-#### Signal Extraction
-
-The router also extracts signals for observability:
-
-```python
-signals = [
-    "has_first_person",   # "my", "I", "I'm", etc.
-    "has_create_verb",    # "create", "build", "make"
-    "has_edit_verb",      # "edit", "modify", "change"
-    "has_analysis_verb",  # "analyze", "review", "assess"
-    "mentions_workout",   # "workout", "session", "training"
-    "mentions_routine",   # "routine", "program", "split"
-    "mentions_data",      # "progress", "history", "data"
-    "has_metric_word",    # "sets", "volume", "1rm", "e1rm"
-]
+**Code Path:**
+```
+route_request("done") 
+  → RoutingResult(lane=FAST, intent="LOG_SET")
+  → execute_fast_lane() 
+  → copilot_skills.log_set(ctx)
+  → Response: "Set logged ✓"
 ```
 
-### 2. Session Context (`shell/context.py`)
+---
 
-**Key principle: No global state.** The previous architecture used global `_context` dictionaries that leaked state between requests:
+### Lane 2: Slow Lane (Conversational AI)
+
+**Purpose:** Complex coaching and planning that requires reasoning.
+
+| Aspect | Value |
+|--------|-------|
+| **Input** | Text (conversational) |
+| **Model** | gemini-2.5-pro |
+| **Latency** | 2-5 seconds |
+| **Output** | Streaming text |
+
+**Flow:**
+```
+route_request("create a PPL routine")
+  → RoutingResult(lane=SLOW, intent="PLAN_ROUTINE")
+  → ShellAgent.run()
+    → Tool Planner injects: "INTERNAL PLAN: Use search_exercises, propose_routine"
+    → LLM CoT reasoning
+    → tool_propose_routine() with dry_run=True (Safety Gate)
+    → Critic validates response
+  → Stream: "I've designed a 3-day PPL routine..."
+```
+
+**Safety Gate Integration:**
+```python
+# First call returns preview
+tool_propose_routine(name="PPL", workouts=[...])  
+# → dry_run=True → "Preview: 3 workouts. Say 'confirm' to publish."
+
+# After confirmation
+tool_propose_routine(name="PPL", workouts=[...])
+# → User said "confirm" → dry_run=False → Published
+```
+
+---
+
+### Lane 3: Functional Lane (Smart Buttons)
+
+**Purpose:** Structured JSON logic for UI-initiated actions. Not conversational.
+
+| Aspect | Value |
+|--------|-------|
+| **Input** | JSON payload with `intent` field |
+| **Model** | gemini-2.5-flash (temp=0) |
+| **Latency** | < 1 second |
+| **Output** | JSON only (no chat text) |
+
+**Supported Intents:**
+
+| Intent | Description | Example Payload |
+|--------|-------------|-----------------|
+| `SWAP_EXERCISE` | Replace exercise with alternative | `{"intent": "SWAP_EXERCISE", "target": "Barbell Bench", "constraint": "machine"}` |
+| `AUTOFILL_SET` | Predict values for set | `{"intent": "AUTOFILL_SET", "exercise_id": "...", "set_index": 2}` |
+| `SUGGEST_WEIGHT` | Recommend weight based on history | `{"intent": "SUGGEST_WEIGHT", "exercise_id": "...", "target_reps": 8}` |
+| `MONITOR_STATE` | Silent observer for workout | `{"event_type": "SET_COMPLETED", "state_diff": {...}}` |
+
+**Monitor Heuristic Gate:**
+
+Only significant events trigger Flash analysis:
+- `SET_COMPLETED`
+- `WORKOUT_COMPLETED`
+- `EXERCISE_SWAPPED`
+
+Non-significant events (e.g., `TIMER_TICK`, `RIR_UPDATED`) are skipped entirely.
+
+**Code Path:**
+```
+route_request({"intent": "SWAP_EXERCISE", "target": "Bench Press", "constraint": "machine"})
+  → RoutingResult(lane=FUNCTIONAL, intent="SWAP_EXERCISE")
+  → execute_functional_lane()
+  → FunctionalHandler._handle_swap_exercise()
+    → search_exercises(equipment="machine")
+    → Flash: "Select best alternative"
+  → JSON: {"action": "REPLACE_EXERCISE", "data": {"old": "Bench Press", "new": {...}}}
+```
+
+---
+
+### Lane 4: Worker Lane (Background Analyst)
+
+**Purpose:** Offline analysis triggered by events (PubSub). Not user-facing.
+
+| Aspect | Value |
+|--------|-------|
+| **Trigger** | PubSub event (e.g., `workout_completed`) |
+| **Model** | gemini-2.5-pro |
+| **Latency** | N/A (async) |
+| **Output** | Database write (InsightCard) |
+
+**Shared Brain Principle:**
+
+The worker imports the **exact same skills** as the Chat Agent:
 
 ```python
-# OLD (dangerous)
-_context = {"canvas_id": None, "user_id": None}  # Global mutable state
+# workers/post_workout_analyst.py
+from app.skills.coach_skills import (
+    get_analytics_features,  # SAME function used by ShellAgent
+    get_training_context,
+    get_recent_workouts,
+)
+```
+
+This ensures consistent analysis across all access patterns.
+
+**Usage:**
+```bash
+# CLI invocation
+python post_workout_analyst.py --user-id USER_ID --workout-id WORKOUT_ID
+
+# Cloud Run Job (via PubSub)
+gcloud run jobs create post-workout-analyst \
+  --image gcr.io/PROJECT/post-workout-analyst \
+  --set-env-vars USER_ID=$USER_ID,WORKOUT_ID=$WORKOUT_ID
+```
+
+---
+
+## Critical Security: Safety Gate
+
+All write operations MUST go through the Safety Gate.
+
+**Gated Operations:**
+
+| Operation | Gate |
+|-----------|------|
+| `propose_workout` | ✅ Requires confirmation |
+| `propose_routine` | ✅ Requires confirmation |
+| `create_template` | ✅ Requires confirmation |
+| `get_analytics_features` | ❌ Read-only, no gate |
+| `search_exercises` | ❌ Read-only, no gate |
+
+**Implementation:**
+
+```python
+# skills/gated_planner.py
+from app.shell.safety_gate import check_safety_gate, WriteOperation
+
+def propose_workout(ctx, message, **kwargs):
+    decision = check_safety_gate(WriteOperation.PROPOSE_WORKOUT, message)
+    
+    # First call: dry_run=True (preview)
+    # After "confirm": dry_run=False (execute)
+    return _propose_workout(..., dry_run=decision.dry_run)
+```
+
+**Confirmation Keywords:**
+```python
+CONFIRM_KEYWORDS = {"confirm", "yes", "do it", "go ahead", "publish", "save", "approved"}
+```
+
+---
+
+## State Management: No Globals
+
+**Old Architecture (Dangerous):**
+```python
+# Legacy - DO NOT USE
+_context = {"canvas_id": None, "user_id": None}  # Module-level mutable!
 
 def some_tool():
     canvas_id = _context["canvas_id"]  # Race condition!
 ```
 
-The new approach uses **per-request immutable context**:
-
+**New Architecture (Safe):**
 ```python
+# shell/context.py
 @dataclass(frozen=True)  # Immutable!
 class SessionContext:
     canvas_id: str
@@ -191,488 +320,128 @@ class SessionContext:
     
     @classmethod
     def from_message(cls, message: str) -> "SessionContext":
-        """Parse context from message prefix."""
-        # Format: (context: canvas_id=xxx user_id=yyy corr=zzz) actual message
-        match = re.search(
-            r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)\)', 
-            message
-        )
-        if match:
-            return cls(
-                canvas_id=match.group(1),
-                user_id=match.group(2),
-                correlation_id=match.group(3) if match.group(3) != "none" else None,
-            )
-        return cls(canvas_id="", user_id="", correlation_id=None)
-```
+        # Parse from message prefix
+        ...
 
-Context is:
-1. Parsed from message prefix on each request
-2. Passed explicitly to skills
-3. Never stored in global state
-4. Immutable (frozen dataclass)
-
-### 3. Tool Planner (`shell/planner.py`)
-
-For Slow Lane requests with recognized intents, the Tool Planner generates an internal execution plan **before** the LLM runs. This improves reasoning quality by making tool selection explicit.
-
-#### Intent Templates
-
-```python
-PLANNING_TEMPLATES = {
-    "ANALYZE_PROGRESS": {
-        "data_needed": [
-            "Analytics features (8-12 weeks) for volume and intensity trends",
-            "Exercise IDs for the relevant muscle group",
-            "Per-exercise e1RM slopes to measure progression",
-        ],
-        "suggested_tools": [
-            "tool_get_analytics_features",
-            "tool_get_user_exercises_by_muscle",
-            "tool_get_analytics_features (with exercise_ids)",
-        ],
-        "rationale": "Progress analysis requires comparing current metrics to historical data.",
-    },
-    "PLAN_ROUTINE": {
-        "data_needed": [
-            "User profile for frequency preference",
-            "Planning context for existing templates",
-            "Exercise catalog search for each muscle group/day type",
-        ],
-        "suggested_tools": [
-            "tool_get_planning_context",
-            "tool_search_exercises (one per day type)",
-            "tool_propose_routine (once with all days)",
-        ],
-        "rationale": "Routine creation is a multi-step process. Build all days first, then propose once.",
-    },
-    # ... more templates
-}
-```
-
-#### Plan Injection
-
-The plan is converted to a system prompt and appended to the user message:
-
-```python
-def to_system_prompt(self) -> str:
-    return f"""
-## INTERNAL PLAN (Auto-generated)
-Intent detected: {self.intent}
-Data needed:
-  - {self.data_needed[0]}
-  - {self.data_needed[1]}
-Rationale: {self.rationale}
-Suggested tools: {', '.join(self.suggested_tools)}
-
-Execute the plan above, then synthesize a response.
-"""
-```
-
-### 4. Shell Agent (`shell/agent.py`)
-
-The ShellAgent is the unified LLM agent that handles all Slow Lane requests.
-
-```python
-ShellAgent = Agent(
-    name="ShellAgent",
-    model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-pro"),
-    instruction=UNIFIED_INSTRUCTION,
-    tools=all_tools,  # Combined from coach_agent + planner_agent
-    before_tool_callback=_before_tool_callback,
-    before_model_callback=_before_model_callback,
-)
-```
-
-#### Tools
-
-The ShellAgent has access to ALL tools from both legacy agents:
-
-**From Coach Agent:**
-- `tool_get_training_context`
-- `tool_get_analytics_features`
-- `tool_get_user_profile`
-- `tool_get_recent_workouts`
-- `tool_get_user_exercises_by_muscle`
-- `tool_search_exercises`
-- `tool_get_exercise_details`
-
-**From Planner Agent:**
-- `tool_get_planning_context`
-- `tool_get_next_workout`
-- `tool_get_template`
-- `tool_propose_workout`
-- `tool_propose_routine`
-- `tool_manage_routine`
-- `tool_ask_user`
-- `tool_send_message`
-
-### 5. Safety Gate (`shell/safety_gate.py`)
-
-The Safety Gate enforces confirmation for write operations. This prevents accidental artifact creation.
-
-#### Write Operations Tracked
-
-```python
-class WriteOperation(str, Enum):
-    PROPOSE_WORKOUT = "propose_workout"
-    PROPOSE_ROUTINE = "propose_routine"
-    CREATE_TEMPLATE = "create_template"
-    UPDATE_ROUTINE = "update_routine"
-```
-
-#### Confirmation Keywords
-
-```python
-CONFIRM_KEYWORDS = frozenset([
-    "confirm", "yes", "do it", "go ahead", "publish", "save",
-    "create it", "make it", "build it", "looks good", "approved",
-])
-```
-
-#### Flow
-
-1. User asks for artifact: "create a PPL routine"
-2. Shell Agent generates routine with `dry_run=True`
-3. Safety Gate returns preview: "Ready to publish 'PPL' (3 workouts). Say 'confirm' to publish."
-4. User says: "confirm"
-5. Safety Gate detects confirmation → `dry_run=False`
-6. Artifact is published
-
-### 6. Critic (`shell/critic.py`)
-
-The Critic runs a **post-response validation pass** for complex intents. It checks for:
-
-#### Safety Patterns (ERROR severity)
-
-```python
-SAFETY_PATTERNS = [
-    # "Work through the pain" → ERROR
-    (re.compile(r"\b(work through|push through|ignore)\b.{0,20}\bpain\b", re.I),
-     "Advising to ignore pain is dangerous", CriticSeverity.ERROR),
-]
-```
-
-#### Hallucination Patterns (WARNING severity)
-
-```python
-HALLUCINATION_PATTERNS = [
-    # "Your e1RM is 120kg" without calling analytics tool
-    (re.compile(r"your\s+(e1rm|1rm|max)\s+(is|was|hit)\s+\d+", re.I),
-     "Specific e1RM claim - verify data was fetched"),
-]
-```
-
-#### When Critic Runs
-
-```python
-def should_run_critic(routing_intent: Optional[str], response_length: int) -> bool:
-    # Intents that require critic
-    critic_intents = {
-        "ANALYZE_PROGRESS",
-        "PLAN_ARTIFACT",
-        "PLAN_ROUTINE",
-        "EDIT_PLAN",
-    }
-    
-    if routing_intent in critic_intents:
-        return True
-    
-    # Long responses get critic pass
-    if response_length > 500:
-        return True
-    
-    return False
-```
-
-### 7. Skills
-
-Skills are **pure Python functions** that:
-- Take explicit parameters (no global state)
-- Return structured `SkillResult` objects
-- Can be called directly (Fast Lane) or via LLM tools (Slow Lane)
-
-#### Copilot Skills (`skills/copilot_skills.py`)
-
-Fast Lane operations that call Firebase directly:
-
-```python
-def log_set(ctx: SessionContext) -> SkillResult:
-    """Log current set as completed."""
-    result = _call_firebase("logSet", {"action": "complete_current"}, ctx.user_id)
-    return SkillResult(success=True, message="Set logged.")
-
-def log_set_shorthand(ctx: SessionContext, reps: int, weight: float, unit: str) -> SkillResult:
-    """Log set with explicit reps/weight."""
-    ...
-
-def get_next_set(ctx: SessionContext) -> SkillResult:
-    """Get next set target from active workout."""
-    ...
-```
-
-#### Coach Skills (`skills/coach_skills.py`)
-
-Analytics functions extracted from coach_agent.py:
-
-```python
-def get_analytics_features(user_id: str, weeks: int = 8, ...) -> SkillResult:
-    """Fetch analytics for progress analysis."""
-    # Takes user_id explicitly, no global state
-    ...
-
-def get_training_context(user_id: str) -> SkillResult:
-    """Get user's routine structure."""
-    ...
-```
-
-#### Planner Skills (`skills/planner_skills.py`)
-
-Artifact creation with `dry_run` support:
-
-```python
-def propose_workout(
-    canvas_id: str,
-    user_id: str,
-    title: str,
-    exercises: List[Dict],
-    dry_run: bool = False,  # Safety Gate integration
-) -> SkillResult:
-    """Create and optionally publish workout."""
-    
-    if dry_run:
-        return SkillResult(
-            success=True,
-            dry_run=True,
-            data={
-                "status": "preview",
-                "message": f"Ready to publish '{title}'",
-                "preview": {...},
-            }
-        )
-    
-    # Actual publish
-    ...
+# Usage
+ctx = SessionContext.from_message(message)  # Created fresh per request
+result = some_skill(ctx)  # Context passed explicitly
 ```
 
 ---
 
-## Feature Flag
+## Router API
 
-Enable Shell Agent with environment variable:
+### `route_request(payload: Union[str, Dict]) -> RoutingResult`
 
+Main entry point for 4-Lane routing.
+
+```python
+# Text message → Fast or Slow Lane
+route_request("done")
+# → RoutingResult(lane=FAST, intent="LOG_SET")
+
+route_request("create a PPL routine")
+# → RoutingResult(lane=SLOW, intent="PLAN_ROUTINE")
+
+# JSON payload → Functional Lane
+route_request({"intent": "SWAP_EXERCISE", "target": "Bench"})
+# → RoutingResult(lane=FUNCTIONAL, intent="SWAP_EXERCISE")
+
+# JSON with workout state → Monitor (Functional sub-type)
+route_request({"event_type": "SET_COMPLETED", "state_diff": {...}})
+# → RoutingResult(lane=FUNCTIONAL, intent="MONITOR_STATE")
+```
+
+### String JSON Parsing
+
+Per specification, the router tries `json.loads(message)` first:
+
+```python
+# Frontend may serialize JSON as string
+message = '{"intent": "SWAP_EXERCISE", "target": "Bench"}'
+route_request(message)  # Parses JSON, routes to Functional Lane
+```
+
+---
+
+## Model Assignment
+
+| Lane | Model | Temperature | Purpose |
+|------|-------|-------------|---------|
+| Fast | None | N/A | Pure Python execution |
+| Slow | gemini-2.5-pro | Default | Conversational CoT |
+| Functional | gemini-2.5-flash | 0.0 | Deterministic JSON |
+| Worker | gemini-2.5-pro | 0.2 | Analytical precision |
+
+Environment variables:
 ```bash
-# Local development
-export USE_SHELL_AGENT=true
-python interactive_chat.py
-
-# Deployment
-python agent_engine_app.py \
-  --project myon-53d85 \
-  --set-env-vars USE_SHELL_AGENT=true
-```
-
-When `USE_SHELL_AGENT=false` (default), the legacy multi-agent orchestrator is used.
-
----
-
-## Latency Targets
-
-| Lane | Target | Description |
-|------|--------|-------------|
-| **Fast** | <500ms | Regex match → skill execution → response (no LLM) |
-| **Slow** | 2-5s | Plan → LLM CoT → tools → response → critic |
-
-Fast Lane achieves low latency by:
-1. Skipping the LLM entirely
-2. Calling Firebase functions directly via HTTP
-3. Returning formatted response immediately
-
----
-
-## Observability
-
-### Fast Lane Metadata
-
-```json
-{
-  "_metadata": {
-    "fast_lane": true,
-    "intent": "LOG_SET",
-    "latency_class": "fast"
-  }
-}
-```
-
-### Slow Lane Logging
-
-```
-INFO  | SLOW LANE: how's my chest progress? (intent=ANALYZE_PROGRESS)
-INFO  | PLANNER: Generated plan for ANALYZE_PROGRESS
-INFO  | PLANNER: Injected plan for ANALYZE_PROGRESS
-INFO  | CRITIC: 0 warnings (passed)
-```
-
-### Critic Findings
-
-```
-WARNING | CRITIC: Response failed safety check: ['Advising to ignore pain is dangerous']
+CANVAS_SHELL_MODEL=gemini-2.5-pro       # Slow Lane
+CANVAS_FUNCTIONAL_MODEL=gemini-2.5-flash  # Functional Lane
 ```
 
 ---
 
-## Current Limitations / Known Issues
+## Verification Checklist
 
-### 1. Safety Gate Not Wired to Tools
-
-The Safety Gate module exists but is **not yet enforced** in the actual tool functions. Currently:
-- `planner_skills.py` supports `dry_run=True`
-- But the Shell Agent tools in `shell/agent.py` still use the legacy tool functions from `planner_agent.py`
-
-**TODO:** Update Shell Agent to use skill functions with Safety Gate integration.
-
-### 2. Critic is Non-Blocking
-
-The Critic runs **after** the response is streamed. If it finds an error:
-- It logs a warning
-- The response has already been sent
-
-**Rationale:** Blocking would add latency and require response buffering. Current approach is observability-first.
-
-**TODO (optional):** Add "response buffering" mode for high-risk intents where blocking is preferred.
-
-### 3. Legacy Agent Dependencies
-
-The ShellAgent still imports tools directly from `coach_agent.py` and `planner_agent.py`. These legacy files:
-- Still have global `_context` dicts
-- Use the old context parsing
-
-**TODO:** Migrate Shell Agent to use skill functions exclusively, then deprecate legacy agents.
-
-### 4. Plan Injection is Simple String Append
-
-Currently the plan is appended to the user message:
-
-```python
-augmented_message = f"{message}\n\n{plan.to_system_prompt()}"
-```
-
-This works but isn't ideal. Better approach would be to inject as a system message or use ADK's native planning features.
-
----
-
-## Next Steps / Potential Changes
-
-### High Priority
-
-1. **Wire Safety Gate to Shell Agent tools** - Ensure `propose_workout` and `propose_routine` calls go through Safety Gate.
-
-2. **Migrate Shell Agent to skill functions** - Replace direct tool imports from legacy agents with calls to `skills/` modules.
-
-3. **Add telemetry** - Track Fast Lane hit rate, Critic findings, etc.
-
-### Medium Priority
-
-4. **Improve plan injection** - Use proper system message instead of string append.
-
-5. **Add response buffering for Critic** - Option to block response until Critic passes for high-risk intents.
-
-6. **Expand Fast Lane patterns** - Add more copilot commands (e.g., "skip", "pause", "finish workout").
-
-### Low Priority
-
-7. **Remove legacy agents** - Once Shell Agent uses skills exclusively, delete `coach_agent.py`, `planner_agent.py`, `orchestrator.py`.
-
-8. **Add A/B testing** - Compare Shell Agent vs legacy architecture performance.
-
----
-
-## API Reference
-
-### `route_message(message: str) -> RoutingResult`
-
-Route a message to Fast or Slow lane.
-
-```python
-routing = route_message("8 @ 100")
-# RoutingResult(lane=Lane.FAST, intent="LOG_SET_SHORTHAND", confidence="high")
-
-routing = route_message("create a push pull legs routine")
-# RoutingResult(lane=Lane.SLOW, intent="PLAN_ROUTINE", confidence="high")
-```
-
-### `execute_fast_lane(routing, message, ctx) -> Dict`
-
-Execute a Fast Lane skill directly.
-
-```python
-ctx = SessionContext.from_message(message)
-result = execute_fast_lane(routing, message, ctx)
-# {"lane": "fast", "intent": "LOG_SET", "result": {"success": True, "message": "Set logged."}}
-```
-
-### `generate_plan(routing, message) -> ToolPlan`
-
-Generate a tool execution plan.
-
-```python
-plan = generate_plan(routing, message)
-# ToolPlan(intent="ANALYZE_PROGRESS", data_needed=[...], suggested_tools=[...])
-
-system_prompt = plan.to_system_prompt()
-```
-
-### `check_safety_gate(operation, message, ...) -> SafetyDecision`
-
-Check if write operation should execute.
-
-```python
-decision = check_safety_gate(WriteOperation.PROPOSE_ROUTINE, "create a routine")
-# SafetyDecision(allow_execute=False, dry_run=True, requires_confirmation=True)
-
-decision = check_safety_gate(WriteOperation.PROPOSE_ROUTINE, "yes, confirm")
-# SafetyDecision(allow_execute=True, dry_run=False)
-```
-
-### `run_critic(response, ...) -> CriticResult`
-
-Run critic validation on a response.
-
-```python
-result = run_critic("You should work through the pain and keep lifting.")
-# CriticResult(passed=False, findings=[CriticFinding(severity=ERROR, message="...")])
-```
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Safety: Can `propose_workout` execute without confirmation? | NO | ✅ |
+| Latency: Does "log set" bypass the LLM? | YES | ✅ |
+| Legacy: Are `coach_agent.py` imports in `shell/agent.py`? | NO | ✅ |
+| Intelligence: Does worker use same analytics function as chat? | YES | ✅ |
+| JSON: Does Functional Lane output chat text? | NO | ✅ |
 
 ---
 
 ## Testing
 
 ### Test Fast Lane
-
 ```bash
 export USE_SHELL_AGENT=true
 python interactive_chat.py
 
 > done
-Set logged.
+Set logged ✓
 
 > 8 @ 100
 Set logged: 8 reps @ 100kg
-
-> next
-Next: Bench Press — 8 reps @ 85kg (Set 2/4)
 ```
 
-### Test Slow Lane with Plan
+### Test Functional Lane
+```python
+# In agent_engine_app.py context
+result = await execute_functional_lane(
+    routing=RoutingResult(lane=Lane.FUNCTIONAL, intent="SWAP_EXERCISE"),
+    payload={"target": "Barbell Bench", "constraint": "machine"},
+    ctx=SessionContext(canvas_id="c1", user_id="u1")
+)
+# → {"action": "REPLACE_EXERCISE", "data": {...}}
+```
 
+### Test Worker
 ```bash
-> how's my chest progress?
-
-# Logs should show:
-# INFO | SLOW LANE: how's my chest progress? (intent=ANALYZE_PROGRESS)
-# INFO | PLANNER: Generated plan for ANALYZE_PROGRESS
-# INFO | PLANNER: Injected plan for ANALYZE_PROGRESS
+python workers/post_workout_analyst.py \
+  --user-id test-user \
+  --workout-id test-workout \
+  --dry-run
 ```
+
+---
+
+## Next Steps
+
+### High Priority
+1. **Wire Functional Lane to agent_engine_app.py** - Currently defined, needs integration
+2. **Add telemetry** - Track lane usage, latency, errors
+
+### Medium Priority
+3. **Expand Monitor patterns** - Add form degradation detection
+4. **Add response buffering** - Optional blocking for Critic on high-risk intents
+
+### Low Priority
+5. **Remove legacy agents** - Delete `coach_agent.py`, `planner_agent.py`
+6. **A/B testing** - Compare 4-Lane vs legacy performance
 
 ---
 
@@ -680,18 +449,16 @@ Next: Bench Press — 8 reps @ 85kg (Set 2/4)
 
 | Date | Change |
 |------|--------|
-| 2026-01-03 | Initial Shell Agent implementation |
-| 2026-01-03 | Added copilot_skills.py for Fast Lane |
-| 2026-01-03 | Extracted coach_skills.py and planner_skills.py |
-| 2026-01-03 | Added Safety Gate and Critic modules |
-| 2026-01-03 | Added Tool Planner module |
-| 2026-01-03 | Wired Planner and Critic into stream_query pipeline |
+| 2026-01-03 | Initial Shell Agent (2-Lane) |
+| 2026-01-03 | Phase 1: Security hardening, Safety Gate |
+| 2026-01-03 | Phase 2: Functional Lane, route_request() |
+| 2026-01-03 | Phase 3: Worker Lane, post_workout_analyst.py |
+| 2026-01-03 | Complete 4-Lane architecture documentation |
 
 ---
 
 ## Contact
 
-For questions or issues with the Shell Agent architecture, check:
-- This document: `docs/SHELL_AGENT_ARCHITECTURE.md`
-- Source code: `adk_agent/canvas_orchestrator/app/shell/`
-- Branch: `refactor/single-shell-agent`
+Branch: `refactor/single-shell-agent`
+Source: `adk_agent/canvas_orchestrator/app/shell/`
+Documentation: `docs/SHELL_AGENT_ARCHITECTURE.md`
