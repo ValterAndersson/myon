@@ -1,12 +1,14 @@
 """
 Canvas Orchestrator Agent Engine Entry Point.
 
-This module provides the Vertex AI Agent Engine wrapper with Fast Lane bypass.
-When USE_SHELL_AGENT=true, fast lane patterns are intercepted before LLM invocation.
+This module provides the Vertex AI Agent Engine wrapper with 4-Lane routing.
+When USE_SHELL_AGENT=true, requests are routed through the 4-Lane system:
 
-Architecture:
+Architecture (4-Lane "Shared Brain"):
 - Fast Lane: Regex patterns → direct skill execution (no LLM, <500ms)
-- Slow Lane: ShellAgent (gemini-2.5-pro) for complex reasoning
+- Slow Lane: ShellAgent (gemini-2.5-pro) for conversational reasoning
+- Functional Lane: gemini-2.5-flash for JSON-only Smart Button logic
+- Worker Lane: Background scripts (not routed here, triggered by PubSub)
 """
 
 import datetime
@@ -91,14 +93,15 @@ class AgentEngineApp(AdkApp):
         routing = None
         plan = None
         
-        # === ROUTING + FAST LANE CHECK ===
+        # === ROUTING: 4-Lane System ===
         if USE_SHELL_AGENT:
             try:
-                from app.shell.router import route_message, execute_fast_lane, Lane
+                from app.shell.router import route_request, execute_fast_lane, Lane
                 from app.shell.context import SessionContext
                 from app.shell.planner import generate_plan, should_generate_plan
                 
-                routing = route_message(message)
+                # Use route_request which handles both str and JSON payloads
+                routing = route_request(message)
                 
                 # === FAST LANE: Direct skill execution ===
                 if routing.lane == Lane.FAST:
@@ -108,6 +111,35 @@ class AgentEngineApp(AdkApp):
                     result = execute_fast_lane(routing, message, ctx)
                     
                     yield self._format_fast_lane_response(result, routing.intent)
+                    return
+                
+                # === FUNCTIONAL LANE: Flash-based JSON logic ===
+                if routing.lane == Lane.FUNCTIONAL:
+                    logger.info("FUNCTIONAL LANE: intent=%s", routing.intent)
+                    
+                    ctx = SessionContext.from_message(message)
+                    
+                    # Parse JSON payload
+                    try:
+                        import json as json_mod
+                        payload = json_mod.loads(message) if isinstance(message, str) else message
+                    except (json_mod.JSONDecodeError, TypeError):
+                        payload = {"message": message}
+                    
+                    # Execute async functional handler
+                    import asyncio
+                    from app.shell.functional_handler import execute_functional_lane
+                    
+                    # Run async handler in sync context
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(
+                            execute_functional_lane(routing, payload, ctx)
+                        )
+                    finally:
+                        loop.close()
+                    
+                    yield self._format_functional_lane_response(result, routing.intent)
                     return
                 
                 # === TOOL PLANNER: Generate plan for Slow Lane ===
@@ -208,6 +240,67 @@ class AgentEngineApp(AdkApp):
                 "fast_lane": True,
                 "intent": intent,
                 "latency_class": "fast",
+            }
+        }
+    
+    def _format_functional_lane_response(self, result: dict, intent: str) -> dict:
+        """
+        Format functional lane result as ADK-compatible response.
+        
+        Functional lane returns JSON, so we wrap it appropriately.
+        The frontend can parse the JSON from the text field.
+        """
+        import json as json_mod
+        
+        # Extract result from functional handler
+        func_result = result.get("result", {})
+        
+        # For MONITOR_STATE with NULL action, return minimal response
+        if func_result.get("action") == "NULL":
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": ""}],  # Empty response for silent observer
+                        "role": "model"
+                    },
+                    "finish_reason": "STOP",
+                }],
+                "usage_metadata": {
+                    "prompt_token_count": 0,
+                    "candidates_token_count": 0,
+                    "total_token_count": 0,
+                },
+                "model_version": "functional-lane-flash",
+                "_metadata": {
+                    "functional_lane": True,
+                    "intent": intent,
+                    "action": "NULL",
+                    "latency_class": "functional",
+                }
+            }
+        
+        # Format result as JSON string for frontend parsing
+        json_text = json_mod.dumps(func_result, indent=2)
+        
+        return {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": json_text}],
+                    "role": "model"
+                },
+                "finish_reason": "STOP",
+            }],
+            "usage_metadata": {
+                "prompt_token_count": 0,
+                "candidates_token_count": len(json_text.split()),
+                "total_token_count": len(json_text.split()),
+            },
+            "model_version": "functional-lane-flash",
+            "_metadata": {
+                "functional_lane": True,
+                "intent": intent,
+                "action": func_result.get("action", "UNKNOWN"),
+                "latency_class": "functional",
             }
         }
 
