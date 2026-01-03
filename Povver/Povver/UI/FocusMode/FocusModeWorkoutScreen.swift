@@ -158,7 +158,9 @@ struct FocusModeWorkoutScreen: View {
             .background(ColorsToken.Background.screen)
         }
         .navigationBarHidden(true)
-        .toolbar(.hidden, for: .tabBar)  // Hide tab bar in Focus Mode
+        // Only hide tab bar when a workout is in progress (prevents accidental navigation)
+        // Show tab bar on picker screen so users can navigate to other tabs
+        .toolbar(service.workout != nil ? .hidden : .visible, for: .tabBar)
         .interactiveDismissDisabled(service.workout != nil)
         .onChange(of: screenMode) { _, newMode in
             // Sync List editMode with screenMode
@@ -819,24 +821,14 @@ struct FocusModeWorkoutScreen: View {
                 .animation(.easeInOut(duration: 0.2), value: isHeroCollapsed)
                 .animation(.easeInOut(duration: 0.2), value: screenMode.isReordering)
             } else {
-                // Pre-workout state
+                // Pre-workout state (tab bar is visible for navigation)
                 HStack {
                     Text("Start Workout")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(ColorsToken.Text.primary)
                     
                     Spacer()
-                    
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(ColorsToken.Text.secondary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                    // No X button - users can navigate via tab bar
                 }
                 .frame(height: 52)  // Fixed nav bar height
                 .padding(.horizontal, Space.md)

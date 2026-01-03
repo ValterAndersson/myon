@@ -361,9 +361,35 @@ struct LogSetResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case eventId = "event_id"
-        case totals
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let eventId: String?
+        let totals: WorkoutTotals?
+        let success: Bool?
+        
+        enum CodingKeys: String, CodingKey {
+            case eventId = "event_id"
+            case totals
+            case success
+        }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { data: { event_id, totals, success }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.eventId = dataWrapper.eventId
+            self.totals = dataWrapper.totals
+        } else {
+            self.eventId = nil
+            self.totals = nil
+        }
     }
 }
 
@@ -425,8 +451,34 @@ struct AutofillExerciseResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case eventId = "event_id"
-        case totals
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let eventId: String?
+        let totals: WorkoutTotals?
+        let success: Bool?
+        
+        enum CodingKeys: String, CodingKey {
+            case eventId = "event_id"
+            case totals
+            case success
+        }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { data: { event_id, totals, success }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.eventId = dataWrapper.eventId
+            self.totals = dataWrapper.totals
+        } else {
+            self.eventId = nil
+            self.totals = nil
+        }
     }
 }

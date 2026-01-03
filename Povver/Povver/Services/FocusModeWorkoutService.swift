@@ -1159,8 +1159,13 @@ private struct GetUserTemplatesResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case items
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let items: [AnyCodableDict]?
+        let count: Int?
     }
     
     init(from decoder: Decoder) throws {
@@ -1168,8 +1173,10 @@ private struct GetUserTemplatesResponse: Decodable {
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
         
-        // Decode items as array of dictionaries
-        if let itemsData = try? container.decode([AnyCodableDict].self, forKey: .items) {
+        // API returns { data: { items: [...] }, success: true }
+        // Decode items from nested data wrapper
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data),
+           let itemsData = dataWrapper.items {
             self.items = itemsData.map { $0.dict }
         } else {
             self.items = []
@@ -1188,33 +1195,37 @@ private struct GetNextWorkoutResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case template
-        case routine
-        case templateIndex
-        case templateCount
-        case reason
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let template: AnyCodableDict?
+        let routine: AnyCodableDict?
+        let templateIndex: Int?
+        let templateCount: Int?
+        let selectionMethod: String?
+        let reason: String?
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
-        self.templateIndex = try container.decodeIfPresent(Int.self, forKey: .templateIndex)
-        self.templateCount = try container.decodeIfPresent(Int.self, forKey: .templateCount)
-        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
         
-        // Decode template and routine as dictionaries
-        if let templateData = try? container.decode(AnyCodableDict.self, forKey: .template) {
-            self.template = templateData.dict
+        // API returns { data: { template, routine, templateIndex, ... }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.template = dataWrapper.template?.dict
+            self.routine = dataWrapper.routine?.dict
+            self.templateIndex = dataWrapper.templateIndex
+            self.templateCount = dataWrapper.templateCount
+            self.reason = dataWrapper.reason
         } else {
             self.template = nil
-        }
-        
-        if let routineData = try? container.decode(AnyCodableDict.self, forKey: .routine) {
-            self.routine = routineData.dict
-        } else {
             self.routine = nil
+            self.templateIndex = nil
+            self.templateCount = nil
+            self.reason = nil
         }
     }
 }
@@ -1892,6 +1903,30 @@ private struct GetActiveWorkoutNewResponse: Decodable {
     let success: Bool
     let workout: GetActiveWorkoutData?
     let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case data
+        case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let workout: GetActiveWorkoutData?
+        let success: Bool?
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { data: { workout, success }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.workout = dataWrapper.workout
+        } else {
+            self.workout = nil
+        }
+    }
 }
 
 /// Extended request that accepts plan parameter
@@ -1932,19 +1967,39 @@ private struct StartActiveWorkoutNewResponse: Decodable {
     
     enum CodingKeys: String, CodingKey {
         case success
-        case workoutId = "workout_id"
-        case workout
-        case resumed
+        case data
         case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let workoutId: String?
+        let workout: StartActiveWorkoutWorkoutData?
+        let resumed: Bool?
+        let success: Bool?
+        
+        enum CodingKeys: String, CodingKey {
+            case workoutId = "workout_id"
+            case workout
+            case resumed
+            case success
+        }
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
-        self.workoutId = try container.decodeIfPresent(String.self, forKey: .workoutId)
-        self.workout = try container.decodeIfPresent(StartActiveWorkoutWorkoutData.self, forKey: .workout)
-        self.resumed = try container.decodeIfPresent(Bool.self, forKey: .resumed) ?? false
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { data: { workout, workout_id, resumed }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.workoutId = dataWrapper.workoutId
+            self.workout = dataWrapper.workout
+            self.resumed = dataWrapper.resumed ?? false
+        } else {
+            self.workoutId = nil
+            self.workout = nil
+            self.resumed = false
+        }
     }
 }
 
@@ -1957,7 +2012,7 @@ private struct StartActiveWorkoutWorkoutData: Decodable {
     let totals: WorkoutTotals?
     let sourceTemplateId: String?
     let sourceRoutineId: String?
-    let startTime: String?
+    let startTime: Date?
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -1969,6 +2024,43 @@ private struct StartActiveWorkoutWorkoutData: Decodable {
         case sourceTemplateId = "source_template_id"
         case sourceRoutineId = "source_routine_id"
         case startTime = "start_time"
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.status = try container.decodeIfPresent(String.self, forKey: .status)
+        self.exercises = try container.decodeIfPresent([GetActiveWorkoutExerciseDTO].self, forKey: .exercises)
+        self.totals = try container.decodeIfPresent(WorkoutTotals.self, forKey: .totals)
+        self.sourceTemplateId = try container.decodeIfPresent(String.self, forKey: .sourceTemplateId)
+        self.sourceRoutineId = try container.decodeIfPresent(String.self, forKey: .sourceRoutineId)
+        
+        // Handle start_time as either ISO8601 string or Firestore timestamp dictionary
+        if let isoString = try? container.decode(String.self, forKey: .startTime) {
+            self.startTime = parseISO8601Date(isoString)
+        } else if let firestoreTimestamp = try? container.decode(FirestoreTimestamp.self, forKey: .startTime) {
+            self.startTime = firestoreTimestamp.date
+        } else {
+            self.startTime = nil
+        }
+    }
+}
+
+/// Firestore timestamp format: { _seconds: Int, _nanoseconds: Int }
+private struct FirestoreTimestamp: Decodable {
+    let seconds: Int
+    let nanoseconds: Int
+    
+    enum CodingKeys: String, CodingKey {
+        case seconds = "_seconds"
+        case nanoseconds = "_nanoseconds"
+    }
+    
+    var date: Date {
+        let timeInterval = TimeInterval(seconds) + TimeInterval(nanoseconds) / 1_000_000_000
+        return Date(timeIntervalSince1970: timeInterval)
     }
 }
 
@@ -2000,7 +2092,7 @@ extension FocusModeWorkout {
         }
         
         let status = FocusModeWorkout.WorkoutStatus(rawValue: workoutData?.status ?? "in_progress") ?? .inProgress
-        let startTime = parseISO8601Date(workoutData?.startTime) ?? Date()
+        let startTime = workoutData?.startTime ?? Date()  // Already Date? from decoder
         
         self.init(
             id: response.workoutId ?? workoutData?.id ?? UUID().uuidString,
