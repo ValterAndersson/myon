@@ -1,14 +1,11 @@
 """
 Canvas Orchestrator Agent Engine Entry Point.
 
-This module provides the Vertex AI Agent Engine wrapper with 4-Lane routing.
-When USE_SHELL_AGENT=true, requests are routed through the 4-Lane system:
-
-Architecture (4-Lane "Shared Brain"):
+4-Lane Architecture (Single Shell Agent):
 - Fast Lane: Regex patterns → direct skill execution (no LLM, <500ms)
 - Slow Lane: ShellAgent (gemini-2.5-pro) for conversational reasoning
 - Functional Lane: gemini-2.5-flash for JSON-only Smart Button logic
-- Worker Lane: Background scripts (not routed here, triggered by PubSub)
+- Worker Lane: Background scripts (triggered by PubSub, not routed here)
 """
 
 import datetime
@@ -24,15 +21,11 @@ from google.cloud import logging as google_cloud_logging
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-# Use agent_multi which respects USE_SHELL_AGENT flag
-from app.agent_multi import root_agent
+# Import the unified Shell Agent
+from app.shell import create_shell_agent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Feature flag for Shell Agent with fast lane bypass
-# NOTE: On refactor/single-shell-agent branch, Shell Agent is the default
-USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "true").lower() in ("true", "1", "yes")
 
 # Drop broken GOOGLE_APPLICATION_CREDENTIALS paths to prefer ADC
 gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -46,11 +39,14 @@ if gac and not os.path.exists(gac):
 
 class AgentEngineApp(AdkApp):
     """
-    Custom AdkApp with Fast Lane bypass for low-latency copilot commands.
+    AdkApp with 4-Lane pipeline for optimal latency.
     
-    When USE_SHELL_AGENT=true, the stream_query method checks for fast lane
-    patterns before invoking the LLM, enabling sub-500ms response times
-    for copilot commands like "done", "8 @ 100", "next set".
+    The stream_query method routes requests through:
+    1. Context Setup - Establishes security boundary
+    2. Router - Determines lane (Fast/Slow/Functional)
+    3. Fast Lane - Direct skill execution (<500ms)
+    4. Functional Lane - Flash-based JSON logic
+    5. Slow Lane - LLM with optional Plan + Critic
     """
     
     def set_up(self) -> None:
@@ -70,8 +66,7 @@ class AgentEngineApp(AdkApp):
         except Exception:
             logger.info("Runtime versions: not available")
         
-        mode = "Shell Agent (unified)" if USE_SHELL_AGENT else "Multi-Agent (legacy)"
-        logger.info(f"Canvas Orchestrator initialized ({mode}, Cloud Logging configured)")
+        logger.info("Canvas Orchestrator initialized (Shell Agent, 4-Lane Pipeline)")
 
     def stream_query(
         self,
@@ -82,110 +77,87 @@ class AgentEngineApp(AdkApp):
         **kwargs,
     ) -> Generator[dict, None, None]:
         """
-        Query with Full Pipeline: Fast Lane bypass, Tool Planner, Critic.
-        
-        Pipeline stages:
-        1. Set context (FIRST - before any logic)
-        2. Router: Determine Fast/Slow/Functional lane
-        3. Fast Lane: Execute skills directly (no LLM, <500ms)
-        4. Functional Lane: Flash-based JSON logic
-        5. Slow Lane: Generate plan → Execute with LLM → Critic check
-        
-        Only active when USE_SHELL_AGENT=true.
+        Full 4-Lane Pipeline: Router → Fast/Functional/Slow → Critic
         """
+        from app.shell.context import SessionContext, set_current_context
+        from app.shell.router import route_request, execute_fast_lane, Lane
+        from app.shell.planner import generate_plan, should_generate_plan
+        
         routing = None
         plan = None
         
-        # === SET CONTEXT FIRST (Thread-safe via contextvars) ===
-        # This MUST happen before any routing or tool execution.
-        # Establishes the security boundary for the entire request.
-        if USE_SHELL_AGENT:
-            try:
-                from app.shell.context import SessionContext, set_current_context
-                
-                # Parse context from message prefix and set as current context
-                ctx = SessionContext.from_message(message)
-                set_current_context(ctx, message)
-                logger.debug("Context set: user=%s canvas=%s", ctx.user_id, ctx.canvas_id)
-                
-            except Exception as e:
-                logger.error("Failed to set context: %s", e)
+        # === 1. SET CONTEXT (Thread-safe via contextvars) ===
+        try:
+            ctx = SessionContext.from_message(message)
+            set_current_context(ctx, message)
+            logger.debug("Context set: user=%s canvas=%s", ctx.user_id, ctx.canvas_id)
+        except Exception as e:
+            logger.error("Failed to set context: %s", e)
         
-        # === ROUTING: 4-Lane System ===
-        if USE_SHELL_AGENT:
+        # === 2. ROUTING ===
+        try:
+            routing = route_request(message)
+        except Exception as e:
+            logger.error("Router error: %s", e)
+            routing = None
+        
+        # === 3. FAST LANE: Direct skill execution ===
+        if routing and routing.lane == Lane.FAST:
+            logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
+            
             try:
-                from app.shell.router import route_request, execute_fast_lane, Lane
-                from app.shell.context import SessionContext
-                from app.shell.planner import generate_plan, should_generate_plan
+                result = execute_fast_lane(routing, message, ctx)
+                yield self._format_fast_lane_response(result, routing.intent)
+                return
+            except Exception as e:
+                logger.error("Fast lane error: %s - falling back to Slow", e)
+        
+        # === 4. FUNCTIONAL LANE: Flash-based JSON logic ===
+        if routing and routing.lane == Lane.FUNCTIONAL:
+            logger.info("FUNCTIONAL LANE: intent=%s", routing.intent)
+            
+            try:
+                import asyncio
+                from app.shell.functional_handler import execute_functional_lane
                 
-                # Use route_request which handles both str and JSON payloads
-                routing = route_request(message)
-                
-                # === FAST LANE: Direct skill execution ===
-                if routing.lane == Lane.FAST:
-                    logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
-                    
-                    ctx = SessionContext.from_message(message)
-                    result = execute_fast_lane(routing, message, ctx)
-                    
-                    yield self._format_fast_lane_response(result, routing.intent)
-                    return
-                
-                # === FUNCTIONAL LANE: Flash-based JSON logic ===
-                if routing.lane == Lane.FUNCTIONAL:
-                    logger.info("FUNCTIONAL LANE: intent=%s", routing.intent)
-                    
-                    ctx = SessionContext.from_message(message)
-                    
-                    # Parse JSON payload with peek check for efficiency
-                    import json as json_mod
-                    if isinstance(message, str) and message.strip().startswith('{'):
-                        try:
-                            payload = json_mod.loads(message)
-                        except json_mod.JSONDecodeError:
-                            payload = {"message": message}
-                    elif isinstance(message, dict):
-                        payload = message
-                    else:
-                        payload = {"message": message}
-                    
-                    # Execute async functional handler
-                    # Handle both running inside async context and standalone
-                    import asyncio
-                    from app.shell.functional_handler import execute_functional_lane
-                    
+                # Parse JSON payload
+                if isinstance(message, str) and message.strip().startswith('{'):
                     try:
-                        # Check if we're already in an async context
-                        loop = asyncio.get_running_loop()
-                        # Already async - use nest_asyncio or create task
-                        # For sync generator, we need to use run_until_complete
-                        # This shouldn't happen in normal ADK flow
-                        logger.warning("Functional lane called from async context")
-                        import nest_asyncio
-                        nest_asyncio.apply()
-                        result = loop.run_until_complete(
-                            execute_functional_lane(routing, payload, ctx)
-                        )
-                    except RuntimeError:
-                        # No running loop - create one (normal case for sync generator)
-                        result = asyncio.run(
-                            execute_functional_lane(routing, payload, ctx)
-                        )
-                    
-                    yield self._format_functional_lane_response(result, routing.intent)
-                    return
+                        payload = json.loads(message)
+                    except json.JSONDecodeError:
+                        payload = {"message": message}
+                elif isinstance(message, dict):
+                    payload = message
+                else:
+                    payload = {"message": message}
                 
-                # === TOOL PLANNER: Generate plan for Slow Lane ===
-                if should_generate_plan(routing):
-                    plan = generate_plan(routing, message)
-                    logger.info("PLANNER: Generated plan for %s", routing.intent)
-                    
-            except ImportError as e:
-                logger.warning("Shell module import failed: %s - falling back to standard", e)
+                # Execute async handler
+                try:
+                    loop = asyncio.get_running_loop()
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    result = loop.run_until_complete(
+                        execute_functional_lane(routing, payload, ctx)
+                    )
+                except RuntimeError:
+                    result = asyncio.run(
+                        execute_functional_lane(routing, payload, ctx)
+                    )
+                
+                yield self._format_functional_lane_response(result, routing.intent)
+                return
             except Exception as e:
-                logger.error("Shell pipeline error: %s - falling back to standard", e)
+                logger.error("Functional lane error: %s - falling back to Slow", e)
         
-        # === SLOW LANE: LLM execution with optional plan injection ===
+        # === 5. TOOL PLANNER: Generate plan for Slow Lane ===
+        if routing and should_generate_plan(routing):
+            try:
+                plan = generate_plan(routing, message)
+                logger.info("PLANNER: Generated plan for %s", routing.intent)
+            except Exception as e:
+                logger.warning("Planner error: %s", e)
+        
+        # === 6. SLOW LANE: LLM execution ===
         logger.info("SLOW LANE: %s (intent=%s)", message[:50], routing.intent if routing else "unknown")
         
         # Inject planning context if available
@@ -205,21 +177,20 @@ class AgentEngineApp(AdkApp):
             **kwargs,
         ):
             # Collect text for critic
-            if USE_SHELL_AGENT:
-                try:
-                    candidates = chunk.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        for part in parts:
-                            if "text" in part:
-                                collected_text.append(part["text"])
-                except Exception:
-                    pass
+            try:
+                candidates = chunk.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    for part in parts:
+                        if "text" in part:
+                            collected_text.append(part["text"])
+            except Exception:
+                pass
             
             yield chunk
         
-        # === CRITIC PASS: Validate response for complex intents ===
-        if USE_SHELL_AGENT and routing and collected_text:
+        # === 7. CRITIC PASS: Validate response ===
+        if routing and collected_text:
             try:
                 from app.shell.critic import run_critic, should_run_critic
                 
@@ -234,20 +205,14 @@ class AgentEngineApp(AdkApp):
                     if critic_result.has_errors:
                         logger.warning("CRITIC: Response failed safety check: %s", 
                                       critic_result.error_messages)
-                        # Log error but don't block - already streamed
                     elif critic_result.findings:
                         logger.info("CRITIC: %d warnings (passed)", len(critic_result.findings))
                         
-            except ImportError as e:
-                logger.debug("Critic import failed: %s", e)
             except Exception as e:
-                logger.warning("Critic error: %s", e)
+                logger.debug("Critic error: %s", e)
     
     def _format_fast_lane_response(self, result: dict, intent: str) -> dict:
-        """
-        Format fast lane result as ADK-compatible streaming response.
-        """
-        # Extract text from skill result
+        """Format fast lane result as ADK-compatible streaming response."""
         skill_result = result.get("result", {})
         
         if isinstance(skill_result, dict):
@@ -277,23 +242,15 @@ class AgentEngineApp(AdkApp):
         }
     
     def _format_functional_lane_response(self, result: dict, intent: str) -> dict:
-        """
-        Format functional lane result as ADK-compatible response.
-        
-        Functional lane returns JSON, so we wrap it appropriately.
-        The frontend can parse the JSON from the text field.
-        """
-        import json as json_mod
-        
-        # Extract result from functional handler
+        """Format functional lane result as ADK-compatible response."""
         func_result = result.get("result", {})
         
-        # For MONITOR_STATE with NULL action, return minimal response
+        # NULL action = silent observer
         if func_result.get("action") == "NULL":
             return {
                 "candidates": [{
                     "content": {
-                        "parts": [{"text": ""}],  # Empty response for silent observer
+                        "parts": [{"text": ""}],
                         "role": "model"
                     },
                     "finish_reason": "STOP",
@@ -312,8 +269,7 @@ class AgentEngineApp(AdkApp):
                 }
             }
         
-        # Format result as JSON string for frontend parsing
-        json_text = json_mod.dumps(func_result, indent=2)
+        json_text = json.dumps(func_result, indent=2)
         
         return {
             "candidates": [{
@@ -347,6 +303,10 @@ def _read_requirements(path: str) -> list[str]:
         return [ln.strip() for ln in f.read().splitlines() if ln.strip() and not ln.strip().startswith("#")]
 
 
+# Create the root agent using Shell Agent
+root_agent = create_shell_agent()
+
+
 def deploy_canvas_orchestrator(
     project: str,
     location: str,
@@ -356,7 +316,6 @@ def deploy_canvas_orchestrator(
     env_vars: dict[str, str] = {},
 ) -> agent_engines.AgentEngine:
     staging_bucket_uri = f"gs://{project}-agent-engine"
-    # Best-effort: create bucket if missing
     try:
         from google.cloud import storage
         client = storage.Client(project=project)
@@ -388,16 +347,10 @@ def deploy_canvas_orchestrator(
         except Exception:
             pass
 
-    # Determine description based on mode
-    if USE_SHELL_AGENT:
-        description = "Canvas Orchestrator (Shell Agent with Fast Lane bypass)"
-    else:
-        description = "Canvas Orchestrator (Router + Workout Orchestrator + Canvas Manager)"
-
     cfg: dict[str, Any] = {
         "agent_engine": agent_engine,
         "display_name": agent_name,
-        "description": description,
+        "description": "Canvas Orchestrator (Shell Agent, 4-Lane Pipeline)",
         "extra_packages": extra_packages,
         "env_vars": env_vars,
         "requirements": requirements,
