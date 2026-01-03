@@ -136,25 +136,40 @@ class AgentEngineApp(AdkApp):
                     
                     ctx = SessionContext.from_message(message)
                     
-                    # Parse JSON payload
-                    try:
-                        import json as json_mod
-                        payload = json_mod.loads(message) if isinstance(message, str) else message
-                    except (json_mod.JSONDecodeError, TypeError):
+                    # Parse JSON payload with peek check for efficiency
+                    import json as json_mod
+                    if isinstance(message, str) and message.strip().startswith('{'):
+                        try:
+                            payload = json_mod.loads(message)
+                        except json_mod.JSONDecodeError:
+                            payload = {"message": message}
+                    elif isinstance(message, dict):
+                        payload = message
+                    else:
                         payload = {"message": message}
                     
                     # Execute async functional handler
+                    # Handle both running inside async context and standalone
                     import asyncio
                     from app.shell.functional_handler import execute_functional_lane
                     
-                    # Run async handler in sync context
-                    loop = asyncio.new_event_loop()
                     try:
+                        # Check if we're already in an async context
+                        loop = asyncio.get_running_loop()
+                        # Already async - use nest_asyncio or create task
+                        # For sync generator, we need to use run_until_complete
+                        # This shouldn't happen in normal ADK flow
+                        logger.warning("Functional lane called from async context")
+                        import nest_asyncio
+                        nest_asyncio.apply()
                         result = loop.run_until_complete(
                             execute_functional_lane(routing, payload, ctx)
                         )
-                    finally:
-                        loop.close()
+                    except RuntimeError:
+                        # No running loop - create one (normal case for sync generator)
+                        result = asyncio.run(
+                            execute_functional_lane(routing, payload, ctx)
+                        )
                     
                     yield self._format_functional_lane_response(result, routing.intent)
                     return

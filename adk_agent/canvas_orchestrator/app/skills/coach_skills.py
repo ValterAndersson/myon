@@ -55,12 +55,16 @@ class SkillResult:
 # TRAINING CONTEXT
 # ============================================================================
 
-def get_training_context(user_id: str) -> SkillResult:
+def get_training_context(
+    user_id: str,
+    client: Optional[CanvasFunctionsClient] = None,
+) -> SkillResult:
     """
     Get user's training structure: active routine, split type, patterns.
     
     Args:
         user_id: User ID (required, no fallback)
+        client: Optional client instance (for Worker injection)
         
     Returns:
         SkillResult with activeRoutine, templates, recentWorkoutsSummary
@@ -71,7 +75,8 @@ def get_training_context(user_id: str) -> SkillResult:
     logger.info("get_training_context uid=%s", user_id)
     
     try:
-        resp = _get_client().get_planning_context(user_id)
+        api_client = client or _get_client()
+        resp = api_client.get_planning_context(user_id)
         success, data, error_details = parse_api_response(resp)
         
         if not success:
@@ -100,6 +105,7 @@ def get_analytics_features(
     weeks: int = 8,
     exercise_ids: Optional[List[str]] = None,
     muscles: Optional[List[str]] = None,
+    client: Optional[CanvasFunctionsClient] = None,
 ) -> SkillResult:
     """
     Fetch analytics features for progress analysis.
@@ -109,6 +115,7 @@ def get_analytics_features(
         weeks: Number of weeks to analyze (1-52, default 8)
         exercise_ids: Optional exercise IDs for per-exercise e1RM series
         muscles: Optional muscle names for per-muscle series
+        client: Optional client instance (for Worker injection)
         
     Returns:
         SkillResult with volume, intensity, and progression data
@@ -120,7 +127,8 @@ def get_analytics_features(
     logger.info("get_analytics_features uid=%s weeks=%d", user_id, weeks)
     
     try:
-        resp = _get_client().get_analytics_features(
+        api_client = client or _get_client()
+        resp = api_client.get_analytics_features(
             user_id,
             mode="weekly",
             weeks=weeks,
@@ -244,13 +252,18 @@ def get_user_profile(user_id: str) -> SkillResult:
 # RECENT WORKOUTS
 # ============================================================================
 
-def get_recent_workouts(user_id: str, limit: int = 10) -> SkillResult:
+def get_recent_workouts(
+    user_id: str,
+    limit: int = 10,
+    client: Optional[CanvasFunctionsClient] = None,
+) -> SkillResult:
     """
     Get user's recent completed workouts.
     
     Args:
         user_id: User ID (required)
         limit: Max workouts to return (5-30)
+        client: Optional client instance (for Worker injection)
         
     Returns:
         SkillResult with list of workouts
@@ -262,7 +275,8 @@ def get_recent_workouts(user_id: str, limit: int = 10) -> SkillResult:
     logger.info("get_recent_workouts uid=%s limit=%d", user_id, limit)
     
     try:
-        resp = _get_client().get_user_workouts(user_id, limit=limit)
+        api_client = client or _get_client()
+        resp = api_client.get_user_workouts(user_id, limit=limit)
         success, data, error_details = parse_api_response(resp)
         
         if not success:

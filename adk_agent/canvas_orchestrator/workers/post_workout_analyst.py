@@ -21,7 +21,10 @@ Usage:
 Environment:
     GOOGLE_PROJECT: GCP project ID
     CANVAS_FUNCTIONS_URL: Firebase functions base URL
-    GOOGLE_API_KEY: Gemini API key (optional, uses ADC if not set)
+    GEMINI_API_KEY: Optional - for local development only
+    
+Note: When running on GCP (Cloud Run, Vertex), uses Application Default
+Credentials (ADC). For local dev, can use GEMINI_API_KEY fallback.
 """
 
 from __future__ import annotations
@@ -243,18 +246,49 @@ InsightCard format:
 """
 
     # 3. Call Gemini Pro for analysis
+    # Use Vertex AI for GCP deployments (ADC), fallback to genai for local dev
     try:
-        import google.generativeai as genai
-        
-        model = genai.GenerativeModel(
-            "gemini-2.5-pro",
-            generation_config={
-                "temperature": 0.2,  # Low temp for analytical precision
-                "response_mime_type": "application/json",
-            },
-        )
-        
-        response = model.generate_content(prompt)
+        # Try Vertex AI first (for Cloud Run / GCP environment)
+        try:
+            import vertexai
+            from vertexai.generative_models import GenerativeModel, GenerationConfig
+            
+            # Initialize with ADC (Application Default Credentials)
+            project = os.getenv("GOOGLE_PROJECT") or os.getenv("GCP_PROJECT")
+            location = os.getenv("GOOGLE_LOCATION", "us-central1")
+            if project:
+                vertexai.init(project=project, location=location)
+            else:
+                vertexai.init()  # Uses default project from ADC
+            
+            model = GenerativeModel("gemini-2.5-pro")
+            response = model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    temperature=0.2,  # Low temp for analytical precision
+                    response_mime_type="application/json",
+                ),
+            )
+            logger.info("Using Vertex AI (ADC)")
+            
+        except Exception as vertex_err:
+            # Fallback to google-generativeai for local development
+            logger.warning("Vertex AI init failed (%s), falling back to genai", vertex_err)
+            import google.generativeai as genai
+            
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                genai.configure(api_key=api_key)
+            
+            model = genai.GenerativeModel(
+                "gemini-2.5-pro",
+                generation_config={
+                    "temperature": 0.2,
+                    "response_mime_type": "application/json",
+                },
+            )
+            response = model.generate_content(prompt)
+            logger.info("Using google-generativeai (API key)")
         result = json.loads(response.text)
         
         insight_data = result.get("insight")
