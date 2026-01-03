@@ -139,7 +139,8 @@ exports.getUserWorkouts = functions.https.onRequest((req, res) => withApiKey(get
 exports.getWorkout = functions.https.onRequest((req, res) => withApiKey(getWorkout)(req, res));
 
 // Template Operations
-exports.getUserTemplates = functions.https.onRequest((req, res) => withApiKey(getUserTemplates)(req, res));
+// getUserTemplates is already a v2 onRequest function with requireFlexibleAuth from get-user-templates.js
+exports.getUserTemplates = getUserTemplates;
 exports.getTemplate = functions.https.onRequest((req, res) => withApiKey(getTemplate)(req, res));
 exports.createTemplate = functions.https.onRequest((req, res) => withApiKey(createTemplate)(req, res));
 exports.updateTemplate = functions.https.onRequest((req, res) => withApiKey(updateTemplate)(req, res));

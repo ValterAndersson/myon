@@ -134,9 +134,9 @@ Firebase: start-active-workout.js
 Firestore: active_workouts/{id} created
   {
     source_template_id: "...",
-    source_routine_id: "...",  ← Important for cursor!
+    source_routine_id: "...",  ← Required for cursor advancement!
     exercises: [...],
-    status: "active"
+    status: "in_progress"      // in_progress | completed | cancelled
   }
         │
         ▼
@@ -280,8 +280,8 @@ Next get-next-workout.js call uses cursor for O(1) lookup
   "id": "active_abc",
   "user_id": "uid",
   "source_template_id": "template_xyz",
-  "source_routine_id": "routine_abc",   // CRITICAL for cursor update
-  "status": "active",
+  "source_routine_id": "routine_abc",   // Required for cursor advancement
+  "status": "in_progress",              // in_progress | completed | cancelled
   "start_time": Timestamp,
   "exercises": [
     {
@@ -315,19 +315,34 @@ Next get-next-workout.js call uses cursor for O(1) lookup
 
 ## Common Patterns
 
-### Authentication (Dual-Mode)
+### Authentication Lanes
+
+Firebase Functions use **two mutually exclusive authentication lanes**. Never mix these in a single endpoint.
+
+**Bearer Lane (Firebase Auth Token)**
+- Used by: iOS app, authenticated user requests
+- userId: Derived from `req.auth.uid` **only**
+- **All client-provided userId parameters are ignored** (security requirement)
+- Example: Focus Mode workout operations, user data access
+
+**Service Lane (API Key)**
+- Used by: Agent system, service-to-service calls
+- userId: From `req.body.userId` or `req.query.userId` (trusted)
+- Authenticated via `x-api-key` header
+- Example: Agent writing canvas cards, catalog admin operations
 
 ```javascript
-// Firebase Functions support two auth modes:
-// 1. Firebase Auth token (from iOS)
-// 2. API key (from Agent)
+// BEARER LANE - user-facing endpoints
+// userId MUST come from auth token, never from request params
+const userId = req.auth.uid;  // ← Only source of truth
+// Any req.body.userId or req.query.userId is IGNORED
 
-const { requireFlexibleAuth } = require('../auth/middleware');
-
-// In handler:
-const userId = req.auth?.uid || req.body?.userId || req.query?.userId;
-if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId');
+// SERVICE LANE - agent/service endpoints  
+// userId from request body (trusted service-to-service)
+const userId = req.body?.userId || req.query?.userId;
 ```
+
+**Security Rule**: Bearer-authenticated endpoints must never trust client-provided userId. This prevents cross-user data exposure.
 
 ### Error Response Format
 

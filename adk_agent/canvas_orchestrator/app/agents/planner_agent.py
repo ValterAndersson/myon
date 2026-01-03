@@ -496,18 +496,16 @@ def tool_search_exercises(
         logger.warning("⚠️ SEARCH_EXERCISES: 0 results! Params: group=%s movement=%s split=%s query=%s",
                        muscle_group, movement_type, split, query)
     
+    # CRITICAL: Return LEAN exercise data to prevent LLM output truncation.
+    # Full metadata was causing ~96 exercises * 10 fields = context bloat,
+    # leading to tool_propose_routine calls being truncated silently.
+    # Only include fields the agent actually needs for selection + tool calls.
     exercises = [
         {
             "id": ex.get("id"),
             "name": ex.get("name"),
-            "category": ex.get("category"),
-            "primary_muscles": ex.get("muscles", {}).get("primary", []),
-            "secondary_muscles": ex.get("muscles", {}).get("secondary", []),
-            "muscle_groups": ex.get("muscles", {}).get("category", []),
-            "equipment": ex.get("equipment", []),
-            "level": ex.get("metadata", {}).get("level"),
-            "movement_type": ex.get("movement", {}).get("type"),
-            "split": ex.get("movement", {}).get("split"),
+            "category": ex.get("category"),  # compound/isolation - needed for selection
+            "equipment": ex.get("equipment", [])[:1],  # Just first equipment, not all
         }
         for ex in items
     ]
@@ -1035,7 +1033,7 @@ all_tools = [
     FunctionTool(func=tool_get_next_workout),
     FunctionTool(func=tool_get_template),
     FunctionTool(func=tool_save_workout_as_template),
-    FunctionTool(func=tool_create_routine),
+    # FunctionTool(func=tool_create_routine),  # REMOVED - Creates orphan routines. Use tool_propose_routine instead.
     FunctionTool(func=tool_manage_routine),
     # Exercise catalog
     FunctionTool(func=tool_search_exercises),
@@ -1129,11 +1127,12 @@ When choosing between alternatives:
 - Use stable ordering. Avoid randomness.
 
 ## SEARCH STRATEGY (BROAD FIRST)
-Catalog is small. Use broad queries with high limits and filter locally.
-- Single workout: 1 broad search (limit 30–50)
-- Routine: 1 broad search per day type (limit 30–50 each)
+Catalog is small. Use broad queries and filter locally.
+- Single workout: 1 broad search (limit 20–30)
+- Routine: 1 broad search per day type (limit 15–20 each to prevent context overflow)
 - Never do repeated narrow searches for specific machine variants unless user asked for that exact movement.
 - If equipment filter yields sparse results, drop it and proceed with best available.
+- Keep searches lean: you only need enough options to pick 4-5 exercises per day.
 
 ## DEFAULT TRAINING PARAMETERS (IF NO HISTORY)
 Hypertrophy default:

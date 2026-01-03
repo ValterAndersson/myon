@@ -1,31 +1,102 @@
+/**
+ * =============================================================================
+ * cancel-active-workout.js - Cancel/Discard Active Workout
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Cancels an active workout by setting status to 'cancelled'.
+ * Also clears the lock document if it points to this workout.
+ *
+ * LOCK CLEARING:
+ * Uses a transaction to ensure the lock is cleared atomically with the
+ * workout status update. This prevents the resume gate from showing a
+ * cancelled workout.
+ *
+ * REQUEST BODY:
+ * {
+ *   workout_id: string (required)
+ * }
+ *
+ * RESPONSE SHAPE:
+ * {
+ *   success: true,
+ *   workout_id: string
+ * }
+ *
+ * CALLED BY:
+ * - iOS: FocusModeWorkoutScreen "Discard and Start New" button
+ * - iOS: FocusModeWorkoutService.cancelWorkout()
+ *
+ * RELATED FILES:
+ * - start-active-workout.js: Creates workout and sets lock
+ * - get-active-workout.js: Returns current active workout
+ * - complete-active-workout.js: Archives workout and clears lock
+ *
+ * =============================================================================
+ */
+
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
-const FirestoreHelper = require('../utils/firestore-helper');
+const { ok, fail } = require('../utils/response');
 const admin = require('firebase-admin');
 
-const db = new FirestoreHelper();
+const firestore = admin.firestore();
 
-/**
- * Cancel (discard) an active workout.
- * Sets status to 'cancelled' and end_time.
- */
 async function cancelActiveWorkoutHandler(req, res) {
   try {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
+
     const userId = req.user?.uid || req.auth?.uid;
-    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!userId) {
+      return fail(res, 'UNAUTHENTICATED', 'Unauthorized', null, 401);
+    }
 
     const { workout_id } = req.body || {};
-    if (!workout_id) return res.status(400).json({ success: false, error: 'Missing workout_id' });
+    if (!workout_id) {
+      return fail(res, 'INVALID_ARGUMENT', 'Missing workout_id', null, 400);
+    }
 
-    const parent = `users/${userId}/active_workouts`;
-    await db.updateDocument(parent, workout_id, { status: 'cancelled', end_time: admin.firestore.FieldValue.serverTimestamp(), updated_at: admin.firestore.FieldValue.serverTimestamp() });
-    return res.status(200).json({ success: true, data: { status: 'cancelled' } });
+    const lockRef = firestore.collection('users').doc(userId).collection('meta').doc('active_workout_state');
+    const workoutRef = firestore.collection('users').doc(userId).collection('active_workouts').doc(workout_id);
+
+    // ==========================================================================
+    // TRANSACTIONAL CANCEL + LOCK CLEAR
+    // ==========================================================================
+    await firestore.runTransaction(async (tx) => {
+      const workoutDoc = await tx.get(workoutRef);
+      const lockDoc = await tx.get(lockRef);
+
+      // Update workout status to cancelled
+      if (workoutDoc.exists) {
+        tx.update(workoutRef, {
+          status: 'cancelled',
+          end_time: new Date(),
+          updated_at: new Date()
+        });
+        console.log(`Cancelled workout ${workout_id}`);
+      } else {
+        console.log(`Workout ${workout_id} not found, clearing lock anyway`);
+      }
+
+      // Clear lock if it points to this workout
+      const lockData = lockDoc.exists ? lockDoc.data() : {};
+      if (lockData.active_workout_id === workout_id) {
+        tx.set(lockRef, {
+          active_workout_id: null,
+          status: 'cancelled',
+          updated_at: new Date()
+        });
+        console.log(`Cleared lock for cancelled workout ${workout_id}`);
+      }
+    });
+
+    return ok(res, { success: true, workout_id });
+
   } catch (error) {
     console.error('cancel-active-workout error:', error);
-    return res.status(500).json({ success: false, error: 'Failed to cancel active workout' });
+    return fail(res, 'INTERNAL', 'Failed to cancel active workout', { message: error.message }, 500);
   }
 }
 

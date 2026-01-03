@@ -290,6 +290,111 @@ Unlike some systems that track "target" and "actual" separately, we use a **sing
      analytics pipeline)       │
 ```
 
+### 4.5 Workout Start Entry Points
+
+Focus Mode supports multiple entry surfaces that all converge into a unified workout creation pipeline.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ WORKOUT START ENTRY POINTS                                                  │
+│                                                                             │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────────────────────┐   │
+│  │   Template  │   │  Routine    │   │  Canvas Session Plan            │   │
+│  │   Picker    │   │  "Next"     │   │  (Planning Agent)               │   │
+│  └──────┬──────┘   └──────┬──────┘   └────────────────┬────────────────┘   │
+│         │                 │                           │                    │
+│         │ template_id     │ template_id +             │ plan.blocks        │
+│         │                 │ source_routine_id         │                    │
+│         ▼                 ▼                           ▼                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    startActiveWorkout (backend)                      │   │
+│  │                                                                      │   │
+│  │  1. Transaction lock check (single active workout)                   │   │
+│  │  2. Resume if existing workout found                                 │   │
+│  │  3. workout-seed-mapper.js transforms to exercises                   │   │
+│  │  4. Create active_workout doc with exercises                         │   │
+│  │  5. Set lock in users/{uid}/meta/active_workout_state                │   │
+│  └────────────────────────────────────────────────────────────────┬─────┘   │
+│                                                                    │        │
+│                                                          { workout_id,     │
+│                                                            workout: {...}, │
+│                                                            resumed: bool } │
+│                                                                    │        │
+│                                                                    ▼        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    FocusModeWorkoutScreen                            │   │
+│  │                                                                      │   │
+│  │  - Displays exercises with set grid                                  │   │
+│  │  - Timer derived from workout.startTime                              │   │
+│  │  - Optimistic updates via MutationCoordinator                        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Entry Point Options:**
+
+| Entry Point | Source | Parameters |
+|-------------|--------|------------|
+| **Template Picker** | User-saved templates | `template_id` |
+| **Next from Rotation** | Routine cursor | `template_id` + `source_routine_id` |
+| **Canvas Session Plan** | Planning Agent output | `plan.blocks` array |
+| **Empty Workout** | No source | None (start blank) |
+
+**workout-seed-mapper.js:**
+
+The backend uses `workout-seed-mapper.js` to transform templates and plans into the normalized exercise format:
+
+```javascript
+// From template
+async function templateToExercises(userId, templateId)
+  → [{ instance_id, exercise_id, name, position, sets: [...] }]
+
+// From plan blocks
+async function planBlocksToExercises(blocks)
+  → [{ instance_id, exercise_id, name, position, sets: [...] }]
+
+// Validation applied during transformation
+validateReps(reps)   → clamps to [1, 30]
+validateRir(rir)     → clamps to [0, 5]
+validateWeight(w)    → null or >= 0
+```
+
+### 4.6 Routine Cursor Mechanics
+
+When a user works through a routine, the cursor tracks which template comes next.
+
+**Storage Location:**
+- `users/{uid}/routines/{routineId}` → `last_completed_template_id`
+
+**Cursor Advancement Flow:**
+```
+1. User starts workout from "Next Scheduled"
+   → startActiveWorkout({ template_id, source_routine_id })
+   
+2. User completes workout
+   → completeActiveWorkout() archives workout with source_routine_id
+   
+3. Firestore trigger fires on archived workout creation
+   → workout-routine-cursor.js updates last_completed_template_id
+   
+4. Next getNextWorkout call returns the subsequent template
+```
+
+**Selection Logic (getNextWorkout):**
+1. **Primary**: Use `last_completed_template_id` cursor (O(1) lookup)
+2. **Fallback**: Scan last 50 workouts for matching template
+3. **Default**: First template if no history
+
+**Edge Case Handling:**
+
+| Edge Case | Handling |
+|-----------|----------|
+| Double-tap start | Transaction-based lock prevents race |
+| Existing workout on start | Resume gate dialog: Resume or Discard |
+| Template deleted from routine | Fallback to first available template |
+| No routine set | "Next Scheduled" button hidden |
+| No templates saved | "From Template" disabled |
+
 ---
 
 ## 5. Firestore Schema
@@ -531,7 +636,7 @@ Initialize a new active workout.
 {
   // Option 1: From template
   template_id: string,
-  routine_id?: string,
+  source_routine_id?: string,           // Required for cursor advancement
   
   // Option 2: From plan (AI-generated or manual)
   plan?: {

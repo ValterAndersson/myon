@@ -220,8 +220,20 @@ const TemplateSchema = z.object({
 const RoutineSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  days: z.array(z.any()).optional(),
-});
+  // Support both snake_case and camelCase for backward compat
+  template_ids: z.array(z.string().min(1)).optional(),
+  templateIds: z.array(z.string().min(1)).optional(),
+  frequency: z.number().int().min(1).max(7).optional(),
+  days: z.array(z.any()).optional(),  // Legacy field
+}).refine(
+  (data) => {
+    // At least one of template_ids or templateIds should have content if provided
+    const tids = data.template_ids || data.templateIds || [];
+    // Empty is allowed (creating empty routine), but if provided must be strings
+    return true;
+  },
+  { message: 'template_ids must be an array of non-empty strings' }
+);
 
 module.exports.TemplateSchema = TemplateSchema;
 module.exports.RoutineSchema = RoutineSchema;

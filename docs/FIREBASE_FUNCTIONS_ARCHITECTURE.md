@@ -56,17 +56,30 @@ Firebase Functions serve as the backend API layer for the MYON fitness platform.
 
 ## Authentication & Middleware
 
-### Auth Types
+### Authentication Lanes
 
-**`withApiKey`** - Legacy API key validation via `x-api-key` header:
+Firebase Functions use **two mutually exclusive authentication lanes**. Never mix these in a single endpoint.
+
+| Lane | Auth Method | userId Source | Use Cases |
+|------|-------------|---------------|-----------|
+| **Bearer** | Firebase Auth Token | `req.auth.uid` **only** | iOS app, user-facing endpoints |
+| **Service** | API Key (`x-api-key`) | `req.body.userId` or `req.query.userId` | Agent system, service-to-service |
+
+**Security Rule**: Bearer-authenticated endpoints must derive userId exclusively from the auth token. Any client-provided userId parameters are **ignored**. This prevents cross-user data exposure.
+
+### Auth Middleware Types
+
+**`withApiKey`** - Service lane API key validation:
 ```javascript
 const { withApiKey } = require('./auth/middleware');
+// Service lane: userId from request params (trusted service-to-service)
 exports.getUser = functions.https.onRequest((req, res) => withApiKey(getUser)(req, res));
 ```
 
-**`requireFlexibleAuth`** - Firebase Auth token or service-to-service:
+**`requireFlexibleAuth`** - Bearer lane (Firebase Auth token):
 ```javascript
 const { requireFlexibleAuth } = require('./auth/middleware');
+// Bearer lane: userId from req.auth.uid ONLY, client userId params IGNORED
 exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAuth(applyAction)(req, res));
 ```
 
@@ -196,18 +209,29 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 
 ```javascript
 {
-  userId: string,
-  canvasId: string,
-  templateId: string,
-  startedAt: Timestamp,
+  user_id: string,
+  source_template_id: string,           // Template workout was started from
+  source_routine_id: string | null,     // Required for cursor advancement
+  start_time: Timestamp,
   exercises: [
     {
-      exerciseId: string,
+      instance_id: string,              // Stable ID within workout
+      exercise_id: string,              // Catalog reference
       name: string,
-      sets: [{ reps: number, weight: number, completed: boolean }]
+      sets: [{ id: string, reps: number, weight: number, rir: number, status: string }]
     }
   ],
-  state: 'active' | 'completed' | 'cancelled'
+  status: 'in_progress' | 'completed' | 'cancelled'
+}
+```
+
+**Response from startActiveWorkout**:
+```javascript
+{
+  "success": true,
+  "workout_id": "...",
+  "workout": { /* in-progress workout document */ },
+  "resumed": false  // true if existing in-progress workout was returned
 }
 ```
 

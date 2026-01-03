@@ -17,10 +17,15 @@ struct FocusModeWorkoutScreen: View {
     @StateObject private var service = FocusModeWorkoutService.shared
     @Environment(\.dismiss) private var dismiss
     
-    // Workout source (template, routine, or empty)
+    // Workout source (template, routine, plan, or empty)
     let sourceTemplateId: String?
     let sourceRoutineId: String?
     let workoutName: String?
+    let planBlocks: [[String: Any]]?  // Plan blocks from Canvas session_plan
+    
+    // Resume gate state
+    @State private var showingResumeGate = false
+    @State private var existingWorkoutId: String? = nil
     
     // MARK: - State Machine
     @State private var screenMode: FocusModeScreenMode = .normal
@@ -59,14 +64,22 @@ struct FocusModeWorkoutScreen: View {
     // Prevents duplicate starts
     @State private var isStartingWorkout = false
     
+    // Template and routine data for start view
+    @State private var templates: [FocusModeWorkoutService.TemplateInfo] = []
+    @State private var nextWorkoutInfo: FocusModeWorkoutService.NextWorkoutInfo? = nil
+    @State private var isLoadingStartData = false
+    @State private var showingTemplatePicker = false
+    
     init(
         templateId: String? = nil,
         routineId: String? = nil,
-        name: String? = nil
+        name: String? = nil,
+        planBlocks: [[String: Any]]? = nil
     ) {
         self.sourceTemplateId = templateId
         self.sourceRoutineId = routineId
         self.workoutName = name
+        self.planBlocks = planBlocks
     }
     
     // MARK: - Computed Properties
@@ -174,6 +187,39 @@ struct FocusModeWorkoutScreen: View {
         }
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
+        }
+        .alert("Active Workout Found", isPresented: $showingResumeGate) {
+            Button("Resume Workout") {
+                // Already loaded from getActiveWorkout - just start timer
+                startTimer()
+            }
+            Button("Discard and Start New", role: .destructive) {
+                Task {
+                    if existingWorkoutId != nil {
+                        do {
+                            // Cancel the existing workout
+                            try await service.cancelWorkout()
+                            // Now start from template/plan
+                            if let planBlocks = planBlocks {
+                                _ = try await service.startWorkoutFromPlan(plan: planBlocks)
+                            } else if sourceTemplateId != nil || sourceRoutineId != nil {
+                                _ = try await service.startWorkout(
+                                    name: workoutName,
+                                    sourceTemplateId: sourceTemplateId,
+                                    sourceRoutineId: sourceRoutineId
+                                )
+                            } else {
+                                _ = try await service.startWorkout(name: "Workout")
+                            }
+                            resetTimerForNewWorkout()
+                        } catch {
+                            print("Failed to discard and start new: \(error)")
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("You have an active workout in progress. Would you like to resume or start fresh?")
         }
         .task {
             await startWorkoutIfNeeded()
@@ -294,44 +340,163 @@ struct FocusModeWorkoutScreen: View {
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(ColorsToken.Text.primary)
                 
-                // Start Options
-                VStack(spacing: Space.md) {
-                    // Empty Workout
-                    startOptionButton(
-                        icon: "plus.circle.fill",
-                        title: "Start Empty Workout",
-                        subtitle: "Add exercises as you go",
-                        isPrimary: true
-                    ) {
-                        Task { await startEmptyWorkout() }
+                if isLoadingStartData {
+                    ProgressView()
+                        .padding(.vertical, Space.lg)
+                } else {
+                    // Start Options
+                    VStack(spacing: Space.md) {
+                        // Next Scheduled (from routine cursor)
+                        if let nextInfo = nextWorkoutInfo, nextInfo.hasNextWorkout {
+                            startOptionButton(
+                                icon: "calendar",
+                                title: nextInfo.template?.name ?? "Next Scheduled",
+                                subtitle: "\(nextInfo.templateIndex + 1)/\(nextInfo.templateCount) in \(nextInfo.routineName ?? "routine")",
+                                isPrimary: true
+                            ) {
+                                Task { await startFromNextWorkout() }
+                            }
+                        }
+                        
+                        // Empty Workout
+                        startOptionButton(
+                            icon: "plus.circle.fill",
+                            title: "Start Empty Workout",
+                            subtitle: "Add exercises as you go",
+                            isPrimary: nextWorkoutInfo?.hasNextWorkout != true
+                        ) {
+                            Task { await startEmptyWorkout() }
+                        }
+                        
+                        // From Template
+                        startOptionButton(
+                            icon: "doc.on.doc",
+                            title: "From Template",
+                            subtitle: templates.isEmpty ? "No templates saved" : "\(templates.count) template\(templates.count == 1 ? "" : "s")",
+                            isDisabled: templates.isEmpty
+                        ) {
+                            showingTemplatePicker = true
+                        }
                     }
-                    
-                    // Next Scheduled (placeholder - would need routine cursor)
-                    startOptionButton(
-                        icon: "calendar",
-                        title: "Next Scheduled",
-                        subtitle: "No routine set up",
-                        isDisabled: true
-                    ) {
-                        // TODO: Start from routine cursor
-                    }
-                    
-                    // From Template
-                    startOptionButton(
-                        icon: "doc.on.doc",
-                        title: "From Template",
-                        subtitle: "Choose from saved templates",
-                        isDisabled: false
-                    ) {
-                        // TODO: Show template picker
-                    }
+                    .padding(.horizontal, Space.lg)
                 }
-                .padding(.horizontal, Space.lg)
                 
                 Spacer()
             }
             .padding(.top, Space.xl)
         }
+        .task {
+            await loadStartViewData()
+        }
+        .sheet(isPresented: $showingTemplatePicker) {
+            templatePickerSheet
+        }
+    }
+    
+    /// Load templates and next workout info for start view
+    private func loadStartViewData() async {
+        guard !isLoadingStartData else { return }
+        isLoadingStartData = true
+        defer { isLoadingStartData = false }
+        
+        // Load templates and next workout in parallel
+        async let templatesTask: [FocusModeWorkoutService.TemplateInfo] = {
+            do { return try await service.getUserTemplates() }
+            catch { print("[FocusModeWorkoutScreen] getUserTemplates failed: \(error)"); return [] }
+        }()
+        
+        async let nextWorkoutTask: FocusModeWorkoutService.NextWorkoutInfo? = {
+            do { return try await service.getNextWorkout() }
+            catch { print("[FocusModeWorkoutScreen] getNextWorkout failed: \(error)"); return nil }
+        }()
+        
+        templates = await templatesTask
+        nextWorkoutInfo = await nextWorkoutTask
+    }
+    
+    /// Start workout from routine cursor (next scheduled)
+    private func startFromNextWorkout() async {
+        guard let nextInfo = nextWorkoutInfo, let template = nextInfo.template else { return }
+        guard !isStartingWorkout else { return }
+        
+        isStartingWorkout = true
+        defer { isStartingWorkout = false }
+        
+        do {
+            // P0-2 Fix: Pass routineId for cursor advancement
+            _ = try await service.startWorkout(
+                name: template.name,
+                sourceTemplateId: template.id,
+                sourceRoutineId: nextInfo.routineId  // Required for cursor to advance on complete
+            )
+            resetTimerForNewWorkout()
+        } catch {
+            print("Failed to start from next workout: \(error)")
+        }
+    }
+    
+    /// Start workout from selected template
+    private func startFromTemplate(_ template: FocusModeWorkoutService.TemplateInfo) async {
+        guard !isStartingWorkout else { return }
+        
+        isStartingWorkout = true
+        defer { isStartingWorkout = false }
+        
+        do {
+            _ = try await service.startWorkout(
+                name: template.name,
+                sourceTemplateId: template.id,
+                sourceRoutineId: nil
+            )
+            resetTimerForNewWorkout()
+        } catch {
+            print("Failed to start from template: \(error)")
+        }
+    }
+    
+    /// Template picker sheet
+    private var templatePickerSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(templates) { template in
+                    Button {
+                        showingTemplatePicker = false
+                        Task { await startFromTemplate(template) }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(template.name)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(ColorsToken.Text.primary)
+                                
+                                Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(ColorsToken.Text.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(ColorsToken.Text.muted)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .listStyle(.plain)
+            .navigationTitle("Choose Template")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingTemplatePicker = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
     
     private func startOptionButton(
@@ -989,7 +1154,21 @@ struct FocusModeWorkoutScreen: View {
         // Guard against duplicate concurrent starts
         guard !isStartingWorkout else { return }
         
-        if sourceTemplateId != nil || sourceRoutineId != nil {
+        // Check for existing active workout first (resume gate)
+        do {
+            if let existingWorkout = try await service.getActiveWorkout() {
+                // Found existing - show resume gate
+                existingWorkoutId = existingWorkout.id
+                showingResumeGate = true
+                return
+            }
+        } catch {
+            print("[FocusModeWorkoutScreen] getActiveWorkout failed: \(error)")
+            // Continue with normal start if check fails
+        }
+        
+        // Start from template/routine/plan if specified
+        if sourceTemplateId != nil || sourceRoutineId != nil || planBlocks != nil {
             isStartingWorkout = true
             defer { isStartingWorkout = false }
             
@@ -997,7 +1176,8 @@ struct FocusModeWorkoutScreen: View {
                 _ = try await service.startWorkout(
                     name: workoutName,
                     sourceTemplateId: sourceTemplateId,
-                    sourceRoutineId: sourceRoutineId
+                    sourceRoutineId: sourceRoutineId,
+                    plan: planBlocks
                 )
                 resetTimerForNewWorkout()
             } catch {

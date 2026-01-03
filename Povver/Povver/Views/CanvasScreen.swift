@@ -16,6 +16,8 @@ struct CanvasScreen: View {
     @State private var composerText: String = ""
     @State private var answeredClarifications: Set<String> = []
     @State private var composerExpanded: Bool = true
+    @State private var showFocusMode: Bool = false
+    @State private var planBlocksForFocusMode: [[String: Any]]? = nil
     
     private typealias ClarificationPrompt = TimelineClarificationPrompt
 
@@ -98,6 +100,9 @@ struct CanvasScreen: View {
                 }
                 .allowsHitTesting(true)
             }
+        }
+        .fullScreenCover(isPresented: $showFocusMode) {
+            FocusModeWorkoutScreen(planBlocks: planBlocksForFocusMode)
         }
     }
 }
@@ -257,10 +262,39 @@ extension CanvasScreen {
                     )
                 }
             // MARK: - Plan Card Actions
-            case "accept_plan":
+            case "accept_plan", "start":
+                // P1 Fix: Call startActiveWorkout with plan BEFORE presenting Focus Mode
+                // This ensures server-side normalization/validation of plan data
                 if let cid = vm.canvasId ?? canvasId {
                     Task { await vm.applyAction(canvasId: cid, type: "ACCEPT_PROPOSAL", cardId: card.id) }
-                    toastText = "Plan accepted"
+                    
+                    // Parse plan exercises and start workout via backend
+                    if let exercisesJson = action.payload?["exercises_json"],
+                       let data = exercisesJson.data(using: .utf8),
+                       let blocks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                        // Start workout via backend for server-side normalization
+                        Task {
+                            do {
+                                // This creates the active workout with normalized exercises
+                                _ = try await FocusModeWorkoutService.shared.startWorkoutFromPlan(plan: blocks)
+                                await MainActor.run {
+                                    // Focus Mode will load via getActiveWorkout (no client-side plan)
+                                    planBlocksForFocusMode = nil
+                                    showFocusMode = true
+                                }
+                            } catch {
+                                print("[CanvasScreen] Failed to start workout from plan: \(error)")
+                                // Fallback: pass plan directly (client-side parsing)
+                                await MainActor.run {
+                                    planBlocksForFocusMode = blocks
+                                    showFocusMode = true
+                                }
+                            }
+                        }
+                    } else {
+                        // No plan blocks - just open Focus Mode empty
+                        showFocusMode = true
+                    }
                 }
             case "adjust_plan":
                 if let instruction = action.payload?["instruction"],

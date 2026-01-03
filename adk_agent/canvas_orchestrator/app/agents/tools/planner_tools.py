@@ -22,8 +22,10 @@ ARCHITECTURE CONTEXT:
 │ │  • tool_propose_workout → propose-cards.js (session_plan)              │ │
 │ │  • tool_propose_routine → propose-cards.js (routine_summary + days)    │ │
 │ │  • tool_save_workout_as_template → create-template-from-plan.js        │ │
-│ │  • tool_create_routine → routines collection                           │ │
 │ │  • tool_manage_routine → patch-routine.js                              │ │
+│ │                                                                         │ │
+│ │ DEPRECATED (removed - use tool_propose_routine instead):               │ │
+│ │  • tool_create_routine → REMOVED - Creates orphan routines             │ │
 │ │                                                                         │ │
 │ │ CLARIFICATION:                                                          │ │
 │ │  • tool_ask_user → Emits clarification card for user input             │ │
@@ -61,7 +63,7 @@ from app.agents.planner_agent import (
     tool_get_planning_context,
     tool_get_template,
     tool_save_workout_as_template,
-    tool_create_routine,
+    # tool_create_routine,  # REMOVED - Creates orphan routines. Use tool_propose_routine instead.
     tool_manage_routine,
     tool_search_exercises,
     tool_propose_workout,
@@ -79,7 +81,7 @@ PLANNER_TOOLS = [
     FunctionTool(func=tool_get_planning_context),
     FunctionTool(func=tool_get_template),
     FunctionTool(func=tool_save_workout_as_template),
-    FunctionTool(func=tool_create_routine),
+    # FunctionTool(func=tool_create_routine),  # REMOVED - Creates orphan routines
     FunctionTool(func=tool_manage_routine),
     
     # Exercise catalog

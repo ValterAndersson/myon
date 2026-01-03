@@ -276,75 +276,78 @@ class FocusModeWorkoutService: ObservableObject {
     
     // MARK: - Workout Lifecycle
     
-    /// Start a new active workout
+    /// Load existing active workout (for resume)
+    /// Get current active workout (for resume gate)
+    /// Returns nil if no in_progress workout exists
+    func getActiveWorkout() async throws -> FocusModeWorkout? {
+        let response: GetActiveWorkoutNewResponse = try await apiClient.postJSON("getActiveWorkout", body: EmptyRequest())
+        
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get active workout")
+        }
+        
+        guard let workoutData = response.workout else {
+            return nil
+        }
+        
+        // Parse workout from response
+        let workout = FocusModeWorkout(from: workoutData)
+        self.workout = workout
+        
+        // Reset coordinator for this session
+        await mutationCoordinator.reset()
+        currentSessionId = await mutationCoordinator.getSessionId()
+        
+        return workout
+    }
+    
+    /// Start workout from plan (for Canvas session_plan start action)
+    func startWorkoutFromPlan(plan: [[String: Any]]) async throws -> FocusModeWorkout {
+        return try await startWorkout(
+            name: nil,
+            sourceTemplateId: nil,
+            sourceRoutineId: nil,
+            plan: plan
+        )
+    }
+    
+    /// Extended startWorkout that accepts plan parameter
     func startWorkout(
         name: String? = nil,
         sourceTemplateId: String? = nil,
         sourceRoutineId: String? = nil,
-        exercises: [FocusModeExercise] = []
+        plan: [[String: Any]]? = nil
     ) async throws -> FocusModeWorkout {
         isLoading = true
         defer { isLoading = false }
         
-        // Reset coordinator and get its session ID (must match for callbacks to work)
+        // Reset coordinator and get its session ID
         await mutationCoordinator.reset()
         currentSessionId = await mutationCoordinator.getSessionId()
         FocusModeLogger.shared.sessionReset(newSessionId: currentSessionId!.uuidString)
         
-        let request = StartActiveWorkoutRequest(
+        let request = StartActiveWorkoutExtendedRequest(
             name: name,
             sourceTemplateId: sourceTemplateId,
             sourceRoutineId: sourceRoutineId,
-            exercises: exercises.isEmpty ? nil : exercises.map { ExerciseDTO(from: $0) }
+            plan: plan
         )
         
-        let response: StartActiveWorkoutResponse = try await apiClient.postJSON("startActiveWorkout", body: request)
+        let response: StartActiveWorkoutNewResponse = try await apiClient.postJSON("startActiveWorkout", body: request)
         
         guard response.success else {
             throw FocusModeError.startFailed(response.error ?? "Unknown error")
         }
         
-        // Parse all fields from server (fall back to sensible defaults only if missing)
-        let serverStartTime = parseISO8601Date(response.startTime) ?? Date()
-        let serverEndTime = parseISO8601Date(response.endTime)
-        let serverCreatedAt = parseISO8601Date(response.createdAt) ?? Date()
-        let serverUpdatedAt = parseISO8601Date(response.updatedAt)
-        
-        // Parse status from server (default to inProgress for new workouts)
-        let serverStatus: FocusModeWorkout.WorkoutStatus
-        if let statusString = response.status {
-            serverStatus = FocusModeWorkout.WorkoutStatus(rawValue: statusString) ?? .inProgress
-        } else {
-            serverStatus = .inProgress
+        // Check if this was a resume
+        if response.resumed {
+            print("[FocusModeWorkoutService] Resumed existing workout \(response.workoutId ?? "unknown")")
         }
         
-        // Parse the workout using all server-provided data
-        let parsedWorkout = FocusModeWorkout(
-            id: response.workoutId ?? UUID().uuidString,
-            userId: response.userId ?? "",
-            status: serverStatus,
-            sourceTemplateId: response.sourceTemplateId ?? sourceTemplateId,
-            sourceRoutineId: response.sourceRoutineId ?? sourceRoutineId,
-            name: response.name ?? name,
-            exercises: response.exercises?.map { FocusModeExercise(from: $0) } ?? [],
-            totals: response.totals ?? WorkoutTotals(),
-            startTime: serverStartTime,
-            endTime: serverEndTime,
-            createdAt: serverCreatedAt,
-            updatedAt: serverUpdatedAt
-        )
-        
+        // Parse workout from response
+        let parsedWorkout = FocusModeWorkout(fromNewResponse: response)
         self.workout = parsedWorkout
         return parsedWorkout
-    }
-    
-    /// Load existing active workout (for resume)
-    func loadWorkout(workoutId: String) async throws {
-        // TODO: Call getActiveWorkout endpoint
-        // When implemented:
-        // isLoading = true
-        // defer { isLoading = false }
-        // ... actual implementation ...
     }
     
     // MARK: - Log Set (Hot Path)
@@ -1072,6 +1075,159 @@ class FocusModeWorkoutService: ObservableObject {
             self.workout = workout
         }
     }
+    
+    // MARK: - Template & Routine Methods
+    
+    /// Lightweight template info for picker
+    struct TemplateInfo: Identifiable {
+        let id: String
+        let name: String
+        let exerciseCount: Int
+        let setCount: Int
+        
+        init(from dict: [String: Any]) {
+            self.id = dict["id"] as? String ?? ""
+            self.name = dict["name"] as? String ?? "Untitled"
+            
+            // Count exercises and sets
+            if let exercises = dict["exercises"] as? [[String: Any]] {
+                self.exerciseCount = exercises.count
+                self.setCount = exercises.reduce(0) { sum, ex in
+                    sum + ((ex["sets"] as? [[String: Any]])?.count ?? 0)
+                }
+            } else {
+                self.exerciseCount = 0
+                self.setCount = 0
+            }
+        }
+    }
+    
+    /// Next workout info from routine cursor
+    struct NextWorkoutInfo {
+        let template: TemplateInfo?
+        let routineId: String?       // Required for cursor advancement
+        let routineName: String?
+        let templateIndex: Int
+        let templateCount: Int
+        let reason: String?  // "no_active_routine", "empty_routine", etc.
+        
+        var hasNextWorkout: Bool { template != nil }
+    }
+    
+    /// Fetch all user templates for picker
+    func getUserTemplates() async throws -> [TemplateInfo] {
+        let request = GetUserTemplatesRequest()
+        let response: GetUserTemplatesResponse = try await apiClient.postJSON("getUserTemplates", body: request)
+        
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get templates")
+        }
+        
+        return response.items.map { TemplateInfo(from: $0) }
+    }
+    
+    /// Fetch next workout from routine rotation
+    func getNextWorkout() async throws -> NextWorkoutInfo {
+        let request = EmptyRequest()
+        let response: GetNextWorkoutResponse = try await apiClient.postJSON("getNextWorkout", body: request)
+        
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get next workout")
+        }
+        
+        let template: TemplateInfo? = response.template.map { TemplateInfo(from: $0) }
+        
+        return NextWorkoutInfo(
+            template: template,
+            routineId: response.routine?["id"] as? String,  // P0-2 Fix: Extract routine ID for cursor advancement
+            routineName: response.routine?["name"] as? String,
+            templateIndex: response.templateIndex ?? 0,
+            templateCount: response.templateCount ?? 0,
+            reason: response.reason
+        )
+    }
+}
+
+// MARK: - Template & Routine DTOs
+
+private struct GetUserTemplatesRequest: Encodable {}
+
+private struct GetUserTemplatesResponse: Decodable {
+    let success: Bool
+    let items: [[String: Any]]
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case items
+        case error
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // Decode items as array of dictionaries
+        if let itemsData = try? container.decode([AnyCodableDict].self, forKey: .items) {
+            self.items = itemsData.map { $0.dict }
+        } else {
+            self.items = []
+        }
+    }
+}
+
+private struct GetNextWorkoutResponse: Decodable {
+    let success: Bool
+    let template: [String: Any]?
+    let routine: [String: Any]?
+    let templateIndex: Int?
+    let templateCount: Int?
+    let reason: String?
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case template
+        case routine
+        case templateIndex
+        case templateCount
+        case reason
+        case error
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        self.templateIndex = try container.decodeIfPresent(Int.self, forKey: .templateIndex)
+        self.templateCount = try container.decodeIfPresent(Int.self, forKey: .templateCount)
+        self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        
+        // Decode template and routine as dictionaries
+        if let templateData = try? container.decode(AnyCodableDict.self, forKey: .template) {
+            self.template = templateData.dict
+        } else {
+            self.template = nil
+        }
+        
+        if let routineData = try? container.decode(AnyCodableDict.self, forKey: .routine) {
+            self.routine = routineData.dict
+        } else {
+            self.routine = nil
+        }
+    }
+}
+
+/// Helper to decode arbitrary JSON dictionaries
+private struct AnyCodableDict: Decodable {
+    let dict: [String: Any]
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let jsonData = try container.decode([String: AnyCodable].self)
+        self.dict = jsonData.mapValues { $0.value }
+    }
 }
 
 // MARK: - Request/Response DTOs
@@ -1723,6 +1879,143 @@ class IdempotencyKeyHelper {
         let components = [context, exerciseId, setId, field].compactMap { $0 }
         let timestamp = Int(Date().timeIntervalSince1970 * 1000)
         return "\(components.joined(separator: "-"))-\(timestamp)"
+    }
+}
+
+// MARK: - New Response DTOs (for updated backend)
+
+/// Empty request for endpoints that don't need parameters
+private struct EmptyRequest: Encodable {}
+
+/// Response for getActiveWorkout with new format
+private struct GetActiveWorkoutNewResponse: Decodable {
+    let success: Bool
+    let workout: GetActiveWorkoutData?
+    let error: String?
+}
+
+/// Extended request that accepts plan parameter
+private struct StartActiveWorkoutExtendedRequest: Encodable {
+    let name: String?
+    let sourceTemplateId: String?
+    let sourceRoutineId: String?
+    let plan: [[String: Any]]?
+    
+    enum CodingKeys: String, CodingKey {
+        case name
+        case sourceTemplateId = "template_id"
+        case sourceRoutineId = "source_routine_id"
+        case plan
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(sourceTemplateId, forKey: .sourceTemplateId)
+        try container.encodeIfPresent(sourceRoutineId, forKey: .sourceRoutineId)
+        
+        // Encode plan as { blocks: [...] } if present
+        if let plan = plan {
+            let planWrapper: [String: Any] = ["blocks": plan]
+            try container.encode(AnyCodable(planWrapper), forKey: .plan)
+        }
+    }
+}
+
+/// Response for startActiveWorkout with new consistent format
+private struct StartActiveWorkoutNewResponse: Decodable {
+    let success: Bool
+    let workoutId: String?
+    let workout: StartActiveWorkoutWorkoutData?
+    let resumed: Bool
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case workoutId = "workout_id"
+        case workout
+        case resumed
+        case error
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.workoutId = try container.decodeIfPresent(String.self, forKey: .workoutId)
+        self.workout = try container.decodeIfPresent(StartActiveWorkoutWorkoutData.self, forKey: .workout)
+        self.resumed = try container.decodeIfPresent(Bool.self, forKey: .resumed) ?? false
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+private struct StartActiveWorkoutWorkoutData: Decodable {
+    let id: String
+    let userId: String?
+    let name: String?
+    let status: String?
+    let exercises: [GetActiveWorkoutExerciseDTO]?
+    let totals: WorkoutTotals?
+    let sourceTemplateId: String?
+    let sourceRoutineId: String?
+    let startTime: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case name
+        case status
+        case exercises
+        case totals
+        case sourceTemplateId = "source_template_id"
+        case sourceRoutineId = "source_routine_id"
+        case startTime = "start_time"
+    }
+}
+
+extension FocusModeWorkout {
+    /// Initialize from new response format
+    fileprivate init(fromNewResponse response: StartActiveWorkoutNewResponse) {
+        let workoutData = response.workout
+        let exercises = (workoutData?.exercises ?? []).map { exDto -> FocusModeExercise in
+            let sets = (exDto.sets ?? []).map { setDto -> FocusModeSet in
+                FocusModeSet(
+                    id: setDto.id,
+                    setType: FocusModeSetType(rawValue: setDto.setType ?? "working") ?? .working,
+                    status: FocusModeSetStatus(rawValue: setDto.status ?? "planned") ?? .planned,
+                    targetWeight: setDto.targetWeight ?? setDto.weight,
+                    targetReps: setDto.targetReps ?? setDto.reps,
+                    targetRir: setDto.targetRir ?? setDto.rir,
+                    weight: setDto.weight,
+                    reps: setDto.reps,
+                    rir: setDto.rir
+                )
+            }
+            return FocusModeExercise(
+                instanceId: exDto.instanceId,
+                exerciseId: exDto.exerciseId,
+                name: exDto.name,
+                position: exDto.position,
+                sets: sets
+            )
+        }
+        
+        let status = FocusModeWorkout.WorkoutStatus(rawValue: workoutData?.status ?? "in_progress") ?? .inProgress
+        let startTime = parseISO8601Date(workoutData?.startTime) ?? Date()
+        
+        self.init(
+            id: response.workoutId ?? workoutData?.id ?? UUID().uuidString,
+            userId: workoutData?.userId ?? "",
+            status: status,
+            sourceTemplateId: workoutData?.sourceTemplateId,
+            sourceRoutineId: workoutData?.sourceRoutineId,
+            name: workoutData?.name,
+            exercises: exercises,
+            totals: workoutData?.totals ?? WorkoutTotals(),
+            startTime: startTime,
+            endTime: nil,
+            createdAt: Date(),
+            updatedAt: nil
+        )
     }
 }
 

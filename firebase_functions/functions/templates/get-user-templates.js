@@ -8,15 +8,19 @@ const db = new FirestoreHelper();
 /**
  * Firebase Function: Get User Templates
  * 
- * Description: Gets all workout templates for a user
+ * Description: Gets all workout templates for the authenticated user.
+ * 
+ * SECURITY: Uses authenticated user ID only. Client-provided userId is IGNORED
+ * to prevent data exfiltration (user A requesting user B's templates).
  */
 async function getUserTemplatesHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  // P0 Security Fix: ONLY use authenticated user ID, ignore any client-provided userId
+  const userId = req.user?.uid || req.auth?.uid;
   
-  if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
+  if (!userId) return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
 
   try {
-    // Get all templates for user (removed orderBy due to timestamp conflicts)
+    // Get all templates for authenticated user (removed orderBy due to timestamp conflicts)
     const templates = await db.getDocumentsFromSubcollection('users', userId, 'templates');
 
     return ok(res, { items: templates, count: templates.length });
@@ -28,4 +32,4 @@ async function getUserTemplatesHandler(req, res) {
 }
 
 // Export Firebase Function
-exports.getUserTemplates = onRequest(requireFlexibleAuth(getUserTemplatesHandler)); 
+exports.getUserTemplates = onRequest(requireFlexibleAuth(getUserTemplatesHandler));

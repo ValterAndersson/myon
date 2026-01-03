@@ -73,6 +73,8 @@ const db = new FirestoreHelper();
 const admin = require('firebase-admin');
 const AnalyticsCalc = require('../utils/analytics-calculator');
 
+const firestore = admin.firestore();
+
 async function completeActiveWorkoutHandler(req, res) {
   try {
     if (req.method !== 'POST') {
@@ -127,21 +129,48 @@ async function completeActiveWorkoutHandler(req, res) {
       };
     }
 
+    const now = new Date();
     const archived = {
       user_id: userId,
       source_template_id: active.source_template_id || null,
       source_routine_id: active.source_routine_id || null,  // Added for routine cursor tracking
-      created_at: active.created_at || new Date(),
-      start_time: active.start_time || new Date(),
-      end_time: new Date(),
+      created_at: active.created_at || now,
+      start_time: active.start_time || now,
+      end_time: now,
       exercises: normalizedExercises,
       notes: active.notes || null,
       analytics
     };
-    const archivedId = await db.addDocument(archiveParent, archived);
 
-    await db.updateDocument(parent, workout_id, { status: 'completed', end_time: new Date(), updated_at: new Date() });
-    return ok(res, { workout_id: archivedId, archived: true });
+    // ==========================================================================
+    // ATOMIC BATCH: Archive + Update Status + Clear Lock
+    // ==========================================================================
+    const batch = firestore.batch();
+
+    // 1. Create archived workout in workouts collection
+    const archiveRef = firestore.collection('users').doc(userId).collection('workouts').doc();
+    batch.set(archiveRef, archived);
+
+    // 2. Update active workout status to completed
+    const activeRef = firestore.collection('users').doc(userId).collection('active_workouts').doc(workout_id);
+    batch.update(activeRef, {
+      status: 'completed',
+      end_time: now,
+      updated_at: now
+    });
+
+    // 3. Clear lock document
+    const lockRef = firestore.collection('users').doc(userId).collection('meta').doc('active_workout_state');
+    batch.set(lockRef, {
+      active_workout_id: null,
+      status: 'completed',
+      updated_at: now
+    });
+
+    await batch.commit();
+    console.log(`Completed workout ${workout_id}, archived as ${archiveRef.id}, lock cleared`);
+
+    return ok(res, { workout_id: archiveRef.id, archived: true });
   } catch (error) {
     console.error('complete-active-workout error:', error);
     return fail(res, 'INTERNAL', 'Failed to complete active workout', { message: error.message }, 500);
