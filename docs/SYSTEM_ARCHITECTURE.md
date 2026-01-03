@@ -1,7 +1,32 @@
-# MYON System Architecture
+# POVVER System Architecture
 
-> **Purpose**: This document helps AI coding agents understand how data flows between layers, 
-> preventing confusion, duplication, and bugs when implementing features across the stack.
+> **AI AGENT CONTEXT DOCUMENT**
+> 
+> This document is optimized for LLM/AI consumption. It provides explicit file paths, 
+> complete data schemas, and decision tables to enable accurate code generation without ambiguity.
+>
+> **Last Updated**: 2026-01-03
+> **Branch**: main
+> **Repository Root**: /Users/valterandersson/Documents/Povver
+
+---
+
+## CRITICAL: File Path Reference Table (ABSOLUTE PATHS)
+
+| Component | Absolute Path | Purpose |
+|-----------|---------------|---------|
+| **iOS App Entry** | `Povver/Povver/PovverApp.swift` | SwiftUI app entry |
+| **iOS Canvas Screen** | `Povver/Povver/Views/CanvasScreen.swift` | Main chat/canvas UI |
+| **iOS Workout Screen** | `Povver/Povver/UI/FocusMode/FocusModeWorkoutScreen.swift` | Active workout UI |
+| **iOS Streaming Service** | `Povver/Povver/Services/DirectStreamingService.swift` | Agent communication |
+| **iOS Workout Service** | `Povver/Povver/Services/FocusModeWorkoutService.swift` | Workout API calls |
+| **Agent Entry Point** | `adk_agent/canvas_orchestrator/app/agent_engine_app.py` | Vertex AI entry |
+| **Agent Router** | `adk_agent/canvas_orchestrator/app/shell/router.py` | 4-Lane routing |
+| **Agent Skills** | `adk_agent/canvas_orchestrator/app/skills/` | Pure logic modules |
+| **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
+| **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |
+
+---
 
 ## Quick Reference: Layer Map
 
@@ -74,14 +99,14 @@ iOS: CanvasViewModel.cards updated
 iOS: UI renders new card
 ```
 
-**Files involved**:
-- `MYON2/Services/DirectStreamingService.swift`
+**Files involved** (CURRENT PATHS):
+- `Povver/Povver/Services/DirectStreamingService.swift` ← iOS streaming
 - `firebase_functions/functions/strengthos/stream-agent-normalized.js`
-- `adk_agent/canvas_orchestrator/app/agents/orchestrator.py`
-- `adk_agent/canvas_orchestrator/app/agents/planner_agent.py`
+- `adk_agent/canvas_orchestrator/app/shell/router.py` ← Routes intent
+- `adk_agent/canvas_orchestrator/app/skills/planner_skills.py` ← Creates cards
 - `firebase_functions/functions/canvas/propose-cards.js`
-- `MYON2/Repositories/CanvasRepository.swift`
-- `MYON2/ViewModels/CanvasViewModel.swift`
+- `Povver/Povver/Repositories/CanvasRepository.swift`
+- `Povver/Povver/ViewModels/CanvasViewModel.swift`
 
 ---
 
@@ -110,12 +135,11 @@ iOS: CanvasRepository emits snapshot
 iOS: RoutineRepository listener receives new routine
 ```
 
-**Files involved**:
-- `MYON2/Services/CanvasService.swift` → `applyAction()`
+**Files involved** (CURRENT PATHS):
+- `Povver/Povver/Services/CanvasActions.swift` → `applyAction()`
 - `firebase_functions/functions/canvas/apply-action.js`
 - `firebase_functions/functions/routines/create-routine-from-draft.js`
 - `firebase_functions/functions/utils/plan-to-template-converter.js`
-- `MYON2/Repositories/RoutineRepository.swift`
 
 ---
 
@@ -143,8 +167,8 @@ Firestore: active_workouts/{id} created
 iOS: Returns workout_id, iOS navigates to workout view
 ```
 
-**Files involved**:
-- `MYON2/Services/ActiveWorkoutManager.swift`
+**Files involved** (CURRENT PATHS):
+- `Povver/Povver/Services/FocusModeWorkoutService.swift` ← startWorkout()
 - `firebase_functions/functions/active_workout/start-active-workout.js`
 
 ---
@@ -155,7 +179,7 @@ iOS: Returns workout_id, iOS navigates to workout view
 User taps "Finish Workout"
         │
         ▼
-iOS: ActiveWorkoutManager.completeWorkout(workoutId)
+iOS: FocusModeWorkoutService.finishWorkout()
         │ POST /completeActiveWorkout
         ▼
 Firebase: complete-active-workout.js
@@ -183,8 +207,8 @@ Firestore: routines/{id} updated
 Next get-next-workout.js call uses cursor for O(1) lookup
 ```
 
-**Files involved**:
-- `MYON2/Services/ActiveWorkoutManager.swift`
+**Files involved** (CURRENT PATHS):
+- `Povver/Povver/Services/FocusModeWorkoutService.swift` ← finishWorkout()
 - `firebase_functions/functions/active_workout/complete-active-workout.js`
 - `firebase_functions/functions/triggers/workout-routine-cursor.js`
 - `firebase_functions/functions/routines/get-next-workout.js`
@@ -237,7 +261,7 @@ Next get-next-workout.js call uses cursor for O(1) lookup
 }
 ```
 
-**iOS model**: `MYON2/Models/Routine.swift`
+**iOS model**: (legacy - routines handled via CanvasActions now)
 
 ---
 
@@ -268,7 +292,7 @@ Next get-next-workout.js call uses cursor for O(1) lookup
 }
 ```
 
-**iOS model**: `MYON2/Models/WorkoutTemplate.swift`
+**iOS model**: `Povver/Povver/Models/WorkoutTemplate.swift`
 
 ---
 
@@ -309,7 +333,7 @@ Next get-next-workout.js call uses cursor for O(1) lookup
 }
 ```
 
-**iOS model**: `MYON2/Models/ActiveWorkoutDoc.swift`
+**iOS model**: `Povver/Povver/Models/FocusModeModels.swift` (FocusModeWorkout)
 
 ---
 
@@ -417,7 +441,7 @@ When adding a new field (e.g., `routine.goal`):
    - `get-planning-context.js` - Check if included
 
 4. **iOS Model**
-   - `MYON2/Models/Routine.swift` - Add property
+   - `Povver/Povver/Models/*.swift` - Add property
    - Ensure `Codable` picks it up
 
 5. **iOS Repository**
@@ -461,31 +485,87 @@ When adding a new field (e.g., `routine.goal`):
 
 ---
 
-## Agent Permission Boundaries
+## Agent Architecture: 4-Lane Shell Agent (CURRENT)
+
+> **CRITICAL**: The old multi-agent architecture (CoachAgent, PlannerAgent, Orchestrator) 
+> is DEPRECATED and moved to `adk_agent/canvas_orchestrator/_archived/`. 
+> DO NOT import from that folder. All new code uses the Shell Agent.
+
+### Architecture Decision Record
+
+| Decision | Rationale |
+|----------|-----------|
+| Single Shell Agent | Unified persona, no "dead ends" |
+| 4-Lane Routing | Fast lane bypasses LLM for <500ms copilot |
+| Skills as Modules | Pure functions, not chat agents |
+| ContextVars for State | Thread-safe in async serverless |
+
+### Shell Agent File Map
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ AGENT TOOL PERMISSIONS                                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│ Planner Agent:                                                              │
-│  ✅ READ: user profile, routines, templates, workouts, exercises            │
-│  ✅ WRITE: canvas cards (session_plan, routine_summary)                     │
-│  ✅ WRITE: templates (via save_workout_as_template)                         │
-│  ❌ WRITE: active_workout (Copilot only)                                    │
-│  ❌ WRITE: chat messages (cards are the output)                             │
-│                                                                             │
-│ Coach Agent:                                                                │
-│  ✅ READ: all training data, analytics, exercises                           │
-│  ❌ WRITE: anything (education/advice only)                                 │
-│                                                                             │
-│ Copilot Agent (STUB - not implemented):                                     │
-│  ✅ READ: active_workout, templates                                         │
-│  ✅ WRITE: active_workout (log sets, swap exercises)                        │
-│  ❌ WRITE: canvas cards                                                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+adk_agent/canvas_orchestrator/
+├── app/
+│   ├── agent_engine_app.py     ← ENTRY POINT (Vertex AI)
+│   ├── shell/                   ← 4-LANE PIPELINE
+│   │   ├── router.py            ← Determines lane
+│   │   ├── context.py           ← Per-request SessionContext
+│   │   ├── agent.py             ← ShellAgent (gemini-2.5-pro)
+│   │   ├── tools.py             ← Tool wrappers
+│   │   ├── planner.py           ← Intent-based planning
+│   │   ├── critic.py            ← Response validation
+│   │   ├── safety_gate.py       ← Write confirmation
+│   │   ├── functional_handler.py ← JSON/Flash lane
+│   │   └── instruction.py       ← System prompt
+│   ├── skills/                  ← PURE LOGIC (Shared Brain)
+│   │   ├── coach_skills.py      ← Analytics, user data
+│   │   ├── planner_skills.py    ← Artifact creation
+│   │   ├── copilot_skills.py    ← Set logging, workout
+│   │   └── gated_planner.py     ← Safety-gated writes
+│   └── libs/                    ← Utilities
+├── workers/                     ← BACKGROUND JOBS
+│   └── post_workout_analyst.py  ← Post-workout insights
+└── _archived/                   ← DEPRECATED (do not use)
 ```
+
+### 4-Lane Routing Decision Table
+
+| Input Pattern | Lane | Model | Latency | Handler |
+|---------------|------|-------|---------|---------|
+| `"done"`, `"8 @ 100"`, `"next set"` | FAST | None | <500ms | `copilot_skills.*` |
+| `{"intent": "SWAP_EXERCISE", ...}` | FUNCTIONAL | Flash | <1s | `functional_handler.py` |
+| `"create a PPL routine"` | SLOW | Pro | 2-5s | `shell/agent.py` |
+| PubSub `workout_completed` | WORKER | Pro | N/A | `post_workout_analyst.py` |
+
+### Tool Permission Matrix (Shell Agent)
+
+| Skill Function | Read | Write | Safety Gate |
+|----------------|------|-------|-------------|
+| `get_training_context()` | ✅ | - | No |
+| `get_analytics_features()` | ✅ | - | No |
+| `search_exercises()` | ✅ | - | No |
+| `get_recent_workouts()` | ✅ | - | No |
+| `propose_workout()` | - | ✅ | **Yes** |
+| `propose_routine()` | - | ✅ | **Yes** |
+| `log_set()` | - | ✅ | No (Fast Lane) |
+
+### Context Flow (SECURITY CRITICAL)
+
+```
+agent_engine_app.py::stream_query()
+    │
+    ├─→ 1. Parse context: ctx = SessionContext.from_message(message)
+    │
+    ├─→ 2. Set context: set_current_context(ctx, message)  ← MUST BE FIRST
+    │
+    ├─→ 3. Route: routing = route_request(message)
+    │
+    └─→ 4. Execute lane with ctx in ContextVar
+```
+
+**Security**: `user_id` comes from authenticated request, NOT from LLM.
+Tool functions call `get_current_context()` to retrieve verified user_id.
+
+See `docs/SHELL_AGENT_ARCHITECTURE.md` for exhaustive details.
 
 ---
 
