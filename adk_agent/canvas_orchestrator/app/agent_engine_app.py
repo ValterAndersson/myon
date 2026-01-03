@@ -1,8 +1,19 @@
+"""
+Canvas Orchestrator Agent Engine Entry Point.
+
+This module provides the Vertex AI Agent Engine wrapper with Fast Lane bypass.
+When USE_SHELL_AGENT=true, fast lane patterns are intercepted before LLM invocation.
+
+Architecture:
+- Fast Lane: Regex patterns → direct skill execution (no LLM, <500ms)
+- Slow Lane: ShellAgent (gemini-2.5-pro) for complex reasoning
+"""
+
 import datetime
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Generator
 from collections.abc import Mapping, Sequence
 
 import google.auth
@@ -11,11 +22,14 @@ from google.cloud import logging as google_cloud_logging
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
-from app.agent import root_agent
-
+# Use agent_multi which respects USE_SHELL_AGENT flag
+from app.agent_multi import root_agent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Feature flag for fast lane bypass
+USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "false").lower() in ("true", "1", "yes")
 
 # Drop broken GOOGLE_APPLICATION_CREDENTIALS paths to prefer ADC
 gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
@@ -28,6 +42,14 @@ if gac and not os.path.exists(gac):
 
 
 class AgentEngineApp(AdkApp):
+    """
+    Custom AdkApp with Fast Lane bypass for low-latency copilot commands.
+    
+    When USE_SHELL_AGENT=true, the stream_query method checks for fast lane
+    patterns before invoking the LLM, enabling sub-500ms response times
+    for copilot commands like "done", "8 @ 100", "next set".
+    """
+    
     def set_up(self) -> None:
         super().set_up()
         logging_client = google_cloud_logging.Client()
@@ -44,7 +66,91 @@ class AgentEngineApp(AdkApp):
             )
         except Exception:
             logger.info("Runtime versions: not available")
-        logger.info("Canvas Orchestrator initialized (Cloud Logging configured)")
+        
+        mode = "Shell Agent (unified)" if USE_SHELL_AGENT else "Multi-Agent (legacy)"
+        logger.info(f"Canvas Orchestrator initialized ({mode}, Cloud Logging configured)")
+
+    def stream_query(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message: str,
+        **kwargs,
+    ) -> Generator[dict, None, None]:
+        """
+        Query with Fast Lane bypass.
+        
+        Fast Lane patterns (regex-matched) execute skills directly
+        without invoking the LLM, achieving sub-500ms response times.
+        
+        Only active when USE_SHELL_AGENT=true.
+        """
+        # === FAST LANE CHECK (only when USE_SHELL_AGENT=true) ===
+        if USE_SHELL_AGENT:
+            try:
+                from app.shell.router import route_message, execute_fast_lane, Lane
+                from app.shell.context import SessionContext
+                
+                routing = route_message(message)
+                
+                if routing.lane == Lane.FAST:
+                    logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
+                    
+                    # Execute skill directly - no LLM
+                    ctx = SessionContext.from_message(message)
+                    result = execute_fast_lane(routing, message, ctx)
+                    
+                    # Yield as single streaming chunk (ADK format)
+                    yield self._format_fast_lane_response(result, routing.intent)
+                    return
+                    
+            except ImportError as e:
+                logger.warning("Fast lane import failed: %s - falling back to LLM", e)
+            except Exception as e:
+                logger.error("Fast lane error: %s - falling back to LLM", e)
+        
+        # === SLOW LANE: Standard ADK flow ===
+        logger.info("SLOW LANE: %s", message[:50])
+        yield from super().stream_query(
+            user_id=user_id,
+            session_id=session_id,
+            message=message,
+            **kwargs,
+        )
+    
+    def _format_fast_lane_response(self, result: dict, intent: str) -> dict:
+        """
+        Format fast lane result as ADK-compatible streaming response.
+        """
+        # Extract text from skill result
+        skill_result = result.get("result", {})
+        
+        if isinstance(skill_result, dict):
+            text = skill_result.get("message", "Done.")
+        else:
+            text = str(skill_result)
+        
+        return {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": text}],
+                    "role": "model"
+                },
+                "finish_reason": "STOP",
+            }],
+            "usage_metadata": {
+                "prompt_token_count": 0,
+                "candidates_token_count": len(text.split()),
+                "total_token_count": len(text.split()),
+            },
+            "model_version": "fast-lane-bypass",
+            "_metadata": {
+                "fast_lane": True,
+                "intent": intent,
+                "latency_class": "fast",
+            }
+        }
 
     def register_operations(self) -> Mapping[str, Sequence]:
         operations = super().register_operations()
@@ -97,10 +203,16 @@ def deploy_canvas_orchestrator(
         except Exception:
             pass
 
+    # Determine description based on mode
+    if USE_SHELL_AGENT:
+        description = "Canvas Orchestrator (Shell Agent with Fast Lane bypass)"
+    else:
+        description = "Canvas Orchestrator (Router + Workout Orchestrator + Canvas Manager)"
+
     cfg: dict[str, Any] = {
         "agent_engine": agent_engine,
         "display_name": agent_name,
-        "description": "Canvas Orchestrator (Router + Workout Orchestrator + Canvas Manager)",
+        "description": description,
         "extra_packages": extra_packages,
         "env_vars": env_vars,
         "requirements": requirements,
@@ -151,5 +263,3 @@ if __name__ == "__main__":
         extra_packages=args.extra_packages,
         env_vars=env_vars,
     )
-
-

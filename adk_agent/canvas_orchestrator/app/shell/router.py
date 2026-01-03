@@ -200,8 +200,8 @@ def execute_fast_lane(
     """
     Execute fast lane skill directly. No LLM involved.
     
-    This function will be fleshed out when copilot_skills are implemented.
-    For now, returns a stub response.
+    Calls copilot_skills functions which make direct HTTP calls to Firebase.
+    Target latency: <500ms end-to-end.
     
     Args:
         routing: Routing result from route_message
@@ -211,57 +211,89 @@ def execute_fast_lane(
     Returns:
         Dict with skill result, ready for response formatting
     """
+    from app.skills.copilot_skills import (
+        log_set,
+        log_set_shorthand,
+        get_next_set,
+        acknowledge_rest,
+        parse_shorthand,
+    )
+    
     clean = SessionContext.strip_prefix(message).strip()
     
-    # TODO: Wire up actual copilot_skills once implemented
-    # For now, return stub responses
-    
-    if routing.intent == "LOG_SET":
-        return {
-            "lane": "fast",
-            "intent": routing.intent,
-            "result": {
-                "status": "logged",
-                "message": "Set logged.",
-            }
-        }
-    
-    elif routing.intent == "LOG_SET_SHORTHAND":
-        # Parse "8 @ 100" format
-        match = re.match(r"^(\d+)\s*@\s*(\d+(?:\.\d+)?)", clean)
-        if match:
-            reps = int(match.group(1))
-            weight = float(match.group(2))
+    try:
+        if routing.intent == "LOG_SET":
+            result = log_set(ctx)
             return {
                 "lane": "fast",
                 "intent": routing.intent,
-                "result": {
-                    "status": "logged",
-                    "message": f"Set logged: {reps} reps @ {weight}kg",
-                    "reps": reps,
-                    "weight": weight,
-                }
+                "result": result.to_dict(),
             }
-    
-    elif routing.intent in ("NEXT_SET", "REST_ACK"):
+        
+        elif routing.intent == "LOG_SET_SHORTHAND":
+            # Parse "8 @ 100" format
+            parsed = parse_shorthand(clean)
+            if parsed:
+                result = log_set_shorthand(
+                    ctx, 
+                    reps=parsed["reps"], 
+                    weight=parsed["weight"], 
+                    unit=parsed["unit"]
+                )
+                return {
+                    "lane": "fast",
+                    "intent": routing.intent,
+                    "result": result.to_dict(),
+                }
+            else:
+                return {
+                    "lane": "fast",
+                    "intent": routing.intent,
+                    "result": {
+                        "success": False,
+                        "message": "Could not parse set notation.",
+                        "error": "parse_error",
+                    }
+                }
+        
+        elif routing.intent == "NEXT_SET":
+            result = get_next_set(ctx)
+            return {
+                "lane": "fast",
+                "intent": routing.intent,
+                "result": result.to_dict(),
+            }
+        
+        elif routing.intent == "REST_ACK":
+            result = acknowledge_rest(ctx)
+            return {
+                "lane": "fast",
+                "intent": routing.intent,
+                "result": result.to_dict(),
+            }
+        
+        # Fallback for unhandled intents
         return {
             "lane": "fast",
             "intent": routing.intent,
             "result": {
-                "status": "ready",
-                "message": "Next set ready.",
+                "success": False,
+                "message": f"Fast lane handler for {routing.intent} not implemented.",
+                "error": "not_implemented",
             }
         }
-    
-    # Fallback
-    return {
-        "lane": "fast",
-        "intent": routing.intent,
-        "result": {
-            "status": "unknown",
-            "message": f"Fast lane handler for {routing.intent} not implemented.",
+        
+    except Exception as e:
+        logger.error("Fast lane execution error: %s", e)
+        return {
+            "lane": "fast",
+            "intent": routing.intent,
+            "result": {
+                "success": False,
+                "message": "Fast lane execution failed.",
+                "error": str(e),
+            }
         }
-    }
 
 
 __all__ = [
