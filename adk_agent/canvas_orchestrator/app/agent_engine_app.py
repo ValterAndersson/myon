@@ -84,14 +84,31 @@ class AgentEngineApp(AdkApp):
         Query with Full Pipeline: Fast Lane bypass, Tool Planner, Critic.
         
         Pipeline stages:
-        1. Router: Determine Fast/Slow lane
-        2. Fast Lane: Execute skills directly (no LLM, <500ms)
-        3. Slow Lane: Generate plan → Execute with LLM → Critic check
+        1. Set context (FIRST - before any logic)
+        2. Router: Determine Fast/Slow/Functional lane
+        3. Fast Lane: Execute skills directly (no LLM, <500ms)
+        4. Functional Lane: Flash-based JSON logic
+        5. Slow Lane: Generate plan → Execute with LLM → Critic check
         
         Only active when USE_SHELL_AGENT=true.
         """
         routing = None
         plan = None
+        
+        # === SET CONTEXT FIRST (Thread-safe via contextvars) ===
+        # This MUST happen before any routing or tool execution.
+        # Establishes the security boundary for the entire request.
+        if USE_SHELL_AGENT:
+            try:
+                from app.shell.context import SessionContext, set_current_context
+                
+                # Parse context from message prefix and set as current context
+                ctx = SessionContext.from_message(message)
+                set_current_context(ctx, message)
+                logger.debug("Context set: user=%s canvas=%s", ctx.user_id, ctx.canvas_id)
+                
+            except Exception as e:
+                logger.error("Failed to set context: %s", e)
         
         # === ROUTING: 4-Lane System ===
         if USE_SHELL_AGENT:

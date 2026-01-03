@@ -8,18 +8,27 @@ Tool categories:
 - Read tools: From coach_skills.py (analytics, user data)
 - Write tools: From gated_planner.py (Safety Gate enforced)
 
+Security:
+- Tool signatures do NOT include user_id (prevents LLM hallucination)
+- user_id is retrieved from contextvars (set in agent_engine_app.py)
+- Thread-safe for concurrent requests in Agent Engine
+
 The tools defined here wrap skill functions with ADK-compatible signatures.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Dict, List, Optional
 
 from google.adk.tools import FunctionTool
 
-from app.shell.context import SessionContext
+# Import context from contextvars-based context module
+from app.shell.context import (
+    SessionContext,
+    get_current_context,
+    get_current_message,
+)
 
 # =============================================================================
 # IMPORTS FROM PURE SKILLS (NO LEGACY AGENTS)
@@ -44,55 +53,29 @@ from app.skills.gated_planner import (
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# CONTEXT MANAGEMENT
-# Thread-local storage for current request context
-# =============================================================================
-
-_current_context: SessionContext = None
-_current_message: str = ""
-
-
-def set_tool_context(ctx: SessionContext, message: str = "") -> None:
-    """Set context for tool execution. Called by agent callbacks."""
-    global _current_context, _current_message
-    _current_context = ctx
-    _current_message = message
-
-
-def get_tool_context() -> SessionContext:
-    """Get current context for tool execution."""
-    return _current_context or SessionContext(canvas_id="", user_id="", correlation_id=None)
-
-
-def get_tool_message() -> str:
-    """Get current user message (for Safety Gate checks)."""
-    return _current_message or ""
-
 
 # =============================================================================
 # READ TOOLS (Analytics & User Data)
+# Note: user_id is NOT exposed to LLM - retrieved from context vars.
 # =============================================================================
 
-def tool_get_training_context(*, user_id: Optional[str] = None) -> Dict[str, Any]:
+def tool_get_training_context() -> Dict[str, Any]:
     """
     Get the user's training context: active routine, templates, schedule.
     
     Use this to understand the user's current training structure.
     """
-    ctx = get_tool_context()
-    uid = user_id or ctx.user_id
+    ctx = get_current_context()
     
-    if not uid:
-        return {"error": "No user_id available"}
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
     
-    result = get_training_context(uid)
+    result = get_training_context(ctx.user_id)
     return result.to_dict()
 
 
 def tool_get_analytics_features(
     *,
-    user_id: Optional[str] = None,
     weeks: int = 8,
     muscle_group: Optional[str] = None,
     exercise_ids: Optional[List[str]] = None,
@@ -108,14 +91,13 @@ def tool_get_analytics_features(
         muscle_group: Filter by muscle group (e.g., "chest", "back")
         exercise_ids: Filter by specific exercises
     """
-    ctx = get_tool_context()
-    uid = user_id or ctx.user_id
+    ctx = get_current_context()
     
-    if not uid:
-        return {"error": "No user_id available"}
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
     
     result = get_analytics_features(
-        user_id=uid,
+        user_id=ctx.user_id,
         weeks=weeks,
         muscle_group=muscle_group,
         exercise_ids=exercise_ids,
@@ -123,39 +105,36 @@ def tool_get_analytics_features(
     return result.to_dict()
 
 
-def tool_get_user_profile(*, user_id: Optional[str] = None) -> Dict[str, Any]:
+def tool_get_user_profile() -> Dict[str, Any]:
     """
     Get user's fitness profile: goals, experience level, equipment.
     
     Use this to personalize recommendations.
     """
-    ctx = get_tool_context()
-    uid = user_id or ctx.user_id
+    ctx = get_current_context()
     
-    if not uid:
-        return {"error": "No user_id available"}
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
     
-    result = get_user_profile(uid)
+    result = get_user_profile(ctx.user_id)
     return result.to_dict()
 
 
-def tool_get_recent_workouts(
-    *,
-    user_id: Optional[str] = None,
-    limit: int = 5,
-) -> Dict[str, Any]:
+def tool_get_recent_workouts(*, limit: int = 5) -> Dict[str, Any]:
     """
     Get user's recent workout sessions.
     
     Returns list of completed workouts with exercises and sets.
+    
+    Args:
+        limit: Maximum number of workouts to return (default 5)
     """
-    ctx = get_tool_context()
-    uid = user_id or ctx.user_id
+    ctx = get_current_context()
     
-    if not uid:
-        return {"error": "No user_id available"}
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
     
-    result = get_recent_workouts(uid, limit=limit)
+    result = get_recent_workouts(ctx.user_id, limit=limit)
     return result.to_dict()
 
 
@@ -203,20 +182,21 @@ def tool_get_exercise_details(*, exercise_id: str) -> Dict[str, Any]:
     return result.to_dict()
 
 
-def tool_get_planning_context(*, user_id: Optional[str] = None) -> Dict[str, Any]:
+def tool_get_planning_context() -> Dict[str, Any]:
     """
     Get complete planning context in one call.
     
     Returns user profile, active routine, templates, recent workouts.
     Use this FIRST when planning a workout or routine.
     """
-    ctx = get_tool_context()
+    ctx = get_current_context()
     result = get_planning_context(ctx)
     return result.to_dict()
 
 
 # =============================================================================
 # WRITE TOOLS (Safety Gate Enforced)
+# Note: user_id and canvas_id are retrieved from context vars.
 # =============================================================================
 
 def tool_propose_workout(
@@ -245,11 +225,11 @@ def tool_propose_workout(
         duration_minutes: Estimated duration
         coach_notes: Rationale for the plan
     """
-    ctx = get_tool_context()
-    message = get_tool_message()
+    ctx = get_current_context()
+    message = get_current_message()
     
     if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id"}
+        return {"error": "Missing canvas_id or user_id in context"}
     
     result = gated_propose_workout(
         ctx=ctx,
@@ -284,11 +264,11 @@ def tool_propose_routine(
             - exercises: List of exercises (same format as propose_workout)
         description: Brief routine description
     """
-    ctx = get_tool_context()
-    message = get_tool_message()
+    ctx = get_current_context()
+    message = get_current_message()
     
     if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id"}
+        return {"error": "Missing canvas_id or user_id in context"}
     
     result = gated_propose_routine(
         ctx=ctx,
@@ -324,10 +304,8 @@ all_tools = [
 
 
 __all__ = [
+    # Tool registry for ShellAgent
     "all_tools",
-    "set_tool_context",
-    "get_tool_context",
-    "get_tool_message",
     # Individual tools for testing
     "tool_get_training_context",
     "tool_get_analytics_features",

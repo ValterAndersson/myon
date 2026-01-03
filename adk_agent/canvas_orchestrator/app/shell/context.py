@@ -1,8 +1,11 @@
 """
-SessionContext - Per-request context only.
+SessionContext - Per-request context using contextvars.
 
-No persistent state. No flow memory. Stateless by design.
-The LLM reads conversation history to understand multi-turn context.
+Thread-safe, async-safe storage for the Vertex AI Agent Engine
+concurrent serverless environment.
+
+CRITICAL: Never use module-level globals for request state.
+ContextVars provide proper request isolation.
 
 This replaces the global _context dictionaries that were causing
 state leakage between requests in coach_agent.py and planner_agent.py.
@@ -11,8 +14,84 @@ state leakage between requests in coach_agent.py and planner_agent.py.
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Optional
+
+
+# =============================================================================
+# CONTEXT VARIABLES (Thread-safe, Async-safe)
+# =============================================================================
+
+# Session context for the current request
+_session_context_var: ContextVar[Optional["SessionContext"]] = ContextVar(
+    "session_context", 
+    default=None
+)
+
+# User message for the current request (for Safety Gate checks)
+_message_context_var: ContextVar[str] = ContextVar(
+    "message_context", 
+    default=""
+)
+
+
+def set_current_context(ctx: "SessionContext", message: str = "") -> None:
+    """
+    Set the context for the current request.
+    
+    MUST be called at the start of stream_query in agent_engine_app.py,
+    BEFORE any routing or tool execution.
+    
+    Args:
+        ctx: SessionContext parsed from message prefix
+        message: Raw user message (for Safety Gate checks)
+    """
+    _session_context_var.set(ctx)
+    _message_context_var.set(message)
+
+
+def get_current_context() -> "SessionContext":
+    """
+    Get the context for the current request.
+    
+    Called by tool wrappers to get user_id, canvas_id.
+    
+    Returns:
+        SessionContext for current request
+        
+    Raises:
+        RuntimeError: If called outside an active request context
+    """
+    ctx = _session_context_var.get()
+    if ctx is None:
+        raise RuntimeError(
+            "get_current_context() called outside request context. "
+            "Ensure set_current_context() is called in stream_query."
+        )
+    return ctx
+
+
+def get_current_message() -> str:
+    """
+    Get the message for the current request.
+    
+    Used by Safety Gate to check for confirmation keywords.
+    
+    Returns:
+        User message for current request, or empty string if not set
+    """
+    return _message_context_var.get()
+
+
+def clear_current_context() -> None:
+    """
+    Clear the context after request completion.
+    
+    Optional cleanup - contextvars automatically reset per-task in asyncio.
+    """
+    _session_context_var.set(None)
+    _message_context_var.set("")
 
 
 @dataclass(frozen=True)  # Immutable
@@ -83,4 +162,10 @@ class SessionContext:
         return f"SessionContext(canvas={self.canvas_id}, user={self.user_id}, corr={corr})"
 
 
-__all__ = ["SessionContext"]
+__all__ = [
+    "SessionContext",
+    "set_current_context",
+    "get_current_context",
+    "get_current_message",
+    "clear_current_context",
+]
