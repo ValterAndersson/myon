@@ -28,7 +28,22 @@ from app.shell.context import (
     SessionContext,
     get_current_context,
     get_current_message,
+    set_current_context,
 )
+
+
+def set_tool_context(ctx: SessionContext, message: str) -> None:
+    """
+    Set the context for tool execution.
+    
+    This is called by agent callbacks before tool/model calls.
+    Alias for set_current_context for semantic clarity in agent.py.
+    
+    Args:
+        ctx: SessionContext with user_id, canvas_id, etc.
+        message: Raw message (for reference in tools)
+    """
+    set_current_context(ctx, message)
 
 # =============================================================================
 # IMPORTS FROM PURE SKILLS (NO LEGACY AGENTS)
@@ -309,6 +324,8 @@ all_tools = [
 __all__ = [
     # Tool registry for ShellAgent
     "all_tools",
+    # Context setter for agent callbacks
+    "set_tool_context",
     # Individual tools for testing
     "tool_get_training_context",
     "tool_get_analytics_features",
