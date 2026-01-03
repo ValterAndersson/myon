@@ -30,8 +30,9 @@ from app.agent_multi import root_agent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Feature flag for fast lane bypass
-USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "false").lower() in ("true", "1", "yes")
+# Feature flag for Shell Agent with fast lane bypass
+# NOTE: On refactor/single-shell-agent branch, Shell Agent is the default
+USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "true").lower() in ("true", "1", "yes")
 
 # Drop broken GOOGLE_APPLICATION_CREDENTIALS paths to prefer ADC
 gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")

@@ -26,8 +26,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Feature flags
-USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "false").lower() in ("true", "1", "yes")
-USE_MULTI_AGENT = os.getenv("USE_MULTI_AGENT", "true").lower() in ("true", "1", "yes")
+# NOTE: On refactor/single-shell-agent branch, Shell Agent is the default
+USE_SHELL_AGENT = os.getenv("USE_SHELL_AGENT", "true").lower() in ("true", "1", "yes")
+USE_MULTI_AGENT = os.getenv("USE_MULTI_AGENT", "false").lower() in ("true", "1", "yes")
 
 if USE_SHELL_AGENT:
     # New unified Shell Agent architecture
