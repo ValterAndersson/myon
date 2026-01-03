@@ -59,11 +59,11 @@ from app.skills.coach_skills import (
     get_exercise_details,
 )
 
-# Write skills - with Safety Gate enforcement
-from app.skills.gated_planner import (
-    propose_workout as gated_propose_workout,
-    propose_routine as gated_propose_routine,
-    get_planning_context,
+# Write skills - direct execution (no Safety Gate - cards have accept/dismiss buttons)
+from app.skills.planner_skills import (
+    propose_workout as direct_propose_workout,
+    propose_routine as direct_propose_routine,
+    get_planning_context as _get_planning_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,12 +237,16 @@ def tool_get_planning_context() -> Dict[str, Any]:
     Use this FIRST when planning a workout or routine.
     """
     ctx = get_current_context()
-    result = get_planning_context(ctx)
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    result = _get_planning_context(user_id=ctx.user_id)
     return result.to_dict()
 
 
 # =============================================================================
-# WRITE TOOLS (Safety Gate Enforced)
+# WRITE TOOLS (Direct Execution - cards have accept/dismiss buttons)
 # Note: user_id and canvas_id are retrieved from context vars.
 # =============================================================================
 
@@ -255,9 +259,9 @@ def tool_propose_workout(
     coach_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Create and publish a workout plan.
+    Create and publish a workout plan to the canvas.
     
-    SAFETY: First call returns preview. User must confirm to publish.
+    The card has accept/dismiss buttons - no confirmation needed.
     
     Args:
         title: Workout name (e.g., "Push Day", "Leg Hypertrophy")
@@ -273,19 +277,20 @@ def tool_propose_workout(
         coach_notes: Rationale for the plan
     """
     ctx = get_current_context()
-    message = get_current_message()
     
     if not ctx.canvas_id or not ctx.user_id:
         return {"error": "Missing canvas_id or user_id in context"}
     
-    result = gated_propose_workout(
-        ctx=ctx,
-        message=message,
+    result = direct_propose_workout(
+        canvas_id=ctx.canvas_id,
+        user_id=ctx.user_id,
         title=title,
         exercises=exercises,
         focus=focus,
         duration_minutes=duration_minutes,
         coach_notes=coach_notes,
+        correlation_id=ctx.correlation_id,
+        dry_run=False,  # Always publish - card has accept/dismiss buttons
     )
     
     return result.to_dict()
@@ -301,7 +306,7 @@ def tool_propose_routine(
     """
     Create a complete routine with multiple workout days.
     
-    SAFETY: First call returns preview. User must confirm to publish.
+    The card has save/dismiss buttons - no confirmation needed.
     
     Args:
         name: Routine name (e.g., "Push Pull Legs", "Upper Lower")
@@ -312,18 +317,19 @@ def tool_propose_routine(
         description: Brief routine description
     """
     ctx = get_current_context()
-    message = get_current_message()
     
     if not ctx.canvas_id or not ctx.user_id:
         return {"error": "Missing canvas_id or user_id in context"}
     
-    result = gated_propose_routine(
-        ctx=ctx,
-        message=message,
+    result = direct_propose_routine(
+        canvas_id=ctx.canvas_id,
+        user_id=ctx.user_id,
         name=name,
         frequency=frequency,
         workouts=workouts,
         description=description,
+        correlation_id=ctx.correlation_id,
+        dry_run=False,  # Always publish - card has save/dismiss buttons
     )
     
     return result.to_dict()
