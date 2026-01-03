@@ -166,18 +166,39 @@ def tool_search_exercises(
     limit: int = 15,
 ) -> Dict[str, Any]:
     """
-    Search the exercise catalog.
+    Search the exercise catalog. Returns lean exercise data for workout planning.
+    
+    IMPORTANT: Use muscle_group for body-part searches.
+    Use movement_type (not split) for push/pull/legs programming.
     
     Args:
-        muscle_group: Body part (chest, back, legs, etc.)
-        movement_type: Push, pull, hinge, squat, etc.
-        category: Compound, isolation, bodyweight
-        equipment: Barbell, dumbbell, machine, cable
-        query: Free text search
-        limit: Max results (default 15)
+        muscle_group: Body part category. Comma-separated OK.
+            Values: "chest", "back", "legs", "shoulders", "arms", "core", "glutes",
+                    "quadriceps", "hamstrings", "biceps", "triceps", "calves"
+            Example: muscle_group="chest" or muscle_group="chest,shoulders,triceps"
+        
+        movement_type: Movement pattern. USE THIS for PPL splits.
+            Values: "push", "pull", "hinge", "squat", "lunge", "carry", "core"
+            Example: movement_type="push" gets chest press, shoulder press, tricep extensions
+                     movement_type="pull" gets rows, pulldowns, curls
+        
+        category: Exercise complexity.
+            Values: "compound", "isolation", "bodyweight"
+        
+        equipment: Equipment required. Comma-separated OK.
+            Values: "barbell", "dumbbell", "cable", "machine", "bodyweight"
+        
+        query: Free text search for exercise names.
+        
+        limit: Max results (default 15, keep low to save context)
     
     Returns:
-        List of exercises with id, name, category, equipment
+        Lean list with: id, name, category, equipment (first only)
+    
+    Strategy:
+        - PPL: movement_type="push" / "pull" / muscle_group="legs"
+        - Upper/Lower: muscle_group="chest,back" / muscle_group="legs"
+        - If sparse results, drop filters and proceed with best available
     """
     result = search_exercises(
         muscle_group=muscle_group,

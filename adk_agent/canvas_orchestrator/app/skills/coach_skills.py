@@ -343,14 +343,15 @@ def search_exercises(
     
     items = data.get("items") or []
     
+    # LEAN response format to minimize context window usage.
+    # Only include fields the agent needs for selection + tool calls.
+    # Full metadata was causing context bloat and output truncation.
     exercises = [
         {
             "id": ex.get("id"),
             "name": ex.get("name"),
-            "category": ex.get("category"),
-            "primary_muscles": ex.get("muscles", {}).get("primary", []),
-            "equipment": ex.get("equipment", []),
-            "movement_type": ex.get("movement", {}).get("type"),
+            "category": ex.get("category"),  # compound/isolation - needed for selection
+            "equipment": (ex.get("equipment") or [])[:1],  # Just first equipment, not all
         }
         for ex in items
     ]
