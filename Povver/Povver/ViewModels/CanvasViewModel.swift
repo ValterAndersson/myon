@@ -388,7 +388,7 @@ final class CanvasViewModel: ObservableObject {
                         break
                     }
                     
-                    DebugLogger.debug(.canvas, "SSE event: \(event.type)")
+                    // NOTE: SSE event logging is handled by AgentPipelineLogger - no need to duplicate here
                     await MainActor.run {
                         self.handleIncomingStreamEvent(event)
                     }

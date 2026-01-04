@@ -133,8 +133,7 @@ public final class AgentProgressState: ObservableObject {
         
         currentStage = stage
         isActive = stage != .idle && stage != .complete
-        
-        DebugLogger.debug(.canvas, "Progress: \(stage.displayText) (stage \(stage.rawValue))")
+        // NOTE: Progress logging is handled by AgentPipelineLogger - no need to log here
     }
     
     /// Advance using a tool name. Unknown tools are ignored.
@@ -158,11 +157,7 @@ public final class AgentProgressState: ObservableObject {
         currentStage = .complete
         isActive = false
         completedAt = Date()
-        
-        if let start = startedAt {
-            let duration = Date().timeIntervalSince(start)
-            DebugLogger.debug(.canvas, "Progress complete in \(String(format: "%.1f", duration))s")
-        }
+        // NOTE: Completion logging is handled by AgentPipelineLogger.requestComplete()
     }
     
     /// Reset to idle state (for new work session)

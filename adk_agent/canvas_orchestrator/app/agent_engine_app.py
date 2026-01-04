@@ -6,12 +6,21 @@ Canvas Orchestrator Agent Engine Entry Point.
 - Slow Lane: ShellAgent (gemini-2.5-pro) for conversational reasoning
 - Functional Lane: gemini-2.5-flash for JSON-only Smart Button logic
 - Worker Lane: Background scripts (triggered by PubSub, not routed here)
+
+Pipeline Events:
+This module emits _pipeline events at each stage of the reasoning chain:
+- router: Lane routing decision (FAST/SLOW/FUNCTIONAL)
+- planner: Tool plan generation (intent, data_needed, rationale, tools)
+- thinking: Gemini extended thinking (if enabled)
+- critic: Response validation result
+These events flow through Firebase to iOS for logging/display.
 """
 
 import datetime
 import json
 import logging
 import os
+import time
 from typing import Any, Generator
 from collections.abc import Mapping, Sequence
 
@@ -101,6 +110,14 @@ class AgentEngineApp(AdkApp):
             logger.error("Router error: %s", e)
             routing = None
         
+        # === EMIT: Router decision ===
+        if routing:
+            yield self._create_pipeline_event("router", {
+                "lane": routing.lane.value if hasattr(routing.lane, "value") else str(routing.lane),
+                "intent": routing.intent,
+                "signals": routing.signals,
+            })
+        
         # === 3. FAST LANE: Direct skill execution ===
         if routing and routing.lane == Lane.FAST:
             logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
@@ -154,6 +171,15 @@ class AgentEngineApp(AdkApp):
             try:
                 plan = generate_plan(routing, message)
                 logger.info("PLANNER: Generated plan for %s", routing.intent)
+                
+                # === EMIT: Planner output ===
+                if plan and not plan.skip_planning:
+                    yield self._create_pipeline_event("planner", {
+                        "intent": plan.intent,
+                        "data_needed": plan.data_needed,
+                        "rationale": plan.rationale,
+                        "suggested_tools": plan.suggested_tools,
+                    })
             except Exception as e:
                 logger.warning("Planner error: %s", e)
         
@@ -201,6 +227,13 @@ class AgentEngineApp(AdkApp):
                         response=full_response,
                         response_type="coaching" if "ANALYZE" in (routing.intent or "") else "general",
                     )
+                    
+                    # === EMIT: Critic result ===
+                    yield self._create_pipeline_event("critic", {
+                        "passed": not critic_result.has_errors,
+                        "findings": [f.message for f in critic_result.findings] if critic_result.findings else [],
+                        "errors": critic_result.error_messages if critic_result.has_errors else [],
+                    })
                     
                     if critic_result.has_errors:
                         logger.warning("CRITIC: Response failed safety check: %s", 
@@ -290,6 +323,26 @@ class AgentEngineApp(AdkApp):
                 "intent": intent,
                 "action": func_result.get("action", "UNKNOWN"),
                 "latency_class": "functional",
+            }
+        }
+    
+    def _create_pipeline_event(self, step: str, data: dict) -> dict:
+        """
+        Create a pipeline event for CoT visibility.
+        
+        Pipeline events are special events that expose the agent's reasoning chain:
+        - router: Lane routing decision
+        - planner: Tool plan generation
+        - thinking: LLM internal reasoning (if Gemini thinking enabled)
+        - critic: Response validation result
+        
+        These events are passed through Firebase to iOS for logging/display.
+        """
+        return {
+            "_pipeline": {
+                "type": step,
+                "timestamp": time.time(),
+                **data,
             }
         }
 

@@ -112,21 +112,17 @@ class DirectStreamingService: ObservableObject {
                 var eventCount = 0
                 
                 do {
-                    // Update session context and log stream start
-                    SessionLogger.shared.updateContext(canvasId: canvasId, sessionId: sessionId, correlationId: correlationId)
-                    SessionLogger.shared.logSSEStreamStart(
-                        endpoint: "/streamAgentNormalized",
+                    // Start pipeline logging (new focused logger)
+                    AgentPipelineLogger.startRequest(
                         correlationId: correlationId,
-                        message: message,
-                        sessionId: sessionId
+                        canvasId: canvasId,
+                        sessionId: sessionId,
+                        message: message
                     )
                     
                     // Get Firebase ID token
                     guard let currentUser = AuthService.shared.currentUser else {
-                        SessionLogger.shared.logError(
-                            category: .sse,
-                            message: "Not authenticated - cannot start SSE stream"
-                        )
+                        AgentPipelineLogger.failRequest(error: "Not authenticated", afterMs: 0)
                         continuation.finish(throwing: StreamingError.notAuthenticated)
                         return
                     }
@@ -150,9 +146,6 @@ class DirectStreamingService: ObservableObject {
                     ].compactMapValues { $0 }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     
-                    // Log SSE request body
-                    SessionLogger.shared.log(.sse, .debug, "SSE Request", context: body)
-                    
                     // Stream the response
                     let (asyncBytes, response) = try await session.bytes(for: request)
                     
@@ -162,11 +155,7 @@ class DirectStreamingService: ObservableObject {
                     }
                     
                     if httpResponse.statusCode != 200 {
-                        SessionLogger.shared.logError(
-                            category: .sse,
-                            message: "SSE stream failed with HTTP \(httpResponse.statusCode)",
-                            context: ["status_code": httpResponse.statusCode]
-                        )
+                        AgentPipelineLogger.shared.pipelineStep(.error, "HTTP \(httpResponse.statusCode)")
                         throw NSError(domain: "DirectStreamingService", code: httpResponse.statusCode,
                                     userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"])
                     }
@@ -178,7 +167,7 @@ class DirectStreamingService: ObservableObject {
                             
                             if jsonStr == "[DONE]" {
                                 let durationMs = Int(Date().timeIntervalSince(streamStartTime) * 1000)
-                                SessionLogger.shared.logSSEStreamEnd(eventCount: eventCount, durationMs: durationMs)
+                                AgentPipelineLogger.endRequest(totalMs: durationMs, toolCount: nil)
                                 continuation.finish()
                                 break
                             }
@@ -208,7 +197,7 @@ class DirectStreamingService: ObservableObject {
                                 
                                 eventCount += 1
                                 
-                                // Log with comprehensive SSE logger (full content in verbose mode)
+                                // Log with new focused pipeline logger
                                 var contentForLog: [String: Any] = [:]
                                 if let rawContent = json["content"] as? [String: Any] {
                                     contentForLog = rawContent
@@ -217,25 +206,12 @@ class DirectStreamingService: ObservableObject {
                                 if let rawMeta = json["metadata"] as? [String: Any] {
                                     metaForLog = rawMeta
                                 }
-                                SessionLogger.shared.logSSEEvent(
+                                AgentPipelineLogger.event(
                                     type: event.type,
                                     content: contentForLog.isEmpty ? nil : contentForLog,
                                     agent: event.agent,
                                     metadata: metaForLog.isEmpty ? nil : metaForLog
                                 )
-                                
-                                // Check for agent routing info
-                                if let agent = json["agent"] as? String,
-                                   event.type.lowercased().contains("rout") || event.type.lowercased() == "status" {
-                                    if let content = json["content"] as? [String: Any] {
-                                        SessionLogger.shared.logAgentRouting(
-                                            agent: agent,
-                                            intent: content["intent"] as? String,
-                                            confidence: content["confidence"] as? Double,
-                                            reason: content["reason"] as? String
-                                        )
-                                    }
-                                }
                                 
                                 continuation.yield(event)
                             }
@@ -243,21 +219,12 @@ class DirectStreamingService: ObservableObject {
                     }
                     
                     let durationMs = Int(Date().timeIntervalSince(streamStartTime) * 1000)
-                    SessionLogger.shared.logSSEStreamEnd(eventCount: eventCount, durationMs: durationMs)
+                    AgentPipelineLogger.endRequest(totalMs: durationMs, toolCount: nil)
                     continuation.finish()
                     
                 } catch {
                     let durationMs = Int(Date().timeIntervalSince(streamStartTime) * 1000)
-                    SessionLogger.shared.logError(
-                        category: .sse,
-                        message: "SSE stream error after \(eventCount) events (\(durationMs)ms)",
-                        error: error,
-                        context: [
-                            "correlation_id": correlationId,
-                            "canvas_id": canvasId,
-                            "event_count": eventCount
-                        ]
-                    )
+                    AgentPipelineLogger.failRequest(error: error.localizedDescription, afterMs: durationMs)
                     continuation.finish(throwing: error)
                 }
             }
@@ -342,8 +309,6 @@ class DirectStreamingService: ObservableObject {
                 
                 // Process streaming response
                 for try await line in asyncBytes.lines {
-                    // Debug: print first few normalized events for QA
-                    if useNormalizedStream { print("🪵 norm:", line) } else { print("🪵 raw:", line) }
                     if useNormalizedStream {
                         // Canonical SSE NDJSON events
                         guard let event = parseStreamingEvent(line) else { continue }

@@ -375,7 +375,8 @@ const WORKSPACE_EVENT_TYPES = new Set([
   'error',
   'done',
   'user_prompt',
-  'clarification.request'
+  'clarification.request',
+  'pipeline',  // CoT visibility events (router, planner, critic, thinking)
 ]);
 
 function sanitizeWorkspaceEvent(evt = {}) {
@@ -439,6 +440,39 @@ function transformToIOSEvent(adkEvent) {
     timestamp,
     metadata: {}
   };
+
+  // === HANDLE PIPELINE EVENTS (CoT visibility) ===
+  // Pipeline events expose the agent's internal reasoning chain
+  if (adkEvent._pipeline) {
+    const pipeline = adkEvent._pipeline;
+    const pipelineType = pipeline.type || 'unknown';
+    
+    return {
+      ...base,
+      type: 'pipeline',
+      content: {
+        step: pipelineType,
+        // Router fields
+        lane: pipeline.lane || null,
+        intent: pipeline.intent || null,
+        signals: pipeline.signals || null,
+        // Planner fields
+        data_needed: pipeline.data_needed || null,
+        rationale: pipeline.rationale || null,
+        suggested_tools: pipeline.suggested_tools || null,
+        // Thinking fields
+        text: pipeline.text || null,
+        // Critic fields
+        passed: pipeline.passed !== undefined ? pipeline.passed : null,
+        findings: pipeline.findings || null,
+        errors: pipeline.errors || null,
+      },
+      metadata: {
+        pipeline_type: pipelineType,
+        timestamp: pipeline.timestamp || timestamp,
+      }
+    };
+  }
 
   // Map ADK event types to iOS event types
   switch (adkEvent.type) {
