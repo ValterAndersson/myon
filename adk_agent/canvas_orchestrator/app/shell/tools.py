@@ -217,13 +217,45 @@ def tool_get_muscle_group_progress(
     
     Args:
         muscle_group: Target muscle group. REQUIRED.
-            Valid values: chest, back, shoulders, arms, core, legs, glutes,
-                         hip_flexors, calves, forearms, neck, cardio
+            Valid values: chest, back, shoulders, arms, core, legs, glutes
         
         window_weeks: Analysis window in weeks (1-52, default 12)
     
-    Returns:
-        Weekly effective volume, hard sets, top exercises, flags.
+    Returns (metric definitions):
+        weeks: Array of weekly data points, each containing:
+            week_start: ISO date (YYYY-MM-DD, always Monday)
+            
+            sets: Total working sets (excludes warmups)
+            
+            hard_sets: Stimulating sets weighted by proximity to failure.
+                Calculated: RIR 0-2 = full credit (1.0), RIR 3-4 = half credit (0.5),
+                RIR 5+ or warmups = no credit (0.0).
+                Example: 10 sets with avg RIR 2 → ~10 hard_sets
+            
+            volume: Total weight × reps across all sets.
+                Example: 3 sets of 10 reps @ 100kg = 3,000 kg volume
+            
+            effective_volume: Volume weighted by muscle contribution.
+                Example: Bench press (60% chest, 25% shoulders, 15% triceps)
+                → If bench volume = 3000, chest effective_volume = 1800
+                
+            avg_rir: Average RIR across all working sets (null if not tracked)
+            
+            load_min: Lightest weight used (kg) - useful for warm-up detection
+            load_max: Heaviest weight used (kg) - indicator of peak strength
+            
+            failure_rate: Percentage of sets taken to failure (RIR 0)
+                Example: 2 failure sets out of 10 total = 20%
+                
+            reps_bucket: Distribution of sets by rep range
+                Keys: "1-5" (strength), "6-10" (hypertrophy), "11-15", "16-20" (endurance)
+        
+        top_exercises: Top 5 exercises by effective volume contribution
+        
+        flags: Diagnostic flags (deterministic rules, not AI):
+            plateau: true if e1rm flat (±1%) for 4+ weeks with stable volume
+            deload: true if volume dropped >40% week-over-week
+            overreach: true if failure_rate >35% for 2+ weeks with rising volume
         
     Example:
         tool_get_muscle_group_progress(muscle_group="chest", window_weeks=12)
@@ -255,28 +287,46 @@ def tool_get_muscle_progress(
     Use for specific muscle questions like "How are my rhomboids?" 
     or "How is my front delt developing?"
     
+    NOTE: Muscles are MORE GRANULAR than muscle groups. 
+    Muscle groups (chest, back, arms) are broad categories.
+    Muscles (pectoralis_major, rhomboids, biceps_brachii) are specific anatomical targets.
+    
     Args:
         muscle: Target muscle. REQUIRED.
-            Common values: 
-              Back: latissimus_dorsi, rhomboids, trapezius_upper, trapezius_middle,
-                    trapezius_lower, erector_spinae, teres_major
+            Valid muscles by group:
+              Back: latissimus_dorsi, rhomboids, trapezius, erector_spinae, teres_major, teres_minor
               Chest: pectoralis_major, pectoralis_minor
-              Shoulders: deltoid_anterior, deltoid_lateral, deltoid_posterior, rotator_cuff
-              Arms: biceps_brachii, triceps_brachii, brachialis, brachioradialis
+              Shoulders: deltoid_anterior (front), deltoid_lateral (side), deltoid_posterior (rear), rotator_cuff
+              Arms: biceps_brachii, triceps_brachii, brachialis, brachioradialis, forearms
               Core: rectus_abdominis, obliques, transverse_abdominis
-              Legs: quadriceps, hamstrings, gluteus_maximus, gluteus_medius,
-                    gastrocnemius, soleus, tibialis_anterior, adductors
+              Legs: quadriceps, hamstrings, calves, adductors, abductors, tibialis_anterior
+              Glutes: gluteus_maximus, gluteus_medius, gluteus_minimus
         
         window_weeks: Analysis window in weeks (1-52, default 12)
     
-    Returns:
-        Weekly effective volume for the muscle, top exercises, flags.
+    Returns (metric definitions - same as muscle group progress):
+        weeks: Array of weekly data with:
+            effective_volume: Volume weighted by muscle contribution from exercises.
+                Different exercises contribute differently to each muscle.
+                Example: Bench press contributes 60% to pectoralis_major, but
+                cable fly contributes 85%. Effective volume captures this.
+            
+            hard_sets: Sets weighted by proximity to failure (RIR 0-2 = 1.0, RIR 3-4 = 0.5)
+            
+            load_min/load_max: Weight range used (kg)
+            
+            failure_rate: % of sets at RIR 0
+        
+        top_exercises: Exercises that most effectively train this muscle
+        
+        flags: plateau, deload, overreach (same rules as muscle_group)
         
     Example:
         tool_get_muscle_progress(muscle="rhomboids", window_weeks=12)
+        tool_get_muscle_progress(muscle="deltoid_anterior", window_weeks=8)
         
     Error Recovery:
-        If muscle is invalid, returns list of common muscles.
+        If muscle is invalid, returns list of valid muscles with suggestions.
     """
     ctx = get_current_context()
     
@@ -318,9 +368,35 @@ def tool_get_exercise_progress(
         
         window_weeks: Analysis window in weeks (1-52, default 12)
     
-    Returns:
-        Weekly e1RM/volume series, last session sets, PR markers, plateau flag.
-        If using exercise_name and no match found, returns matched=false with suggestions.
+    Returns (metric definitions):
+        weeks: Array of weekly data with:
+            week_start: ISO date (YYYY-MM-DD, Monday)
+            
+            sets: Total working sets performed
+            
+            volume: Total weight × reps (kg)
+            
+            e1rm_max: Estimated one-rep max for the week.
+                ONLY calculated for sets with ≤12 reps (reliable range).
+                Formula: Epley (weight × (1 + reps/30))
+                Example: 100kg × 8 reps → e1RM ≈ 127kg
+                Note: Higher rep sets (>12) don't produce e1RM - unreliable.
+            
+            load_min: Lightest weight used (kg)
+            load_max: Heaviest weight used (kg) - peak strength indicator
+            
+            avg_rir: Average RIR across working sets (null if not tracked)
+        
+        last_session: Most recent workout performance
+            sets: Array of actual sets with reps, weight_kg, rir
+            date: When it was performed
+        
+        prs: Personal record markers
+            all_time_e1rm: Best e1RM ever recorded
+            window_e1rm: Best e1RM in the analysis window
+        
+        flags:
+            plateau: true if e1rm_max is within ±1% for 4+ consecutive weeks
         
     Examples:
         # By name (preferred for user queries):
@@ -394,8 +470,10 @@ def tool_query_training_sets(
     """
     Query raw set facts for detailed evidence - DRILLDOWN ONLY.
     
+    Use this tool when you need to see ACTUAL SET DATA for evidence-based coaching.
+    Prefer summary endpoints (muscle_group_progress, exercise_progress) first.
+    
     EXACTLY ONE filter required: muscle_group, muscle, or exercise_ids.
-    Use only when you need raw set data. Prefer summary endpoints first.
     
     Args:
         muscle_group: Filter by muscle group (e.g., "chest")
@@ -411,12 +489,49 @@ def tool_query_training_sets(
         end: End date YYYY-MM-DD (optional)
         limit: Max results (default 50, max 200)
     
-    Returns:
-        Array of set facts: workout_date, exercise_name, reps, weight_kg, rir, e1rm.
+    Returns (each set_fact contains):
+        workout_date: When this set was performed (YYYY-MM-DD)
         
-    Example:
+        exercise_id: Catalog ID of the exercise
+        exercise_name: Human-readable name
+        
+        reps: Number of repetitions performed
+        
+        weight_kg: Load used (always in kg, normalized from any input unit)
+            Example: 100 lbs input → stored as 45.4 kg
+        
+        volume: reps × weight_kg for this set
+            Example: 10 reps × 100kg = 1000 kg volume
+        
+        rir: Reps in Reserve (how many more reps could have been done)
+            0 = failure, 1 = very hard, 2 = hard, 3+ = moderate
+            null if not tracked by user
+        
+        rpe: Rate of Perceived Exertion (10 - RIR, if tracked)
+            10 = failure, 9 = 1 rep left, 8 = 2 reps left
+        
+        e1rm: Estimated one-rep max for this set (null if reps > 12)
+            Formula: Epley (weight × (1 + reps/30))
+            Only calculated for ≤12 reps (reliable strength estimate range)
+        
+        is_warmup: true if this was a warm-up set (excluded from analytics)
+        is_failure: true if set taken to absolute failure (RIR 0)
+        
+        muscle_group_contrib: How this exercise contributes to muscle groups
+            Example: {"chest": 0.6, "shoulders": 0.25, "arms": 0.15}
+        
+        muscle_contrib: How this exercise contributes to specific muscles
+            Example: {"pectoralis_major": 0.6, "deltoid_anterior": 0.25, "triceps_brachii": 0.15}
+        
+    Example use cases:
+        # See last 20 chest sets for a user asking about chest training
         tool_query_training_sets(muscle_group="chest", limit=20)
+        
+        # Check recent bench press performance
         tool_query_training_sets(exercise_ids=["barbell-bench-press"], limit=30)
+        
+        # Investigate rhomboid training specifically
+        tool_query_training_sets(muscle="rhomboids", limit=15)
         
     Error Recovery:
         Returns 400 if zero or multiple filters provided.
