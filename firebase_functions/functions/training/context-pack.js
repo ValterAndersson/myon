@@ -2,10 +2,13 @@
  * Context Pack Endpoint
  * Single small call for initial coaching context
  * 
+ * Uses onRequest (not onCall) for compatibility with HTTP clients.
+ * 
  * @see docs/TRAINING_ANALYTICS_API_V2_SPEC.md Section 6.5
  */
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onRequest } = require('firebase-functions/v2/https');
+const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -16,7 +19,6 @@ const db = admin.firestore();
 const {
   CAPS,
   buildResponse,
-  requireAuth,
   getWeekStart,
   transformWeeklyPoint,
 } = require('../utils/caps');
@@ -42,10 +44,15 @@ function getRecentWeekStarts(weeks) {
  * context.coaching.pack
  * Compact context for coaching agent initialization
  */
-exports.getCoachingPack = onCall(async (request) => {
+exports.getCoachingPack = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    const userId = requireAuth(request);
-    const { window_weeks, top_n_targets } = request.data || {};
+    // Get userId from auth or body
+    const userId = req.auth?.uid || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    
+    const { window_weeks, top_n_targets } = req.body || {};
     
     const weeks = Math.min(Math.max(1, window_weeks || 8), CAPS.MAX_WEEKS);
     const topN = Math.min(Math.max(1, top_n_targets || 6), Object.keys(MUSCLE_GROUPS).length);
@@ -74,11 +81,11 @@ exports.getCoachingPack = onCall(async (request) => {
       }
       
       const data = doc.data();
-      const weeks = data.weeks || {};
+      const weeksData = data.weeks || {};
       
       const weeklyPoints = weekIds
-        .filter(wk => weeks[wk])
-        .map(wk => transformWeeklyPoint({ week_start: wk, ...weeks[wk] }));
+        .filter(wk => weeksData[wk])
+        .map(wk => transformWeeklyPoint({ week_start: wk, ...weeksData[wk] }));
       
       const totalVolume = weeklyPoints.reduce(
         (s, p) => s + (p.effective_volume || p.volume || 0), 0
@@ -228,37 +235,40 @@ exports.getCoachingPack = onCall(async (request) => {
       });
     }
     
-    return buildResponse({
+    return res.json(buildResponse({
       top_targets: topTargets,
       adherence,
       change_flags: changeFlags.slice(0, 5), // Cap at 5 flags
       window_weeks: weeks,
       generated_at: new Date().toISOString(),
-    }, { limit: topN });
+    }, { limit: topN }));
     
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
     console.error('Error in getCoachingPack:', error);
-    throw new HttpsError('internal', error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
-});
+}));
 
 /**
  * active.snapshotLite
  * Minimal active workout snapshot for agent context
  */
-exports.getActiveSnapshotLite = onCall(async (request) => {
+exports.getActiveSnapshotLite = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    const userId = requireAuth(request);
+    // Get userId from auth or body
+    const userId = req.auth?.uid || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
     
     // Get active workout
     const activeRef = db.collection('users').doc(userId).collection('active_workouts').doc('current');
     const activeDoc = await activeRef.get();
     
     if (!activeDoc.exists) {
-      return buildResponse({
+      return res.json(buildResponse({
         has_active_workout: false,
-      });
+      }));
     }
     
     const workout = activeDoc.data();
@@ -293,7 +303,7 @@ exports.getActiveSnapshotLite = onCall(async (request) => {
       }
     }
     
-    return buildResponse({
+    return res.json(buildResponse({
       has_active_workout: true,
       workout_id: workout.workout_id || activeDoc.id,
       status: workout.status || 'in_progress',
@@ -301,11 +311,10 @@ exports.getActiveSnapshotLite = onCall(async (request) => {
       current_exercise: currentExercise,
       next_set_index: nextSetIndex,
       totals,
-    });
+    }));
     
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
     console.error('Error in getActiveSnapshotLite:', error);
-    throw new HttpsError('internal', error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
-});
+}));

@@ -44,9 +44,7 @@ class HttpClient:
 
     def post(self, path: str, json_body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         url = self._url(path)
-        # Firebase callable functions expect body wrapped in {data: ...}
-        wrapped_body = {"data": json_body or {}}
-        resp = requests.post(url, json=wrapped_body, headers=self._headers(headers), timeout=self.timeout_seconds)
+        resp = requests.post(url, json=json_body or {}, headers=self._headers(headers), timeout=self.timeout_seconds)
         return self._handle_response(resp)
 
     @staticmethod

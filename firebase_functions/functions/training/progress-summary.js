@@ -2,10 +2,13 @@
  * Progress Summary Endpoints
  * Token-safe summaries for muscle groups, muscles, and exercises
  * 
+ * Uses onRequest (not onCall) for compatibility with HTTP clients.
+ * 
  * @see docs/TRAINING_ANALYTICS_API_V2_SPEC.md Section 6.4
  */
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onRequest } = require('firebase-functions/v2/https');
+const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -16,14 +19,12 @@ const db = admin.firestore();
 const {
   CAPS,
   buildResponse,
-  requireAuth,
   getWeekStart,
   transformWeeklyPoint,
 } = require('../utils/caps');
 const {
   getMuscleGroupDisplay,
   getMuscleDisplay,
-  getMusclesInGroup,
   validateMuscleGroupWithRecovery,
   validateMuscleWithRecovery,
 } = require('../utils/muscle-taxonomy');
@@ -116,15 +117,22 @@ function detectOverreach(points) {
  * progress.muscle_group.summary
  * Summary for a muscle group with series, top exercises, and flags
  */
-exports.getMuscleGroupSummary = onCall(async (request) => {
+exports.getMuscleGroupSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    const userId = requireAuth(request);
-    const { muscle_group, window_weeks, include_distribution } = request.data || {};
+    // Get userId from auth or body
+    const userId = req.auth?.uid || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    
+    const { muscle_group, window_weeks, include_distribution } = req.body || {};
     
     // Self-healing validation with recovery info
     const validation = validateMuscleGroupWithRecovery(muscle_group);
     if (!validation.valid) {
-      throw new HttpsError('invalid-argument', validation.message, {
+      return res.status(400).json({
+        success: false,
+        error: validation.message,
         validOptions: validation.validOptions,
         hint: 'Use one of the validOptions values for muscle_group',
       });
@@ -215,7 +223,7 @@ exports.getMuscleGroupSummary = onCall(async (request) => {
       }
     }
     
-    return buildResponse({
+    return res.json(buildResponse({
       muscle_group,
       display_name: getMuscleGroupDisplay(muscle_group),
       weekly_points: weeklyPoints,
@@ -228,28 +236,34 @@ exports.getMuscleGroupSummary = onCall(async (request) => {
       },
       flags,
       reps_distribution: repDistribution,
-    }, { limit: weeks });
+    }, { limit: weeks }));
     
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
     console.error('Error in getMuscleGroupSummary:', error);
-    throw new HttpsError('internal', error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
-});
+}));
 
 /**
  * progress.muscle.summary
  * Summary for a specific muscle
  */
-exports.getMuscleSummary = onCall(async (request) => {
+exports.getMuscleSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    const userId = requireAuth(request);
-    const { muscle, window_weeks, include_distribution } = request.data || {};
+    // Get userId from auth or body
+    const userId = req.auth?.uid || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    
+    const { muscle, window_weeks } = req.body || {};
     
     // Self-healing validation with recovery info
     const validation = validateMuscleWithRecovery(muscle);
     if (!validation.valid) {
-      throw new HttpsError('invalid-argument', validation.message, {
+      return res.status(400).json({
+        success: false,
+        error: validation.message,
         validOptions: validation.validOptions,
         suggestions: validation.suggestions,
         hint: 'Use one of the suggestions or validOptions values for muscle',
@@ -319,7 +333,7 @@ exports.getMuscleSummary = onCall(async (request) => {
       overreach: detectOverreach(weeklyPoints),
     };
     
-    return buildResponse({
+    return res.json(buildResponse({
       muscle,
       display_name: getMuscleDisplay(muscle),
       weekly_points: weeklyPoints,
@@ -330,26 +344,30 @@ exports.getMuscleSummary = onCall(async (request) => {
         avg_weekly_sets: Math.round((totalSets / Math.max(weeklyPoints.length, 1)) * 10) / 10,
       },
       flags,
-    }, { limit: weeks });
+    }, { limit: weeks }));
     
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
     console.error('Error in getMuscleSummary:', error);
-    throw new HttpsError('internal', error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
-});
+}));
 
 /**
  * progress.exercise.summary
  * Summary for a specific exercise
  */
-exports.getExerciseSummary = onCall(async (request) => {
+exports.getExerciseSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    const userId = requireAuth(request);
-    const { exercise_id, window_weeks } = request.data || {};
+    // Get userId from auth or body
+    const userId = req.auth?.uid || req.body?.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    
+    const { exercise_id, window_weeks } = req.body || {};
     
     if (!exercise_id) {
-      throw new HttpsError('invalid-argument', 'exercise_id is required');
+      return res.status(400).json({ success: false, error: 'exercise_id is required' });
     }
     
     const weeks = Math.min(Math.max(1, window_weeks || CAPS.DEFAULT_WEEKS), CAPS.MAX_WEEKS);
@@ -436,7 +454,7 @@ exports.getExerciseSummary = onCall(async (request) => {
       plateau: detectPlateau(weeklyPoints),
     };
     
-    return buildResponse({
+    return res.json(buildResponse({
       exercise_id,
       exercise_name: exerciseName,
       weekly_points: weeklyPoints,
@@ -455,11 +473,10 @@ exports.getExerciseSummary = onCall(async (request) => {
           : 0,
       },
       flags,
-    }, { limit: weeks });
+    }, { limit: weeks }));
     
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
     console.error('Error in getExerciseSummary:', error);
-    throw new HttpsError('internal', error.message);
+    return res.status(500).json({ success: false, error: error.message });
   }
-});
+}));
