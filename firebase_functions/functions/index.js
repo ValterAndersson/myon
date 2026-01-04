@@ -107,6 +107,13 @@ const { recalculateWeeklyForUser } = require('./analytics/recalculate-weekly-for
 const { invokeCanvasOrchestrator } = require('./agents/invoke-canvas-orchestrator');
 const { getPlanningContext } = require('./agents/get-planning-context');
 
+// Token-safe Training Analytics v2
+const { getExerciseSeries, getMuscleGroupSeries, getMuscleSeries } = require('./training/series-endpoints');
+const { querySets, aggregateSets } = require('./training/query-sets');
+const { getMuscleGroupSummary, getMuscleSummary, getExerciseSummary } = require('./training/progress-summary');
+const { getCoachingPack, getActiveSnapshotLite } = require('./training/context-pack');
+const { getActiveEvents } = require('./training/active-events');
+
 // Firestore Triggers
 const {
   onTemplateCreated,
@@ -256,3 +263,31 @@ if (functions.pubsub && typeof functions.pubsub.schedule === 'function') {
 
 // Callable Functions
 exports.manualWeeklyStatsRecalculation = manualWeeklyStatsRecalculation;
+
+// ============================================================================
+// Token-safe Training Analytics v2 (Callable Functions)
+// See: docs/TRAINING_ANALYTICS_API_V2_SPEC.md
+// ============================================================================
+
+// Series endpoints (default for coaching/planning)
+exports.getExerciseSeries = getExerciseSeries;
+exports.getMuscleGroupSeries = getMuscleGroupSeries;
+exports.getMuscleSeries = getMuscleSeries;
+
+// Query endpoints (for drilldown)
+exports.querySets = querySets;
+exports.aggregateSets = aggregateSets;
+
+// Progress summary endpoints (agent-first)
+exports.getMuscleGroupSummary = getMuscleGroupSummary;
+exports.getMuscleSummary = getMuscleSummary;
+exports.getExerciseSummary = getExerciseSummary;
+
+// Context pack (single call for coach initialization)
+exports.getCoachingPack = getCoachingPack;
+
+// Active workout lite (replaces heavy full-state reads)
+exports.getActiveSnapshotLite = getActiveSnapshotLite;
+
+// Active workout events (paginated event stream)
+exports.getActiveEvents = getActiveEvents;

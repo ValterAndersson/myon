@@ -456,3 +456,440 @@ class CanvasFunctionsClient:
         if muscles:
             body["muscles"] = muscles[:50]  # API limit
         return self._http.post("getAnalyticsFeatures", body)
+
+    # ============================================================================
+    # Token-Safe Training Analytics v2 (Callable Functions)
+    # See: docs/TRAINING_ANALYTICS_API_V2_SPEC.md
+    # ============================================================================
+
+    def get_muscle_group_summary(
+        self,
+        user_id: str,
+        muscle_group: str,
+        *,
+        window_weeks: int = 12,
+        include_distribution: bool = False,
+    ) -> Dict[str, Any]:
+        """Get comprehensive muscle group progress summary for coaching.
+        
+        This is the PREFERRED endpoint for answering "How is my X developing?"
+        questions. Returns bounded, token-safe data with weekly series, top 
+        exercises, and deterministic flags (plateau, deload, overreach).
+        
+        Valid muscle_groups:
+            chest, back, shoulders, arms, core, legs, glutes,
+            hip_flexors, calves, forearms, neck, cardio
+        
+        Args:
+            user_id: User ID
+            muscle_group: Canonical muscle group ID (e.g., "chest", "back")
+            window_weeks: Number of weeks to analyze (1-52, default 12)
+            include_distribution: Include rep range distribution
+            
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "muscle_group": "chest",
+                    "display_name": "Chest",
+                    "weekly_points": [
+                        {"week_start": "2024-01-08", "sets": 12, "volume": 5400, ...}
+                    ],
+                    "top_exercises": [
+                        {"exercise_id": "...", "exercise_name": "Bench Press", "effective_volume": 2700, "sets": 6}
+                    ],
+                    "summary": {
+                        "total_weeks_with_data": 8,
+                        "avg_weekly_volume": 5400,
+                        "avg_weekly_sets": 12
+                    },
+                    "flags": {
+                        "plateau": false,
+                        "deload": false,
+                        "overreach": false
+                    }
+                }
+            }
+            
+        Error Recovery:
+            - Returns empty weekly_points if no data
+            - Validates muscle_group against taxonomy, returns 400 if invalid
+        """
+        return self._http.post("getMuscleGroupSummary", {
+            "userId": user_id,
+            "muscle_group": muscle_group,
+            "window_weeks": window_weeks,
+            "include_distribution": include_distribution,
+        })
+
+    def get_muscle_summary(
+        self,
+        user_id: str,
+        muscle: str,
+        *,
+        window_weeks: int = 12,
+    ) -> Dict[str, Any]:
+        """Get individual muscle progress summary for detailed coaching.
+        
+        Use this for specific muscle questions like "How are my rhomboids?"
+        or "How is my front delt developing?"
+        
+        Valid muscles (examples):
+            pectoralis_major, pectoralis_minor, latissimus_dorsi, rhomboids,
+            trapezius_upper, trapezius_middle, trapezius_lower, erector_spinae,
+            deltoid_anterior, deltoid_lateral, deltoid_posterior, rotator_cuff,
+            biceps_brachii, triceps_brachii, brachialis, brachioradialis,
+            rectus_abdominis, obliques, transverse_abdominis,
+            quadriceps, hamstrings, gluteus_maximus, gluteus_medius,
+            gastrocnemius, soleus, tibialis_anterior
+            
+        Args:
+            user_id: User ID
+            muscle: Canonical muscle ID (e.g., "rhomboids", "deltoid_anterior")
+            window_weeks: Number of weeks to analyze (1-52, default 12)
+            
+        Returns:
+            Same structure as get_muscle_group_summary but for individual muscle
+            
+        Error Recovery:
+            - Returns 400 with valid muscle list if muscle ID is invalid
+        """
+        return self._http.post("getMuscleSummary", {
+            "userId": user_id,
+            "muscle": muscle,
+            "window_weeks": window_weeks,
+        })
+
+    def get_exercise_summary(
+        self,
+        user_id: str,
+        exercise_id: Optional[str] = None,
+        exercise_name: Optional[str] = None,
+        *,
+        window_weeks: int = 12,
+    ) -> Dict[str, Any]:
+        """Get exercise progress summary with PR tracking.
+        
+        Use for questions like "How is my bench press progressing?"
+        Includes last session recap and PR markers.
+        
+        ACCEPTS EITHER exercise_id OR exercise_name:
+        - exercise_id: Direct lookup by catalog ID
+        - exercise_name: Fuzzy name search (e.g., "bench press", "squats")
+        
+        Args:
+            user_id: User ID
+            exercise_id: Exercise ID from catalog (optional if exercise_name provided)
+            exercise_name: Exercise name for fuzzy search (e.g., "bench press")
+            window_weeks: Number of weeks to analyze (1-52, default 12)
+            
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "exercise_id": "...",
+                    "exercise_name": "Bench Press",
+                    "matched": true,  // false if name search found no match
+                    "weekly_points": [...],
+                    "last_session": [
+                        {"set_index": 0, "reps": 5, "weight_kg": 100, "e1rm": 116}
+                    ],
+                    "pr_markers": {
+                        "all_time_e1rm": 125,
+                        "window_e1rm": 120
+                    },
+                    "flags": {"plateau": false}
+                }
+            }
+        """
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "window_weeks": window_weeks,
+        }
+        if exercise_id:
+            body["exercise_id"] = exercise_id
+        elif exercise_name:
+            body["exercise_name"] = exercise_name
+        return self._http.post("getExerciseSummary", body)
+
+    def get_exercise_series(
+        self,
+        user_id: str,
+        *,
+        exercise_id: Optional[str] = None,
+        exercise_name: Optional[str] = None,
+        window_weeks: int = 12,
+    ) -> Dict[str, Any]:
+        """Get weekly training series for an exercise.
+        
+        Use for questions like "How has my bench press improved?" or 
+        "Show me my squat progress over the last 3 months".
+        
+        ACCEPTS EITHER exercise_id OR exercise_name:
+        - exercise_id: Direct lookup by catalog ID
+        - exercise_name: Fuzzy name search (e.g., "bench press", "squats", "deadlift")
+        
+        The fuzzy search matches against exercises in the user's training history.
+        For example, "bench" will match "Bench Press", "Dumbbell Bench Press", etc.
+        
+        Args:
+            user_id: User ID
+            exercise_id: Exercise ID from catalog (optional if exercise_name provided)
+            exercise_name: Exercise name for fuzzy search (e.g., "bench press")
+            window_weeks: Number of weeks to fetch (1-52, default 12)
+            
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "exercise_id": "abc123",
+                    "exercise_name": "Bench Press",
+                    "matched": true,  // false if name search found no match
+                    "message": "...",  // only present if matched=false
+                    "weekly_points": [
+                        {
+                            "week_start": "2024-01-08",
+                            "sets": 9,
+                            "hard_sets": 7.5,
+                            "volume": 5400,
+                            "avg_rir": 2.0,
+                            "failure_rate": 0.1,
+                            "load_min": 60,
+                            "load_max": 100,
+                            "e1rm_max": 125
+                        }
+                    ],
+                    "summary": {
+                        "total_weeks": 8,
+                        "avg_weekly_sets": 9,
+                        "avg_weekly_volume": 5400,
+                        "avg_weekly_hard_sets": 7.5,
+                        "trend_direction": "increasing"
+                    }
+                }
+            }
+            
+        Example usage:
+            # By name (preferred for user queries)
+            get_exercise_series(user_id, exercise_name="bench press")
+            
+            # By ID (when you have the ID from another query)
+            get_exercise_series(user_id, exercise_id="abc123")
+        """
+        body: Dict[str, Any] = {
+            "window_weeks": window_weeks,
+        }
+        if exercise_id:
+            body["exercise_id"] = exercise_id
+        if exercise_name:
+            body["exercise_name"] = exercise_name
+        return self._http.post("getExerciseSeries", body)
+
+    def get_coaching_pack(
+        self,
+        user_id: str,
+        *,
+        window_weeks: int = 8,
+        top_n_targets: int = 6,
+    ) -> Dict[str, Any]:
+        """Get compact coaching context in a single call.
+        
+        BEST STARTING POINT for coaching conversations. Returns:
+        - Top muscle groups by training volume
+        - Weekly trends for each group
+        - Top exercises per group
+        - Training adherence stats
+        - Change flags (volume drops, high failure rate, low frequency)
+        
+        Response is GUARANTEED under 15KB for token safety.
+        
+        Args:
+            user_id: User ID
+            window_weeks: Analysis window (default 8, max 52)
+            top_n_targets: Number of top muscle groups to return (default 6)
+            
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "top_targets": [
+                        {
+                            "muscle_group": "chest",
+                            "display_name": "Chest", 
+                            "weekly_effective_volume": [...],
+                            "top_exercises": [{"exercise_id": "...", "exercise_name": "..."}],
+                            "total_volume_in_window": 42000
+                        }
+                    ],
+                    "adherence": {
+                        "avg_sessions_per_week": 3.5,
+                        "target_sessions_per_week": 4,
+                        "weeks_analyzed": 8
+                    },
+                    "change_flags": [
+                        {"type": "volume_drop", "target": "chest", "message": "..."}
+                    ]
+                }
+            }
+        """
+        return self._http.post("getCoachingPack", {
+            "userId": user_id,
+            "window_weeks": window_weeks,
+            "top_n_targets": top_n_targets,
+        })
+
+    def query_sets(
+        self,
+        user_id: str,
+        *,
+        muscle_group: Optional[str] = None,
+        muscle: Optional[str] = None,
+        exercise_ids: Optional[List[str]] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        include_warmups: bool = False,
+        limit: int = 50,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Query individual set facts with filters - for drilldown only.
+        
+        EXACTLY ONE target filter is required: muscle_group, muscle, or exercise_ids.
+        Use this only when you need raw set data for evidence. Prefer summary
+        endpoints for general questions.
+        
+        Args:
+            user_id: User ID
+            muscle_group: Filter by muscle group (mutually exclusive with muscle/exercise_ids)
+            muscle: Filter by specific muscle (mutually exclusive with muscle_group/exercise_ids)  
+            exercise_ids: Filter by exercise IDs, max 10 (mutually exclusive with muscle_group/muscle)
+            start: Start date YYYY-MM-DD
+            end: End date YYYY-MM-DD
+            include_warmups: Include warmup sets (default false)
+            limit: Max results per page (default 50, max 200)
+            cursor: Pagination cursor from previous response
+            
+        Returns:
+            {
+                "success": true,
+                "data": [
+                    {
+                        "set_id": "...",
+                        "workout_date": "2024-01-15",
+                        "exercise_name": "Bench Press",
+                        "reps": 5,
+                        "weight_kg": 100,
+                        "rir": 2,
+                        "volume": 500,
+                        "e1rm": 116
+                    }
+                ],
+                "next_cursor": "...",
+                "truncated": false,
+                "meta": {"returned": 50, "limit": 50}
+            }
+            
+        Error Recovery:
+            - Returns 400 if zero or multiple targets provided
+            - Validates muscle_group/muscle against taxonomy
+        """
+        target: Dict[str, Any] = {}
+        if muscle_group:
+            target["muscle_group"] = muscle_group
+        if muscle:
+            target["muscle"] = muscle
+        if exercise_ids:
+            target["exercise_ids"] = exercise_ids[:10]
+        
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "target": target,
+            "limit": min(limit, 200),
+        }
+        if start:
+            body["start"] = start
+        if end:
+            body["end"] = end
+        if include_warmups:
+            body["effort"] = {"include_warmups": True}
+        if cursor:
+            body["cursor"] = cursor
+            
+        return self._http.post("querySets", body)
+
+    def get_active_snapshot_lite(self, user_id: str) -> Dict[str, Any]:
+        """Get minimal active workout state for agent context.
+        
+        Use instead of full getActiveWorkout to avoid token bloat.
+        Returns only essential fields needed to understand workout status.
+        
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "has_active_workout": true,
+                    "workout_id": "...",
+                    "status": "in_progress",
+                    "start_time": "2024-01-15T10:00:00Z",
+                    "current_exercise": {
+                        "exercise_id": "...",
+                        "exercise_name": "Bench Press"
+                    },
+                    "next_set_index": 2,
+                    "totals": {
+                        "completed_sets": 8,
+                        "total_sets": 24,
+                        "completed_exercises": 2,
+                        "total_exercises": 6
+                    }
+                }
+            }
+        """
+        return self._http.post("getActiveSnapshotLite", {"userId": user_id})
+
+    def get_active_events(
+        self,
+        user_id: str,
+        *,
+        workout_id: Optional[str] = None,
+        after_version: Optional[int] = None,
+        limit: int = 20,
+        cursor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get paginated workout events for incremental updates.
+        
+        Use to track changes in active workout without re-reading full state.
+        Events include: set_logged, exercise_added, exercise_swapped, etc.
+        
+        Args:
+            user_id: User ID
+            workout_id: Specific workout (defaults to current active)
+            after_version: Get events after this version number
+            limit: Max events per page (default 20, max 50)
+            cursor: Pagination cursor from previous response
+            
+        Returns:
+            {
+                "success": true,
+                "data": [
+                    {
+                        "type": "set_logged",
+                        "version": 5,
+                        "payload": {"exercise_id": "...", "set_index": 0, ...},
+                        "created_at": "2024-01-15T10:30:00Z"
+                    }
+                ],
+                "next_cursor": "...",
+                "truncated": false
+            }
+        """
+        body: Dict[str, Any] = {
+            "userId": user_id,
+            "limit": min(limit, 50),
+        }
+        if workout_id:
+            body["workout_id"] = workout_id
+        if after_version is not None:
+            body["after_version"] = after_version
+        if cursor:
+            body["cursor"] = cursor
+        return self._http.post("getActiveEvents", body)

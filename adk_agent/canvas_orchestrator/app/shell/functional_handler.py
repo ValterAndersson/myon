@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from app.shell.context import SessionContext
-from app.skills.coach_skills import search_exercises, get_analytics_features
+from app.skills.coach_skills import search_exercises, get_exercise_progress
 
 logger = logging.getLogger(__name__)
 
@@ -302,19 +302,28 @@ Select ONE exercise. Output:
         Handle SUGGEST_WEIGHT intent.
         
         Suggests weight based on recent performance and target RIR.
+        Uses token-safe v2 get_exercise_progress.
         """
         exercise_id = payload.get("exercise_id", "")
         target_reps = payload.get("target_reps", 8)
         target_rir = payload.get("target_rir", 2)
         
-        # Get analytics for this exercise
-        analytics = get_analytics_features(
+        if not exercise_id:
+            return FunctionalResult(
+                success=False,
+                action="ERROR",
+                data={"message": "Missing exercise_id"},
+                intent="SUGGEST_WEIGHT",
+            )
+        
+        # Get exercise progress using v2 token-safe endpoint
+        progress = get_exercise_progress(
             user_id=ctx.user_id,
-            weeks=4,
-            exercise_ids=[exercise_id] if exercise_id else None,
+            exercise_id=exercise_id,
+            window_weeks=4,
         )
         
-        if not analytics.success:
+        if not progress.success:
             return FunctionalResult(
                 success=False,
                 action="ERROR",
@@ -325,7 +334,7 @@ Select ONE exercise. Output:
         # Use Flash to calculate suggestion
         prompt = f"""Suggest weight for exercise based on recent data.
 Target: {target_reps} reps @ RIR {target_rir}
-Recent performance: {json.dumps(analytics.data, indent=2)}
+Recent performance: {json.dumps(progress.data, indent=2)}
 
 Calculate appropriate weight. Output:
 {{"action": "SUGGEST", "data": {{"weight_kg": <number>, "confidence": "high/medium/low", "rationale": "..."}}}}

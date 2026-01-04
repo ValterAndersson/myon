@@ -7,9 +7,59 @@
         { "fieldPath": "processed", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "muscle_group_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_end_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "muscle_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_end_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "exercise_id", "order": "ASCENDING" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_end_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "muscle_group_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "workout_date", "order": "ASCENDING" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "muscle_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "workout_date", "order": "ASCENDING" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workout_id", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
 }
-
-

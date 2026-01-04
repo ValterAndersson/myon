@@ -756,7 +756,20 @@ if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
 | Is `tool_manage_routine` excluded from `tools.py`? | YES | ✅ |
 | Does `propose_workout` require confirmation before writing? | YES | ✅ |
 | Does `propose_routine` require confirmation before writing? | YES | ✅ |
-| Are read-only tools (`get_analytics_features`, `search_exercises`) ungated? | YES | ✅ |
+| Are read-only tools (`search_exercises`, progress summaries) ungated? | YES | ✅ |
+
+### Token-Safe Analytics (v2 - 2026-01-04)
+
+| Check | Expected | Verified |
+|-------|----------|----------|
+| Is `tool_get_analytics_features` REMOVED from agent tools? | YES | ✅ |
+| Is `tool_get_recent_workouts` REMOVED from agent tools? | YES | ✅ |
+| Is `tool_get_muscle_group_progress` available (PREFERRED)? | YES | ✅ |
+| Is `tool_get_muscle_progress` available? | YES | ✅ |
+| Is `tool_get_exercise_progress` available? | YES | ✅ |
+| Is `tool_get_coaching_context` available (BEST STARTING POINT)? | YES | ✅ |
+| Is `tool_query_training_sets` available (DRILLDOWN ONLY)? | YES | ✅ |
+| Are all progress summaries bounded under 15KB? | YES | ✅ |
 
 ### iOS Integration (Protocol Multiplexing)
 
@@ -847,6 +860,7 @@ python workers/post_workout_analyst.py \
 | 2026-01-03 | Complete 4-Lane architecture documentation |
 | 2026-01-03 | ContextVars hardening for Vertex Agent Engine |
 | 2026-01-03 | **Production Integration Documentation**: Added Vertex AI runtime section, ContextVars deep-dive, iOS protocol multiplexing, Monitor Lane schema, comprehensive verification checklist |
+| 2026-01-04 | **Token-Safe Analytics v2**: Removed `tool_get_analytics_features` and `tool_get_recent_workouts` from agent tools. Replaced with bounded, paginated endpoints: `tool_get_muscle_group_progress`, `tool_get_muscle_progress`, `tool_get_exercise_progress`, `tool_get_coaching_context` (best starting point), and `tool_query_training_sets` (drilldown only). All summaries guaranteed under 15KB. See `docs/TRAINING_ANALYTICS_API_V2_SPEC.md` for full specification. |
 
 ---
 

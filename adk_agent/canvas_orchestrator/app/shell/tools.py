@@ -51,12 +51,16 @@ def set_tool_context(ctx: SessionContext, message: str) -> None:
 
 # Read skills - no Safety Gate needed
 from app.skills.coach_skills import (
-    get_analytics_features,
     get_training_context,
     get_user_profile,
-    get_recent_workouts,
     search_exercises,
     get_exercise_details,
+    # Token-safe v2 analytics (PREFERRED for progress questions)
+    get_muscle_group_progress,
+    get_muscle_progress,
+    get_exercise_progress,
+    get_coaching_context,
+    query_training_sets,
 )
 
 # Write skills - direct execution (no Safety Gate - cards have accept/dismiss buttons)
@@ -89,40 +93,6 @@ def tool_get_training_context() -> Dict[str, Any]:
     return result.to_dict()
 
 
-def tool_get_analytics_features(
-    *,
-    weeks: int = 8,
-    muscle_group: Optional[str] = None,
-    exercise_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    """
-    Get analytics features for progress analysis.
-    
-    Returns volume trends, intensity ratios, e1RM progressions.
-    Use this when analyzing training progress or stalls.
-    
-    Args:
-        weeks: Number of weeks to analyze (default 8)
-        muscle_group: Filter by muscle group (e.g., "chest", "back")
-        exercise_ids: Filter by specific exercises
-    """
-    ctx = get_current_context()
-    
-    if not ctx.user_id:
-        return {"error": "No user_id available in context"}
-    
-    # Convert muscle_group to muscles list (coach_skills uses 'muscles' param)
-    muscles = [muscle_group] if muscle_group else None
-    
-    result = get_analytics_features(
-        user_id=ctx.user_id,
-        weeks=weeks,
-        muscles=muscles,
-        exercise_ids=exercise_ids,
-    )
-    return result.to_dict()
-
-
 def tool_get_user_profile() -> Dict[str, Any]:
     """
     Get user's fitness profile: goals, experience level, equipment.
@@ -135,24 +105,6 @@ def tool_get_user_profile() -> Dict[str, Any]:
         return {"error": "No user_id available in context"}
     
     result = get_user_profile(ctx.user_id)
-    return result.to_dict()
-
-
-def tool_get_recent_workouts(*, limit: int = 5) -> Dict[str, Any]:
-    """
-    Get user's recent workout sessions.
-    
-    Returns list of completed workouts with exercises and sets.
-    
-    Args:
-        limit: Maximum number of workouts to return (default 5)
-    """
-    ctx = get_current_context()
-    
-    if not ctx.user_id:
-        return {"error": "No user_id available in context"}
-    
-    result = get_recent_workouts(ctx.user_id, limit=limit)
     return result.to_dict()
 
 
@@ -242,6 +194,247 @@ def tool_get_planning_context() -> Dict[str, Any]:
         return {"error": "No user_id available in context"}
     
     result = _get_planning_context(user_id=ctx.user_id)
+    return result.to_dict()
+
+
+# =============================================================================
+# TOKEN-SAFE TRAINING ANALYTICS v2 (PREFERRED)
+# These tools use bounded, paginated endpoints that prevent agent timeouts.
+# Use these INSTEAD OF tool_get_analytics_features for progress questions.
+# =============================================================================
+
+def tool_get_muscle_group_progress(
+    *,
+    muscle_group: str,
+    window_weeks: int = 12,
+) -> Dict[str, Any]:
+    """
+    Get comprehensive muscle group progress summary - TOKEN SAFE.
+    
+    PREFERRED for "How is my chest/back/etc developing?" questions.
+    Returns bounded data (<15KB) with weekly series, top exercises,
+    and flags (plateau, deload, overreach).
+    
+    Args:
+        muscle_group: Target muscle group. REQUIRED.
+            Valid values: chest, back, shoulders, arms, core, legs, glutes,
+                         hip_flexors, calves, forearms, neck, cardio
+        
+        window_weeks: Analysis window in weeks (1-52, default 12)
+    
+    Returns:
+        Weekly effective volume, hard sets, top exercises, flags.
+        
+    Example:
+        tool_get_muscle_group_progress(muscle_group="chest", window_weeks=12)
+        
+    Error Recovery:
+        If muscle_group is invalid, returns list of valid options.
+    """
+    ctx = get_current_context()
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    result = get_muscle_group_progress(
+        user_id=ctx.user_id,
+        muscle_group=muscle_group,
+        window_weeks=window_weeks,
+    )
+    return result.to_dict()
+
+
+def tool_get_muscle_progress(
+    *,
+    muscle: str,
+    window_weeks: int = 12,
+) -> Dict[str, Any]:
+    """
+    Get individual muscle progress summary - TOKEN SAFE.
+    
+    Use for specific muscle questions like "How are my rhomboids?" 
+    or "How is my front delt developing?"
+    
+    Args:
+        muscle: Target muscle. REQUIRED.
+            Common values: 
+              Back: latissimus_dorsi, rhomboids, trapezius_upper, trapezius_middle,
+                    trapezius_lower, erector_spinae, teres_major
+              Chest: pectoralis_major, pectoralis_minor
+              Shoulders: deltoid_anterior, deltoid_lateral, deltoid_posterior, rotator_cuff
+              Arms: biceps_brachii, triceps_brachii, brachialis, brachioradialis
+              Core: rectus_abdominis, obliques, transverse_abdominis
+              Legs: quadriceps, hamstrings, gluteus_maximus, gluteus_medius,
+                    gastrocnemius, soleus, tibialis_anterior, adductors
+        
+        window_weeks: Analysis window in weeks (1-52, default 12)
+    
+    Returns:
+        Weekly effective volume for the muscle, top exercises, flags.
+        
+    Example:
+        tool_get_muscle_progress(muscle="rhomboids", window_weeks=12)
+        
+    Error Recovery:
+        If muscle is invalid, returns list of common muscles.
+    """
+    ctx = get_current_context()
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    result = get_muscle_progress(
+        user_id=ctx.user_id,
+        muscle=muscle,
+        window_weeks=window_weeks,
+    )
+    return result.to_dict()
+
+
+def tool_get_exercise_progress(
+    *,
+    exercise_id: Optional[str] = None,
+    exercise_name: Optional[str] = None,
+    window_weeks: int = 12,
+) -> Dict[str, Any]:
+    """
+    Get exercise progress summary with PR tracking - TOKEN SAFE.
+    
+    Use for "How is my bench press progressing?" questions.
+    Returns weekly series, last session recap, PR markers.
+    
+    ACCEPTS EITHER exercise_id OR exercise_name:
+    - exercise_id: Direct lookup by catalog ID
+    - exercise_name: Fuzzy name search (e.g., "bench press", "squats", "deadlift")
+    
+    The fuzzy search matches against exercises in the user's training history.
+    For example, "bench" will match "Bench Press", "Dumbbell Bench Press", etc.
+    
+    Args:
+        exercise_id: Exercise ID from catalog (optional if exercise_name provided)
+        
+        exercise_name: Exercise name for fuzzy search (PREFERRED for user queries)
+            Examples: "bench press", "squats", "deadlift", "lat pulldown"
+        
+        window_weeks: Analysis window in weeks (1-52, default 12)
+    
+    Returns:
+        Weekly e1RM/volume series, last session sets, PR markers, plateau flag.
+        If using exercise_name and no match found, returns matched=false with suggestions.
+        
+    Examples:
+        # By name (preferred for user queries):
+        tool_get_exercise_progress(exercise_name="bench press", window_weeks=12)
+        tool_get_exercise_progress(exercise_name="squats")
+        
+        # By ID (when you have the ID from another query):
+        tool_get_exercise_progress(exercise_id="barbell-bench-press", window_weeks=12)
+    """
+    ctx = get_current_context()
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    if not exercise_id and not exercise_name:
+        return {"error": "exercise_id or exercise_name is required"}
+    
+    result = get_exercise_progress(
+        user_id=ctx.user_id,
+        exercise_id=exercise_id,
+        exercise_name=exercise_name,
+        window_weeks=window_weeks,
+    )
+    return result.to_dict()
+
+
+def tool_get_coaching_context(
+    *,
+    window_weeks: int = 8,
+) -> Dict[str, Any]:
+    """
+    Get compact coaching context in a single call - TOKEN SAFE.
+    
+    BEST STARTING POINT for coaching conversations.
+    Response is GUARANTEED under 15KB.
+    
+    Returns:
+        - Top muscle groups by training volume
+        - Weekly trends for each group
+        - Top exercises per group
+        - Training adherence stats
+        - Change flags (volume drops, high failure rate)
+    
+    Args:
+        window_weeks: Analysis window (default 8, max 52)
+    
+    Example:
+        tool_get_coaching_context(window_weeks=8)
+    """
+    ctx = get_current_context()
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    result = get_coaching_context(
+        user_id=ctx.user_id,
+        window_weeks=window_weeks,
+    )
+    return result.to_dict()
+
+
+def tool_query_training_sets(
+    *,
+    muscle_group: Optional[str] = None,
+    muscle: Optional[str] = None,
+    exercise_ids: Optional[List[str]] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """
+    Query raw set facts for detailed evidence - DRILLDOWN ONLY.
+    
+    EXACTLY ONE filter required: muscle_group, muscle, or exercise_ids.
+    Use only when you need raw set data. Prefer summary endpoints first.
+    
+    Args:
+        muscle_group: Filter by muscle group (e.g., "chest")
+            Mutually exclusive with muscle and exercise_ids.
+        
+        muscle: Filter by specific muscle (e.g., "rhomboids")  
+            Mutually exclusive with muscle_group and exercise_ids.
+        
+        exercise_ids: Filter by exercise IDs (max 10)
+            Mutually exclusive with muscle_group and muscle.
+        
+        start: Start date YYYY-MM-DD (optional)
+        end: End date YYYY-MM-DD (optional)
+        limit: Max results (default 50, max 200)
+    
+    Returns:
+        Array of set facts: workout_date, exercise_name, reps, weight_kg, rir, e1rm.
+        
+    Example:
+        tool_query_training_sets(muscle_group="chest", limit=20)
+        tool_query_training_sets(exercise_ids=["barbell-bench-press"], limit=30)
+        
+    Error Recovery:
+        Returns 400 if zero or multiple filters provided.
+    """
+    ctx = get_current_context()
+    
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+    
+    result = query_training_sets(
+        user_id=ctx.user_id,
+        muscle_group=muscle_group,
+        muscle=muscle,
+        exercise_ids=exercise_ids,
+        start=start,
+        end=end,
+        limit=limit,
+    )
     return result.to_dict()
 
 
@@ -341,16 +534,21 @@ def tool_propose_routine(
 
 # All tools available to ShellAgent
 all_tools = [
-    # Read tools (analytics, user data)
+    # Read tools (user context)
     FunctionTool(func=tool_get_training_context),
-    FunctionTool(func=tool_get_analytics_features),
     FunctionTool(func=tool_get_user_profile),
-    FunctionTool(func=tool_get_recent_workouts),
     FunctionTool(func=tool_search_exercises),
     FunctionTool(func=tool_get_exercise_details),
     FunctionTool(func=tool_get_planning_context),
     
-    # Write tools (Safety Gate enforced)
+    # Token-safe Training Analytics v2 (PREFERRED for progress questions)
+    FunctionTool(func=tool_get_muscle_group_progress),
+    FunctionTool(func=tool_get_muscle_progress),
+    FunctionTool(func=tool_get_exercise_progress),
+    FunctionTool(func=tool_get_coaching_context),
+    FunctionTool(func=tool_query_training_sets),
+    
+    # Write tools (cards have accept/dismiss buttons)
     FunctionTool(func=tool_propose_workout),
     FunctionTool(func=tool_propose_routine),
 ]
@@ -361,14 +559,19 @@ __all__ = [
     "all_tools",
     # Context setter for agent callbacks
     "set_tool_context",
-    # Individual tools for testing
+    # Read tools
     "tool_get_training_context",
-    "tool_get_analytics_features",
     "tool_get_user_profile",
-    "tool_get_recent_workouts",
     "tool_search_exercises",
     "tool_get_exercise_details",
     "tool_get_planning_context",
+    # Token-safe v2 analytics (PREFERRED)
+    "tool_get_muscle_group_progress",
+    "tool_get_muscle_progress",
+    "tool_get_exercise_progress",
+    "tool_get_coaching_context",
+    "tool_query_training_sets",
+    # Write tools
     "tool_propose_workout",
     "tool_propose_routine",
 ]

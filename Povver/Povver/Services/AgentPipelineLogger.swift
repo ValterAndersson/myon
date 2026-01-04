@@ -378,19 +378,41 @@ final class AgentPipelineLogger {
     
     private func humanToolName(_ name: String) -> String {
         switch name {
+        // Legacy context tools
         case "get_planning_context": return "LoadContext"
         case "get_training_context": return "LoadTraining"
+        case "get_analytics_features": return "LoadAnalytics"
+        
+        // V2 Training Analytics Endpoints (token-safe)
+        case "get_muscle_group_progress", "ToolGetMuscleGroupProgress": return "MuscleGroupProgress"
+        case "get_muscle_progress", "ToolGetMuscleProgress": return "MuscleProgress"
+        case "get_exercise_progress", "ToolGetExerciseProgress": return "ExerciseProgress"
+        case "query_sets", "ToolQuerySets": return "QuerySets"
+        case "aggregate_sets", "ToolAggregateSets": return "AggregateSets"
+        case "get_exercise_series", "ToolGetExerciseSeries": return "ExerciseSeries"
+        case "get_muscle_group_series", "ToolGetMuscleGroupSeries": return "MuscleGroupSeries"
+        case "get_muscle_series", "ToolGetMuscleSeries": return "MuscleSeries"
+        case "get_coaching_context", "ToolGetCoachingContext": return "CoachingContext"
+        case "get_active_snapshot", "ToolGetActiveSnapshot": return "ActiveSnapshot"
+        case "get_active_events", "ToolGetActiveEvents": return "ActiveEvents"
+        
+        // Exercise & Catalog tools
         case "search_exercises": return "SearchExercises"
         case "get_user_templates": return "LoadTemplates"
         case "get_user_routines": return "LoadRoutines"
         case "get_user_workouts": return "LoadWorkouts"
-        case "get_analytics_features": return "LoadAnalytics"
+        
+        // Planning & Proposal tools
         case "propose_workout", "propose_session": return "ProposeWorkout"
         case "propose_routine": return "ProposeRoutine"
+        
+        // Active workout tools
         case "start_active_workout": return "StartWorkout"
         case "log_set": return "LogSet"
         case "swap_exercise": return "SwapExercise"
         case "add_exercise": return "AddExercise"
+        case "complete_workout": return "CompleteWorkout"
+        
         default: return name.split(separator: "_").map { $0.capitalized }.joined()
         }
     }

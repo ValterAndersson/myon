@@ -57,16 +57,17 @@ Execute the plan above, then synthesize a response.
 PLANNING_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "ANALYZE_PROGRESS": {
         "data_needed": [
-            "Analytics features (8-12 weeks) for volume and intensity trends",
-            "Exercise IDs for the relevant muscle group",
-            "Per-exercise e1RM slopes to measure progression",
+            "Coaching context (8-12 weeks) for volume trends and training adherence",
+            "Muscle group progress for specific body part questions",
+            "Exercise progress for specific exercise progression",
         ],
         "suggested_tools": [
-            "tool_get_analytics_features",
-            "tool_get_user_exercises_by_muscle",
-            "tool_get_analytics_features (with exercise_ids)",
+            "tool_get_coaching_context (start here for overview)",
+            "tool_get_muscle_group_progress (for body part questions)",
+            "tool_get_exercise_progress (for exercise-specific progress)",
+            "tool_query_training_sets (only if raw set evidence needed)",
         ],
-        "rationale": "Progress analysis requires comparing current metrics to historical data. Check e1rm_slope for progression, intensity_ratio for training quality.",
+        "rationale": "Progress analysis uses token-safe v2 endpoints. Start with coaching_context for overview, drill down with muscle/exercise progress, use query_training_sets only for raw evidence.",
     },
     "PLAN_ARTIFACT": {
         "data_needed": [

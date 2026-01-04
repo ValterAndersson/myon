@@ -89,17 +89,22 @@ def _import_skills():
     
     Skills may not be available in all environments (e.g., when running
     outside the ADK app context).
+    
+    Note: Uses v2 token-safe skills (get_coaching_context, etc.) instead of
+    legacy endpoints (get_analytics_features, get_recent_workouts).
     """
     try:
         from app.skills.coach_skills import (
-            get_analytics_features,
+            get_coaching_context,
             get_training_context,
-            get_recent_workouts,
+            get_muscle_group_progress,
+            query_training_sets,
         )
         return {
-            "get_analytics_features": get_analytics_features,
+            "get_coaching_context": get_coaching_context,
             "get_training_context": get_training_context,
-            "get_recent_workouts": get_recent_workouts,
+            "get_muscle_group_progress": get_muscle_group_progress,
+            "query_training_sets": query_training_sets,
         }
     except ImportError as e:
         logger.error("Failed to import skills: %s", e)
@@ -137,27 +142,26 @@ def fetch_user_data(user_id: str, workout_id: str) -> Dict[str, Any]:
     """
     Fetch all data needed for analysis.
     
-    Uses shared skills if available, falls back to direct API calls.
+    Uses shared v2 token-safe skills if available, falls back to direct API calls.
     """
     skills = _import_skills()
     
     if skills:
-        # Use shared skills (same as Chat Agent)
-        logger.info("Using shared skills for data fetch")
+        # Use shared skills (same as Chat Agent) - v2 token-safe endpoints
+        logger.info("Using shared v2 skills for data fetch")
         
-        analytics = skills["get_analytics_features"](
+        # Get coaching context (replaces get_analytics_features for overview)
+        coaching = skills["get_coaching_context"](
             user_id=user_id,
-            weeks=12,  # 12-week lookback for trend analysis
+            window_weeks=12,  # 12-week lookback for trend analysis
         )
         
+        # Get training context (routine structure)
         context = skills["get_training_context"](user_id=user_id)
         
-        recent = skills["get_recent_workouts"](user_id=user_id, limit=10)
-        
         return {
-            "analytics": analytics.to_dict() if hasattr(analytics, "to_dict") else analytics,
+            "coaching": coaching.to_dict() if hasattr(coaching, "to_dict") else coaching,
             "context": context.to_dict() if hasattr(context, "to_dict") else context,
-            "recent_workouts": recent.to_dict() if hasattr(recent, "to_dict") else recent,
         }
     
     else:
@@ -167,9 +171,8 @@ def fetch_user_data(user_id: str, workout_id: str) -> Dict[str, Any]:
         
         # Mock data for demonstration
         return {
-            "analytics": {"data": "mock_analytics", "user_id": user_id},
+            "coaching": {"data": "mock_coaching", "user_id": user_id},
             "context": {"data": "mock_context", "user_id": user_id},
-            "recent_workouts": {"workouts": []},
         }
 
 
@@ -190,10 +193,10 @@ def analyze_workout(user_id: str, workout_id: str) -> Optional[InsightCard]:
     """
     logger.info("Analyzing workout %s for user %s", workout_id, user_id)
     
-    # 1. Fetch data using shared skills
+    # 1. Fetch data using shared v2 skills
     data = fetch_user_data(user_id, workout_id)
     
-    if not data.get("analytics") or not data.get("context"):
+    if not data.get("coaching") or not data.get("context"):
         logger.warning("Insufficient data for analysis")
         return None
     
@@ -201,11 +204,9 @@ def analyze_workout(user_id: str, workout_id: str) -> Optional[InsightCard]:
     prompt = f"""Analyze this user's recent training data. Look for patterns that require coaching intervention.
 
 USER DATA:
-Analytics (12 weeks): {json.dumps(data.get("analytics", {}), indent=2)}
+Coaching Context (12 weeks): {json.dumps(data.get("coaching", {}), indent=2)}
 
 Training Context: {json.dumps(data.get("context", {}), indent=2)}
-
-Recent Workouts: {json.dumps(data.get("recent_workouts", {}), indent=2)}
 
 ANALYSIS CRITERIA:
 

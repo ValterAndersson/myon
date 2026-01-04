@@ -1000,6 +1000,17 @@ async function streamAgentNormalizedHandler(req, res) {
         try {
           const evt = JSON.parse(trimmed);
 
+          // === HANDLE PIPELINE EVENTS FIRST (CoT visibility) ===
+          // These are top-level events from _create_pipeline_event() in agent_engine_app.py
+          if (evt._pipeline) {
+            logger.debug('[streamAgentNormalized] Pipeline event received', { 
+              type: evt._pipeline.type,
+              intent: evt._pipeline.intent 
+            });
+            sse.write(evt);  // transformToIOSEvent handles _pipeline
+            continue;
+          }
+
           const role = evt?.content?.role || evt?.role || 'model';
           const parts = (evt?.content?.parts || []);
           const messageId = evt?.id || evt?.invocationId || null;

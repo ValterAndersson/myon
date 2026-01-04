@@ -10,6 +10,14 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const AnalyticsWrites = require('../utils/analytics-writes');
 
+// Token-safe Training Analytics imports
+const {
+  generateSetFactsForWorkout,
+  writeSetFactsInChunks,
+  updateSeriesForWorkout,
+} = require('../training/set-facts-generator');
+const { CAPS } = require('../utils/caps');
+
 // Helper function to get week start for a date with Sunday as default
 function getWeekStartSunday(dateString) {
   const date = new Date(dateString);
@@ -447,6 +455,29 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       } catch (e) {
         console.warn('Non-fatal: failed to write per-exercise daily series', e?.message || e);
       }
+
+      // =============== TOKEN-SAFE ANALYTICS: set_facts + new series ===============
+      try {
+        // Generate set_facts from workout
+        const workoutWithId = { ...after, id: event.params.workoutId };
+        const setFacts = generateSetFactsForWorkout({
+          userId: event.params.userId,
+          workout: workoutWithId,
+        });
+        
+        if (setFacts.length > 0) {
+          // Write set_facts documents
+          await writeSetFactsInChunks(db, event.params.userId, setFacts);
+          
+          // Update new series (series_exercises, series_muscle_groups, series_muscles)
+          await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
+          
+          console.log(`Token-safe analytics: wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+        }
+      } catch (e) {
+        console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series)', e?.message || e);
+      }
+      // =============== END TOKEN-SAFE ANALYTICS ===============
       
       if (!result.success) {
         console.error(`Failed to update weekly stats:`, result);
@@ -560,6 +591,29 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
         console.warn('Non-fatal: failed to write per-exercise daily series (create)', e?.message || e);
       }
 
+      // =============== TOKEN-SAFE ANALYTICS: set_facts + new series ===============
+      try {
+        // Generate set_facts from workout
+        const workoutWithId = { ...workout, id: event.params.workoutId };
+        const setFacts = generateSetFactsForWorkout({
+          userId: event.params.userId,
+          workout: workoutWithId,
+        });
+        
+        if (setFacts.length > 0) {
+          // Write set_facts documents
+          await writeSetFactsInChunks(db, event.params.userId, setFacts);
+          
+          // Update new series (series_exercises, series_muscle_groups, series_muscles)
+          await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
+          
+          console.log(`Token-safe analytics (create): wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+        }
+      } catch (e) {
+        console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series) on create', e?.message || e);
+      }
+      // =============== END TOKEN-SAFE ANALYTICS ===============
+
       return result;
     } catch (error) {
       console.error('Error in onWorkoutCreatedWithEnd:', error);
@@ -666,6 +720,39 @@ exports.onWorkoutDeleted = onDocumentDeleted(
       } catch (e) {
         console.warn('Non-fatal: failed to revert per-exercise daily series', e?.message || e);
       }
+
+      // =============== TOKEN-SAFE ANALYTICS: delete set_facts + revert series ===============
+      try {
+        const workoutWithId = { ...workout, id: event.params.workoutId };
+        
+        // Delete set_facts for this workout
+        const setFactsQuery = db.collection('users').doc(event.params.userId)
+          .collection('set_facts')
+          .where('workout_id', '==', event.params.workoutId);
+        
+        const setFactsSnap = await setFactsQuery.get();
+        if (!setFactsSnap.empty) {
+          // Delete in batches
+          const batchSize = CAPS.FIRESTORE_BATCH_LIMIT;
+          const docs = setFactsSnap.docs;
+          for (let i = 0; i < docs.length; i += batchSize) {
+            const chunk = docs.slice(i, i + batchSize);
+            const batch = db.batch();
+            for (const doc of chunk) {
+              batch.delete(doc.ref);
+            }
+            await batch.commit();
+          }
+          
+          // Revert series (negative increment)
+          await updateSeriesForWorkout(db, event.params.userId, workoutWithId, -1);
+          
+          console.log(`Token-safe analytics (delete): removed ${setFactsSnap.size} set_facts for workout ${event.params.workoutId}`);
+        }
+      } catch (e) {
+        console.warn('Non-fatal: failed to cleanup token-safe analytics (set_facts/series) on delete', e?.message || e);
+      }
+      // =============== END TOKEN-SAFE ANALYTICS ===============
       
       if (!result.success) {
         console.error(`Failed to update weekly stats for deleted workout:`, result);
@@ -731,4 +818,3 @@ exports.manualWeeklyStatsRecalculation = onCall(async (request) => {
     throw new Error(`Failed to recalculate weekly stats: ${error.message}`);
   }
 });
-
