@@ -228,17 +228,25 @@ interface WeeklyExercisePoint {
   sets: number;                      // Excluding warmups
   hard_sets: number;                 // Sum of hard_set_credit
   volume: number;
-  avg_rir: number | null;
-  failure_rate: number;              // failure_sets / total_sets
+  
+  // Store raw sums/counts for incremental updates (compute avg on read)
+  rir_sum: number;                   // Sum of RIR values
+  rir_count: number;                 // Count of sets with RIR recorded
+  failure_sets: number;              // Count of failure sets
+  set_count: number;                 // Total sets (for failure_rate = failure_sets/set_count)
+  
   reps_bucket: {                     // Distribution
     '1-5': number;
     '6-10': number;
     '11-15': number;
     '16-20': number;
   };
-  e1rm_max: number | null;           // Best estimated 1RM this week
-  e1rm_p90: number | null;           // 90th percentile e1RM
+  e1rm_max: number | null;           // Best estimated 1RM this week (v1 only, p90 deferred)
 }
+
+// Computed on read (not stored):
+// avg_rir = rir_sum / rir_count (or null if rir_count === 0)
+// failure_rate = failure_sets / set_count
 ```
 
 #### 2.3.2 Muscle Group Series
@@ -270,8 +278,13 @@ interface WeeklyMuscleGroupPoint {
   hard_sets: number;
   volume: number;
   effective_volume: number;          // Weighted by contribution
-  avg_rir: number | null;
-  failure_rate: number;
+  
+  // Store raw sums/counts for incremental updates (compute on read)
+  rir_sum: number;
+  rir_count: number;
+  failure_sets: number;
+  set_count: number;
+  
   reps_bucket: {
     '1-5': number;
     '6-10': number;
@@ -279,6 +292,8 @@ interface WeeklyMuscleGroupPoint {
     '16-20': number;
   };
 }
+
+// Computed on read: avg_rir = rir_sum / rir_count, failure_rate = failure_sets / set_count
 ```
 
 #### 2.3.3 Muscle Series
@@ -311,8 +326,13 @@ interface WeeklyMusclePoint {
   hard_sets: number;
   volume: number;
   effective_volume: number;
-  avg_rir: number | null;
-  failure_rate: number;
+  
+  // Store raw sums/counts for incremental updates (compute on read)
+  rir_sum: number;
+  rir_count: number;
+  failure_sets: number;
+  set_count: number;
+  
   reps_bucket: {
     '1-5': number;
     '6-10': number;
@@ -320,6 +340,8 @@ interface WeeklyMusclePoint {
     '16-20': number;
   };
 }
+
+// Computed on read: avg_rir = rir_sum / rir_count, failure_rate = failure_sets / set_count
 ```
 
 ---
@@ -380,14 +402,20 @@ function decodeCursor(cursor: string, expectedSort: string): CursorPayload | nul
 
 **File**: `firebase_functions/functions/training/query-sets.js`
 
+**Target Enforcement**: Server enforces exactly one target. Request is rejected if:
+- Zero targets provided
+- More than one target provided (e.g., both `muscle_group` and `muscle`)
+
+This keeps indexes predictable and prevents accidental "fetch everything" queries.
+
 **Request**:
 ```typescript
 interface QuerySetsRequest {
-  // Target filter (pick one)
-  target?: {
-    muscle_group?: string;           // Single muscle group
-    muscle?: string;                 // Single muscle
-    exercise_ids?: string[];         // Up to 10 exercise IDs
+  // Target filter (EXACTLY ONE required - server enforced)
+  target: {
+    muscle_group?: string;           // Single muscle group (mutually exclusive)
+    muscle?: string;                 // Single muscle (mutually exclusive)
+    exercise_ids?: string[];         // Up to 10 exercise IDs (mutually exclusive)
   };
   
   // Date range (required)
@@ -1215,96 +1243,244 @@ grep -r "getPlanningContext" Povver/
 ```javascript
 /**
  * On workout completion, compute all weekly aggregates in memory
- * then batch update series docs.
+ * then batch update series docs with individual FieldValue.increment per field.
  * 
  * This avoids per-set write amplification.
  */
-async function updateSeriesOnWorkoutComplete(userId, workout) {
+async function updateSeriesOnWorkoutComplete(userId, workout, increment = 1) {
   const weekId = getWeekStart(workout.end_time);
   
-  // Aggregate in memory
-  const exerciseAggregates = new Map();  // exercise_id -> WeeklyPoint
-  const muscleGroupAggregates = new Map(); // group_id -> WeeklyPoint
-  const muscleAggregates = new Map();      // muscle_id -> WeeklyPoint
+  // Aggregate in memory: accumulate deltas per target
+  const exerciseDeltas = new Map();      // exercise_id -> { sets, volume, hard_sets, ... }
+  const muscleGroupDeltas = new Map();   // group_id -> { sets, volume, ... }
+  const muscleDeltas = new Map();        // muscle_id -> { sets, volume, ... }
   
   for (const ex of workout.exercises) {
     for (const set of ex.sets) {
-      if (!set.is_completed || set.is_warmup) continue;
+      if (!set.is_completed) continue;
+      if (set.is_warmup) continue;  // Skip warmups for aggregation
       
       const setFact = computeSetFact(set, ex);
       
       // Aggregate to exercise
-      aggregateToExercise(exerciseAggregates, ex.exercise_id, setFact, weekId);
+      accumulateDelta(exerciseDeltas, ex.exercise_id, {
+        sets: 1,
+        hard_sets: setFact.hard_set_credit,
+        volume: setFact.volume,
+        rir_sum: setFact.rir ?? 0,
+        rir_count: setFact.rir !== null ? 1 : 0,
+        failure_sets: setFact.is_failure ? 1 : 0,
+        set_count: 1,
+        e1rm_max: setFact.e1rm,  // Handle max specially
+        reps_bucket: getRepsBucket(setFact.reps),
+      });
       
       // Aggregate to muscle groups
       for (const [group, contrib] of Object.entries(setFact.muscle_group_contrib)) {
-        aggregateToMuscleGroup(muscleGroupAggregates, group, setFact, contrib, weekId);
+        accumulateDelta(muscleGroupDeltas, group, {
+          sets: 1,
+          hard_sets: setFact.hard_set_credit * contrib,
+          volume: setFact.volume * contrib,
+          effective_volume: setFact.volume * contrib,
+          rir_sum: (setFact.rir ?? 0) * contrib,
+          rir_count: setFact.rir !== null ? 1 : 0,
+          failure_sets: setFact.is_failure ? 1 : 0,
+          set_count: 1,
+          reps_bucket: getRepsBucket(setFact.reps),
+        });
       }
       
       // Aggregate to muscles
       for (const [muscle, contrib] of Object.entries(setFact.muscle_contrib)) {
-        aggregateToMuscle(muscleAggregates, muscle, setFact, contrib, weekId);
+        accumulateDelta(muscleDeltas, muscle, {
+          sets: 1,
+          hard_sets: setFact.hard_set_credit * contrib,
+          volume: setFact.volume * contrib,
+          effective_volume: setFact.volume * contrib,
+          rir_sum: (setFact.rir ?? 0) * contrib,
+          rir_count: setFact.rir !== null ? 1 : 0,
+          failure_sets: setFact.is_failure ? 1 : 0,
+          set_count: 1,
+          reps_bucket: getRepsBucket(setFact.reps),
+        });
       }
     }
   }
   
-  // Batch write all series updates
-  const batch = db.batch();
+  // Collect all batch operations
+  const operations = [];
   
-  for (const [exerciseId, point] of exerciseAggregates) {
-    const ref = db.collection('users').doc(userId)
-      .collection('series_exercises').doc(exerciseId);
-    batch.set(ref, {
-      [`weeks.${weekId}`]: FieldValue.increment(point),
-      updated_at: FieldValue.serverTimestamp(),
-    }, { merge: true });
+  for (const [exerciseId, delta] of exerciseDeltas) {
+    operations.push({
+      ref: db.collection('users').doc(userId).collection('series_exercises').doc(exerciseId),
+      weekId,
+      delta,
+      hasE1rmMax: true,
+    });
   }
   
-  for (const [group, point] of muscleGroupAggregates) {
-    const ref = db.collection('users').doc(userId)
-      .collection('series_muscle_groups').doc(group);
-    batch.set(ref, {
-      [`weeks.${weekId}`]: FieldValue.increment(point),
-      updated_at: FieldValue.serverTimestamp(),
-    }, { merge: true });
+  for (const [group, delta] of muscleGroupDeltas) {
+    operations.push({
+      ref: db.collection('users').doc(userId).collection('series_muscle_groups').doc(group),
+      weekId,
+      delta,
+      hasE1rmMax: false,
+    });
   }
   
-  for (const [muscle, point] of muscleAggregates) {
-    const ref = db.collection('users').doc(userId)
-      .collection('series_muscles').doc(muscle);
-    batch.set(ref, {
-      [`weeks.${weekId}`]: FieldValue.increment(point),
-      updated_at: FieldValue.serverTimestamp(),
-    }, { merge: true });
+  for (const [muscle, delta] of muscleDeltas) {
+    operations.push({
+      ref: db.collection('users').doc(userId).collection('series_muscles').doc(muscle),
+      weekId,
+      delta,
+      hasE1rmMax: false,
+    });
   }
   
-  await batch.commit();
+  // Write in chunks (Firestore batch limit = 500 operations)
+  await writeOperationsInChunks(operations, weekId, increment);
+}
+
+/**
+ * Chunk operations to respect Firestore batch limit (500 ops per batch)
+ */
+async function writeOperationsInChunks(operations, weekId, increment = 1) {
+  const BATCH_LIMIT = 500;
+  const sign = increment >= 0 ? 1 : -1;
+  
+  for (let i = 0; i < operations.length; i += BATCH_LIMIT) {
+    const chunk = operations.slice(i, i + BATCH_LIMIT);
+    const batch = db.batch();
+    
+    for (const op of chunk) {
+      const { ref, delta, hasE1rmMax } = op;
+      
+      // Build update object with individual FieldValue.increment() calls
+      const update = {
+        [`weeks.${weekId}.sets`]: FieldValue.increment(delta.sets * sign),
+        [`weeks.${weekId}.hard_sets`]: FieldValue.increment(delta.hard_sets * sign),
+        [`weeks.${weekId}.volume`]: FieldValue.increment(delta.volume * sign),
+        [`weeks.${weekId}.rir_sum`]: FieldValue.increment(delta.rir_sum * sign),
+        [`weeks.${weekId}.rir_count`]: FieldValue.increment(delta.rir_count * sign),
+        [`weeks.${weekId}.failure_sets`]: FieldValue.increment(delta.failure_sets * sign),
+        [`weeks.${weekId}.set_count`]: FieldValue.increment(delta.set_count * sign),
+        [`weeks.${weekId}.reps_bucket.1-5`]: FieldValue.increment((delta.reps_bucket['1-5'] || 0) * sign),
+        [`weeks.${weekId}.reps_bucket.6-10`]: FieldValue.increment((delta.reps_bucket['6-10'] || 0) * sign),
+        [`weeks.${weekId}.reps_bucket.11-15`]: FieldValue.increment((delta.reps_bucket['11-15'] || 0) * sign),
+        [`weeks.${weekId}.reps_bucket.16-20`]: FieldValue.increment((delta.reps_bucket['16-20'] || 0) * sign),
+        updated_at: FieldValue.serverTimestamp(),
+      };
+      
+      // effective_volume for muscle/muscle_group series
+      if (delta.effective_volume !== undefined) {
+        update[`weeks.${weekId}.effective_volume`] = FieldValue.increment(delta.effective_volume * sign);
+      }
+      
+      batch.set(ref, update, { merge: true });
+      
+      // e1rm_max requires transaction for proper max tracking (see 9.3)
+      // For simplicity in v1, we skip e1rm_max on negative increments (delete)
+      // and rely on backfill job for recalculation if needed
+    }
+    
+    await batch.commit();
+  }
 }
 ```
 
-### 9.2 Concurrency Handling
+### 9.2 e1RM Max Handling
 
-For weekly bucket updates, use `FieldValue.increment()` which is atomic:
+For `e1rm_max`, we cannot use `FieldValue.increment()` since it's a max, not a sum.
+
+**v1 Approach (simple)**:
+- On workout create: use transaction to compare and update if new e1rm > stored max
+- On workout delete: do not decrement e1rm_max (would require recalculation)
+- Periodic nightly job recalculates e1rm_max from set_facts if drift is suspected
 
 ```javascript
-// Safe concurrent updates
-batch.set(ref, {
-  [`weeks.${weekId}.sets`]: FieldValue.increment(1),
-  [`weeks.${weekId}.volume`]: FieldValue.increment(setVolume),
-  [`weeks.${weekId}.hard_sets`]: FieldValue.increment(hardSetCredit),
-}, { merge: true });
+// e1rm_max update via transaction (on create only)
+async function updateE1rmMax(userId, exerciseId, weekId, newE1rm) {
+  if (newE1rm === null) return;
+  
+  const ref = db.collection('users').doc(userId)
+    .collection('series_exercises').doc(exerciseId);
+  
+  await db.runTransaction(async (tx) => {
+    const doc = await tx.get(ref);
+    const currentMax = doc.data()?.weeks?.[weekId]?.e1rm_max || 0;
+    
+    if (newE1rm > currentMax) {
+      tx.set(ref, {
+        [`weeks.${weekId}.e1rm_max`]: newE1rm,
+        updated_at: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  });
+}
 ```
 
-For complex aggregates (avg_rir, failure_rate), compute during series read or use a transaction:
+### 9.3 Workout Delete Handling
+
+**Decision**: Completed workouts support deletion. On delete, we apply negative increments.
 
 ```javascript
-// For avg_rir, store sum and count, compute avg on read
-batch.set(ref, {
-  [`weeks.${weekId}.rir_sum`]: FieldValue.increment(rir || 0),
-  [`weeks.${weekId}.rir_count`]: FieldValue.increment(rir !== null ? 1 : 0),
-}, { merge: true });
+/**
+ * On workout delete, apply negative increments to all affected series.
+ * Uses the same updateSeriesOnWorkoutComplete with increment = -1.
+ */
+exports.onWorkoutDeleted = onDocumentDeleted(
+  'users/{userId}/workouts/{workoutId}',
+  async (event) => {
+    const workout = event.data.data();
+    if (!workout || !workout.end_time) return null;
+    
+    const userId = event.params.userId;
+    
+    // Delete all set_facts for this workout
+    const setFactsQuery = db
+      .collection('users').doc(userId)
+      .collection('set_facts')
+      .where('workout_id', '==', event.params.workoutId);
+    
+    const setFactsSnap = await setFactsQuery.get();
+    const deleteOps = setFactsSnap.docs.map(doc => doc.ref.delete());
+    
+    // Chunk deletes
+    for (let i = 0; i < deleteOps.length; i += 500) {
+      await Promise.all(deleteOps.slice(i, i + 500));
+    }
+    
+    // Apply negative increments to series
+    await updateSeriesOnWorkoutComplete(userId, workout, -1);
+    
+    // Note: e1rm_max is NOT decremented (see 9.2)
+    // If accurate e1rm_max is critical after deletes, run recalculation job
+  }
+);
+```
 
-// On read: avg_rir = rir_sum / rir_count
+### 9.4 Set Facts Chunking
+
+```javascript
+/**
+ * Write set_facts in chunks to avoid batch limit
+ */
+async function writeSetFactsInChunks(userId, setFacts) {
+  const BATCH_LIMIT = 500;
+  
+  for (let i = 0; i < setFacts.length; i += BATCH_LIMIT) {
+    const chunk = setFacts.slice(i, i + BATCH_LIMIT);
+    const batch = db.batch();
+    
+    for (const sf of chunk) {
+      const ref = db.collection('users').doc(userId)
+        .collection('set_facts').doc(sf.set_id);
+      batch.set(ref, sf, { merge: true });
+    }
+    
+    await batch.commit();
+  }
+}
 ```
 
 ---
@@ -1339,6 +1515,53 @@ batch.set(ref, {
 | `adk_agent/canvas_orchestrator/app/shell/tools.py` | Add new tools, remove old |
 | `adk_agent/canvas_orchestrator/app/skills/coach_skills.py` | Add new skill functions |
 | `adk_agent/canvas_orchestrator/app/libs/tools_canvas/client.py` | Add new endpoint methods |
+
+---
+
+## 11. Authentication & Authorization
+
+### 11.1 Auth Lane Enforcement
+
+**Critical**: All public endpoints must derive `userId` from Firebase Auth, never from request body.
+
+```javascript
+/**
+ * Auth enforcement for all training endpoints
+ */
+function requireAuth(request) {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Authentication required');
+  }
+  return request.auth.uid;
+}
+
+// In each endpoint:
+exports.querySets = onCall(async (request) => {
+  const userId = requireAuth(request);  // NEVER accept userId from request.data
+  
+  // ... rest of implementation uses userId from auth
+});
+```
+
+### 11.2 Lane Summary
+
+| Lane | User ID Source | Use Case |
+|------|----------------|----------|
+| **App/Agent Callable** | `request.auth.uid` | All public endpoints |
+| **Backfill Job** | Service account iteration | Cross-user batch processing |
+| **Triggers** | `event.params.userId` | Firestore document paths |
+
+### 11.3 Request Body Validation
+
+```javascript
+// NEVER do this:
+// const userId = request.data.userId;  // ❌ WRONG
+
+// ALWAYS do this:
+const userId = requireAuth(request);   // ✅ CORRECT
+```
+
+**Rationale**: Accepting `userId` in request bodies would allow any authenticated user to query another user's training data. All training endpoints are user-scoped and must enforce this at the auth layer.
 
 ---
 
