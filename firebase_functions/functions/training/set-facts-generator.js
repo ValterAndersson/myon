@@ -104,7 +104,12 @@ function generateSetFact({
   weightUnit = 'kg',
 }) {
   const endTime = workoutEndTime instanceof Date ? workoutEndTime : workoutEndTime.toDate();
-  const weightKg = normalizeWeightToKg(set.weight || 0, weightUnit);
+  // Handle both set.weight_kg (already in kg) and set.weight (needs unit conversion)
+  const rawWeight = set.weight_kg ?? set.weightKg ?? set.weight ?? 0;
+  // If weight_kg is used, it's already in kg, skip conversion
+  const weightKg = (set.weight_kg !== undefined || set.weightKg !== undefined)
+    ? rawWeight
+    : normalizeWeightToKg(rawWeight, weightUnit);
   const reps = set.reps || 0;
   const volume = reps * weightKg;
   const isWarmup = set.is_warmup || set.isWarmup || false;
