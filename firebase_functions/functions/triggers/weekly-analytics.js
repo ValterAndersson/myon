@@ -457,25 +457,34 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       }
 
       // =============== TOKEN-SAFE ANALYTICS: set_facts + new series ===============
-      try {
-        // Generate set_facts from workout
-        const workoutWithId = { ...after, id: event.params.workoutId };
-        const setFacts = generateSetFactsForWorkout({
-          userId: event.params.userId,
-          workout: workoutWithId,
-        });
-        
-        if (setFacts.length > 0) {
-          // Write set_facts documents
-          await writeSetFactsInChunks(db, event.params.userId, setFacts);
+      // Skip if set_facts were already synced by upsertWorkout (within last 10 seconds)
+      const setFactsSyncedAt = after.set_facts_synced_at;
+      const syncedRecently = setFactsSyncedAt && 
+        (Date.now() - (setFactsSyncedAt.toMillis ? setFactsSyncedAt.toMillis() : setFactsSyncedAt)) < 10000;
+      
+      if (syncedRecently) {
+        console.log(`Skipping set_facts generation for workout ${event.params.workoutId} - already synced by upsertWorkout`);
+      } else {
+        try {
+          // Generate set_facts from workout
+          const workoutWithId = { ...after, id: event.params.workoutId };
+          const setFacts = generateSetFactsForWorkout({
+            userId: event.params.userId,
+            workout: workoutWithId,
+          });
           
-          // Update new series (series_exercises, series_muscle_groups, series_muscles)
-          await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
-          
-          console.log(`Token-safe analytics: wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+          if (setFacts.length > 0) {
+            // Write set_facts documents
+            await writeSetFactsInChunks(db, event.params.userId, setFacts);
+            
+            // Update new series (series_exercises, series_muscle_groups, series_muscles)
+            await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
+            
+            console.log(`Token-safe analytics: wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+          }
+        } catch (e) {
+          console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series)', e?.message || e);
         }
-      } catch (e) {
-        console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series)', e?.message || e);
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
       
@@ -592,25 +601,34 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
       }
 
       // =============== TOKEN-SAFE ANALYTICS: set_facts + new series ===============
-      try {
-        // Generate set_facts from workout
-        const workoutWithId = { ...workout, id: event.params.workoutId };
-        const setFacts = generateSetFactsForWorkout({
-          userId: event.params.userId,
-          workout: workoutWithId,
-        });
-        
-        if (setFacts.length > 0) {
-          // Write set_facts documents
-          await writeSetFactsInChunks(db, event.params.userId, setFacts);
+      // Skip if set_facts were already synced by upsertWorkout (within last 10 seconds)
+      const setFactsSyncedAt = workout.set_facts_synced_at;
+      const syncedRecently = setFactsSyncedAt && 
+        (Date.now() - (setFactsSyncedAt.toMillis ? setFactsSyncedAt.toMillis() : setFactsSyncedAt)) < 10000;
+      
+      if (syncedRecently) {
+        console.log(`Skipping set_facts generation for workout ${event.params.workoutId} - already synced by upsertWorkout`);
+      } else {
+        try {
+          // Generate set_facts from workout
+          const workoutWithId = { ...workout, id: event.params.workoutId };
+          const setFacts = generateSetFactsForWorkout({
+            userId: event.params.userId,
+            workout: workoutWithId,
+          });
           
-          // Update new series (series_exercises, series_muscle_groups, series_muscles)
-          await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
-          
-          console.log(`Token-safe analytics (create): wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+          if (setFacts.length > 0) {
+            // Write set_facts documents
+            await writeSetFactsInChunks(db, event.params.userId, setFacts);
+            
+            // Update new series (series_exercises, series_muscle_groups, series_muscles)
+            await updateSeriesForWorkout(db, event.params.userId, workoutWithId, 1);
+            
+            console.log(`Token-safe analytics (create): wrote ${setFacts.length} set_facts for workout ${event.params.workoutId}`);
+          }
+        } catch (e) {
+          console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series) on create', e?.message || e);
         }
-      } catch (e) {
-        console.warn('Non-fatal: failed to write token-safe analytics (set_facts/series) on create', e?.message || e);
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
 

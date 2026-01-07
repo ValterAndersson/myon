@@ -47,6 +47,7 @@ function getRecentWeekStarts(weeks) {
 
 /**
  * Extract weekly points from series document
+ * Returns recent weeks OR all available weeks if recent is empty
  */
 function extractWeeklyPoints(seriesDoc, weekIds) {
   if (!seriesDoc.exists) return [];
@@ -54,12 +55,24 @@ function extractWeeklyPoints(seriesDoc, weekIds) {
   const data = seriesDoc.data();
   const weeks = data.weeks || {};
   
-  return weekIds
+  // First try to get recent weeks
+  const recentPoints = weekIds
     .filter(wk => weeks[wk])
     .map(wk => {
       const raw = weeks[wk];
       return transformWeeklyPoint({ week_start: wk, ...raw });
     });
+  
+  // If no recent data, return ALL available weeks (sorted, capped at 52)
+  if (recentPoints.length === 0) {
+    const allWeeks = Object.keys(weeks).sort();
+    return allWeeks.slice(-52).map(wk => {
+      const raw = weeks[wk];
+      return transformWeeklyPoint({ week_start: wk, ...raw });
+    });
+  }
+  
+  return recentPoints;
 }
 
 /**

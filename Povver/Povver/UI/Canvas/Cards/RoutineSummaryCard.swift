@@ -104,47 +104,74 @@ public struct RoutineSummaryCard: View {
     // MARK: - Header Section
     
     private var headerSection: some View {
-        HStack(alignment: .center, spacing: Space.sm) {
-            // Routine icon
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundColor(ColorsToken.Brand.primary)
+        VStack(alignment: .leading, spacing: Space.sm) {
+            // Mode indicator (if updating)
+            if routineData.isUpdate {
+                modeIndicator
+            }
             
-            VStack(alignment: .leading, spacing: 2) {
-                Text(routineData.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+            HStack(alignment: .center, spacing: Space.sm) {
+                // Routine icon
+                Image(systemName: routineData.isUpdate ? "arrow.triangle.2.circlepath.circle" : "calendar.badge.clock")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(routineData.isUpdate ? ColorsToken.State.warning : ColorsToken.Brand.primary)
                 
-                HStack(spacing: 4) {
-                    Text("\(routineData.workouts.count) workouts")
-                    Text("•")
-                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
-                    Text("\(routineData.frequency)×/week")
-                }
-                .font(.system(size: 13))
-                .foregroundColor(ColorsToken.Text.secondary)
-            }
-            
-            Spacer()
-            
-            // Status pill
-            Text(statusText)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(statusColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(statusColor.opacity(0.12))
-                .clipShape(Capsule())
-            
-            // Overflow menu
-            Button { showingActionsSheet = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(routineData.name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(ColorsToken.Text.primary)
+                    
+                    HStack(spacing: 4) {
+                        Text("\(routineData.workouts.count) workouts")
+                        Text("•")
+                            .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                        Text("\(routineData.frequency)×/week")
+                    }
+                    .font(.system(size: 13))
                     .foregroundColor(ColorsToken.Text.secondary)
-                    .frame(width: 28, height: 28)
+                }
+                
+                Spacer()
+                
+                // Status pill
+                Text(statusText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(statusColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(statusColor.opacity(0.12))
+                    .clipShape(Capsule())
+                
+                // Overflow menu
+                Button { showingActionsSheet = true } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
         }
+    }
+    
+    /// Mode indicator pill - shows "Updating: RoutineName" for updates
+    private var modeIndicator: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11, weight: .medium))
+            
+            if let sourceName = routineData.sourceRoutineName, !sourceName.isEmpty {
+                Text("Updating: \(sourceName)")
+            } else {
+                Text("Updating Existing Routine")
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundColor(ColorsToken.State.warning)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(ColorsToken.State.warning.opacity(0.12))
+        .clipShape(Capsule())
     }
     
     // MARK: - Workout Days List
@@ -454,25 +481,49 @@ public struct RoutineSummaryCard: View {
             }
             .buttonStyle(PlainButtonStyle())
             
-            // Save Routine (Primary) - includes edited exercises
+            // For updates: Save as New option (secondary)
+            if routineData.isUpdate {
+                Button {
+                    var payload = serializeEditedWorkoutsForSave()
+                    payload["save_as_new"] = "true"  // Override sourceIds
+                    let action = CardAction(
+                        kind: "save_routine",
+                        label: "Save as New",
+                        style: .ghost,
+                        payload: payload
+                    )
+                    handleAction(action, model)
+                } label: {
+                    Text("Save as New")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundColor(ColorsToken.Text.secondary)
+                        .background(ColorsToken.Background.secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            // Save/Update Routine (Primary) - includes edited exercises
             Button {
                 let action = CardAction(
                     kind: "save_routine",
-                    label: "Save Routine",
+                    label: routineData.isUpdate ? "Update Routine" : "Save Routine",
                     style: .primary,
                     payload: serializeEditedWorkoutsForSave()
                 )
                 handleAction(action, model)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "checkmark")
+                    Image(systemName: routineData.isUpdate ? "arrow.triangle.2.circlepath" : "checkmark")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Save Routine")
+                    Text(routineData.isUpdate ? "Update Routine" : "Save Routine")
                         .font(.system(size: 14, weight: .semibold))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(ColorsToken.Brand.primary)
+                .background(routineData.isUpdate ? ColorsToken.State.warning : ColorsToken.Brand.primary)
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }

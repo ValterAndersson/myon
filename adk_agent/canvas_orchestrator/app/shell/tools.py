@@ -67,6 +67,8 @@ from app.skills.coach_skills import (
 from app.skills.planner_skills import (
     propose_workout as direct_propose_workout,
     propose_routine as direct_propose_routine,
+    propose_routine_update as direct_propose_routine_update,
+    propose_template_update as direct_propose_template_update,
     get_planning_context as _get_planning_context,
 )
 
@@ -693,6 +695,154 @@ def tool_propose_routine(
 
 
 # =============================================================================
+# UPDATE TOOLS (Modify Existing Routines/Templates)
+# These tools PROPOSE updates - user confirms via canvas UI.
+# =============================================================================
+
+def tool_update_routine(
+    *,
+    routine_id: str,
+    workouts: List[Dict[str, Any]],
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    frequency: Optional[int] = None,
+    routine_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Update an existing routine with modified workouts.
+    
+    Use this when the user wants to MODIFY their current routine, not create a new one.
+    Example triggers:
+        - "Improve my current routine"
+        - "Change my Push day to include more chest"
+        - "Add a fourth day to my PPL"
+    
+    For CREATING a new routine, use tool_propose_routine instead.
+    
+    The card shows "Update Routine" button - user confirms the changes.
+    UI will indicate "Updating: [routine name]" to make it clear this is a modification.
+    
+    Args:
+        routine_id: ID of the routine to update (from tool_get_planning_context)
+        
+        workouts: List of workout days with modifications. Each workout:
+            - title: Day name (e.g., "Push", "Pull", "Legs")
+            - exercises: List of exercises with name, exercise_id, sets, reps, rir, weight_kg
+            - source_template_id: (IMPORTANT) Original template ID if updating an existing day.
+                                  Include this to ensure the existing template is updated
+                                  rather than creating a new one.
+        
+        name: New routine name (optional - keeps existing if not provided)
+        description: New description (optional)
+        frequency: New frequency (optional)
+        routine_name: Current routine name for UI display (optional but recommended).
+                      Used to show "Updating: [routine_name]" in the card header.
+                      Get this from activeRoutine.name in tool_get_planning_context result.
+    
+    Returns:
+        Status of the published update proposal
+    
+    Example flow:
+        1. User: "Improve my Push Pull Legs routine"
+        2. Agent: tool_get_planning_context() → gets routine_id, template_ids
+        3. Agent: Analyzes current templates, plans improvements
+        4. Agent: tool_update_routine(
+             routine_id="abc123",
+             workouts=[
+               {
+                 "title": "Push",
+                 "source_template_id": "template-push-xyz",  # ← Original template
+                 "exercises": [improved exercises...]
+               },
+               ...
+             ]
+           )
+        5. User sees card with "Updating: Push Pull Legs" indicator
+        6. User clicks "Update Routine" → existing routine/templates are updated
+    """
+    ctx = get_current_context()
+    
+    if not ctx.canvas_id or not ctx.user_id:
+        return {"error": "Missing canvas_id or user_id in context"}
+    
+    result = direct_propose_routine_update(
+        canvas_id=ctx.canvas_id,
+        user_id=ctx.user_id,
+        routine_id=routine_id,
+        workouts=workouts,
+        name=name,
+        description=description,
+        frequency=frequency,
+        routine_name=routine_name,  # Pass for UI display: "Updating: [name]"
+        correlation_id=ctx.correlation_id,
+        dry_run=False,
+    )
+    
+    return result.to_dict()
+
+
+def tool_update_template(
+    *,
+    template_id: str,
+    exercises: List[Dict[str, Any]],
+    name: Optional[str] = None,
+    coach_notes: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Update a single workout template with modified exercises.
+    
+    Use this when:
+    - Modifying a standalone template (not part of a routine)
+    - Making targeted changes to ONE day of a routine
+    - Quick adjustments without rebuilding the entire routine
+    
+    Example triggers:
+        - "Change my Push day to add more chest work"
+        - "Update my leg template with more quad exercises"
+        - "Improve just the Pull workout"
+    
+    For routine-wide changes, use tool_update_routine instead.
+    
+    The card shows "Update Template" button - user confirms the changes.
+    UI will indicate this is an update, not a new template.
+    
+    Args:
+        template_id: ID of the template to update (from tool_get_planning_context)
+        
+        exercises: List of exercises with modifications. Each exercise:
+            - name: Exercise name
+            - exercise_id: Catalog ID
+            - sets: Number of working sets (3-4)
+            - reps: Target reps (8-12 for hypertrophy)
+            - rir: Target RIR for final set
+            - weight_kg: Target weight (optional)
+        
+        name: New template name (optional - keeps existing if not provided)
+        coach_notes: Rationale for the changes
+    
+    Returns:
+        Status of the published update proposal
+    """
+    ctx = get_current_context()
+    
+    if not ctx.canvas_id or not ctx.user_id:
+        return {"error": "Missing canvas_id or user_id in context"}
+    
+    result = direct_propose_template_update(
+        canvas_id=ctx.canvas_id,
+        user_id=ctx.user_id,
+        template_id=template_id,
+        exercises=exercises,
+        name=name,
+        coach_notes=coach_notes,
+        correlation_id=ctx.correlation_id,
+        dry_run=False,
+    )
+    
+    return result.to_dict()
+
+
+# =============================================================================
 # TOOL REGISTRY
 # =============================================================================
 
@@ -712,9 +862,13 @@ all_tools = [
     FunctionTool(func=tool_get_coaching_context),
     FunctionTool(func=tool_query_training_sets),
     
-    # Write tools (cards have accept/dismiss buttons)
+    # Write tools - Create new (cards have accept/dismiss buttons)
     FunctionTool(func=tool_propose_workout),
     FunctionTool(func=tool_propose_routine),
+    
+    # Write tools - Update existing (cards have update/dismiss buttons)
+    FunctionTool(func=tool_update_routine),
+    FunctionTool(func=tool_update_template),
 ]
 
 
@@ -735,7 +889,10 @@ __all__ = [
     "tool_get_exercise_progress",
     "tool_get_coaching_context",
     "tool_query_training_sets",
-    # Write tools
+    # Write tools - Create
     "tool_propose_workout",
     "tool_propose_routine",
+    # Write tools - Update
+    "tool_update_routine",
+    "tool_update_template",
 ]

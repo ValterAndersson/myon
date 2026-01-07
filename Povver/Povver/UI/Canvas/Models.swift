@@ -360,13 +360,29 @@ public struct RoutineSummaryData: Equatable, Codable {
     public let draftId: String?
     public let revision: Int?
     
+    // CRUD mode fields - indicates whether this is create/update
+    public let mode: String?           // "create" | "update"
+    public let sourceRoutineId: String?  // Original routine ID if updating
+    public let sourceRoutineName: String?  // Original routine name for display
+    
+    enum CodingKeys: String, CodingKey {
+        case name, description, frequency, workouts
+        case draftId = "draft_id"
+        case revision, mode
+        case sourceRoutineId = "source_routine_id"
+        case sourceRoutineName = "source_routine_name"
+    }
+    
     public init(
         name: String,
         description: String? = nil,
         frequency: Int,
         workouts: [RoutineWorkoutSummary],
         draftId: String? = nil,
-        revision: Int? = nil
+        revision: Int? = nil,
+        mode: String? = nil,
+        sourceRoutineId: String? = nil,
+        sourceRoutineName: String? = nil
     ) {
         self.name = name
         self.description = description
@@ -374,6 +390,14 @@ public struct RoutineSummaryData: Equatable, Codable {
         self.workouts = workouts
         self.draftId = draftId
         self.revision = revision
+        self.mode = mode
+        self.sourceRoutineId = sourceRoutineId
+        self.sourceRoutineName = sourceRoutineName
+    }
+    
+    /// Returns true if this is an update to an existing routine
+    public var isUpdate: Bool {
+        mode == "update" || sourceRoutineId != nil
     }
 }
 

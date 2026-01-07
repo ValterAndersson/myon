@@ -741,6 +741,57 @@ Subcollections:
      - `job_cursors?: { [key]: any }`
      - `updated_at: Timestamp`
 
+14) agent_recommendations/{recommendationId}
+   - Audit log of agent-initiated changes to user training data.
+   - Used by background agents (post_workout_analyst) to log and optionally queue changes.
+   - Supports two modes: auto-pilot (immediate apply) or review (pending approval).
+   - Fields:
+     - `id: string` (document ID)
+     - `created_at: Timestamp`
+     - `trigger: string` - What triggered this recommendation:
+       - `"post_workout"` - After workout completion analysis
+       - `"scheduled"` - Scheduled progression check
+       - `"plateau_detected"` - Auto-detected plateau
+       - `"user_request"` - User asked for adjustment
+     - `trigger_context: object` - Additional trigger context (e.g., workout_id, completed_at)
+     - `scope: "template" | "routine"` - Target type
+     - `target: object`:
+       - `template_id?: string` - If scope is "template"
+       - `routine_id?: string` - If scope is "routine"
+     - `recommendation: object`:
+       - `type: string` - Recommendation type:
+         - `"progression"` - Weight/rep increase
+         - `"deload"` - Weight reduction
+         - `"volume_adjustment"` - Sets/reps change
+         - `"exercise_swap"` - Replace exercise
+       - `changes: Array<{ path: string, from: any, to: any, rationale?: string }>`
+       - `summary: string` - Human-readable summary
+       - `rationale?: string` - Full explanation
+       - `confidence: number` - 0-1 confidence score
+     - `state: string` - State machine:
+       - `"pending_review"` - Waiting for user approval
+       - `"applied"` - Applied (auto-pilot or user-approved)
+       - `"rejected"` - User rejected
+       - `"expired"` - TTL expired
+       - `"failed"` - Application failed
+     - `state_history: Array<{ from: string?, to: string, at: string, by: string, note?: string }>`
+     - `applied_by?: "agent" | "user"` - Who applied the change
+     - `applied_at?: Timestamp` - When applied
+     - `result?: object` - Result of application (e.g., { template_id, changes_applied })
+
+   - Query patterns:
+     - Pending reviews: `where('state', '==', 'pending_review')` ordered by `created_at`
+     - Applied by trigger: `where('trigger', '==', 'post_workout')` ordered by `created_at`
+     - History for target: `where('target.template_id', '==', templateId)`
+
+   - State transitions:
+     ```
+     pending_review → applied (user approves or auto-apply)
+     pending_review → rejected (user rejects)
+     pending_review → expired (TTL sweep)
+     applied (initial) → failed (application error, then retry or manual fix)
+     ```
+
 ---
 
 ## Global Collections

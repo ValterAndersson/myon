@@ -26,7 +26,9 @@ function getFirestore() {
       }
     }
     if (!admin.apps.length) {
-      admin.initializeApp();
+      admin.initializeApp({
+        projectId: process.env.GOOGLE_CLOUD_PROJECT || 'myon-53d85',
+      });
     }
   }
   if (!firestore) {
@@ -421,5 +423,3 @@ main().catch(err => {
   console.error('Import failed:', err?.message || err);
   process.exit(1);
 });
-
-

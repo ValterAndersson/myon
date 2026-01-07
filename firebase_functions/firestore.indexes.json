@@ -1,6 +1,13 @@
 {
   "indexes": [
     {
+      "collectionGroup": "workouts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "source_meta.key", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "pending_responses",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
@@ -48,6 +55,15 @@
       "collectionGroup": "set_facts",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "muscle_group_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "muscle_keys", "arrayConfig": "CONTAINS" },
         { "fieldPath": "workout_date", "order": "ASCENDING" },
         { "fieldPath": "is_warmup", "order": "ASCENDING" }
@@ -57,7 +73,9 @@
       "collectionGroup": "set_facts",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "workout_id", "order": "ASCENDING" }
+        { "fieldPath": "muscle_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_date", "order": "ASCENDING" }
       ]
     }
   ],

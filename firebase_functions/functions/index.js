@@ -31,6 +31,7 @@ const { upsertUserAttributes } = require('./user/upsert-attributes');
 // Workout Operations  
 const { getUserWorkouts } = require('./workouts/get-user-workouts');
 const { getWorkout } = require('./workouts/get-workout');
+const { upsertWorkout } = require('./workouts/upsert-workout');
 
 // Template Operations
 const { getUserTemplates } = require('./templates/get-user-templates');
@@ -106,6 +107,7 @@ const { recalculateWeeklyForUser } = require('./analytics/recalculate-weekly-for
 // Agents
 const { invokeCanvasOrchestrator } = require('./agents/invoke-canvas-orchestrator');
 const { getPlanningContext } = require('./agents/get-planning-context');
+const { applyProgression } = require('./agents/apply-progression');
 
 // Token-safe Training Analytics v2
 const { getExerciseSeries, getMuscleGroupSeries, getMuscleSeries } = require('./training/series-endpoints');
@@ -144,6 +146,8 @@ exports.upsertUserAttributes = functions.https.onRequest((req, res) => withApiKe
 // Workout Operations
 exports.getUserWorkouts = functions.https.onRequest((req, res) => withApiKey(getUserWorkouts)(req, res));
 exports.getWorkout = functions.https.onRequest((req, res) => withApiKey(getWorkout)(req, res));
+// upsertWorkout is a v2 onRequest with requireFlexibleAuth - used by import scripts, not exposed to agents
+exports.upsertWorkout = upsertWorkout;
 
 // Template Operations
 // getUserTemplates is already a v2 onRequest function with requireFlexibleAuth from get-user-templates.js
@@ -228,6 +232,8 @@ exports.recalculateWeeklyForUser = functions.https.onRequest((req, res) => requi
 // Agents
 exports.invokeCanvasOrchestrator = functions.https.onRequest((req, res) => requireFlexibleAuth(invokeCanvasOrchestrator)(req, res));
 exports.getPlanningContext = functions.https.onRequest((req, res) => requireFlexibleAuth(getPlanningContext)(req, res));
+// applyProgression is a v2 onRequest function with built-in CORS
+exports.applyProgression = applyProgression;
 
 // Auth Operations
 exports.getServiceToken = getServiceToken;
