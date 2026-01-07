@@ -13,6 +13,34 @@ struct TimelineClarificationPrompt: Identifiable {
     let question: String
 }
 
+// MARK: - Legacy Thought Track Types (for backward compat with stored events)
+
+/// Single step in a thought track (legacy)
+struct ThoughtStep: Identifiable {
+    let id: String
+    let kind: Kind
+    let text: String
+    let detail: String?
+    let duration: Double?
+    let isComplete: Bool
+    let timestamp: Date
+    
+    enum Kind {
+        case thinking
+        case tool
+        case insight
+    }
+}
+
+/// Completed thought track (legacy)
+struct ThoughtTrack: Identifiable {
+    let id: String
+    let steps: [ThoughtStep]
+    let isComplete: Bool
+    let summary: String?
+    let totalDuration: Double
+}
+
 // MARK: - Timeline Item Types
 private enum TimelineItemKind {
     case userMessage(text: String)
@@ -42,6 +70,9 @@ struct WorkspaceTimelineView: View {
     let onClarificationSkip: (String, String) -> Void
     var hideThinkingEvents: Bool = false  // Hide old SRE stream when showing new skeleton
     
+    // Gemini-style thinking process state (new system)
+    @ObservedObject var thinkingState: ThinkingProcessState
+    
     // Simplified sticky bottom scroll state
     @State private var shouldAutoScroll = true  // Single switch - disabled when user scrolls up
     @State private var lastScrollTime: Date = .distantPast
@@ -57,6 +88,12 @@ struct WorkspaceTimelineView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Header
                     workspaceHeader
+                    
+                    // NEW: Gemini-style ThinkingBubble (live thought process)
+                    if thinkingState.isActive || thinkingState.isComplete {
+                        ThinkingBubble(state: thinkingState)
+                            .id("thinking-bubble")
+                    }
                     
                     // Synthetic clarification at top if pending
                     if let syntheticClarification,
@@ -245,10 +282,9 @@ struct WorkspaceTimelineView: View {
         switch item.kind {
         case .userMessage(let text):
             userMessageBubble(text: text, timestamp: item.timestamp)
-        case .thoughtTrack(let track):
-            ThoughtTrackView(track: track)
-        case .liveThoughtTrack(let steps):
-            LiveThoughtTrackView(steps: steps, isActive: true)
+        case .thoughtTrack, .liveThoughtTrack:
+            // Legacy thought tracks are now handled by ThinkingBubble at the top
+            EmptyView()
         case .agentResponse(let text):
             agentResponseBubble(text: text, timestamp: item.timestamp)
         case .artifact(let card):
@@ -1308,7 +1344,9 @@ struct WorkspaceTimelineView_Previews: PreviewProvider {
             syntheticClarification: TimelineClarificationPrompt(id: "test", question: "What muscle groups do you want to focus on?"),
             answeredClarifications: [],
             onClarificationSubmit: { _, _, _ in },
-            onClarificationSkip: { _, _ in }
+            onClarificationSkip: { _, _ in },
+            hideThinkingEvents: true,
+            thinkingState: ThinkingProcessState()
         )
         .previewLayout(.sizeThatFits)
     }

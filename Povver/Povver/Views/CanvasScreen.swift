@@ -41,7 +41,8 @@ struct CanvasScreen: View {
                 answeredClarifications: answeredClarifications,
                 onClarificationSubmit: handleClarificationSubmit,
                 onClarificationSkip: handleClarificationSkip,
-                hideThinkingEvents: false  // Always show inline thought process
+                hideThinkingEvents: true,  // Hide old thought process - using new ThinkingBubble
+                thinkingState: vm.thinkingState  // Gemini-style thinking process
             )
             
             composeBar(pendingClarification: pendingClarification)

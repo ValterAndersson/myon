@@ -35,29 +35,33 @@ import Combine
 // 2. CanvasViewModel calls DirectStreamingService.streamQuery()
 // 3. DirectStreamingService POSTs to streamAgentNormalized with SSE Accept header
 // 4. Firebase Function proxies to Agent Engine and normalizes events
-// 5. Agent Engine routes to Orchestrator → Coach/Planner/Copilot agents
+// 5. Agent Engine emits _pipeline events (router, planner, critic) for CoT visibility
 // 6. Agent calls tools which emit _display metadata (see response_helpers.py)
-// 7. Firebase extracts _display and emits structured SSE events
+// 7. Firebase extracts _pipeline/_display and emits structured SSE events
 // 8. DirectStreamingService parses SSE → StreamEvent objects
-// 9. UI renders StreamEvents in ThoughtTrackView and AgentStreamCard
+// 9. CanvasViewModel.handleIncomingStreamEvent() forwards to ThinkingProcessState
+// 10. ThinkingBubble renders Gemini-style collapsible thought process
 //
 // EVENT TYPES RECEIVED:
+// - pipeline: CoT visibility (router, planner, critic steps)
 // - session: Contains sessionId for session continuity
+// - thinking: Agent is reasoning
+// - thought: Thought completion
+// - toolRunning: Agent is calling a tool (with name)
+// - toolComplete: Tool completed (with result)
 // - text_delta: Partial text chunk from agent
 // - text_commit: Final committed text
-// - list_item: Formatted list item (bullet point)
-// - tool_started: Agent is calling a tool (with name)
-// - tool_result: Tool completed (with name and counts)
-// - code_block: Code block open/close
+// - agentResponse: Complete agent response
 // - error: Error from agent
+// - done: Stream complete
 //
 // RELATED IOS FILES:
 // - ChatService.swift: Manages chat sessions, uses this for streaming
-// - CanvasViewModel.swift: Uses streamQuery for agent invocations
-// - AgentProgressState.swift: Tracks tool execution phases
-// - StreamEvent.swift (Models): Event data model
-// - ThoughtTrackView.swift: Renders tool_started/tool_result events
-// - AgentStreamCard.swift: Renders streaming text output
+// - CanvasViewModel.swift: Uses streamQuery, forwards events to ThinkingProcessState
+// - ThinkingProcessState.swift: Groups events into phases (Planning → Gathering → Building)
+// - ThinkingBubble.swift: Gemini-style collapsible thought process UI
+// - StreamEvent.swift (Models): Event data model with .pipeline case
+// - WorkspaceTimelineView.swift: Timeline with ThinkingBubble at top
 //
 // RELATED AGENT FILES:
 // - adk_agent/canvas_orchestrator/app/agents/orchestrator.py: Routes to agents

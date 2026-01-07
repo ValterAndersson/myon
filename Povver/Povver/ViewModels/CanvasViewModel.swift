@@ -33,7 +33,7 @@
  - cards: [CanvasCardModel] - All canvas cards from Firestore listener
  - streamEvents: [StreamEvent] - SSE events for workspace timeline
  - workspaceEvents: [WorkspaceEvent] - Persisted conversation history
- - progressState: AgentProgressState - Monotonic progress tracking for UX
+ - thinkingState: ThinkingProcessState - Gemini-style collapsible thought process
  - pendingClarificationCue: ClarificationCue? - Pending agent question
  
  METHODS:
@@ -87,8 +87,8 @@ final class CanvasViewModel: ObservableObject {
     @Published var workspaceEvents: [WorkspaceEvent] = []
     @Published var pendingClarificationCue: ClarificationCue? = nil
     
-    // Monotonic progress tracking (Phase 1 UX Polish)
-    @Published var progressState = AgentProgressState()
+    // Gemini-style thinking process state
+    @Published var thinkingState = ThinkingProcessState()
 
     private let repo: CanvasRepositoryProtocol
     private let service: CanvasServiceProtocol
@@ -338,9 +338,8 @@ final class CanvasViewModel: ObservableObject {
                 self.messageBuffer = ""
                 self.thoughtStartAt = Date().timeIntervalSince1970
                 self.toolStartByName.removeAll()
-                // Reset progress state for new work (Phase 1 UX Polish)
-                self.progressState.reset()
-                self.progressState.advance(to: .understanding)
+                // Reset and start Gemini-style thinking process
+                self.thinkingState.start()
             }
             
             // Track last meaningful event time for timeout detection
@@ -420,7 +419,17 @@ final class CanvasViewModel: ObservableObject {
         let now = Date().timeIntervalSince1970
         guard let type = event.eventType else { return }
         
+        // Forward ALL events to Gemini-style thinking state
+        thinkingState.handleEvent(event)
+        
         switch type {
+        case .pipeline:
+            // Pipeline events (router, planner, critic) are handled by thinkingState
+            // Just log for debugging
+            if let step = event.content?["step"]?.value as? String {
+                DebugLogger.log(.canvas, "Pipeline: \(step)")
+            }
+            
         case .thinking:
             currentAgentStatus = event.displayText
             isAgentThinking = true
@@ -432,11 +441,6 @@ final class CanvasViewModel: ObservableObject {
             isAgentThinking = true
             let toolName = (event.content?["tool"]?.value as? String) ?? (event.content?["tool_name"]?.value as? String) ?? "tool"
             toolStartByName[toolName] = event.timestamp ?? now
-            if let phase = event.content?["phase"]?.value as? String {
-                progressState.advance(toPhase: phase)
-            } else {
-                progressState.advance(with: toolName)
-            }
             streamEvents.append(event)
             
         case .toolComplete:
@@ -491,7 +495,7 @@ final class CanvasViewModel: ObservableObject {
             isAgentThinking = false
             
         case .done:
-            progressState.complete()
+            thinkingState.complete()
             if let start = thoughtStartAt {
                 let secs = max(0, (event.timestamp ?? now) - start)
                 let text = String(format: "Thought for %.1fs", secs)

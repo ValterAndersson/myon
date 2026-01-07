@@ -17,6 +17,8 @@ public struct StreamEvent: Codable {
         case error = "error"
         case heartbeat = "heartbeat"
         case done = "done"
+        // Pipeline events for thought process visibility (router, planner, critic)
+        case pipeline = "pipeline"
     }
     
     public let type: String  // Keep as string for flexibility
