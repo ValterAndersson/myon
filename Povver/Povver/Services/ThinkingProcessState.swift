@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 // =============================================================================
 // MARK: - ThinkingProcessState.swift - Gemini-Style Thought Process
@@ -247,8 +248,6 @@ public final class ThinkingProcessState: ObservableObject {
     private func handlePipelineEvent(_ event: StreamEvent) {
         guard let step = event.content?["step"]?.value as? String else { return }
         
-        let phase = ThinkingPhase.from(pipelineStep: step)
-        
         switch step.lowercased() {
         case "router":
             // Router decision - update planning step with lane info
@@ -263,7 +262,7 @@ public final class ThinkingProcessState: ObservableObject {
         case "planner":
             // Planner output - show the plan summary
             let planIntent = event.content?["intent"]?.value as? String
-            let rationale = event.content?["rationale"]?.value as? String
+            _ = event.content?["rationale"]?.value as? String  // Reserved for future use
             let tools = event.content?["suggested_tools"]?.value as? [String] ?? []
             
             // Complete the planning step
