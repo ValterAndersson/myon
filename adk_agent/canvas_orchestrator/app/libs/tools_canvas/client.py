@@ -745,6 +745,7 @@ class CanvasFunctionsClient:
         muscle_group: Optional[str] = None,
         muscle: Optional[str] = None,
         exercise_ids: Optional[List[str]] = None,
+        exercise_name: Optional[str] = None,
         start: Optional[str] = None,
         end: Optional[str] = None,
         include_warmups: bool = False,
@@ -753,15 +754,17 @@ class CanvasFunctionsClient:
     ) -> Dict[str, Any]:
         """Query individual set facts with filters - for drilldown only.
         
-        EXACTLY ONE target filter is required: muscle_group, muscle, or exercise_ids.
+        EXACTLY ONE target filter is required: muscle_group, muscle, exercise_ids, or exercise_name.
         Use this only when you need raw set data for evidence. Prefer summary
         endpoints for general questions.
         
         Args:
             user_id: User ID
-            muscle_group: Filter by muscle group (mutually exclusive with muscle/exercise_ids)
-            muscle: Filter by specific muscle (mutually exclusive with muscle_group/exercise_ids)  
-            exercise_ids: Filter by exercise IDs, max 10 (mutually exclusive with muscle_group/muscle)
+            muscle_group: Filter by muscle group (mutually exclusive with other targets)
+            muscle: Filter by specific muscle (mutually exclusive with other targets)  
+            exercise_ids: Filter by exercise IDs, max 10 (mutually exclusive with other targets)
+            exercise_name: Filter by exercise name (fuzzy search, e.g., "bench press")
+                Searches user's training history for matching exercise names.
             start: Start date YYYY-MM-DD
             end: End date YYYY-MM-DD
             include_warmups: Include warmup sets (default false)
@@ -799,6 +802,8 @@ class CanvasFunctionsClient:
             target["muscle"] = muscle
         if exercise_ids:
             target["exercise_ids"] = exercise_ids[:10]
+        if exercise_name:
+            target["exercise_name"] = exercise_name
         
         body: Dict[str, Any] = {
             "userId": user_id,

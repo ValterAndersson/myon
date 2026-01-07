@@ -187,6 +187,48 @@ def tool_get_planning_context() -> Dict[str, Any]:
     
     Returns user profile, active routine, templates, recent workouts.
     Use this FIRST when planning a workout or routine.
+    
+    RETURNS (key fields):
+        user: User profile with attributes (goals, experience, equipment)
+        
+        activeRoutine: The user's active training routine (if any)
+            - name, frequency, template_ids, last_completed_template_id
+        
+        nextWorkout: Deterministic next workout in the routine
+            - templateId, templateIndex, template (with full exercises)
+        
+        templates: Routine templates metadata
+            - id, name, description, exerciseCount
+        
+        recentWorkoutsSummary: Last N completed workouts (default 5, max 20)
+            Each workout contains:
+            - id: Workout document ID
+            - end_time: When workout was completed
+            - total_sets: Total working sets performed
+            - total_volume: Total weight moved (kg)
+            - exercises: Title-level exercise list (NOT full set data)
+                Format: [{ name: "Bench Press", sets: 4 }, ...]
+            
+            WHAT THIS PROVIDES:
+            - Exercise names from recent workouts
+            - Working set count per exercise
+            - Enough to answer "What exercises did I do last workout?"
+            
+            WHAT THIS DOES NOT PROVIDE:
+            - Individual set details (reps, weight, RIR)
+            - Rep ranges or intensity metrics
+            - For set-level drilldown, use tool_query_training_sets instead
+    
+    WHEN TO USE:
+        - "What should I do today?" → check nextWorkout.template
+        - "What did I do last workout?" → check recentWorkoutsSummary[0].exercises
+        - "What exercises are in my Push day?" → check templates or nextWorkout
+        - Planning a new workout → need user context + templates
+    
+    WHEN NOT TO USE (use these instead):
+        - "How many sets of bench did I do?" → tool_query_training_sets (set details)
+        - "How is my chest developing?" → tool_get_muscle_group_progress (trends)
+        - "What was my heaviest bench set?" → tool_get_exercise_progress (PRs)
     """
     ctx = get_current_context()
     
@@ -463,6 +505,7 @@ def tool_query_training_sets(
     muscle_group: Optional[str] = None,
     muscle: Optional[str] = None,
     exercise_ids: Optional[List[str]] = None,
+    exercise_name: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
     limit: int = 50,
@@ -473,7 +516,7 @@ def tool_query_training_sets(
     Use this tool when you need to see ACTUAL SET DATA for evidence-based coaching.
     Prefer summary endpoints (muscle_group_progress, exercise_progress) first.
     
-    EXACTLY ONE filter required: muscle_group, muscle, or exercise_ids.
+    EXACTLY ONE filter required: muscle_group, muscle, exercise_ids, or exercise_name.
     
     Args:
         muscle_group: Filter by muscle group (e.g., "chest")
@@ -483,7 +526,12 @@ def tool_query_training_sets(
             Mutually exclusive with muscle_group and exercise_ids.
         
         exercise_ids: Filter by exercise IDs (max 10)
-            Mutually exclusive with muscle_group and muscle.
+            Mutually exclusive with other filters.
+        
+        exercise_name: Filter by exercise name (fuzzy search)
+            Examples: "bench press", "squats", "lat pulldown"
+            Searches user's training history for matching exercise names.
+            PREFERRED when you have a name from user input.
         
         start: Start date YYYY-MM-DD (optional)
         end: End date YYYY-MM-DD (optional)
@@ -546,6 +594,7 @@ def tool_query_training_sets(
         muscle_group=muscle_group,
         muscle=muscle,
         exercise_ids=exercise_ids,
+        exercise_name=exercise_name,
         start=start,
         end=end,
         limit=limit,

@@ -131,7 +131,7 @@ function enforceQueryCaps(request) {
 
 /**
  * Validate exactly one target is specified
- * @param {Object} target - Target object { muscle_group?, muscle?, exercise_ids? }
+ * @param {Object} target - Target object { muscle_group?, muscle?, exercise_ids?, exercise_name? }
  * @throws {HttpsError} - If validation fails
  */
 function validateExactlyOneTarget(target) {
@@ -142,20 +142,21 @@ function validateExactlyOneTarget(target) {
   const count = [
     target.muscle_group,
     target.muscle,
-    target.exercise_ids?.length > 0
+    target.exercise_ids?.length > 0,
+    target.exercise_name
   ].filter(Boolean).length;
   
   if (count === 0) {
     throw new HttpsError(
       'invalid-argument',
-      'Exactly one target required: muscle_group, muscle, or exercise_ids'
+      'Exactly one target required: muscle_group, muscle, exercise_ids, or exercise_name'
     );
   }
   
   if (count > 1) {
     throw new HttpsError(
       'invalid-argument',
-      'Targets are mutually exclusive: provide only one of muscle_group, muscle, or exercise_ids'
+      'Targets are mutually exclusive: provide only one of muscle_group, muscle, exercise_ids, or exercise_name'
     );
   }
 }

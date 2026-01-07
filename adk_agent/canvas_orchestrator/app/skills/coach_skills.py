@@ -634,6 +634,7 @@ def query_training_sets(
     muscle_group: Optional[str] = None,
     muscle: Optional[str] = None,
     exercise_ids: Optional[List[str]] = None,
+    exercise_name: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
     include_warmups: bool = False,
@@ -643,7 +644,7 @@ def query_training_sets(
     """
     Query individual set facts with filters - FOR DRILLDOWN ONLY.
     
-    EXACTLY ONE target filter is required: muscle_group, muscle, or exercise_ids.
+    EXACTLY ONE target filter is required: muscle_group, muscle, exercise_ids, or exercise_name.
     Use this only when you need raw set data for evidence.
     Prefer summary endpoints for general questions.
     
@@ -652,6 +653,7 @@ def query_training_sets(
         muscle_group: Filter by muscle group (mutually exclusive)
         muscle: Filter by specific muscle (mutually exclusive)
         exercise_ids: Filter by exercise IDs, max 10 (mutually exclusive)
+        exercise_name: Filter by exercise name (fuzzy search, e.g., "bench press")
         start: Start date YYYY-MM-DD
         end: End date YYYY-MM-DD
         include_warmups: Include warmup sets (default false)
@@ -673,22 +675,23 @@ def query_training_sets(
         muscle_group is not None,
         muscle is not None,
         exercise_ids is not None and len(exercise_ids) > 0,
+        exercise_name is not None,
     ])
     
     if targets_provided == 0:
         return SkillResult(
             success=False, 
-            error="Exactly one target required: muscle_group, muscle, or exercise_ids"
+            error="Exactly one target required: muscle_group, muscle, exercise_ids, or exercise_name"
         )
     if targets_provided > 1:
         return SkillResult(
             success=False,
-            error="Only one target allowed. Specify muscle_group OR muscle OR exercise_ids, not multiple."
+            error="Only one target allowed. Specify muscle_group OR muscle OR exercise_ids OR exercise_name, not multiple."
         )
     
     limit = max(1, min(200, limit))
-    logger.info("query_training_sets uid=%s group=%s muscle=%s exIds=%s", 
-                user_id, muscle_group, muscle, exercise_ids)
+    logger.info("query_training_sets uid=%s group=%s muscle=%s exIds=%s exName=%s", 
+                user_id, muscle_group, muscle, exercise_ids, exercise_name)
     
     try:
         api_client = client or _get_client()
@@ -697,6 +700,7 @@ def query_training_sets(
             muscle_group=muscle_group,
             muscle=muscle,
             exercise_ids=exercise_ids,
+            exercise_name=exercise_name,
             start=start,
             end=end,
             include_warmups=include_warmups,

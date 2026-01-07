@@ -216,7 +216,12 @@ async function getPlanningContextHandler(req, res) {
           end_time: w.end_time,
           total_sets: w.analytics?.total_sets,
           total_volume: w.analytics?.total_weight,
-          exercise_count: w.exercises?.length
+          // ENHANCED: Include exercise titles (not full set data)
+          // This allows agent to answer "What exercises did I do last workout?"
+          exercises: (w.exercises || []).slice(0, 15).map(ex => ({
+            name: ex.name || ex.exercise_name,
+            sets: (ex.sets || []).filter(s => s.type !== 'warmup').length
+          }))
         };
       });
     }

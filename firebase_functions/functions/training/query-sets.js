@@ -81,6 +81,36 @@ exports.querySets = onCall(async (request) => {
         });
       }
       query = query.where('muscle_keys', 'array-contains', target.muscle);
+    } else if (target.exercise_name) {
+      // Fuzzy search by exercise name - find matching exercise_ids from user's set_facts
+      const nameQuery = target.exercise_name.toLowerCase().trim();
+      const exerciseScan = await db.collection('users').doc(userId).collection('set_facts')
+        .where('is_warmup', '==', false)
+        .orderBy('workout_end_time', 'desc')
+        .limit(500)
+        .get();
+      
+      // Find distinct exercise_ids where name matches
+      const matchingIds = new Set();
+      for (const doc of exerciseScan.docs) {
+        const sf = doc.data();
+        const exerciseName = (sf.exercise_name || '').toLowerCase();
+        if (exerciseName.includes(nameQuery) || nameQuery.includes(exerciseName.split(' ')[0])) {
+          matchingIds.add(sf.exercise_id);
+          if (matchingIds.size >= CAPS.MAX_EXERCISE_IDS_FILTER) break;
+        }
+      }
+      
+      if (matchingIds.size === 0) {
+        // Return empty result with helpful message
+        return buildResponse([], {
+          limit: actualLimit,
+          hasMore: false,
+          message: `No exercises found matching "${target.exercise_name}" in your training history`,
+        });
+      }
+      
+      query = query.where('exercise_id', 'in', Array.from(matchingIds));
     } else if (target.exercise_ids?.length > 0) {
       // exercise_ids uses 'in' query
       query = query.where('exercise_id', 'in', target.exercise_ids.slice(0, CAPS.MAX_EXERCISE_IDS_FILTER));
