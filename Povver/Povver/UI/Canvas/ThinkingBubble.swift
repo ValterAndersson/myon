@@ -116,35 +116,54 @@ private struct StepRow: View {
     let isLast: Bool
     
     var body: some View {
-        HStack(alignment: .top, spacing: Space.sm) {
-            // Status indicator
-            statusIcon
-                .frame(width: 16, height: 16)
-            
-            // Content
-            VStack(alignment: .leading, spacing: 2) {
-                // Title with phase styling
-                Text(step.title)
-                    .font(.system(size: 13, weight: step.status == .active ? .semibold : .medium))
-                    .foregroundColor(titleColor)
-                    .italic(step.status == .active)
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            // Main step header
+            HStack(alignment: .top, spacing: Space.sm) {
+                // Status indicator
+                statusIcon
+                    .frame(width: 16, height: 16)
                 
-                // Detail (if present)
-                if let detail = step.detail {
-                    Text(detail)
-                        .font(.system(size: 12))
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .lineLimit(2)
+                // Content
+                VStack(alignment: .leading, spacing: 2) {
+                    // Title with phase styling
+                    Text(step.title)
+                        .font(.system(size: 13, weight: step.status == .active ? .semibold : .medium))
+                        .foregroundColor(titleColor)
+                        .italic(step.status == .active)
+                    
+                    // Show tool count summary if we have tool results
+                    if !step.toolResults.isEmpty {
+                        let completedCount = step.toolResults.filter { $0.isComplete }.count
+                        Text("\(completedCount) of \(step.toolResults.count) steps completed")
+                            .font(.system(size: 11))
+                            .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+                    } else if let detail = step.detail {
+                        // Fallback to detail if no tool results
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundColor(ColorsToken.Text.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                
+                Spacer()
+                
+                // Duration (if complete)
+                if let durationText = step.durationText {
+                    Text(durationText)
+                        .font(.system(size: 11))
+                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
                 }
             }
             
-            Spacer()
-            
-            // Duration (if complete)
-            if let durationText = step.durationText {
-                Text(durationText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+            // Tool results history (expanded view showing all tools)
+            if !step.toolResults.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(step.toolResults) { toolResult in
+                        ToolResultRow(toolResult: toolResult)
+                    }
+                }
+                .padding(.leading, Space.lg + Space.sm)  // Indent under the step
             }
         }
         .padding(.vertical, Space.xxs)
@@ -184,6 +203,52 @@ private struct StepRow: View {
         case .error:
             return .red
         }
+    }
+}
+
+// MARK: - Tool Result Row
+
+private struct ToolResultRow: View {
+    let toolResult: ToolResult
+    
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            // Status dot
+            Circle()
+                .fill(toolResult.isComplete ? Color.green.opacity(0.7) : ColorsToken.Brand.primary.opacity(0.5))
+                .frame(width: 6, height: 6)
+            
+            // Tool name
+            Text(toolResult.displayName)
+                .font(.system(size: 11))
+                .foregroundColor(ColorsToken.Text.secondary)
+            
+            // Arrow and result (if complete)
+            if let result = toolResult.result, !result.isEmpty {
+                Text("→")
+                    .font(.system(size: 10))
+                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                
+                Text(result)
+                    .font(.system(size: 11))
+                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.8))
+                    .lineLimit(1)
+            } else if !toolResult.isComplete {
+                // Show spinner for in-progress tools
+                ProgressView()
+                    .scaleEffect(0.5)
+            }
+            
+            Spacer()
+            
+            // Duration
+            if let durationMs = toolResult.durationMs {
+                Text(String(format: "%.1fs", Double(durationMs) / 1000.0))
+                    .font(.system(size: 10))
+                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+            }
+        }
+        .padding(.vertical, 1)
     }
 }
 

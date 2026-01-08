@@ -46,6 +46,7 @@ private enum TimelineItemKind {
     case userMessage(text: String)
     case thoughtTrack(ThoughtTrack)           // Completed thought track (expandable)
     case liveThoughtTrack([ThoughtStep])      // In-progress thought track
+    case thinkingBubble                       // Live ThinkingBubble (Gemini-style)
     case agentResponse(text: String)
     case artifact(CanvasCardModel)
     case clarification(TimelineClarificationPrompt)
@@ -88,12 +89,6 @@ struct WorkspaceTimelineView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Header
                     workspaceHeader
-                    
-                    // NEW: Gemini-style ThinkingBubble (live thought process)
-                    if thinkingState.isActive || thinkingState.isComplete {
-                        ThinkingBubble(state: thinkingState)
-                            .id("thinking-bubble")
-                    }
                     
                     // Synthetic clarification at top if pending
                     if let syntheticClarification,
@@ -283,8 +278,11 @@ struct WorkspaceTimelineView: View {
         case .userMessage(let text):
             userMessageBubble(text: text, timestamp: item.timestamp)
         case .thoughtTrack, .liveThoughtTrack:
-            // Legacy thought tracks are now handled by ThinkingBubble at the top
+            // Legacy thought tracks - now hidden, using ThinkingBubble instead
             EmptyView()
+        case .thinkingBubble:
+            // Gemini-style thinking bubble (inline after user message)
+            ThinkingBubble(state: thinkingState)
         case .agentResponse(let text):
             agentResponseBubble(text: text, timestamp: item.timestamp)
         case .artifact(let card):
@@ -615,11 +613,18 @@ struct WorkspaceTimelineView: View {
     // MARK: - Timeline Items Builder
     private var timelineItems: [TimelineItem] {
         var items: [TimelineItem] = []
+        var lastUserMessageTimestamp: Date?
         
         // Process events
         let sortedEvents = renderedEvents
         for entry in sortedEvents {
             guard let kind = mapEventToKind(entry) else { continue }
+            
+            // Track last user message timestamp
+            if case .userMessage = kind {
+                lastUserMessageTimestamp = entry.createdAt
+            }
+            
             items.append(TimelineItem(
                 id: "event-\(entry.id)",
                 timestamp: entry.createdAt ?? Date.distantPast,
@@ -637,7 +642,27 @@ struct WorkspaceTimelineView: View {
         }
         
         // Sort by timestamp
-        return items.sorted { $0.timestamp < $1.timestamp }
+        var sortedItems = items.sorted { $0.timestamp < $1.timestamp }
+        
+        // Insert ThinkingBubble after the last user message when thinking is active or complete
+        if thinkingState.isActive || thinkingState.isComplete {
+            // Find the index of the last user message
+            if let lastUserIndex = sortedItems.lastIndex(where: {
+                if case .userMessage = $0.kind { return true }
+                return false
+            }) {
+                // Insert thinking bubble right after the last user message
+                let thinkingTimestamp = lastUserMessageTimestamp?.addingTimeInterval(0.001) ?? Date()
+                let thinkingItem = TimelineItem(
+                    id: "thinking-bubble-\(thinkingTimestamp.timeIntervalSince1970)",
+                    timestamp: thinkingTimestamp,
+                    kind: .thinkingBubble
+                )
+                sortedItems.insert(thinkingItem, at: lastUserIndex + 1)
+            }
+        }
+        
+        return sortedItems
     }
     
     private func mapEventToKind(_ entry: WorkspaceEvent) -> TimelineItemKind? {

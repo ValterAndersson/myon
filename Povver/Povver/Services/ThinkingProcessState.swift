@@ -25,6 +25,25 @@ import SwiftUI
 
 // MARK: - Thinking Step Model
 
+/// A single tool call result for history tracking
+public struct ToolResult: Identifiable, Equatable {
+    public let id: String
+    public let tool: String
+    public let displayName: String
+    public var result: String?
+    public var durationMs: Int?
+    public var isComplete: Bool
+    
+    public init(id: String = UUID().uuidString, tool: String, displayName: String, result: String? = nil, durationMs: Int? = nil, isComplete: Bool = false) {
+        self.id = id
+        self.tool = tool
+        self.displayName = displayName
+        self.result = result
+        self.durationMs = durationMs
+        self.isComplete = isComplete
+    }
+}
+
 /// A single step in the thinking process
 public struct ThinkingStep: Identifiable, Equatable {
     public let id: String
@@ -34,6 +53,9 @@ public struct ThinkingStep: Identifiable, Equatable {
     public var status: StepStatus
     public let timestamp: Date
     public var durationMs: Int?
+    
+    /// All tool calls in this phase (for history display when expanded)
+    public var toolResults: [ToolResult] = []
     
     public enum StepStatus: Equatable {
         case pending
@@ -49,7 +71,8 @@ public struct ThinkingStep: Identifiable, Equatable {
         detail: String? = nil,
         status: StepStatus = .pending,
         timestamp: Date = Date(),
-        durationMs: Int? = nil
+        durationMs: Int? = nil,
+        toolResults: [ToolResult] = []
     ) {
         self.id = id
         self.phase = phase
@@ -58,12 +81,20 @@ public struct ThinkingStep: Identifiable, Equatable {
         self.status = status
         self.timestamp = timestamp
         self.durationMs = durationMs
+        self.toolResults = toolResults
     }
     
     /// Duration formatted as string
     public var durationText: String? {
         guard let ms = durationMs else { return nil }
         return String(format: "%.1fs", Double(ms) / 1000.0)
+    }
+    
+    /// Summary of tool results for collapsed display
+    public var toolSummary: String? {
+        guard !toolResults.isEmpty else { return nil }
+        let completed = toolResults.filter { $0.isComplete }.count
+        return "\(completed) of \(toolResults.count) steps"
     }
 }
 
@@ -260,16 +291,40 @@ public final class ThinkingProcessState: ObservableObject {
             }
             
         case "planner":
-            // Planner output - show the plan summary
+            // Planner output - show the plan summary with readable steps
             let planIntent = event.content?["intent"]?.value as? String
-            _ = event.content?["rationale"]?.value as? String  // Reserved for future use
+            let rationale = event.content?["rationale"]?.value as? String
             let tools = event.content?["suggested_tools"]?.value as? [String] ?? []
             
-            // Complete the planning step
-            updateStep(forPhase: .planning) { step in
-                if let intent = planIntent {
-                    step.detail = intent
+            // Build a readable plan from suggested tools
+            var planDetail = ""
+            if let intent = planIntent {
+                planDetail = intent
+            }
+            
+            // If we have tools, add a numbered plan
+            if !tools.isEmpty {
+                let planSteps = tools.enumerated().map { index, tool in
+                    "\(index + 1). \(humanReadableToolName(tool))"
                 }
+                let planList = planSteps.joined(separator: "\n")
+                if planDetail.isEmpty {
+                    planDetail = "Plan:\n\(planList)"
+                } else {
+                    planDetail = "\(planDetail)\n\nPlan:\n\(planList)"
+                }
+            }
+            
+            // If we have rationale, append it
+            if let rationale = rationale, !rationale.isEmpty {
+                if planDetail.isEmpty {
+                    planDetail = rationale
+                }
+            }
+            
+            // Complete the planning step with the full plan
+            updateStep(forPhase: .planning) { step in
+                step.detail = planDetail.isEmpty ? nil : planDetail
                 step.status = .complete
             }
             
@@ -279,7 +334,7 @@ public final class ThinkingProcessState: ObservableObject {
                 steps.append(ThinkingStep(
                     phase: .gathering,
                     title: "Gathering information",
-                    detail: "\(tools.count) steps planned",
+                    detail: "\(tools.count) steps to complete",
                     status: .active
                 ))
             }
@@ -318,6 +373,7 @@ public final class ThinkingProcessState: ObservableObject {
         let toolName = (event.content?["tool"]?.value as? String) ??
                        (event.content?["tool_name"]?.value as? String) ?? "tool"
         let displayText = event.content?["text"]?.value as? String
+        let toolId = event.content?["id"]?.value as? String ?? UUID().uuidString
         
         // Track start time for duration calculation
         activeToolStarts[toolName] = Date()
@@ -350,7 +406,19 @@ public final class ThinkingProcessState: ObservableObject {
             if step.status != .active {
                 step.status = .active
             }
-            // Update detail with current tool
+            
+            // Add tool to history (as in-progress)
+            let toolResult = ToolResult(
+                id: toolId,
+                tool: toolName,
+                displayName: displayText ?? humanReadableToolName(toolName),
+                result: nil,
+                durationMs: nil,
+                isComplete: false
+            )
+            step.toolResults.append(toolResult)
+            
+            // Update detail with current tool (shows what's happening now)
             step.detail = displayText ?? humanReadableToolName(toolName)
         }
     }
@@ -371,10 +439,21 @@ public final class ThinkingProcessState: ObservableObject {
         
         // Update the phase step
         updateStep(forPhase: phase) { step in
-            step.detail = displayText ?? humanReadableToolName(toolName)
+            // Find and update the tool result in history
+            if let toolIndex = step.toolResults.lastIndex(where: { $0.tool == toolName && !$0.isComplete }) {
+                step.toolResults[toolIndex].result = displayText
+                step.toolResults[toolIndex].durationMs = durationMs
+                step.toolResults[toolIndex].isComplete = true
+            }
+            
+            // Update cumulative duration
             if let ms = durationMs {
                 step.durationMs = (step.durationMs ?? 0) + ms
             }
+            
+            // Update detail to show latest completed action
+            step.detail = displayText ?? humanReadableToolName(toolName)
+            
             // Don't mark complete yet - more tools might be in this phase
         }
     }
