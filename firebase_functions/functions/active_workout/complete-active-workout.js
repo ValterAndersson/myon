@@ -132,6 +132,7 @@ async function completeActiveWorkoutHandler(req, res) {
     const now = new Date();
     const archived = {
       user_id: userId,
+      name: active.name || null,  // Preserve workout name from active workout
       source_template_id: active.source_template_id || null,
       source_routine_id: active.source_routine_id || null,  // Added for routine cursor tracking
       created_at: active.created_at || now,

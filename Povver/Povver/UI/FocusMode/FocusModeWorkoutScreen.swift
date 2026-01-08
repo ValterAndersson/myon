@@ -823,7 +823,7 @@ struct FocusModeWorkoutScreen: View {
             } else {
                 // Pre-workout state (tab bar is visible for navigation)
                 HStack {
-                    Text("Start Workout")
+                    Text("Train")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(ColorsToken.Text.primary)
                     

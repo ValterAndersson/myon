@@ -2,6 +2,7 @@ import Foundation
 import FirebaseFirestore
 
 class UserRepository {
+    static let shared = UserRepository()
     private let db = Firestore.firestore()
     private let collection = "users"
     

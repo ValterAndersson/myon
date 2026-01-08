@@ -11,7 +11,8 @@ const db = new FirestoreHelper();
  * Description: Gets all routines for a user
  */
 async function getUserRoutinesHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  // Use authenticated user's ID from Bearer token, or fall back to explicit userId param (for API key auth)
+  const userId = req.auth?.uid || req.query.userId || req.body?.userId;
   if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
 
   try {

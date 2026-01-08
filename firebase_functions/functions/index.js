@@ -152,7 +152,8 @@ exports.upsertWorkout = upsertWorkout;
 // Template Operations
 // getUserTemplates is already a v2 onRequest function with requireFlexibleAuth from get-user-templates.js
 exports.getUserTemplates = getUserTemplates;
-exports.getTemplate = functions.https.onRequest((req, res) => withApiKey(getTemplate)(req, res));
+// getTemplate is already a v2 onRequest function with requireFlexibleAuth from get-template.js
+exports.getTemplate = getTemplate;
 exports.createTemplate = functions.https.onRequest((req, res) => withApiKey(createTemplate)(req, res));
 exports.updateTemplate = functions.https.onRequest((req, res) => withApiKey(updateTemplate)(req, res));
 exports.deleteTemplate = functions.https.onRequest((req, res) => withApiKey(deleteTemplate)(req, res));
@@ -160,8 +161,9 @@ exports.createTemplateFromPlan = functions.https.onRequest((req, res) => require
 exports.patchTemplate = functions.https.onRequest((req, res) => requireFlexibleAuth(patchTemplate)(req, res));
 
 // Routine Operations
-exports.getUserRoutines = functions.https.onRequest((req, res) => withApiKey(getUserRoutines)(req, res));
-exports.getRoutine = functions.https.onRequest((req, res) => withApiKey(getRoutine)(req, res));
+// getUserRoutines is already a v2 onRequest function with requireFlexibleAuth from get-user-routines.js
+exports.getUserRoutines = getUserRoutines;
+exports.getRoutine = functions.https.onRequest((req, res) => requireFlexibleAuth(getRoutine)(req, res));
 exports.createRoutine = functions.https.onRequest((req, res) => withApiKey(createRoutine)(req, res));
 exports.updateRoutine = functions.https.onRequest((req, res) => withApiKey(updateRoutine)(req, res));
 exports.deleteRoutine = functions.https.onRequest((req, res) => withApiKey(deleteRoutine)(req, res));

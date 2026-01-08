@@ -11,10 +11,12 @@ const db = new FirestoreHelper();
  * Description: Gets a specific workout template by ID
  */
 async function getTemplateHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
-  const templateId = req.query.templateId || req.body?.templateId;
+  // Use authenticated user's ID from Bearer token, or fall back to explicit userId param (for API key auth)
+  const userId = req.auth?.uid || req.query.userId || req.body?.userId;
+  const templateId = req.query.templateId || req.body?.templateId || req.body?.template_id;
   
-  if (!userId || !templateId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','templateId'], 400);
+  if (!userId) return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
+  if (!templateId) return fail(res, 'INVALID_ARGUMENT', 'Missing templateId parameter', null, 400);
 
   try {
     // Get template

@@ -3,6 +3,7 @@ import Foundation
 struct Workout: Codable, Identifiable {
     let id: String
     let userId: String
+    var name: String?  // Workout name (set by user or from template)
     var sourceTemplateId: String?
     var createdAt: Date
     var startTime: Date
@@ -14,6 +15,7 @@ struct Workout: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
+        case name
         case sourceTemplateId = "source_template_id"
         case createdAt = "created_at"
         case startTime = "start_time"
@@ -22,6 +24,73 @@ struct Workout: Codable, Identifiable {
         case notes
         case analytics
     }
+    
+    // Memberwise init for backward compatibility
+    init(id: String, userId: String, name: String? = nil, sourceTemplateId: String? = nil, createdAt: Date,
+         startTime: Date, endTime: Date, exercises: [WorkoutExercise], notes: String? = nil,
+         analytics: WorkoutAnalytics) {
+        self.id = id
+        self.userId = userId
+        self.name = name
+        self.sourceTemplateId = sourceTemplateId
+        self.createdAt = createdAt
+        self.startTime = startTime
+        self.endTime = endTime
+        self.exercises = exercises
+        self.notes = notes
+        self.analytics = analytics
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        // Use document ID as fallback if 'id' field is missing
+        if let id = try container.decodeIfPresent(String.self, forKey: .id) {
+            self.id = id
+        } else if let docId = decoder.userInfo[.documentID] as? String {
+            self.id = docId
+        } else {
+            self.id = UUID().uuidString
+        }
+        
+        self.userId = try container.decodeIfPresent(String.self, forKey: .userId) ?? ""
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.sourceTemplateId = try container.decodeIfPresent(String.self, forKey: .sourceTemplateId)
+        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        self.startTime = try container.decodeIfPresent(Date.self, forKey: .startTime) ?? Date()
+        self.endTime = try container.decodeIfPresent(Date.self, forKey: .endTime) ?? Date()
+        self.exercises = try container.decodeIfPresent([WorkoutExercise].self, forKey: .exercises) ?? []
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        self.analytics = try container.decodeIfPresent(WorkoutAnalytics.self, forKey: .analytics) ?? WorkoutAnalytics.empty
+    }
+    
+    /// Generate a display name for UI with proper priority:
+    /// 1. Use name if set (app-created workouts)
+    /// 2. For imported workouts (id starts with "imp"), use notes
+    /// 3. Fall back to first exercise + N more pattern
+    var displayName: String {
+        // Priority 1: Use name if set
+        if let name = name, !name.isEmpty {
+            return name
+        }
+        
+        // Priority 2: For imported workouts, use notes field
+        if id.hasPrefix("imp"), let notes = notes, !notes.isEmpty {
+            return notes
+        }
+        
+        // Priority 3: Fall back to first exercise + N more
+        if let firstExercise = exercises.first {
+            let count = exercises.count
+            return count > 1 ? "\(firstExercise.name) + \(count - 1) more" : firstExercise.name
+        }
+        
+        return "Workout"
+    }
+}
+
+extension CodingUserInfoKey {
+    static let documentID = CodingUserInfoKey(rawValue: "documentID")!
 }
 
 struct WorkoutExercise: Codable, Identifiable {
@@ -40,13 +109,33 @@ struct WorkoutExercise: Codable, Identifiable {
         case sets
         case analytics
     }
+    
+    // Memberwise init for backward compatibility
+    init(id: String, exerciseId: String, name: String, position: Int, sets: [WorkoutExerciseSet], analytics: ExerciseAnalytics) {
+        self.id = id
+        self.exerciseId = exerciseId
+        self.name = name
+        self.position = position
+        self.sets = sets
+        self.analytics = analytics
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        self.exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId) ?? ""
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Unknown"
+        self.position = try container.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        self.sets = try container.decodeIfPresent([WorkoutExerciseSet].self, forKey: .sets) ?? []
+        self.analytics = try container.decodeIfPresent(ExerciseAnalytics.self, forKey: .analytics) ?? ExerciseAnalytics.empty
+    }
 }
 
 struct WorkoutExerciseSet: Codable, Identifiable {
     let id: String
     var reps: Int
     var rir: Int // Reps in Reserve
-    var type: String // "Warm-up", "Working Set", etc.
+    var type: String // "warmup", "working", "dropset", etc.
     var weight: Double // Changed to match Firestore weight_kg
     var isCompleted: Bool // Track completion state
     
@@ -54,9 +143,29 @@ struct WorkoutExerciseSet: Codable, Identifiable {
         case id
         case reps
         case rir
-        case type
+        case type = "set_type"  // Backend uses set_type
         case weight = "weight_kg"
         case isCompleted = "is_completed"
+    }
+    
+    // Memberwise init for backward compatibility
+    init(id: String, reps: Int, rir: Int, type: String, weight: Double, isCompleted: Bool) {
+        self.id = id
+        self.reps = reps
+        self.rir = rir
+        self.type = type
+        self.weight = weight
+        self.isCompleted = isCompleted
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        self.reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 0
+        self.rir = try container.decodeIfPresent(Int.self, forKey: .rir) ?? 0
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? "working"  // Match backend format
+        self.weight = try container.decodeIfPresent(Double.self, forKey: .weight) ?? 0
+        self.isCompleted = try container.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? true
     }
 }
 
@@ -64,7 +173,7 @@ struct ExerciseAnalytics: Codable {
     let totalSets: Int
     let totalReps: Int
     let totalWeight: Double
-    let weightFormat: String // "kg" or "lbs"
+    let weightFormat: String
     let avgRepsPerSet: Double
     let avgWeightPerSet: Double
     let avgWeightPerRep: Double
@@ -74,6 +183,14 @@ struct ExerciseAnalytics: Codable {
     let repsPerMuscle: [String: Double]
     let setsPerMuscleGroup: [String: Int]
     let setsPerMuscle: [String: Int]
+    
+    static let empty = ExerciseAnalytics(
+        totalSets: 0, totalReps: 0, totalWeight: 0, weightFormat: "kg",
+        avgRepsPerSet: 0, avgWeightPerSet: 0, avgWeightPerRep: 0,
+        weightPerMuscleGroup: [:], weightPerMuscle: [:],
+        repsPerMuscleGroup: [:], repsPerMuscle: [:],
+        setsPerMuscleGroup: [:], setsPerMuscle: [:]
+    )
     
     enum CodingKeys: String, CodingKey {
         case totalSets = "total_sets"
@@ -89,6 +206,43 @@ struct ExerciseAnalytics: Codable {
         case repsPerMuscle = "reps_per_muscle"
         case setsPerMuscleGroup = "sets_per_muscle_group"
         case setsPerMuscle = "sets_per_muscle"
+    }
+    
+    init(totalSets: Int, totalReps: Int, totalWeight: Double, weightFormat: String,
+         avgRepsPerSet: Double, avgWeightPerSet: Double, avgWeightPerRep: Double,
+         weightPerMuscleGroup: [String: Double], weightPerMuscle: [String: Double],
+         repsPerMuscleGroup: [String: Double], repsPerMuscle: [String: Double],
+         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int]) {
+        self.totalSets = totalSets
+        self.totalReps = totalReps
+        self.totalWeight = totalWeight
+        self.weightFormat = weightFormat
+        self.avgRepsPerSet = avgRepsPerSet
+        self.avgWeightPerSet = avgWeightPerSet
+        self.avgWeightPerRep = avgWeightPerRep
+        self.weightPerMuscleGroup = weightPerMuscleGroup
+        self.weightPerMuscle = weightPerMuscle
+        self.repsPerMuscleGroup = repsPerMuscleGroup
+        self.repsPerMuscle = repsPerMuscle
+        self.setsPerMuscleGroup = setsPerMuscleGroup
+        self.setsPerMuscle = setsPerMuscle
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.totalSets = try container.decodeIfPresent(Int.self, forKey: .totalSets) ?? 0
+        self.totalReps = try container.decodeIfPresent(Int.self, forKey: .totalReps) ?? 0
+        self.totalWeight = try container.decodeIfPresent(Double.self, forKey: .totalWeight) ?? 0
+        self.weightFormat = try container.decodeIfPresent(String.self, forKey: .weightFormat) ?? "kg"
+        self.avgRepsPerSet = try container.decodeIfPresent(Double.self, forKey: .avgRepsPerSet) ?? 0
+        self.avgWeightPerSet = try container.decodeIfPresent(Double.self, forKey: .avgWeightPerSet) ?? 0
+        self.avgWeightPerRep = try container.decodeIfPresent(Double.self, forKey: .avgWeightPerRep) ?? 0
+        self.weightPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .weightPerMuscleGroup) ?? [:]
+        self.weightPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .weightPerMuscle) ?? [:]
+        self.repsPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscleGroup) ?? [:]
+        self.repsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscle) ?? [:]
+        self.setsPerMuscleGroup = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscleGroup) ?? [:]
+        self.setsPerMuscle = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscle) ?? [:]
     }
 }
 
@@ -96,7 +250,7 @@ struct WorkoutAnalytics: Codable {
     let totalSets: Int
     let totalReps: Int
     let totalWeight: Double
-    let weightFormat: String // "kg" or "lbs"
+    let weightFormat: String
     let avgRepsPerSet: Double
     let avgWeightPerSet: Double
     let avgWeightPerRep: Double
@@ -106,6 +260,14 @@ struct WorkoutAnalytics: Codable {
     let repsPerMuscle: [String: Double]
     let setsPerMuscleGroup: [String: Int]
     let setsPerMuscle: [String: Int]
+    
+    static let empty = WorkoutAnalytics(
+        totalSets: 0, totalReps: 0, totalWeight: 0, weightFormat: "kg",
+        avgRepsPerSet: 0, avgWeightPerSet: 0, avgWeightPerRep: 0,
+        weightPerMuscleGroup: [:], weightPerMuscle: [:],
+        repsPerMuscleGroup: [:], repsPerMuscle: [:],
+        setsPerMuscleGroup: [:], setsPerMuscle: [:]
+    )
     
     enum CodingKeys: String, CodingKey {
         case totalSets = "total_sets"
@@ -122,4 +284,41 @@ struct WorkoutAnalytics: Codable {
         case setsPerMuscleGroup = "sets_per_muscle_group"
         case setsPerMuscle = "sets_per_muscle"
     }
-} 
+    
+    init(totalSets: Int, totalReps: Int, totalWeight: Double, weightFormat: String,
+         avgRepsPerSet: Double, avgWeightPerSet: Double, avgWeightPerRep: Double,
+         weightPerMuscleGroup: [String: Double], weightPerMuscle: [String: Double],
+         repsPerMuscleGroup: [String: Double], repsPerMuscle: [String: Double],
+         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int]) {
+        self.totalSets = totalSets
+        self.totalReps = totalReps
+        self.totalWeight = totalWeight
+        self.weightFormat = weightFormat
+        self.avgRepsPerSet = avgRepsPerSet
+        self.avgWeightPerSet = avgWeightPerSet
+        self.avgWeightPerRep = avgWeightPerRep
+        self.weightPerMuscleGroup = weightPerMuscleGroup
+        self.weightPerMuscle = weightPerMuscle
+        self.repsPerMuscleGroup = repsPerMuscleGroup
+        self.repsPerMuscle = repsPerMuscle
+        self.setsPerMuscleGroup = setsPerMuscleGroup
+        self.setsPerMuscle = setsPerMuscle
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.totalSets = try container.decodeIfPresent(Int.self, forKey: .totalSets) ?? 0
+        self.totalReps = try container.decodeIfPresent(Int.self, forKey: .totalReps) ?? 0
+        self.totalWeight = try container.decodeIfPresent(Double.self, forKey: .totalWeight) ?? 0
+        self.weightFormat = try container.decodeIfPresent(String.self, forKey: .weightFormat) ?? "kg"
+        self.avgRepsPerSet = try container.decodeIfPresent(Double.self, forKey: .avgRepsPerSet) ?? 0
+        self.avgWeightPerSet = try container.decodeIfPresent(Double.self, forKey: .avgWeightPerSet) ?? 0
+        self.avgWeightPerRep = try container.decodeIfPresent(Double.self, forKey: .avgWeightPerRep) ?? 0
+        self.weightPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .weightPerMuscleGroup) ?? [:]
+        self.weightPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .weightPerMuscle) ?? [:]
+        self.repsPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscleGroup) ?? [:]
+        self.repsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscle) ?? [:]
+        self.setsPerMuscleGroup = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscleGroup) ?? [:]
+        self.setsPerMuscle = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscle) ?? [:]
+    }
+}

@@ -5,6 +5,9 @@ struct ChatHomeView: View {
     @State private var query: String = ""
     @State private var navigateToCanvas = false
     @State private var entryContext: String = ""
+    
+    /// Binding to switch tabs from quick actions
+    @AppStorage("selectedTab") private var selectedTab: String = "coach"
 
     private let quickActions: [String] = [
         "Make a training program",
@@ -73,8 +76,9 @@ struct ChatHomeView: View {
                         await sendToAgentIfPossible(message: preset)
                     }
                 }
-                QuickActionCard(title: "New workout", icon: iconForPreset("start exercise")) {
-                    entryContext = "quick:New workout"; navigateToCanvas = true
+                QuickActionCard(title: "Train", icon: "figure.strengthtraining.traditional") {
+                    // Switch to Train tab - tab change is handled via AppStorage
+                    selectedTab = "train"
                 }
                 QuickActionCard(title: "Analyze progress", icon: iconForPreset("analyze my progress")) {
                     entryContext = "quick:Analyze progress"; navigateToCanvas = true

@@ -1102,6 +1102,32 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    /// Lightweight routine info for list display
+    struct RoutineInfo: Identifiable {
+        let id: String
+        let name: String
+        let workoutCount: Int
+        let isActive: Bool
+        
+        init(from dict: [String: Any]) {
+            self.id = dict["id"] as? String ?? ""
+            self.name = dict["name"] as? String ?? "Untitled Routine"
+            
+            // Count templates as workouts - API returns template_ids array
+            if let templateIds = dict["template_ids"] as? [String] {
+                self.workoutCount = templateIds.count
+            } else if let templates = dict["templates"] as? [[String: Any]] {
+                self.workoutCount = templates.count
+            } else if let templateCount = dict["template_count"] as? Int {
+                self.workoutCount = templateCount
+            } else {
+                self.workoutCount = 0
+            }
+            
+            self.isActive = dict["is_active"] as? Bool ?? false
+        }
+    }
+    
     /// Next workout info from routine cursor
     struct NextWorkoutInfo {
         let template: TemplateInfo?
@@ -1126,6 +1152,18 @@ class FocusModeWorkoutService: ObservableObject {
         return response.items.map { TemplateInfo(from: $0) }
     }
     
+    /// Fetch a single template by ID with full exercise details
+    func getTemplate(id: String) async throws -> WorkoutTemplate? {
+        let request = GetTemplateRequest(templateId: id)
+        let response: GetTemplateResponse = try await apiClient.postJSON("getTemplate", body: request)
+        
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get template")
+        }
+        
+        return response.template
+    }
+    
     /// Fetch next workout from routine rotation
     func getNextWorkout() async throws -> NextWorkoutInfo {
         let request = EmptyRequest()
@@ -1145,6 +1183,18 @@ class FocusModeWorkoutService: ObservableObject {
             templateCount: response.templateCount ?? 0,
             reason: response.reason
         )
+    }
+    
+    /// Fetch all user routines for Library
+    func getUserRoutines() async throws -> [RoutineInfo] {
+        let request = EmptyRequest()
+        let response: GetUserRoutinesResponse = try await apiClient.postJSON("getUserRoutines", body: request)
+        
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get routines")
+        }
+        
+        return response.items.map { RoutineInfo(from: $0) }
     }
 }
 
@@ -1238,6 +1288,37 @@ private struct AnyCodableDict: Decodable {
         let container = try decoder.singleValueContainer()
         let jsonData = try container.decode([String: AnyCodable].self)
         self.dict = jsonData.mapValues { $0.value }
+    }
+}
+
+private struct GetUserRoutinesResponse: Decodable {
+    let success: Bool
+    let items: [[String: Any]]
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case data
+        case error
+    }
+    
+    private struct DataWrapper: Decodable {
+        let items: [AnyCodableDict]?  // API returns "items" not "routines"
+        let count: Int?
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { data: { items: [...], count: N }, success: true }
+        if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data),
+           let itemsData = dataWrapper.items {
+            self.items = itemsData.map { $0.dict }
+        } else {
+            self.items = []
+        }
     }
 }
 
@@ -2108,6 +2189,38 @@ extension FocusModeWorkout {
             createdAt: Date(),
             updatedAt: nil
         )
+    }
+}
+
+// MARK: - Get Template DTOs
+
+private struct GetTemplateRequest: Encodable {
+    let templateId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case templateId = "template_id"
+    }
+}
+
+private struct GetTemplateResponse: Decodable {
+    let success: Bool
+    let template: WorkoutTemplate?
+    let error: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case success
+        case data
+        case error
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        
+        // API returns { success: true, data: {...template fields directly...} }
+        // The template IS the data, not nested under data.template
+        self.template = try container.decodeIfPresent(WorkoutTemplate.self, forKey: .data)
     }
 }
 
