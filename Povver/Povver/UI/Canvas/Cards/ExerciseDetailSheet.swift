@@ -21,9 +21,9 @@ public struct ExerciseDetailSheet: View {
     public var body: some View {
         SheetScaffold(
             title: exerciseName,
-            doneTitle: "Done",
-            onCancel: nil,  // Only Done button, no Cancel
-            onDone: { onDismiss() }
+            cancelTitle: "Done",  // Use "Done" as the cancel button text
+            doneTitle: nil,  // Hide the done button (single button pattern)
+            onCancel: { onDismiss() }
         ) {
             if isLoading {
                 loadingView
