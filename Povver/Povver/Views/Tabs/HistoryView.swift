@@ -395,15 +395,13 @@ struct WorkoutDetailView: View {
     }
     
     private func exerciseCard(_ exercise: WorkoutExercise, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            // Exercise header
-            HStack {
-                Text("\(index). \(exercise.name)")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
-                Spacer()
-            }
-            
+        ExerciseSection(
+            model: .readOnly(
+                id: exercise.id,
+                title: exercise.name,
+                indexLabel: "\(index)"
+            )
+        ) {
             // Sets - Read-only grid with full details
             if !exercise.sets.isEmpty {
                 SetTable(
@@ -412,9 +410,6 @@ struct WorkoutDetailView: View {
                 )
             }
         }
-        .padding(Space.md)
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
     
