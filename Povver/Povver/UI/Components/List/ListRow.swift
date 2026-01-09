@@ -149,21 +149,23 @@ struct ListRow_Previews: PreviewProvider {
                 title: "Settings",
                 subtitle: "Configure app preferences",
                 accessory: .chevron,
-                action: {}
-            ) {
-                Image(systemName: "gearshape.fill")
-                    .foregroundColor(.accent)
-            }
+                action: {},
+                leading: {
+                    Image(systemName: "gearshape.fill")
+                        .foregroundColor(.accent)
+                }
+            )
             
             Divider().padding(.leading, Space.lg)
             
             ListRow(
                 title: "Notifications",
-                accessory: .toggle(.constant(true))
-            ) {
-                Image(systemName: "bell.fill")
-                    .foregroundColor(.accent)
-            }
+                accessory: .toggle(.constant(true)),
+                leading: {
+                    Image(systemName: "bell.fill")
+                        .foregroundColor(.accent)
+                }
+            )
             
             Divider().padding(.leading, Space.lg)
             

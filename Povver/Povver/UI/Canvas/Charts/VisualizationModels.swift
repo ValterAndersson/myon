@@ -27,7 +27,7 @@ public enum ChartColorToken: String, Codable {
         case .success: return Color.success
         case .warning: return Color.warning
         case .danger: return Color.destructive
-        case .neutral: return Color.surface0
+        case .neutral: return Color.surface
         }
     }
 }
