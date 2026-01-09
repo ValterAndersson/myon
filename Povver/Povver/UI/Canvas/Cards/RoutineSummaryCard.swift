@@ -58,7 +58,7 @@ public struct RoutineSummaryCard: View {
             
             // Divider
             Rectangle()
-                .fill(Color.separator)
+                .fill(Color.separatorLine)
                 .frame(height: 1)
             
             // Workout days list
@@ -67,7 +67,7 @@ public struct RoutineSummaryCard: View {
             // Actions (only for proposed/active)
             if model.status == .proposed || model.status == .active {
                 Rectangle()
-                    .fill(Color.separator)
+                    .fill(Color.separatorLine)
                     .frame(height: 1)
                 
                 actionButtons
@@ -190,7 +190,7 @@ public struct RoutineSummaryCard: View {
                     // Separator between days
                     if index < routineData.workouts.count - 1 {
                         Rectangle()
-                            .fill(Color.separator)
+                            .fill(Color.separatorLine)
                             .frame(height: 1)
                     }
                 }

@@ -79,7 +79,7 @@ public struct SessionPlanCard: View {
             
             // Divider
             Rectangle()
-                .fill(Color.separator)
+                .fill(Color.separatorLine)
                 .frame(height: 1)
             
             // Exercise list using shared ExerciseRowView

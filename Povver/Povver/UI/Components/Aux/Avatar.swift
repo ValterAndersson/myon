@@ -27,7 +27,7 @@ public struct Avatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
+        .overlay(Circle().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
     }
 }
 

@@ -47,7 +47,7 @@ public struct Chip: View {
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(isSelected ? Color.accentStroke : Color.separator, lineWidth: StrokeWidthToken.hairline)
+                    .stroke(isSelected ? Color.accentStroke : Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             )
         }
         .buttonStyle(ChipButtonStyle())

@@ -48,7 +48,7 @@ public struct BottomActionBar: View {
         VStack(spacing: Space.md) {
             // Separator at top
             Divider()
-                .background(Color.separator)
+                .background(Color.separatorLine)
             
             VStack(spacing: Space.md) {
                 // Primary action

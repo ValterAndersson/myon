@@ -30,7 +30,7 @@ public struct VisualizationCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -171,7 +171,7 @@ public struct VisualizationCard: View {
         case .primary: return Color.accent
         case .destructive: return Color.destructive
         case .ghost, .none: return Color.surfaceElevated
-        default: return Color.separator
+        default: return Color.separatorLine
         }
     }
     

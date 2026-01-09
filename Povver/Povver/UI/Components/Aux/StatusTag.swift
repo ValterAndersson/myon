@@ -19,7 +19,7 @@ public struct StatusTag: View {
             .background(background())
             .clipShape(Capsule())
             .overlay(
-                Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             )
     }
 

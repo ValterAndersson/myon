@@ -58,13 +58,13 @@ struct LoginView: View {
                 // Divider
                 HStack(spacing: Space.md) {
                     Rectangle()
-                        .fill(Color.separator)
+                        .fill(Color.separatorLine)
                         .frame(height: StrokeWidthToken.hairline)
                     Text("or")
                         .textStyle(.secondary)
                         .foregroundColor(.textTertiary)
                     Rectangle()
-                        .fill(Color.separator)
+                        .fill(Color.separatorLine)
                         .frame(height: StrokeWidthToken.hairline)
                 }
                 .padding(.vertical, Space.sm)
@@ -128,7 +128,7 @@ struct LoginView: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl)
-                .strokeBorder(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .strokeBorder(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     

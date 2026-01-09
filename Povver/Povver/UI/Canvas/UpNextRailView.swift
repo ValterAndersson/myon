@@ -25,7 +25,7 @@ public struct UpNextRailView: View {
                             .padding(.horizontal, Space.sm)
                             .background(Color.surface)
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
+                            .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
                         }
                     }
                 }
@@ -38,14 +38,14 @@ public struct UpNextRailView: View {
                     .padding(.horizontal, Space.sm)
                     .background(Color.surface)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
+                    .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
                 }
             }
             .padding(.horizontal, Space.lg)
         }
         .frame(height: 44)
         .background(VisualEffectBlur(style: .systemUltraThinMaterial))
-        .overlay(Divider().background(Color.separator), alignment: .bottom)
+        .overlay(Divider().background(Color.separatorLine), alignment: .bottom)
         .ignoresSafeArea(edges: .horizontal)
     }
 }

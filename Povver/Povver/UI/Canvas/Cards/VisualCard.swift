@@ -35,7 +35,7 @@ public struct VisualCard: View {
 
     private var emptyState: some View {
         RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-            .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+            .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             .background(Color.surface)
             .frame(minHeight: 160)
             .overlay(
@@ -51,11 +51,11 @@ public struct VisualCard: View {
             .frame(minHeight: 160)
             .overlay(
                 VStack(spacing: Space.xs) {
-                    Divider().background(Color.separator)
+                    Divider().background(Color.separatorLine)
                     Spacer()
-                    Divider().background(Color.separator)
+                    Divider().background(Color.separatorLine)
                     Spacer()
-                    Divider().background(Color.separator)
+                    Divider().background(Color.separatorLine)
                 }
                 .padding(InsetsToken.all(Space.md))
             )

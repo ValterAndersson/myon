@@ -62,7 +62,7 @@ public struct DropdownMenu: View {
                 
                 if item.id != items.last?.id {
                     Divider()
-                        .background(Color.separator.opacity(0.5))
+                        .background(Color.separatorLine.opacity(0.5))
                 }
             }
         }
@@ -71,7 +71,7 @@ public struct DropdownMenu: View {
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                .stroke(Color.separator.opacity(0.3), lineWidth: 0.5)
+                .stroke(Color.separatorLine.opacity(0.3), lineWidth: 0.5)
         )
     }
 }

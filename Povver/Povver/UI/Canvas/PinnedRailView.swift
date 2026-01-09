@@ -21,7 +21,7 @@ public struct PinnedRailView: View {
                             .padding(.horizontal, Space.sm)
                             .background(Color.surface)
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
+                            .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
                         }
                     }
                 }

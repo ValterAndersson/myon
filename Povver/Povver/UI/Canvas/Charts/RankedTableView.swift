@@ -26,7 +26,7 @@ public struct RankedTableView: View {
                 
                 if row.id != rows.last?.id {
                     Divider()
-                        .background(Color.separator)
+                        .background(Color.separatorLine)
                 }
             }
         }
@@ -34,7 +34,7 @@ public struct RankedTableView: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -106,7 +106,7 @@ public struct RankedTableView: View {
         case 1: return Color.accent
         case 2: return Color.accent
         case 3: return Color.textTertiary
-        default: return Color.separator
+        default: return Color.separatorLine
         }
     }
     
@@ -149,7 +149,7 @@ public struct RankedTableView: View {
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
                 .fill(Color.surface)
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
                 .foregroundStyle(Color.textSecondary)

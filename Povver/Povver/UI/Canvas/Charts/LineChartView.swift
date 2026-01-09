@@ -56,9 +56,9 @@ public struct LineChartView: View {
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(Color.separator)
+                    .foregroundStyle(Color.separatorLine)
                 AxisTick(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(Color.separator)
+                    .foregroundStyle(Color.separatorLine)
                 AxisValueLabel()
                     .font(TypographyToken.caption)
                     .foregroundStyle(Color.textSecondary)
@@ -67,9 +67,9 @@ public struct LineChartView: View {
         .chartYAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(Color.separator)
+                    .foregroundStyle(Color.separatorLine)
                 AxisTick(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(Color.separator)
+                    .foregroundStyle(Color.separatorLine)
                 AxisValueLabel()
                     .font(TypographyToken.caption)
                     .foregroundStyle(Color.textSecondary)
@@ -117,7 +117,7 @@ public struct LineChartView: View {
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
                 .fill(Color.surface)
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
                 .foregroundStyle(Color.textSecondary)

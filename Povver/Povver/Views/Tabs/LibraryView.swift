@@ -102,7 +102,7 @@ private struct LibraryRow: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
 }
@@ -809,7 +809,7 @@ struct TemplateDetailView: View {
                 
                 // Divider
                 Rectangle()
-                    .fill(Color.separator)
+                    .fill(Color.separatorLine)
                     .frame(height: 1)
                 
                 // Exercises list using ExerciseRowView

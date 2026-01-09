@@ -78,7 +78,7 @@ struct ThinkingBubble: View {
             .padding(.vertical, Space.sm)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.separator, lineWidth: 1)
+                    .stroke(Color.separatorLine, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -92,7 +92,7 @@ struct ThinkingBubble: View {
             HStack(alignment: .top, spacing: 0) {
                 // Connection line
                 Rectangle()
-                    .fill(Color.separator)
+                    .fill(Color.separatorLine)
                     .frame(width: 1)
                     .padding(.leading, Space.lg + 6)  // Align with sparkle center
                 

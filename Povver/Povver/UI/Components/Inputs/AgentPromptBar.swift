@@ -40,7 +40,7 @@ public struct AgentPromptBar: View {
         .padding(InsetsToken.symmetric(vertical: Space.md, horizontal: Space.lg))
         .background(Color.surface)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.thin))
+        .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.thin))
         .shadowStyle(ShadowsToken.level2)
     }
 }

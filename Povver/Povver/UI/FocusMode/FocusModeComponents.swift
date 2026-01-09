@@ -107,7 +107,7 @@ struct FinishWorkoutSheet: View {
                         statColumn(value: "\(completedSets)/\(totalSets)", label: "Sets")
                         
                         Rectangle()
-                            .fill(Color.separator)
+                            .fill(Color.separatorLine)
                             .frame(width: 1, height: 36)
                         
                         statColumn(value: "\(exerciseCount)", label: "Exercises")
@@ -600,7 +600,7 @@ struct WorkoutHero: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -684,7 +684,7 @@ struct EmptyStateCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -886,7 +886,7 @@ struct ExerciseCardContainer<Content: View>: View {
             .overlay(
                 // Always use hairline separator stroke - never thick colored borders
                 RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard)
-                    .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                    .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             )
             .overlay(alignment: .leading) {
                 // Left accent bar for active exercise ONLY (2-3pt wide)
@@ -911,7 +911,7 @@ struct WarmupDivider: View {
                 path.addLine(to: CGPoint(x: geo.size.width, y: 0.5))
             }
             .stroke(
-                Color.separator,
+                Color.separatorLine,
                 style: StrokeStyle(lineWidth: 1, dash: [3, 3])
             )
         }
@@ -967,7 +967,7 @@ struct ScopeSegmentedControl: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.small)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -1043,7 +1043,7 @@ struct ExerciseReorderRow: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
         // Elevated appearance to signal "draggable"
         .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 2)

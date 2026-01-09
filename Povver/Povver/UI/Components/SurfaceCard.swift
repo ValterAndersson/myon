@@ -61,7 +61,7 @@ public struct SurfaceCard<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard, style: .continuous)
-                    .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                    .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             )
             .if(elevation == .elevated) { view in
                 view.shadowStyle(ShadowsToken.level1)

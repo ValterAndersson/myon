@@ -582,7 +582,7 @@ private struct FilterToggleChip: View {
             .background(isSelected ? color : Color.surface)
             .clipShape(Capsule())
             .overlay(
-                isSelected ? nil : Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                isSelected ? nil : Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             )
         }
         .buttonStyle(PlainButtonStyle())

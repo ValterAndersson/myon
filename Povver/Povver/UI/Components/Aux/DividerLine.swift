@@ -5,7 +5,7 @@ public struct DividerLine: View {
     public init(inset: CGFloat = 0) { self.inset = inset }
     public var body: some View {
         Rectangle()
-            .fill(Color.separator)
+            .fill(Color.separatorLine)
             .frame(height: StrokeWidthToken.hairline)
             .padding(.leading, inset)
     }

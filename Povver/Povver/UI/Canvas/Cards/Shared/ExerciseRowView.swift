@@ -37,7 +37,7 @@ public struct ExerciseRowView: View {
                 // Divider
                 if showDivider {
                     Rectangle()
-                        .fill(Color.separator.opacity(0.5))
+                        .fill(Color.separatorLine.opacity(0.5))
                         .frame(height: 1)
                         .padding(.leading, Space.md)
                 }

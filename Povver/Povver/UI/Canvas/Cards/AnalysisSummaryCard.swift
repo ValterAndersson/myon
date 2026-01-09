@@ -40,7 +40,7 @@ public struct AnalysisSummaryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous)
-                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -188,7 +188,7 @@ public struct AnalysisSummaryCard: View {
         case 1: return Color.destructive
         case 2: return Color.warning
         case 3: return Color.textSecondary
-        default: return Color.separator
+        default: return Color.separatorLine
         }
     }
     
@@ -266,7 +266,7 @@ public struct AnalysisSummaryCard: View {
         case .primary: return Color.accent
         case .destructive: return Color.destructive
         case .ghost, .none: return Color.surfaceElevated
-        default: return Color.separator
+        default: return Color.separatorLine
         }
     }
     
