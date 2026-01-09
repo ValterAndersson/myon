@@ -10,30 +10,30 @@ import UIKit
 
 public extension Color {
     // MARK: Neutrals
-    static let bg = Color("bg")
-    static let surface = Color("surface")
-    static let surfaceElevated = Color("surfaceElevated")
-    static let separatorLine = Color("separatorLine")
-    static let textPrimary = Color("textPrimary")
-    static let textSecondary = Color("textSecondary")
-    static let textTertiary = Color("textTertiary")
-    static let textInverse = Color("textInverse")
+    static let bg = Color("dsBg")
+    static let surface = Color("dsSurface")
+    static let surfaceElevated = Color("dsSurfaceElevated")
+    static let separatorLine = Color("dsSeparatorLine")
+    static let textPrimary = Color("dsTextPrimary")
+    static let textSecondary = Color("dsTextSecondary")
+    static let textTertiary = Color("dsTextTertiary")
+    static let textInverse = Color("dsTextInverse")
     
     // MARK: Brand Accent (Emerald)
-    static let accent = Color("accent")
-    static let accentPressed = Color("accentPressed")
-    static let accentMuted = Color("accentMuted")
-    static let accentStroke = Color("accentStroke")
+    static let accent = Color("dsAccent")
+    static let accentPressed = Color("dsAccentPressed")
+    static let accentMuted = Color("dsAccentMuted")
+    static let accentStroke = Color("dsAccentStroke")
     
     // MARK: Effort Accent (Orange - intensity only)
-    static let effort = Color("effort")
-    static let effortPressed = Color("effortPressed")
-    static let effortMuted = Color("effortMuted")
+    static let effort = Color("dsEffort")
+    static let effortPressed = Color("dsEffortPressed")
+    static let effortMuted = Color("dsEffortMuted")
     
     // MARK: System
-    static let destructive = Color("destructive")
-    static let warning = Color("warning")
-    static let success = Color("success")
+    static let destructive = Color("dsDestructive")
+    static let warning = Color("dsWarning")
+    static let success = Color("dsSuccess")
 }
 
 // MARK: - Light/Dark Mode Color Helper
