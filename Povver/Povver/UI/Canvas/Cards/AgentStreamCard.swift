@@ -30,12 +30,12 @@ public struct AgentStreamCard: View {
             VStack(alignment: .leading, spacing: Space.xs) {
                 switch step.kind {
                 case .thinking:
-                    PovverText("Thinking…", style: .subheadline, color: ColorsToken.Text.secondary)
+                    PovverText("Thinking…", style: .subheadline, color: Color.textSecondary)
                     ProgressView().progressViewStyle(.circular)
                 case .info:
                     PovverText(step.text ?? "", style: .body)
                 case .lookup:
-                    PovverText(step.text ?? "", style: .subheadline, color: ColorsToken.Text.secondary)
+                    PovverText(step.text ?? "", style: .subheadline, color: Color.textSecondary)
                 case .result:
                     PovverText(step.text ?? "", style: .body)
                 }
@@ -48,7 +48,7 @@ public struct AgentStreamCard: View {
         switch kind { case .thinking: return "brain.head.profile"; case .info: return "info.circle"; case .lookup: return "magnifyingglass"; case .result: return "checkmark.circle" }
     }
     private func color(for kind: AgentStreamStep.Kind) -> Color {
-        switch kind { case .thinking: return ColorsToken.State.info; case .info: return ColorsToken.Text.secondary; case .lookup: return ColorsToken.State.info; case .result: return ColorsToken.State.success }
+        switch kind { case .thinking: return Color.accent; case .info: return Color.textSecondary; case .lookup: return Color.accent; case .result: return Color.success }
     }
 
     private func animateSteps(_ steps: [AgentStreamStep]) {

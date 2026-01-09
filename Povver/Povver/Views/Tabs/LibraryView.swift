@@ -10,11 +10,11 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Text("Library")
                         .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     Text("Your training assets and content")
                         .font(.system(size: 15))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 .padding(.horizontal, Space.lg)
                 .padding(.top, Space.md)
@@ -56,7 +56,7 @@ struct LibraryView: View {
                 Spacer(minLength: Space.xxl)
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -74,20 +74,20 @@ private struct LibraryRow: View {
             // Icon - monochrome for premium aesthetic
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .frame(width: 44, height: 44)
-                .background(ColorsToken.Neutral.n100)
+                .background(Color.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
             
             // Text
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Text(subtitle)
                     .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
@@ -95,14 +95,14 @@ private struct LibraryRow: View {
             // Chevron
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
 }
@@ -123,7 +123,7 @@ struct RoutinesListView: View {
                 routinesList
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Routines")
         .navigationBarTitleDisplayMode(.large)
         .task {
@@ -143,15 +143,15 @@ struct RoutinesListView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "calendar.badge.plus")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No routines yet")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Text("Use the Coach to create your first training program")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Space.xl)
         }
@@ -163,7 +163,11 @@ struct RoutinesListView: View {
             LazyVStack(spacing: Space.sm) {
                 ForEach(routines) { routine in
                     NavigationLink(destination: RoutineDetailView(routineId: routine.id, routineName: routine.name)) {
-                        LibraryRoutineRow(routine: routine)
+                        WorkoutRow.routine(
+                            name: routine.name,
+                            workoutCount: routine.workoutCount,
+                            isActive: routine.isActive
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -200,46 +204,6 @@ struct RoutineItem: Identifiable {
     let isActive: Bool
 }
 
-// MARK: - Routine Row View
-
-private struct LibraryRoutineRow: View {
-    let routine: RoutineItem
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Space.sm) {
-                    Text(routine.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.primary)
-                    
-                    if routine.isActive {
-                        Text("Active")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(ColorsToken.State.success)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(ColorsToken.State.success.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                }
-                
-                Text("\(routine.workoutCount) workouts")
-                    .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
-        }
-        .padding(Space.md)
-        .background(ColorsToken.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-    }
-}
 
 // MARK: - Templates List View (Scaffold)
 
@@ -257,7 +221,7 @@ struct TemplatesListView: View {
                 templatesList
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Templates")
         .navigationBarTitleDisplayMode(.large)
         .task {
@@ -277,15 +241,15 @@ struct TemplatesListView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "doc.on.doc")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No templates yet")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Text("Templates are saved from completed workouts or created via Coach")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Space.xl)
         }
@@ -297,7 +261,11 @@ struct TemplatesListView: View {
             LazyVStack(spacing: Space.sm) {
                 ForEach(templates) { template in
                     NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                        LibraryTemplateRow(template: template)
+                        WorkoutRow.template(
+                            name: template.name,
+                            exerciseCount: template.exerciseCount,
+                            setCount: template.setCount
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -334,34 +302,6 @@ struct TemplateItem: Identifiable {
     let setCount: Int
 }
 
-// MARK: - Template Row View
-
-private struct LibraryTemplateRow: View {
-    let template: TemplateItem
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(template.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
-                
-                Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
-                    .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
-        }
-        .padding(Space.md)
-        .background(ColorsToken.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-    }
-}
 
 // MARK: - Exercises List View (Browse Mode)
 // Reuses FocusModeExerciseSearch patterns for consistency - loads exercises on open, tap for details
@@ -434,7 +374,7 @@ struct ExercisesListView: View {
                 exerciseList
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Exercises")
         .navigationBarTitleDisplayMode(.large)
         .task {
@@ -468,7 +408,7 @@ struct ExercisesListView: View {
                 // Search field
                 HStack(spacing: Space.sm) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     
                     TextField("Search exercises...", text: $searchText)
                         .textFieldStyle(PlainTextFieldStyle())
@@ -481,13 +421,13 @@ struct ExercisesListView: View {
                             searchText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                     }
                 }
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, 12)
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                 
                 // Filter button
@@ -504,14 +444,14 @@ struct ExercisesListView: View {
                                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
                         }
                     }
-                    .foregroundColor(filters.isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
+                    .foregroundColor(filters.isEmpty ? Color.textSecondary : Color.accent)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, 12)
-                    .background(filters.isEmpty ? ColorsToken.Surface.card : ColorsToken.Brand.primary.opacity(0.12))
+                    .background(filters.isEmpty ? Color.surface : Color.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     .overlay(
                         RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                            .stroke(filters.isEmpty ? Color.clear : ColorsToken.Brand.primary.opacity(0.3), lineWidth: 1)
+                            .stroke(filters.isEmpty ? Color.clear : Color.accent.opacity(0.3), lineWidth: 1)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -525,7 +465,7 @@ struct ExercisesListView: View {
             }
         }
         .padding(.bottom, Space.sm)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
     }
     
     // MARK: - Active Filter Pills
@@ -543,31 +483,31 @@ struct ExercisesListView: View {
                         Text("Clear all")
                             .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(ColorsToken.Background.secondary)
+                    .background(Color.surfaceElevated)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
                 
                 // Muscle groups
                 ForEach(Array(filters.muscleGroups), id: \.self) { group in
-                    activeFilterPill(label: group, color: ColorsToken.Brand.primary) {
+                    activeFilterPill(label: group, color: Color.accent) {
                         filters.muscleGroups.remove(group)
                     }
                 }
                 
                 // Equipment
                 ForEach(Array(filters.equipment), id: \.self) { equip in
-                    activeFilterPill(label: equip, color: ColorsToken.State.info) {
+                    activeFilterPill(label: equip, color: Color.accent) {
                         filters.equipment.remove(equip)
                     }
                 }
                 
                 // Movement patterns
                 ForEach(Array(filters.movementPatterns), id: \.self) { pattern in
-                    activeFilterPill(label: pattern, color: ColorsToken.State.warning) {
+                    activeFilterPill(label: pattern, color: Color.warning) {
                         filters.movementPatterns.remove(pattern)
                     }
                 }
@@ -602,7 +542,7 @@ struct ExercisesListView: View {
                 HStack {
                     Text("\(filteredExercises.count) exercises")
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.muted)
+                        .foregroundColor(Color.textTertiary)
                     Spacer()
                 }
                 .padding(.horizontal, Space.md)
@@ -633,7 +573,7 @@ struct ExercisesListView: View {
                 .scaleEffect(1.2)
             Text("Loading exercises...")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .padding(.top, Space.md)
             Spacer()
         }
@@ -647,16 +587,16 @@ struct ExercisesListView: View {
             
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 32))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No exercises found")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             if !searchText.isEmpty {
                 Text("Try a different search term")
                     .font(.system(size: 14))
-                    .foregroundColor(ColorsToken.Text.muted)
+                    .foregroundColor(Color.textTertiary)
             }
             
             if !filters.isEmpty {
@@ -665,7 +605,7 @@ struct ExercisesListView: View {
                 } label: {
                     Text("Clear all filters")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
                 .padding(.top, Space.sm)
             }
@@ -688,12 +628,12 @@ private struct LibraryExerciseRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise.capitalizedName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                         .lineLimit(1)
                     
                     Text(exerciseSubtitle)
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .lineLimit(1)
                 }
                 
@@ -702,11 +642,11 @@ private struct LibraryExerciseRow: View {
                 // Chevron for detail navigation
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.muted)
+                    .foregroundColor(Color.textTertiary)
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, 12)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
@@ -754,7 +694,7 @@ struct TemplateDetailView: View {
                 errorView
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle(templateName)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -791,11 +731,11 @@ struct TemplateDetailView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.State.warning)
+                .foregroundColor(Color.warning)
             
             Text("Template not found")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -809,7 +749,7 @@ struct TemplateDetailView: View {
                 
                 // Divider
                 Rectangle()
-                    .fill(ColorsToken.Border.subtle)
+                    .fill(Color.separatorLine)
                     .frame(height: 1)
                 
                 // Exercises list using ExerciseRowView
@@ -833,10 +773,10 @@ struct TemplateDetailView: View {
         VStack(spacing: 2) {
             Text(value)
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             Text(label)
                 .font(.system(size: 13))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
     
@@ -956,7 +896,7 @@ struct RoutineDetailView: View {
                 routineContent
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle(routineName)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -976,11 +916,11 @@ struct RoutineDetailView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "doc.on.doc")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No workouts in this routine")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -998,7 +938,7 @@ struct RoutineDetailView: View {
                     if let description = routineDescription, !description.isEmpty {
                         Text(description)
                             .font(.system(size: 14))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                 }
                 .padding(.horizontal, Space.lg)
@@ -1008,7 +948,12 @@ struct RoutineDetailView: View {
                 VStack(spacing: Space.sm) {
                     ForEach(Array(templates.enumerated()), id: \.element.id) { index, template in
                         NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                            routineTemplateRow(template, dayNumber: index + 1)
+                            WorkoutRow.routineDay(
+                                day: index + 1,
+                                title: template.name,
+                                exerciseCount: template.exerciseCount,
+                                setCount: template.setCount
+                            )
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -1024,43 +969,11 @@ struct RoutineDetailView: View {
         VStack(spacing: 2) {
             Text(value)
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             Text(label)
                 .font(.system(size: 13))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
-    }
-    
-    private func routineTemplateRow(_ template: TemplateItem, dayNumber: Int) -> some View {
-        HStack(spacing: Space.md) {
-            // Day badge
-            Text("Day \(dayNumber)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(ColorsToken.Brand.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(ColorsToken.Brand.primary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(template.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
-                
-                Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
-                    .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
-        }
-        .padding(Space.md)
-        .background(ColorsToken.Surface.card)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
     }
     
     private func loadRoutineTemplates() async {

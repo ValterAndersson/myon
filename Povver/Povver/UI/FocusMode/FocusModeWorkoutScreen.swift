@@ -144,7 +144,7 @@ struct FocusModeWorkoutScreen: View {
                 
                 // Main content
                 ZStack {
-                    ColorsToken.Background.screen.ignoresSafeArea()
+                    Color.bg.ignoresSafeArea()
                     
                     if service.isLoading {
                         loadingView
@@ -155,7 +155,7 @@ struct FocusModeWorkoutScreen: View {
                     }
                 }
             }
-            .background(ColorsToken.Background.screen)
+            .background(Color.bg)
         }
         .navigationBarHidden(true)
         // Only hide tab bar when a workout is in progress (prevents accidental navigation)
@@ -336,11 +336,11 @@ struct FocusModeWorkoutScreen: View {
                 // Icon
                 Image(systemName: "figure.strengthtraining.traditional")
                     .font(.system(size: 48))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 
                 Text("Start a Workout")
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 if isLoadingStartData {
                     ProgressView()
@@ -456,9 +456,13 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    /// Template picker sheet
+    /// Template picker sheet - uses SheetScaffold for v1.1 consistency
     private var templatePickerSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Choose Template",
+            doneTitle: nil,
+            onCancel: { showingTemplatePicker = false }
+        ) {
             List {
                 ForEach(templates) { template in
                     Button {
@@ -469,18 +473,18 @@ struct FocusModeWorkoutScreen: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(template.name)
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(ColorsToken.Text.primary)
+                                    .foregroundColor(Color.textPrimary)
                                 
                                 Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
                                     .font(.system(size: 13))
-                                    .foregroundColor(ColorsToken.Text.secondary)
+                                    .foregroundColor(Color.textSecondary)
                             }
                             
                             Spacer()
                             
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(ColorsToken.Text.muted)
+                                .foregroundColor(Color.textTertiary)
                         }
                         .padding(.vertical, 4)
                     }
@@ -488,19 +492,12 @@ struct FocusModeWorkoutScreen: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("Choose Template")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingTemplatePicker = false
-                    }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
     }
     
+    /// v1.1 compliant start option: neutral surface with accent icon
+    /// No full accent-fill rows - only small PrimaryButton or accent icon accents
     private func startOptionButton(
         icon: String,
         title: String,
@@ -511,31 +508,47 @@ struct FocusModeWorkoutScreen: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: Space.md) {
+                // Icon: accent for primary, textSecondary for others
                 Image(systemName: icon)
                     .font(.system(size: 20))
-                    .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white : ColorsToken.Brand.primary))
+                    .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? Color.accent : Color.textSecondary))
                     .frame(width: 32)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white : ColorsToken.Text.primary))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textPrimary)
                     
                     Text(subtitle)
                         .font(.system(size: 13))
-                        .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white.opacity(0.8) : ColorsToken.Text.secondary))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textSecondary)
                 }
                 
                 Spacer()
                 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isDisabled ? ColorsToken.Text.muted : (isPrimary ? .white.opacity(0.8) : ColorsToken.Text.secondary))
+                // Primary: show "Start" label, others show chevron
+                if isPrimary && !isDisabled {
+                    Text("Start")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.textInverse)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textTertiary)
+                }
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, 16)
-            .background(isPrimary ? ColorsToken.Brand.primary : ColorsToken.Surface.card)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+            .overlay(
+                RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
+                    .stroke(Color.separatorLine, lineWidth: 0.5)
+            )
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(isDisabled)
@@ -789,7 +802,7 @@ struct FocusModeWorkoutScreen: View {
                         } label: {
                             Image(systemName: "arrow.up.arrow.down")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(canReorder ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
+                                .foregroundColor(canReorder ? Color.textSecondary : Color.textTertiary)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -805,7 +818,7 @@ struct FocusModeWorkoutScreen: View {
                         } label: {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(ColorsToken.Brand.primary)
+                                .foregroundColor(Color.accent)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -825,7 +838,7 @@ struct FocusModeWorkoutScreen: View {
                 HStack {
                     Text("Train")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     Spacer()
                     // No X button - users can navigate via tab bar
@@ -836,13 +849,28 @@ struct FocusModeWorkoutScreen: View {
             
             Divider()
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
     }
     
-    // MARK: - Start Time Editor Sheet
+    // MARK: - Start Time Editor Sheet - uses SheetScaffold for v1.1 consistency
     
     private var startTimeEditorSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Edit Start Time",
+            doneTitle: "Save",
+            onCancel: { activeSheet = nil },
+            onDone: {
+                Task {
+                    do {
+                        try await service.updateStartTime(editingStartTime)
+                        print("✅ Start time updated to: \(editingStartTime)")
+                    } catch {
+                        print("❌ Failed to update start time: \(error)")
+                    }
+                }
+                activeSheet = nil
+            }
+        ) {
             VStack(spacing: 0) {
                 // Time picker - wheel style with explicit height
                 DatePicker(
@@ -860,10 +888,10 @@ struct FocusModeWorkoutScreen: View {
                 // Timezone info
                 HStack {
                     Image(systemName: "globe")
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     Text(TimeZone.current.identifier)
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     Spacer()
                 }
                 .padding(.horizontal, Space.lg)
@@ -872,29 +900,6 @@ struct FocusModeWorkoutScreen: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(uiColor: .systemBackground))
-            .navigationTitle("Edit Start Time")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        activeSheet = nil
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            do {
-                                try await service.updateStartTime(editingStartTime)
-                                print("✅ Start time updated to: \(editingStartTime)")
-                            } catch {
-                                print("❌ Failed to update start time: \(error)")
-                            }
-                        }
-                        activeSheet = nil
-                    }
-                }
-            }
             .onAppear {
                 editingStartTime = service.workout?.startTime ?? Date()
             }
@@ -977,35 +982,32 @@ struct FocusModeWorkoutScreen: View {
                 .scaleEffect(1.2)
             Text("Starting workout...")
                 .font(.system(size: 15))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
     
-    // MARK: - AI Panel Placeholder
+    // MARK: - AI Panel Placeholder - uses SheetScaffold for v1.1 consistency
     
     private var aiPanelPlaceholder: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Copilot",
+            doneTitle: "Done",
+            onCancel: { activeSheet = nil },
+            onDone: { activeSheet = nil }
+        ) {
             VStack(spacing: Space.xl) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 48))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 
                 Text("Copilot")
                     .font(.system(size: 20, weight: .semibold))
                 
                 Text("AI assistance coming soon")
                     .font(.system(size: 15))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(ColorsToken.Background.primary)
-            .navigationTitle("Copilot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { activeSheet = nil }
-                }
-            }
         }
         .presentationDetents([.medium])
     }
@@ -1020,10 +1022,10 @@ struct FocusModeWorkoutScreen: View {
                 Text("Add Exercise")
                     .font(.system(size: 15, weight: .medium))
             }
-            .foregroundColor(ColorsToken.Brand.primary)
+            .foregroundColor(Color.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
-            .background(ColorsToken.Brand.primary.opacity(0.08))
+            .background(Color.accentMuted)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
@@ -1041,10 +1043,10 @@ struct FocusModeWorkoutScreen: View {
             } label: {
                 Text("Finish Workout")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(ColorsToken.Brand.emeraldFill)
+                    .background(Color.accent)
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -1055,7 +1057,7 @@ struct FocusModeWorkoutScreen: View {
             } label: {
                 Text("Discard Workout")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -1075,10 +1077,10 @@ struct FocusModeWorkoutScreen: View {
             } label: {
                 Text("Finish Workout")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(Color.textInverse.opacity(0.5))
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(ColorsToken.Brand.emeraldFill.opacity(0.4))
+                    .background(Color.accent.opacity(0.4))
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -1090,7 +1092,7 @@ struct FocusModeWorkoutScreen: View {
             } label: {
                 Text("Discard Workout")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -1315,7 +1317,7 @@ struct FocusModeExerciseSection: View {
                 onRemoveSet: onRemoveSet
             )
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.top, Space.md)
     }
@@ -1325,11 +1327,11 @@ struct FocusModeExerciseSection: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
                     .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
@@ -1337,7 +1339,7 @@ struct FocusModeExerciseSection: View {
             // Progress indicator
             if exercise.isComplete {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(ColorsToken.State.success)
+                    .foregroundColor(Color.success)
                     .font(.system(size: 20))
             }
             
@@ -1354,7 +1356,7 @@ struct FocusModeExerciseSection: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .frame(width: 32, height: 32)
             }
         }
@@ -1388,10 +1390,10 @@ struct FocusModeExerciseSection: View {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundColor(ColorsToken.Brand.primary)
+            .foregroundColor(Color.accent)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(ColorsToken.Brand.primary.opacity(0.08))
+            .background(Color.accent.opacity(0.08))
             .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
@@ -1501,11 +1503,11 @@ struct FocusModeExerciseSectionNew: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
                     .font(.system(size: 13).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
@@ -1513,7 +1515,7 @@ struct FocusModeExerciseSectionNew: View {
             // Progress indicator
             if exercise.isComplete {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(ColorsToken.State.success)
+                    .foregroundColor(Color.success)
                     .font(.system(size: 20))
             }
             
@@ -1530,7 +1532,7 @@ struct FocusModeExerciseSectionNew: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .frame(width: 32, height: 32)
             }
         }
@@ -1590,3 +1592,6 @@ enum FocusModeGridCell: Equatable, Hashable {
 #Preview {
     FocusModeWorkoutScreen()
 }
+
+// MARK: - Preview
+

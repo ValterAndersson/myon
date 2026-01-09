@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Exercise detail sheet - uses SheetScaffold for v1.1 consistency
 public struct ExerciseDetailSheet: View {
     let exerciseId: String?
     let exerciseName: String
@@ -18,25 +19,20 @@ public struct ExerciseDetailSheet: View {
     }
     
     public var body: some View {
-        NavigationView {
-            ScrollView {
-                if isLoading {
-                    loadingView
-                } else if let error = error {
-                    errorView(error)
-                } else if let exercise = exercise {
-                    exerciseContent(exercise)
-                } else {
-                    notFoundView
-                }
-            }
-            .background(ColorsToken.Background.primary)
-            .navigationTitle(exerciseName)
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { onDismiss() }
-                }
+        SheetScaffold(
+            title: exerciseName,
+            cancelTitle: "Done",  // Use "Done" as the cancel button text
+            doneTitle: nil,  // Hide the done button (single button pattern)
+            onCancel: { onDismiss() }
+        ) {
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if let exercise = exercise {
+                exerciseContent(exercise)
+            } else {
+                notFoundView
             }
         }
         .task {
@@ -51,7 +47,7 @@ public struct ExerciseDetailSheet: View {
             ProgressView()
                 .progressViewStyle(.circular)
             PovverText("Loading exercise details…", style: .body)
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 300)
     }
@@ -60,10 +56,10 @@ public struct ExerciseDetailSheet: View {
         VStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 40))
-                .foregroundColor(ColorsToken.State.error)
+                .foregroundColor(Color.destructive)
             PovverText("Failed to load exercise", style: .headline)
             PovverText(message, style: .caption)
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             Button("Retry") {
                 Task { await loadExercise() }
             }
@@ -76,10 +72,10 @@ public struct ExerciseDetailSheet: View {
         VStack(spacing: Space.md) {
             Image(systemName: "questionmark.circle")
                 .font(.system(size: 40))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             PovverText("Exercise not found", style: .headline)
             PovverText("This exercise may not be in the catalog yet.", style: .body)
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, minHeight: 300)
     }
@@ -87,85 +83,87 @@ public struct ExerciseDetailSheet: View {
     // MARK: - Content
     
     private func exerciseContent(_ ex: Exercise) -> some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
-            // Header info
-            headerSection(ex)
-            
-            // Muscles
-            musclesSection(ex)
-            
-            // Execution notes
-            if !ex.executionNotes.isEmpty {
-                section(title: "How to Perform", icon: "list.number") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.executionNotes.indices, id: \.self) { index in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Text("\(index + 1).")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(ColorsToken.Brand.primary)
-                                    .frame(width: 20, alignment: .leading)
-                                PovverText(ex.executionNotes[index], style: .body)
-                                    .foregroundColor(ColorsToken.Text.primary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                // Header info
+                headerSection(ex)
+                
+                // Muscles
+                musclesSection(ex)
+                
+                // Execution notes
+                if !ex.executionNotes.isEmpty {
+                    section(title: "How to Perform", icon: "list.number") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.executionNotes.indices, id: \.self) { index in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Text("\(index + 1).")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(Color.accent)
+                                        .frame(width: 20, alignment: .leading)
+                                    PovverText(ex.executionNotes[index], style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Common mistakes
-            if !ex.commonMistakes.isEmpty {
-                section(title: "Common Mistakes", icon: "exclamationmark.triangle") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.commonMistakes, id: \.self) { mistake in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(ColorsToken.State.error)
-                                PovverText(mistake, style: .body)
-                                    .foregroundColor(ColorsToken.Text.primary)
+                
+                // Common mistakes
+                if !ex.commonMistakes.isEmpty {
+                    section(title: "Common Mistakes", icon: "exclamationmark.triangle") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.commonMistakes, id: \.self) { mistake in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.destructive)
+                                    PovverText(mistake, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Programming notes
-            if !ex.programmingNotes.isEmpty {
-                section(title: "Programming Tips", icon: "lightbulb") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.programmingNotes, id: \.self) { note in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(ColorsToken.Brand.primary)
-                                PovverText(note, style: .body)
-                                    .foregroundColor(ColorsToken.Text.primary)
+                
+                // Programming notes
+                if !ex.programmingNotes.isEmpty {
+                    section(title: "Programming Tips", icon: "lightbulb") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.programmingNotes, id: \.self) { note in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.accent)
+                                    PovverText(note, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Suitability notes
-            if !ex.suitabilityNotes.isEmpty {
-                section(title: "Best Suited For", icon: "person.fill.checkmark") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.suitabilityNotes, id: \.self) { note in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(ColorsToken.State.success)
-                                PovverText(note, style: .body)
-                                    .foregroundColor(ColorsToken.Text.primary)
+                
+                // Suitability notes
+                if !ex.suitabilityNotes.isEmpty {
+                    section(title: "Best Suited For", icon: "person.fill.checkmark") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.suitabilityNotes, id: \.self) { note in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.success)
+                                    PovverText(note, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
+                
+                Spacer(minLength: Space.xl)
             }
-            
-            Spacer(minLength: Space.xl)
+            .padding(Space.lg)
         }
-        .padding(Space.lg)
     }
     
     private func headerSection(_ ex: Exercise) -> some View {
@@ -184,9 +182,9 @@ public struct ExerciseDetailSheet: View {
                 HStack(spacing: Space.xs) {
                     Image(systemName: "dumbbell")
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     PovverText(ex.capitalizedEquipment, style: .body)
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
             
@@ -194,12 +192,12 @@ public struct ExerciseDetailSheet: View {
             HStack(spacing: Space.xs) {
                 Image(systemName: "arrow.left.and.right")
                     .font(.system(size: 14))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 PovverText(ex.capitalizedMovementType, style: .body)
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 if let plane = ex.metadata.planeOfMotion {
                     PovverText("• \(plane.capitalized)", style: .body)
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
             
@@ -208,15 +206,15 @@ public struct ExerciseDetailSheet: View {
                 HStack(spacing: Space.xs) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                     PovverText(ex.stimulusTags.map { $0.capitalized }.joined(separator: ", "), style: .caption)
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
         }
         .padding(Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ColorsToken.Surface.default)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
     }
     
@@ -226,7 +224,7 @@ public struct ExerciseDetailSheet: View {
                 // Primary muscles
                 VStack(alignment: .leading, spacing: Space.xs) {
                     PovverText("Primary", style: .caption)
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     FlowLayout(spacing: Space.xs) {
                         ForEach(ex.primaryMuscles, id: \.self) { muscle in
                             muscleBadge(muscle, isPrimary: true, contribution: ex.getContribution(for: muscle))
@@ -238,7 +236,7 @@ public struct ExerciseDetailSheet: View {
                 if !ex.secondaryMuscles.isEmpty {
                     VStack(alignment: .leading, spacing: Space.xs) {
                         PovverText("Secondary", style: .caption)
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                         FlowLayout(spacing: Space.xs) {
                             ForEach(ex.secondaryMuscles, id: \.self) { muscle in
                                 muscleBadge(muscle, isPrimary: false, contribution: ex.getContribution(for: muscle))
@@ -257,13 +255,13 @@ public struct ExerciseDetailSheet: View {
             if let contrib = contribution {
                 Text(String(format: "%.0f%%", contrib * 100))
                     .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
         }
         .padding(.horizontal, Space.sm)
         .padding(.vertical, 4)
-        .background(isPrimary ? ColorsToken.Brand.primary.opacity(0.15) : ColorsToken.Background.secondary)
-        .foregroundColor(isPrimary ? ColorsToken.Brand.primary : ColorsToken.Text.primary)
+        .background(isPrimary ? Color.accent.opacity(0.15) : Color.surfaceElevated)
+        .foregroundColor(isPrimary ? Color.accent : Color.textPrimary)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
     }
     
@@ -272,7 +270,7 @@ public struct ExerciseDetailSheet: View {
             HStack(spacing: Space.xs) {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 PovverText(title, style: .headline)
             }
             content()

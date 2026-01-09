@@ -13,7 +13,7 @@ public struct AgentPromptBar: View {
     public var body: some View {
         HStack(spacing: Space.sm) {
             Image(systemName: "plus")
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
 
             TextField(placeholder, text: $text)
                 .textInputAutocapitalization(.sentences)
@@ -22,15 +22,15 @@ public struct AgentPromptBar: View {
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     HStack(spacing: Space.md) {
                         Image(systemName: "mic")
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                         VoiceLevels()
                     }
                 } else {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.inverse)
+                        .foregroundColor(Color.textInverse)
                         .padding(InsetsToken.all(Space.sm))
-                        .background(ColorsToken.Text.primary)
+                        .background(Color.textPrimary)
                         .clipShape(Circle())
                         .onTapGesture { onSubmit() }
                 }
@@ -38,9 +38,9 @@ public struct AgentPromptBar: View {
             .frame(width: 44, height: 32, alignment: .center)
         }
         .padding(InsetsToken.symmetric(vertical: Space.md, horizontal: Space.lg))
-        .background(Color.white)
+        .background(Color.surface)
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.thin))
+        .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.thin))
         .shadowStyle(ShadowsToken.level2)
     }
 }
@@ -51,7 +51,7 @@ private struct VoiceLevels: View {
         HStack(spacing: 2) {
             ForEach(0..<4) { i in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(ColorsToken.Text.secondary.opacity(0.6))
+                    .fill(Color.textSecondary.opacity(0.6))
                     .frame(width: 2, height: 8 + 6 * abs(sin(phase + CGFloat(i))))
             }
         }

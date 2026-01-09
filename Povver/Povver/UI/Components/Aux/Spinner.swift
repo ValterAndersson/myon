@@ -31,7 +31,7 @@ public struct SkeletonBlock: View {
     }
     public var body: some View {
         RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(ColorsToken.Neutral.n100)
+            .fill(Color.surfaceElevated)
             .frame(height: height)
             .shimmer()
     }
@@ -40,7 +40,7 @@ public struct SkeletonBlock: View {
 public struct Spinner: View {
     private let size: CGFloat
     private let color: Color
-    public init(size: CGFloat = 24, color: Color = ColorsToken.State.info) {
+    public init(size: CGFloat = 24, color: Color = Color.accent) {
         self.size = size
         self.color = color
     }

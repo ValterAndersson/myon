@@ -10,46 +10,145 @@ struct RegisterView: View {
     @State private var isLoading = false
     var onRegister: ((String) -> Void)? = nil
     var onBackToLogin: (() -> Void)? = nil
+    
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Register").font(.largeTitle).bold()
-            TextField("Email", text: $email)
-                .autocapitalization(.none)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-            SecureField("Password", text: $password)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-            if let errorMessage = errorMessage {
-                Text(errorMessage).foregroundColor(.red)
-            }
-            Button("Register") {
-                isLoading = true
-                Task {
-                    do {
-                        try await authService.signUp(email: email, password: password)
-                        if let user = Auth.auth().currentUser {
-                            session.startSession(userId: user.uid)
-                            onRegister?(user.uid)
-                        }
-                        errorMessage = nil
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    isLoading = false
+        ScrollView {
+            VStack(spacing: Space.xl) {
+                Spacer(minLength: Space.xxl)
+                
+                // Title
+                Text("Register")
+                    .textStyle(.appTitle)
+                    .foregroundColor(.textPrimary)
+                
+                // Form fields
+                VStack(spacing: Space.md) {
+                    // Email field
+                    authTextField(
+                        placeholder: "Email",
+                        text: $email,
+                        keyboardType: .emailAddress,
+                        isSecure: false
+                    )
+                    
+                    // Password field
+                    authTextField(
+                        placeholder: "Password",
+                        text: $password,
+                        keyboardType: .default,
+                        isSecure: true
+                    )
                 }
+                
+                // Error message
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                        .textStyle(.caption)
+                        .foregroundColor(.destructive)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Space.lg)
+                }
+                
+                // Register button
+                PovverButton("Register", style: .primary) {
+                    performRegistration()
+                }
+                .disabled(isLoading || email.isEmpty || password.isEmpty)
+                
+                // Divider
+                HStack(spacing: Space.md) {
+                    Rectangle()
+                        .fill(Color.separatorLine)
+                        .frame(height: StrokeWidthToken.hairline)
+                    Text("or")
+                        .textStyle(.secondary)
+                        .foregroundColor(.textTertiary)
+                    Rectangle()
+                        .fill(Color.separatorLine)
+                        .frame(height: StrokeWidthToken.hairline)
+                }
+                .padding(.vertical, Space.sm)
+                
+                // Social signup buttons
+                VStack(spacing: Space.md) {
+                    PovverButton("Sign up with Google", style: .secondary, leadingIcon: Image(systemName: "globe")) {
+                        // TODO: Implement Google sign-up
+                    }
+                    
+                    PovverButton("Sign up with Apple", style: .secondary, leadingIcon: Image(systemName: "apple.logo")) {
+                        // TODO: Implement Apple sign-up
+                    }
+                }
+                
+                Spacer(minLength: Space.lg)
+                
+                // Login link
+                Button {
+                    onBackToLogin?()
+                } label: {
+                    Text("Already have an account? ")
+                        .foregroundColor(.textSecondary) +
+                    Text("Login")
+                        .foregroundColor(.accent)
+                        .fontWeight(.semibold)
+                }
+                .textStyle(.secondary)
+                
+                Spacer(minLength: Space.xl)
             }
-            .disabled(isLoading)
-            Divider()
-            Button("Sign up with Google") {
-                // TODO: Implement Google sign-in
-            }
-            Button("Sign up with Apple") {
-                // TODO: Implement Apple sign-in
-            }
-            Button("Already have an account? Log In") {
-                onBackToLogin?()
+            .padding(.horizontal, Space.lg)
+        }
+        .background(Color.bg.ignoresSafeArea())
+    }
+    
+    // MARK: - Auth Text Field
+    
+    @ViewBuilder
+    private func authTextField(
+        placeholder: String,
+        text: Binding<String>,
+        keyboardType: UIKeyboardType,
+        isSecure: Bool
+    ) -> some View {
+        Group {
+            if isSecure {
+                SecureField(placeholder, text: text)
+            } else {
+                TextField(placeholder, text: text)
+                    .keyboardType(keyboardType)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
             }
         }
-        .padding()
+        .textStyle(.body)
+        .foregroundColor(.textPrimary)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .background(Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl))
+        .overlay(
+            RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl)
+                .strokeBorder(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
+        )
+    }
+    
+    // MARK: - Actions
+    
+    private func performRegistration() {
+        isLoading = true
+        Task {
+            do {
+                try await authService.signUp(email: email, password: password)
+                if let user = Auth.auth().currentUser {
+                    session.startSession(userId: user.uid)
+                    onRegister?(user.uid)
+                }
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isLoading = false
+        }
     }
 }
 
@@ -57,4 +156,4 @@ struct RegisterView_Previews: PreviewProvider {
     static var previews: some View {
         RegisterView()
     }
-} 
+}

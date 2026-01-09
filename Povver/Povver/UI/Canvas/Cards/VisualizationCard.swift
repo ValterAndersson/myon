@@ -26,11 +26,11 @@ public struct VisualizationCard: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.default)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.large, style: .continuous)
-                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -40,7 +40,7 @@ public struct VisualizationCard: View {
             HStack {
                 Text(spec.title)
                     .font(TypographyToken.headline)
-                    .foregroundStyle(ColorsToken.Text.primary)
+                    .foregroundStyle(Color.textPrimary)
                 
                 Spacer()
                 
@@ -51,7 +51,7 @@ public struct VisualizationCard: View {
             if let subtitle = spec.subtitle {
                 Text(subtitle)
                     .font(TypographyToken.caption)
-                    .foregroundStyle(ColorsToken.Text.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
         }
     }
@@ -66,10 +66,10 @@ public struct VisualizationCard: View {
             Text(label)
                 .font(TypographyToken.caption)
         }
-        .foregroundStyle(ColorsToken.Text.muted)
+        .foregroundStyle(Color.textTertiary)
         .padding(.horizontal, Space.xs)
         .padding(.vertical, 2)
-        .background(ColorsToken.Neutral.n100)
+        .background(Color.surfaceElevated)
         .clipShape(Capsule())
     }
     
@@ -109,11 +109,11 @@ public struct VisualizationCard: View {
         VStack(spacing: Space.sm) {
             Image(systemName: "chart.bar.xaxis")
                 .font(.system(size: 32))
-                .foregroundStyle(ColorsToken.Text.muted)
+                .foregroundStyle(Color.textTertiary)
             
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
-                .foregroundStyle(ColorsToken.Text.secondary)
+                .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -125,11 +125,11 @@ public struct VisualizationCard: View {
         VStack(spacing: Space.sm) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 24))
-                .foregroundStyle(ColorsToken.State.warning)
+                .foregroundStyle(Color.warning)
             
             Text("Charts require iOS 16+")
                 .font(TypographyToken.callout)
-                .foregroundStyle(ColorsToken.Text.secondary)
+                .foregroundStyle(Color.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .frame(minHeight: 100)
@@ -168,17 +168,17 @@ public struct VisualizationCard: View {
     
     private func actionBackground(style: CardActionStyle?) -> Color {
         switch style {
-        case .primary: return ColorsToken.Brand.primary
-        case .destructive: return ColorsToken.State.error
-        case .ghost, .none: return ColorsToken.Neutral.n100
-        default: return ColorsToken.Neutral.n200
+        case .primary: return Color.accent
+        case .destructive: return Color.destructive
+        case .ghost, .none: return Color.surfaceElevated
+        default: return Color.separatorLine
         }
     }
     
     private func actionForeground(style: CardActionStyle?) -> Color {
         switch style {
-        case .primary, .destructive: return ColorsToken.Text.inverse
-        default: return ColorsToken.Text.primary
+        case .primary, .destructive: return Color.textInverse
+        default: return Color.textPrimary
         }
     }
 }

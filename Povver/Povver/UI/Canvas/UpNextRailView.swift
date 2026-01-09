@@ -19,33 +19,33 @@ public struct UpNextRailView: View {
                         Button(action: { onTap(id) }) {
                             HStack(spacing: Space.xs) {
                                 StatusTag(card.type.rawValue, kind: .info)
-                                if let t = card.title { PovverText(t, style: .footnote, color: ColorsToken.Text.primary) }
+                                if let t = card.title { PovverText(t, style: .footnote, color: Color.textPrimary) }
                             }
                             .padding(.vertical, Space.xs)
                             .padding(.horizontal, Space.sm)
-                            .background(ColorsToken.Surface.default)
+                            .background(Color.surface)
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline))
+                            .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
                         }
                     }
                 }
                 if upNextIds.count > displayCap {
                     let overflow = upNextIds.count - displayCap
                     HStack(spacing: Space.xs) {
-                        PovverText("+\(overflow)", style: .footnote, color: ColorsToken.Text.secondary)
+                        PovverText("+\(overflow)", style: .footnote, color: Color.textSecondary)
                     }
                     .padding(.vertical, Space.xs)
                     .padding(.horizontal, Space.sm)
-                    .background(ColorsToken.Surface.default)
+                    .background(Color.surface)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline))
+                    .overlay(Capsule().stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline))
                 }
             }
             .padding(.horizontal, Space.lg)
         }
         .frame(height: 44)
         .background(VisualEffectBlur(style: .systemUltraThinMaterial))
-        .overlay(Divider().background(ColorsToken.Border.subtle), alignment: .bottom)
+        .overlay(Divider().background(Color.separatorLine), alignment: .bottom)
         .ignoresSafeArea(edges: .horizontal)
     }
 }

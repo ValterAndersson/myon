@@ -35,11 +35,11 @@ public struct VisualCard: View {
 
     private var emptyState: some View {
         RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-            .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
-            .background(ColorsToken.Neutral.n50)
+            .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
+            .background(Color.surface)
             .frame(minHeight: 160)
             .overlay(
-                PovverText("No data yet", style: .callout, color: ColorsToken.Text.secondary, align: .center)
+                PovverText("No data yet", style: .callout, color: Color.textSecondary, align: .center)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
     }
@@ -47,20 +47,20 @@ public struct VisualCard: View {
     private var baselineChart: some View {
         // Placeholder chart area with baseline theming
         Rectangle()
-            .fill(ColorsToken.Neutral.n50)
+            .fill(Color.surface)
             .frame(minHeight: 160)
             .overlay(
                 VStack(spacing: Space.xs) {
-                    Divider().background(ColorsToken.Neutral.n200)
+                    Divider().background(Color.separatorLine)
                     Spacer()
-                    Divider().background(ColorsToken.Neutral.n200)
+                    Divider().background(Color.separatorLine)
                     Spacer()
-                    Divider().background(ColorsToken.Neutral.n200)
+                    Divider().background(Color.separatorLine)
                 }
                 .padding(InsetsToken.all(Space.md))
             )
             .overlay(
-                PovverText("[Visualization]", style: .callout, color: ColorsToken.Text.secondary, align: .center)
+                PovverText("[Visualization]", style: .callout, color: Color.textSecondary, align: .center)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             )
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))

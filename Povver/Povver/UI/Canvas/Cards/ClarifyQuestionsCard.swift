@@ -16,7 +16,7 @@ public struct ClarifyQuestionsCard: View {
                         ForEach(qs) { q in
                             VStack(alignment: .leading, spacing: Space.sm) {
                                 PovverText(q.text, style: .subheadline)
-                                    .foregroundColor(ColorsToken.Text.primary)
+                                    .foregroundColor(Color.textPrimary)
                                 
                                 if q.type == .text {
                                     // Text input with submit/skip
@@ -26,7 +26,7 @@ public struct ClarifyQuestionsCard: View {
                                     ))
                                     .textInputAutocapitalization(.sentences)
                                     .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-                                    .background(ColorsToken.Background.secondary)
+                                    .background(Color.surfaceElevated)
                                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
                                     
                                 } else if let opts = q.options {
@@ -50,15 +50,15 @@ public struct ClarifyQuestionsCard: View {
                                             }) {
                                                 HStack {
                                                     PovverText(opt, style: .body)
-                                                        .foregroundColor(isOptionSelected(opt, questionId: q.id) ? ColorsToken.Text.inverse : ColorsToken.Text.primary)
+                                                        .foregroundColor(isOptionSelected(opt, questionId: q.id) ? Color.textInverse : Color.textPrimary)
                                                     Spacer()
                                                     if isOptionSelected(opt, questionId: q.id) {
                                                         Image(systemName: q.type == .multi_choice ? "checkmark.square.fill" : "checkmark")
-                                                            .foregroundColor(ColorsToken.Text.inverse)
+                                                            .foregroundColor(Color.textInverse)
                                                     }
                                                 }
                                                 .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-                                                .background(isOptionSelected(opt, questionId: q.id) ? ColorsToken.Brand.primary : ColorsToken.Background.secondary)
+                                                .background(isOptionSelected(opt, questionId: q.id) ? Color.accent : Color.surfaceElevated)
                                                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                                             }
                                             .buttonStyle(PlainButtonStyle())
@@ -78,7 +78,7 @@ public struct ClarifyQuestionsCard: View {
                                             .frame(maxWidth: .infinity)
                                             .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
                                             .background(Color.green)
-                                            .foregroundColor(.white)
+                                            .foregroundColor(.textInverse)
                                             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                                         }
                                         .buttonStyle(PlainButtonStyle())
@@ -94,7 +94,7 @@ public struct ClarifyQuestionsCard: View {
                                             .frame(maxWidth: .infinity)
                                             .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
                                             .background(Color.red)
-                                            .foregroundColor(.white)
+                                            .foregroundColor(.textInverse)
                                             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                                         }
                                         .buttonStyle(PlainButtonStyle())
@@ -115,8 +115,8 @@ public struct ClarifyQuestionsCard: View {
                                     PovverText("Skip", style: .body)
                                 }
                                 .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.lg))
-                                .background(ColorsToken.Background.secondary)
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .background(Color.surfaceElevated)
+                                .foregroundColor(Color.textSecondary)
                                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -128,8 +128,8 @@ public struct ClarifyQuestionsCard: View {
                                 PovverText("Submit", style: .body)
                             }
                             .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.lg))
-                            .background(ColorsToken.Brand.primary)
-                            .foregroundColor(.white)
+                            .background(Color.accent)
+                            .foregroundColor(.textInverse)
                             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                         }
                         .buttonStyle(PlainButtonStyle())

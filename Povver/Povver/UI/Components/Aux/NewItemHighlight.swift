@@ -7,7 +7,7 @@ public struct NewItemHighlight: ViewModifier {
         content
             .overlay(
                 RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                    .fill(ColorsToken.Brand.accent100)
+                    .fill(Color.accentMuted)
                     .opacity(show ? 0.35 : 0)
             )
             .onAppear {

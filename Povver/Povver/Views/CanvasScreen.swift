@@ -84,10 +84,10 @@ struct CanvasScreen: View {
         .overlay {
             if !vm.isReady {
                 ZStack {
-                    ColorsToken.Background.primary.opacity(0.6).ignoresSafeArea()
+                    Color.bg.opacity(0.6).ignoresSafeArea()
                     VStack(spacing: Space.md) {
                         ProgressView().progressViewStyle(.circular)
-                        PovverText("Connecting to canvas…", style: .subheadline, color: ColorsToken.Text.secondary)
+                        PovverText("Connecting to canvas…", style: .subheadline, color: Color.textSecondary)
                     }
                     .padding(InsetsToken.screen)
                 }
@@ -146,10 +146,10 @@ extension CanvasScreen {
                         Text("Ask or adjust...")
                             .font(.system(size: 14, weight: .medium))
                     }
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, 10)
-                    .background(ColorsToken.Surface.default.opacity(0.6))
+                    .background(Color.surface.opacity(0.6))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -160,13 +160,13 @@ extension CanvasScreen {
                     TextField(placeholder, text: $composerText, axis: .vertical)
                         .lineLimit(1...4)
                         .padding(Space.sm)
-                        .background(ColorsToken.Surface.default.opacity(0.6))
+                        .background(Color.surface.opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
                     Button(action: sendComposerMessage) {
                         Image(systemName: "paperplane.fill")
-                            .foregroundColor(.white)
+                            .foregroundColor(.textInverse)
                             .padding(Space.sm)
-                            .background(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
+                            .background(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.textSecondary : Color.accent)
                             .clipShape(Circle())
                     }
                     .disabled(composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

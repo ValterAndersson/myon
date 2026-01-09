@@ -17,7 +17,7 @@ struct ChatHomeView: View {
 
     var body: some View {
         ZStack {
-            ColorsToken.Background.primary.ignoresSafeArea()
+            Color.bg.ignoresSafeArea()
 
             VStack(alignment: .center, spacing: Space.xl) {
                 header
@@ -66,7 +66,7 @@ struct ChatHomeView: View {
 
     private var quickActionsSection: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            PovverText("Quick actions", style: .subheadline, color: ColorsToken.Text.secondary)
+            PovverText("Quick actions", style: .subheadline, color: Color.textSecondary)
             let columns = [GridItem(.flexible(), spacing: Space.md), GridItem(.flexible(), spacing: Space.md)]
             LazyVGrid(columns: columns, alignment: .center, spacing: Space.md) {
                 QuickActionCard(title: "Plan program", icon: iconForPreset("make a training program")) {

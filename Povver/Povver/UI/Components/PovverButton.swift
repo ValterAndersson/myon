@@ -41,57 +41,57 @@ public struct PovverButton: View {
     }
 }
 
+// MARK: - v1.1 Premium Visual System Button Style
 private struct MappedButtonStyle: ButtonStyle {
     let kind: PovverButtonStyleKind
     let enabled: Bool
+    
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed
         return configuration.label
             .padding(.horizontal, Space.lg)
-            .background(backgroundColor(pressed: pressed))
-            .foregroundColor(foregroundColor())
-            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
+            .background(backgroundColor(pressed: pressed, enabled: enabled))
+            .foregroundColor(foregroundColor(enabled: enabled))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                    .strokeBorder(borderColor(pressed: pressed), lineWidth: StrokeWidthToken.thin)
+                RoundedRectangle(cornerRadius: CornerRadiusToken.radiusControl, style: .continuous)
+                    .strokeBorder(borderColor(pressed: pressed, enabled: enabled), lineWidth: StrokeWidthToken.hairline)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                    .stroke(ColorsToken.Brand.accent700.opacity(0.6), lineWidth: 2)
-                    .opacity(isFocused() ? 1 : 0)
-            )
-            .opacity(enabled ? 1.0 : 0.6)
+            .opacity(enabled ? 1.0 : 1.0) // Disabled state handled via colors, not opacity
             .animation(.easeInOut(duration: MotionToken.fast), value: pressed)
     }
 
-    private func isFocused() -> Bool { false }
-
-    private func foregroundColor() -> Color {
+    private func foregroundColor(enabled: Bool) -> Color {
+        guard enabled else { return .textTertiary }
         switch kind {
-        case .primary: return ColorsToken.Text.inverse
-        case .secondary: return ColorsToken.Text.primary
-        case .ghost: return ColorsToken.Text.primary
-        case .destructive: return ColorsToken.Text.inverse
+        case .primary: return .textInverse
+        case .secondary: return .textPrimary
+        case .ghost: return .textPrimary
+        case .destructive: return .textInverse
         }
     }
 
-    private func backgroundColor(pressed: Bool) -> Color {
-        let pressOverlay: Double = pressed ? 0.08 : 0
+    private func backgroundColor(pressed: Bool, enabled: Bool) -> Color {
+        guard enabled else { return .separatorLine }
         switch kind {
-        case .primary: return ColorsToken.Brand.primary.opacity(1 - pressOverlay)
-        case .secondary: return ColorsToken.Surface.default.opacity(1 - pressOverlay)
-        case .ghost: return ColorsToken.Surface.default.opacity(pressOverlay)
-        case .destructive: return ColorsToken.State.error.opacity(1 - pressOverlay)
+        case .primary: 
+            return pressed ? .accentPressed : .accent
+        case .secondary: 
+            return pressed ? .surfaceElevated : .surface
+        case .ghost: 
+            return pressed ? .surfaceElevated : .clear
+        case .destructive: 
+            return pressed ? .destructive.opacity(0.85) : .destructive
         }
     }
 
-    private func borderColor(pressed: Bool) -> Color {
-        let base = ColorsToken.Border.default
+    private func borderColor(pressed: Bool, enabled: Bool) -> Color {
+        guard enabled else { return .separatorLine }
         switch kind {
-        case .primary: return base.opacity(0)
-        case .secondary: return base.opacity(1)
-        case .ghost: return base.opacity(pressed ? 1 : 0)
-        case .destructive: return base.opacity(0)
+        case .primary: return .clear
+        case .secondary: return .separatorLine
+        case .ghost: return pressed ? .separatorLine : .clear
+        case .destructive: return .clear
         }
     }
 }

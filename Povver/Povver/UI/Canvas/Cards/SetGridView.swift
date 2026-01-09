@@ -40,8 +40,8 @@ struct SetGridView: View {
     @State private var editScope: EditScope = .allWorking
     @State private var setTypePickerSetId: String? = nil
     
-    // Row height constant
-    private let rowHeight: CGFloat = 44
+    // Row height constant - unified with FocusModeSetGrid (52pt for gym use)
+    private let rowHeight: CGFloat = 52
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -83,7 +83,7 @@ struct SetGridView: View {
                                 } label: {
                                     Label("Duplicate", systemImage: "doc.on.doc")
                                 }
-                                .tint(ColorsToken.Brand.primary)
+                                .tint(Color.accent)
                             }
                         }
                     }
@@ -165,10 +165,10 @@ struct SetGridView: View {
             }
         }
         .font(.system(size: 11, weight: .semibold))
-        .foregroundColor(ColorsToken.Text.secondary)
+        .foregroundColor(Color.textSecondary)
         .frame(height: 28)
         .padding(.horizontal, Space.md)
-        .background(ColorsToken.Background.secondary.opacity(0.4))
+        .background(Color.surfaceElevated.opacity(0.4))
     }
     
     // MARK: - Grid Row
@@ -182,14 +182,14 @@ struct SetGridView: View {
                 HStack(spacing: 4) {
                     Text(displayNumber(for: index))
                         .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                        .foregroundColor(isWarmup ? ColorsToken.Text.secondary : ColorsToken.Text.primary)
+                        .foregroundColor(isWarmup ? Color.textSecondary : Color.textPrimary)
                     
                     if let badge = setTypeBadge(for: set) {
                         Text(badge)
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(.textInverse)
                             .frame(width: 16, height: 16)
-                            .background(set.type == .failureSet ? ColorsToken.State.error : ColorsToken.State.warning)
+                            .background(set.type == .failureSet ? Color.destructive : Color.warning)
                             .clipShape(Circle())
                     }
                 }
@@ -232,7 +232,7 @@ struct SetGridView: View {
                 Button { selectedCell = .done(setId: set.id) } label: {
                     Image(systemName: set.isCompleted == true ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
-                        .foregroundColor(set.isCompleted == true ? ColorsToken.State.success : ColorsToken.Text.secondary.opacity(0.4))
+                        .foregroundColor(set.isCompleted == true ? Color.success : Color.textSecondary.opacity(0.4))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .frame(width: widths.done, alignment: .center)
@@ -298,11 +298,11 @@ struct SetGridView: View {
     
     private func rowBackground(for set: PlanSet) -> Color {
         if selectedCell?.setId == set.id {
-            return ColorsToken.Surface.focusedRow
+            return Color.accentMuted
         } else if set.isWarmup {
-            return ColorsToken.Background.secondary.opacity(0.3)
+            return Color.surfaceElevated.opacity(0.3)
         }
-        return ColorsToken.Surface.card
+        return Color.surface
     }
     
     // MARK: - Add Set Button
@@ -313,7 +313,7 @@ struct SetGridView: View {
                 Image(systemName: "plus").font(.system(size: 13, weight: .medium))
                 Text("Add Set").font(.system(size: 13, weight: .medium))
             }
-            .foregroundColor(ColorsToken.Brand.primary)
+            .foregroundColor(Color.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
         }
@@ -339,20 +339,20 @@ private struct GridCell: View {
                 .padding(.horizontal, 2)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isSelected ? ColorsToken.Brand.primary.opacity(0.12) : Color.clear)
+                        .fill(isSelected ? Color.accent.opacity(0.12) : Color.clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isSelected ? ColorsToken.Brand.primary : Color.clear, lineWidth: 1.5)
+                        .stroke(isSelected ? Color.accent : Color.clear, lineWidth: 1.5)
                 )
         }
         .buttonStyle(PlainButtonStyle())
     }
     
     private var textColor: Color {
-        if isSelected { return ColorsToken.Brand.primary }
-        if isSecondary || value == "—" { return ColorsToken.Text.secondary }
-        return ColorsToken.Text.primary
+        if isSelected { return Color.accent }
+        if isSecondary || value == "—" { return Color.textSecondary }
+        return Color.textPrimary
     }
 }
 
@@ -372,23 +372,29 @@ private struct InlineEditingDock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if !isWarmupSet { scopeSelector }
-            HStack(alignment: .top, spacing: Space.sm) {
+            HStack(alignment: .center, spacing: Space.md) {
                 valueEditor
                 Spacer()
+                // Done button - matches FocusModeSetGrid style
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(ColorsToken.Background.secondary)
-                        .clipShape(Circle())
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Done")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.textInverse)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.accent)
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Neutral.n100.opacity(0.8))
+        .background(Color.surfaceElevated.opacity(0.8))
     }
     
     private var currentSetIndex: Int? { sets.firstIndex { $0.id == selectedCell.setId } }
@@ -407,7 +413,7 @@ private struct InlineEditingDock: View {
     
     private var scopeSelector: some View {
         HStack(spacing: Space.xs) {
-            Text("Apply to:").font(.system(size: 12)).foregroundColor(ColorsToken.Text.secondary)
+            Text("Apply to:").font(.system(size: 12)).foregroundColor(Color.textSecondary)
             ForEach(EditScope.allCases, id: \.rawValue) { scope in
                 Button {
                     editScope = scope
@@ -415,10 +421,10 @@ private struct InlineEditingDock: View {
                 } label: {
                     Text(scopeLabel(scope))
                         .font(.system(size: 11, weight: editScope == scope ? .semibold : .regular))
-                        .foregroundColor(editScope == scope ? .white : ColorsToken.Text.secondary)
+                        .foregroundColor(editScope == scope ? .textInverse : Color.textSecondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(editScope == scope ? ColorsToken.Brand.primary : ColorsToken.Background.secondary)
+                        .background(editScope == scope ? Color.accent : Color.surfaceElevated)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -463,7 +469,7 @@ private struct InlineEditingDock: View {
                         .onChange(of: textFieldFocused) { _, newFocused in
                             if !newFocused { commitTextInput() }
                         }
-                    Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                    Text("kg").font(.system(size: 11)).foregroundColor(Color.textSecondary)
                 }
                 .frame(width: 90)
             } else {
@@ -477,14 +483,14 @@ private struct InlineEditingDock: View {
                     VStack(spacing: 0) {
                         Text(currentValue > 0 ? formatWeight(currentValue) : "—")
                             .font(.system(size: 24, weight: .bold).monospacedDigit())
-                            .foregroundColor(ColorsToken.Text.primary)
-                        Text("kg").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textPrimary)
+                        Text("kg").font(.system(size: 11)).foregroundColor(Color.textSecondary)
                     }
                     .frame(width: 80)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                            .fill(Color.surfaceElevated.opacity(0.5))
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -511,7 +517,7 @@ private struct InlineEditingDock: View {
                         .onChange(of: textFieldFocused) { _, newFocused in
                             if !newFocused { commitTextInput() }
                         }
-                    Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                    Text("reps").font(.system(size: 11)).foregroundColor(Color.textSecondary)
                 }
                 .frame(width: 80)
             } else {
@@ -525,14 +531,14 @@ private struct InlineEditingDock: View {
                     VStack(spacing: 0) {
                         Text("\(Int(currentValue))")
                             .font(.system(size: 24, weight: .bold).monospacedDigit())
-                            .foregroundColor(ColorsToken.Text.primary)
-                        Text("reps").font(.system(size: 11)).foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textPrimary)
+                        Text("reps").font(.system(size: 11)).foregroundColor(Color.textSecondary)
                     }
                     .frame(width: 70)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                            .fill(Color.surfaceElevated.opacity(0.5))
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -574,9 +580,9 @@ private struct InlineEditingDock: View {
                 Button { applyChange(Double(rir)) } label: {
                     Text("\(rir)")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Int(currentValue) == rir ? .white : ColorsToken.Text.primary)
+                        .foregroundColor(Int(currentValue) == rir ? .textInverse : Color.textPrimary)
                         .frame(width: 36, height: 36)
-                        .background(Int(currentValue) == rir ? rirColor(rir) : ColorsToken.Background.secondary)
+                        .background(Int(currentValue) == rir ? rirColor(rir) : Color.surfaceElevated)
                         .clipShape(Circle())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -596,10 +602,10 @@ private struct InlineEditingDock: View {
                 Text(currentSet?.isCompleted == true ? "Mark Incomplete" : "Mark Complete")
             }
             .font(.system(size: 14, weight: .medium))
-            .foregroundColor(currentSet?.isCompleted == true ? ColorsToken.Text.secondary : ColorsToken.State.success)
+            .foregroundColor(currentSet?.isCompleted == true ? Color.textSecondary : Color.success)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
-            .background(currentSet?.isCompleted == true ? ColorsToken.Background.secondary : ColorsToken.State.success.opacity(0.12))
+            .background(currentSet?.isCompleted == true ? Color.surfaceElevated : Color.success.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
@@ -609,9 +615,9 @@ private struct InlineEditingDock: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(disabled ? ColorsToken.Text.secondary.opacity(0.3) : ColorsToken.Brand.primary)
+                .foregroundColor(disabled ? Color.textSecondary.opacity(0.3) : Color.accent)
                 .frame(width: 44, height: 44)
-                .background(ColorsToken.Background.secondary)
+                .background(Color.surfaceElevated)
                 .clipShape(Circle())
         }
         .buttonStyle(PlainButtonStyle())
@@ -646,10 +652,10 @@ private struct InlineEditingDock: View {
     
     private func rirColor(_ rir: Int) -> Color {
         switch rir {
-        case 0: return ColorsToken.State.error
-        case 1: return ColorsToken.State.warning
-        case 2: return ColorsToken.Brand.primary
-        default: return ColorsToken.Text.secondary
+        case 0: return Color.destructive
+        case 1: return Color.warning
+        case 2: return Color.accent
+        default: return Color.textSecondary
         }
     }
 }
@@ -666,30 +672,30 @@ private struct SetTypePickerSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Set Type")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, Space.lg)
                     .padding(.top, Space.lg)
                     .padding(.bottom, Space.sm)
                 
                 VStack(spacing: 0) {
-                    setTypeOption(type: .warmup, title: "Warm-up", icon: "flame", color: ColorsToken.Text.secondary)
+                    setTypeOption(type: .warmup, title: "Warm-up", icon: "flame", color: Color.textSecondary)
                     Divider().padding(.leading, 56)
-                    setTypeOption(type: .working, title: "Working Set", icon: "dumbbell", color: ColorsToken.Brand.primary)
+                    setTypeOption(type: .working, title: "Working Set", icon: "dumbbell", color: Color.accent)
                     Divider().padding(.leading, 56)
-                    setTypeOption(type: .failureSet, title: "Failure", icon: "flame.fill", color: ColorsToken.State.error)
+                    setTypeOption(type: .failureSet, title: "Failure", icon: "flame.fill", color: Color.destructive)
                     Divider().padding(.leading, 56)
-                    setTypeOption(type: .dropSet, title: "Drop Set", icon: "arrow.down.circle", color: ColorsToken.State.warning)
+                    setTypeOption(type: .dropSet, title: "Drop Set", icon: "arrow.down.circle", color: Color.warning)
                 }
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 Spacer()
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { onDismiss() }
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
             }
         }
@@ -701,10 +707,10 @@ private struct SetTypePickerSheet: View {
         Button { onSelect(type) } label: {
             HStack(spacing: Space.md) {
                 Image(systemName: icon).font(.system(size: 18)).foregroundColor(color).frame(width: 32)
-                Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(ColorsToken.Text.primary)
+                Text(title).font(.system(size: 15, weight: .medium)).foregroundColor(Color.textPrimary)
                 Spacer()
                 if currentType == type {
-                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundColor(ColorsToken.Brand.primary)
+                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundColor(Color.accent)
                 }
             }
             .padding(.horizontal, Space.lg)

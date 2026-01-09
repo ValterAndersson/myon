@@ -18,12 +18,12 @@ public struct PovverSlider: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             HStack {
-                PovverText(title, style: .subheadline, color: ColorsToken.Text.secondary)
+                PovverText(title, style: .subheadline, color: Color.textSecondary)
                 Spacer()
                 PovverText(formatter(value), style: .subheadline)
             }
             Slider(value: $value, in: range, step: step)
-                .tint(ColorsToken.Brand.primary)
+                .tint(Color.accent)
         }
     }
 }

@@ -7,7 +7,7 @@ public struct Icon: View {
     private let size: IconSize
     private let color: Color
 
-    public init(_ systemName: String, size: IconSize = .md, color: Color = ColorsToken.Text.primary) {
+    public init(_ systemName: String, size: IconSize = .md, color: Color = Color.textPrimary) {
         self.systemName = systemName
         self.size = size
         self.color = color

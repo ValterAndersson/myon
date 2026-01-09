@@ -30,7 +30,7 @@ struct CoachTabView: View {
             .frame(maxWidth: .infinity)
             .padding(InsetsToken.screen)
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $navigateToCanvas) {
@@ -63,7 +63,7 @@ struct CoachTabView: View {
     
     private var quickActionsGrid: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            PovverText("Quick actions", style: .subheadline, color: ColorsToken.Text.secondary)
+            PovverText("Quick actions", style: .subheadline, color: Color.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             let columns = [

@@ -14,26 +14,26 @@ struct AgentMessageCard: View {
             HStack(spacing: Space.sm) {
                 Image(systemName: iconName)
                     .font(.system(size: 16))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                     .rotationEffect(shouldAnimate ? .degrees(360) : .zero)
                     .animation(shouldAnimate ? Animation.linear(duration: 1).repeatForever(autoreverses: false) : .default, value: shouldAnimate)
                 
                 Text(agentMessage?.status ?? "Working...")
                     .font(.body)
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Spacer()
                 
                 Text(Date().formatted(.dateTime.hour().minute()))
                     .font(.caption)
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             // Message content
             if let message = agentMessage?.message, !message.isEmpty {
                 Text(message)
                     .font(.body)
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                     .padding(.top, Space.xs)
             }
             
@@ -44,16 +44,16 @@ struct AgentMessageCard: View {
                         HStack(spacing: Space.xs) {
                             Image(systemName: "wrench.and.screwdriver")
                                 .font(.system(size: 12))
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                             
                             Text(tool.displayName)
                                 .font(.caption)
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                             
                             if let duration = tool.duration {
                                 Text("(\(duration))")
                                     .font(.caption)
-                                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+                                    .foregroundColor(Color.textSecondary.opacity(0.7))
                             }
                         }
                     }
@@ -68,11 +68,11 @@ struct AgentMessageCard: View {
                         HStack(alignment: .top, spacing: Space.xs) {
                             Text("•")
                                 .font(.caption)
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                             
                             Text(thought)
                                 .font(.caption)
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                     }
                 }
@@ -80,7 +80,7 @@ struct AgentMessageCard: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Background.secondary)
+        .background(Color.surfaceElevated)
         .cornerRadius(CornerRadiusToken.medium)
     }
     

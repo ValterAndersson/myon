@@ -28,18 +28,18 @@ public struct Banner: View {
 
     private var background: Color {
         switch kind {
-        case .info: return ColorsToken.State.info.opacity(0.12)
-        case .success: return ColorsToken.State.success.opacity(0.12)
-        case .warning: return ColorsToken.State.warning.opacity(0.12)
-        case .error: return ColorsToken.State.error.opacity(0.12)
+        case .info: return Color.accent.opacity(0.12)
+        case .success: return Color.success.opacity(0.12)
+        case .warning: return Color.warning.opacity(0.12)
+        case .error: return Color.destructive.opacity(0.12)
         }
     }
     private var onColor: Color {
         switch kind {
-        case .info: return ColorsToken.State.info
-        case .success: return ColorsToken.State.success
-        case .warning: return ColorsToken.State.warning
-        case .error: return ColorsToken.State.error
+        case .info: return Color.accent
+        case .success: return Color.success
+        case .warning: return Color.warning
+        case .error: return Color.destructive
         }
     }
     private var iconName: String {

@@ -9,11 +9,11 @@ public struct Toast: View {
     }
     public var body: some View {
         HStack(spacing: Space.sm) {
-            Icon(icon, size: .md, color: ColorsToken.Text.inverse)
-            PovverText(text, style: .callout, color: ColorsToken.Text.inverse)
+            Icon(icon, size: .md, color: Color.textInverse)
+            PovverText(text, style: .callout, color: Color.textInverse)
         }
         .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-        .background(ColorsToken.Brand.primary)
+        .background(Color.accent)
         .clipShape(Capsule())
         .shadowStyle(ShadowsToken.level2)
     }

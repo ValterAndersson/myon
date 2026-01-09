@@ -179,12 +179,12 @@ struct FocusModeSetGrid: View {
                     .frame(width: widths.done, alignment: .center)
             }
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(ColorsToken.Text.secondary)
+            .foregroundColor(Color.textSecondary)
             .frame(height: 32)
             .padding(.horizontal, Space.md)
         }
         .frame(height: 32)
-        .background(ColorsToken.Background.secondary.opacity(0.5))
+        .background(Color.surfaceElevated.opacity(0.5))
     }
     
     // MARK: - Set Row
@@ -271,6 +271,8 @@ struct FocusModeSetGrid: View {
         .buttonStyle(PlainButtonStyle())
     }
     
+    // MARK: - Value Cell (v1.1 Single Focus Rule)
+    /// Only the selected/editing row gets accentMuted background - no thick colored borders
     private func valueCell(
         value: String,
         isSelected: Bool,
@@ -284,13 +286,10 @@ struct FocusModeSetGrid: View {
                 .font(.system(size: 16, weight: isSelected ? .semibold : .regular).monospacedDigit())
                 .foregroundColor(cellTextColor(isSelected: isSelected, isSecondary: isSecondary, isDone: isDone, value: value))
                 .frame(width: width - 8, height: rowHeight - 12)
+                // Single focus: selected cell gets subtle accentMuted, NO thick border
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(isSelected ? ColorsToken.Brand.primary.opacity(0.12) : Color.clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(isSelected ? ColorsToken.Brand.primary : Color.clear, lineWidth: 2)
+                        .fill(isSelected ? Color.accentMuted : Color.clear)
                 )
         }
         .buttonStyle(PlainButtonStyle())
@@ -315,7 +314,7 @@ struct FocusModeSetGrid: View {
                 // Subtle ring background
                 Circle()
                     .stroke(
-                        set.isDone ? ColorsToken.State.success.opacity(0.3) : ColorsToken.Text.secondary.opacity(0.15),
+                        set.isDone ? Color.success.opacity(0.3) : Color.textSecondary.opacity(0.15),
                         lineWidth: set.isDone ? 2 : 1.5
                     )
                     .frame(width: 20, height: 20)
@@ -324,7 +323,7 @@ struct FocusModeSetGrid: View {
                 if set.isDone {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(ColorsToken.State.success)
+                        .foregroundColor(Color.success)
                 }
             }
             .frame(width: 44, height: 44) // 44pt hit target
@@ -344,7 +343,7 @@ struct FocusModeSetGrid: View {
                 Text("Add Set")
                     .font(.system(size: 14, weight: .medium))
             }
-            .foregroundColor(ColorsToken.Brand.primary)
+            .foregroundColor(Color.accent)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
         }
@@ -391,16 +390,16 @@ struct FocusModeSetGrid: View {
     private func displayNumber(for displayIndex: Int, set: FocusModeSet) -> SetDisplayInfo {
         if set.isWarmup {
             // Warmups show as "W" (compact to fit in single line)
-            return SetDisplayInfo(text: "W", color: ColorsToken.Text.secondary, isLetter: true)
+            return SetDisplayInfo(text: "W", color: Color.textSecondary, isLetter: true)
         } else if set.tags?.isFailure == true {
             // Failure sets get "F" indicator
-            return SetDisplayInfo(text: "F", color: ColorsToken.State.error, isLetter: true)
+            return SetDisplayInfo(text: "F", color: Color.destructive, isLetter: true)
         } else if set.setType == .dropset {
             // Drop sets get "D" indicator
-            return SetDisplayInfo(text: "D", color: ColorsToken.State.warning, isLetter: true)
+            return SetDisplayInfo(text: "D", color: Color.warning, isLetter: true)
         } else {
             // Working sets are 1-based: displayIndex 0 → "1", displayIndex 1 → "2", etc.
-            return SetDisplayInfo(text: "\(displayIndex + 1)", color: ColorsToken.Text.primary, isLetter: false)
+            return SetDisplayInfo(text: "\(displayIndex + 1)", color: Color.textPrimary, isLetter: false)
         }
     }
     
@@ -413,22 +412,25 @@ struct FocusModeSetGrid: View {
     }
     
     private func cellTextColor(isSelected: Bool, isSecondary: Bool, isDone: Bool, value: String) -> Color {
-        if isSelected { return ColorsToken.Brand.primary }
-        if isDone { return ColorsToken.State.success }
-        if isSecondary || value == "—" { return ColorsToken.Text.secondary }
-        return ColorsToken.Text.primary
+        if isSelected { return Color.accent }
+        if isDone { return Color.success }
+        if isSecondary || value == "—" { return Color.textSecondary }
+        return Color.textPrimary
     }
     
+    // MARK: - Row Background (v1.1 Single Focus Rule)
+    /// Only the selected/editing row gets accentMuted - completed sets stay neutral
     private func rowBackground(for set: FocusModeSet) -> Color {
         if let selected = selectedCell,
            selected.exerciseId == exercise.instanceId,
            selected.setId == set.id {
-            return ColorsToken.Surface.focusedRow
+            // ONLY the active/editing row is tinted with accentMuted
+            return Color.accentMuted
         }
-        // Removed green tint for completed sets - checkmark alone is enough
-        // Keeping subtle warmup background for visual grouping
+        // Completed sets remain neutral (checkmark alone is enough)
+        // Warmups get subtle grouping background
         if set.isWarmup {
-            return ColorsToken.Background.secondary.opacity(0.3)
+            return Color.surfaceElevated.opacity(0.5)
         }
         return Color.clear
     }
@@ -509,10 +511,10 @@ struct FocusModeEditingDock: View {
                         Text("Done")
                             .font(.system(size: 13, weight: .semibold))
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(ColorsToken.Brand.primary)
+                    .background(Color.accent)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -520,7 +522,7 @@ struct FocusModeEditingDock: View {
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Neutral.n100.opacity(0.95))
+        .background(Color.surfaceElevated.opacity(0.95))
         .onAppear {
             // Set smart default scope on first appear
             if !hasComputedDefaultScope {
@@ -545,7 +547,7 @@ struct FocusModeEditingDock: View {
         HStack(spacing: Space.xs) {
             Text("Apply to:")
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             ScopeSegmentedControl(
                 selectedScope: $editScope,
@@ -596,7 +598,7 @@ struct FocusModeEditingDock: View {
                         }
                     Text("kg")
                         .font(.system(size: 11))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 .frame(width: 90)
             } else {
@@ -611,16 +613,16 @@ struct FocusModeEditingDock: View {
                     VStack(spacing: 0) {
                         Text(formatWeight(set.displayWeight))
                             .font(.system(size: 28, weight: .bold).monospacedDigit())
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                         Text("kg")
                             .font(.system(size: 12))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                     .frame(width: 80)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                            .fill(Color.surfaceElevated.opacity(0.5))
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -655,7 +657,7 @@ struct FocusModeEditingDock: View {
                         }
                     Text("reps")
                         .font(.system(size: 11))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 .frame(width: 80)
             } else {
@@ -669,16 +671,16 @@ struct FocusModeEditingDock: View {
                     VStack(spacing: 0) {
                         Text("\(set.displayReps ?? 10)")
                             .font(.system(size: 28, weight: .bold).monospacedDigit())
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                         Text("reps")
                             .font(.system(size: 12))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                     .frame(width: 70)
                     .padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(ColorsToken.Background.secondary.opacity(0.5))
+                            .fill(Color.surfaceElevated.opacity(0.5))
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -739,9 +741,9 @@ struct FocusModeEditingDock: View {
                 } label: {
                     Text("\(rir)")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(set.displayRir == rir ? .white : ColorsToken.Text.primary)
+                        .foregroundColor(set.displayRir == rir ? .textInverse : Color.textPrimary)
                         .frame(width: 42, height: 42)
-                        .background(set.displayRir == rir ? rirColor(rir) : ColorsToken.Background.secondary)
+                        .background(set.displayRir == rir ? rirColor(rir) : Color.surfaceElevated)
                         .clipShape(Circle())
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -759,9 +761,9 @@ struct FocusModeEditingDock: View {
         } label: {
             Image(systemName: systemName)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(disabled ? ColorsToken.Text.secondary.opacity(0.3) : ColorsToken.Brand.primary)
+                .foregroundColor(disabled ? Color.textSecondary.opacity(0.3) : Color.accent)
                 .frame(width: 40, height: 40)
-                .background(ColorsToken.Background.secondary.opacity(0.6))
+                .background(Color.surfaceElevated.opacity(0.6))
                 .clipShape(Circle())
         }
         .buttonStyle(PlainButtonStyle())
@@ -778,10 +780,10 @@ struct FocusModeEditingDock: View {
     
     private func rirColor(_ rir: Int) -> Color {
         switch rir {
-        case 0: return ColorsToken.State.error
-        case 1: return ColorsToken.State.warning
-        case 2: return ColorsToken.Brand.primary
-        default: return ColorsToken.Text.secondary
+        case 0: return Color.destructive
+        case 1: return Color.warning
+        case 2: return Color.accent
+        default: return Color.textSecondary
         }
     }
 }
@@ -802,24 +804,24 @@ struct FocusModeSetTypePickerSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Set Type")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, Space.lg)
                     .padding(.top, Space.lg)
                     .padding(.bottom, Space.sm)
                 
                 VStack(spacing: 0) {
-                    setTypeOption(type: .warmup, title: "Warm-up", icon: "flame", color: ColorsToken.Text.secondary)
+                    setTypeOption(type: .warmup, title: "Warm-up", icon: "flame", color: Color.textSecondary)
                     Divider().padding(.leading, 56)
-                    setTypeOption(type: .working, title: "Working Set", icon: "dumbbell", color: ColorsToken.Brand.primary)
+                    setTypeOption(type: .working, title: "Working Set", icon: "dumbbell", color: Color.accent)
                     Divider().padding(.leading, 56)
-                    setTypeOption(type: .dropset, title: "Drop Set", icon: "arrow.down.circle", color: ColorsToken.State.warning)
+                    setTypeOption(type: .dropset, title: "Drop Set", icon: "arrow.down.circle", color: Color.warning)
                 }
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 
                 // Failure toggle (separate from set type)
                 Text("Modifiers")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, Space.lg)
                     .padding(.top, Space.xl)
                     .padding(.bottom, Space.sm)
@@ -831,40 +833,40 @@ struct FocusModeSetTypePickerSheet: View {
                         HStack(spacing: Space.md) {
                             Image(systemName: "flame.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(ColorsToken.State.error)
+                                .foregroundColor(Color.destructive)
                                 .frame(width: 32)
                             
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Failure")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(ColorsToken.Text.primary)
+                                    .foregroundColor(Color.textPrimary)
                                 Text("Mark this set as taken to failure")
                                     .font(.system(size: 12))
-                                    .foregroundColor(ColorsToken.Text.secondary)
+                                    .foregroundColor(Color.textSecondary)
                             }
                             
                             Spacer()
                             
                             Image(systemName: isFailure ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 22))
-                                .foregroundColor(isFailure ? ColorsToken.State.error : ColorsToken.Text.secondary.opacity(0.3))
+                                .foregroundColor(isFailure ? Color.destructive : Color.textSecondary.opacity(0.3))
                         }
                         .padding(.horizontal, Space.lg)
                         .padding(.vertical, 14)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 
                 Spacer()
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { onDismiss() }
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
             }
         }
@@ -884,14 +886,14 @@ struct FocusModeSetTypePickerSheet: View {
                 
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Spacer()
                 
                 if currentType == type {
                     Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
             }
             .padding(.horizontal, Space.lg)
@@ -924,5 +926,5 @@ struct FocusModeSetTypePickerSheet: View {
         onRemoveSet: { _ in }
     )
     .padding()
-    .background(ColorsToken.Background.primary)
+    .background(Color.bg)
 }

@@ -58,7 +58,7 @@ struct ThinkingBubble: View {
                 // Summary text
                 Text(state.summaryText)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Spacer()
                 
@@ -66,19 +66,19 @@ struct ThinkingBubble: View {
                 if state.isComplete && state.totalDurationMs > 0 {
                     Text(state.totalDurationText)
                         .font(.system(size: 12))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                 // Chevron
                 Image(systemName: state.isExpanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(ColorsToken.Border.subtle, lineWidth: 1)
+                    .stroke(Color.separatorLine, lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -92,7 +92,7 @@ struct ThinkingBubble: View {
             HStack(alignment: .top, spacing: 0) {
                 // Connection line
                 Rectangle()
-                    .fill(ColorsToken.Border.subtle)
+                    .fill(Color.separatorLine)
                     .frame(width: 1)
                     .padding(.leading, Space.lg + 6)  // Align with sparkle center
                 
@@ -136,12 +136,12 @@ private struct StepRow: View {
                         let completedCount = step.toolResults.filter { $0.isComplete }.count
                         Text("\(completedCount) of \(step.toolResults.count) steps completed")
                             .font(.system(size: 11))
-                            .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+                            .foregroundColor(Color.textSecondary.opacity(0.7))
                     } else if let detail = step.detail {
                         // Fallback to detail if no tool results
                         Text(detail)
                             .font(.system(size: 12))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                             .lineLimit(2)
                     }
                 }
@@ -152,7 +152,7 @@ private struct StepRow: View {
                 if let durationText = step.durationText {
                     Text(durationText)
                         .font(.system(size: 11))
-                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+                        .foregroundColor(Color.textSecondary.opacity(0.7))
                 }
             }
             
@@ -174,7 +174,7 @@ private struct StepRow: View {
             switch step.status {
             case .pending:
                 Circle()
-                    .stroke(ColorsToken.Text.secondary.opacity(0.3), lineWidth: 1.5)
+                    .stroke(Color.textSecondary.opacity(0.3), lineWidth: 1.5)
                     
             case .active:
                 ActiveIndicator()
@@ -195,11 +195,11 @@ private struct StepRow: View {
     private var titleColor: Color {
         switch step.status {
         case .pending:
-            return ColorsToken.Text.secondary.opacity(0.6)
+            return Color.textSecondary.opacity(0.6)
         case .active:
-            return ColorsToken.Text.primary
+            return Color.textPrimary
         case .complete:
-            return ColorsToken.Text.secondary
+            return Color.textSecondary
         case .error:
             return .red
         }
@@ -215,23 +215,23 @@ private struct ToolResultRow: View {
         HStack(spacing: Space.xs) {
             // Status dot
             Circle()
-                .fill(toolResult.isComplete ? Color.green.opacity(0.7) : ColorsToken.Brand.primary.opacity(0.5))
+                .fill(toolResult.isComplete ? Color.green.opacity(0.7) : Color.accent.opacity(0.5))
                 .frame(width: 6, height: 6)
             
             // Tool name
             Text(toolResult.displayName)
                 .font(.system(size: 11))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             // Arrow and result (if complete)
             if let result = toolResult.result, !result.isEmpty {
                 Text("→")
                     .font(.system(size: 10))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                    .foregroundColor(Color.textSecondary.opacity(0.5))
                 
                 Text(result)
                     .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.8))
+                    .foregroundColor(Color.textSecondary.opacity(0.8))
                     .lineLimit(1)
             } else if !toolResult.isComplete {
                 // Show spinner for in-progress tools
@@ -245,7 +245,7 @@ private struct ToolResultRow: View {
             if let durationMs = toolResult.durationMs {
                 Text(String(format: "%.1fs", Double(durationMs) / 1000.0))
                     .font(.system(size: 10))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                    .foregroundColor(Color.textSecondary.opacity(0.5))
             }
         }
         .padding(.vertical, 1)
@@ -260,7 +260,7 @@ private struct ActiveIndicator: View {
     var body: some View {
         Circle()
             .trim(from: 0, to: 0.7)
-            .stroke(ColorsToken.Brand.primary, lineWidth: 2)
+            .stroke(Color.accent, lineWidth: 2)
             .rotationEffect(.degrees(isAnimating ? 360 : 0))
             .onAppear {
                 withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
@@ -281,7 +281,7 @@ private struct SparkleIcon: View {
     var body: some View {
         Image(systemName: "sparkle")
             .font(.system(size: 14, weight: .medium))
-            .foregroundColor(ColorsToken.Brand.primary)
+            .foregroundColor(Color.accent)
             .scaleEffect(scale)
             .rotationEffect(.degrees(rotation))
             .onAppear {
@@ -330,7 +330,7 @@ struct ThinkingBubble_Previews: PreviewProvider {
             Spacer()
         }
         .padding()
-        .background(ColorsToken.Background.primary)
+        .background(Color.bg)
     }
 }
 #endif

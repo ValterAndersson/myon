@@ -26,15 +26,15 @@ public struct RankedTableView: View {
                 
                 if row.id != rows.last?.id {
                     Divider()
-                        .background(ColorsToken.Border.subtle)
+                        .background(Color.separatorLine)
                 }
             }
         }
-        .background(ColorsToken.Surface.default)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -48,12 +48,12 @@ public struct RankedTableView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.label)
                     .font(TypographyToken.body)
-                    .foregroundStyle(ColorsToken.Text.primary)
+                    .foregroundStyle(Color.textPrimary)
                 
                 if let sublabel = row.sublabel {
                     Text(sublabel)
                         .font(TypographyToken.caption)
-                        .foregroundStyle(ColorsToken.Text.muted)
+                        .foregroundStyle(Color.textTertiary)
                 }
             }
             
@@ -65,12 +65,12 @@ public struct RankedTableView: View {
                     Text(row.value)
                         .font(TypographyToken.body)
                         .fontWeight(.semibold)
-                        .foregroundStyle(ColorsToken.Text.primary)
+                        .foregroundStyle(Color.textPrimary)
                     
                     if let unit = spec.data?.yAxis?.unit {
                         Text(unit)
                             .font(TypographyToken.caption)
-                            .foregroundStyle(ColorsToken.Text.secondary)
+                            .foregroundStyle(Color.textSecondary)
                     }
                 }
                 
@@ -93,7 +93,7 @@ public struct RankedTableView: View {
         Text("\(rank)")
             .font(TypographyToken.caption)
             .fontWeight(.bold)
-            .foregroundStyle(rank <= 3 ? ColorsToken.Text.inverse : ColorsToken.Text.secondary)
+            .foregroundStyle(rank <= 3 ? Color.textInverse : Color.textSecondary)
             .frame(width: 24, height: 24)
             .background(
                 Circle()
@@ -103,18 +103,18 @@ public struct RankedTableView: View {
     
     private func rankColor(rank: Int) -> Color {
         switch rank {
-        case 1: return ColorsToken.Brand.primary
-        case 2: return ColorsToken.Brand.secondary
-        case 3: return ColorsToken.Neutral.n600
-        default: return ColorsToken.Neutral.n200
+        case 1: return Color.accent
+        case 2: return Color.accent
+        case 3: return Color.textTertiary
+        default: return Color.separatorLine
         }
     }
     
     @ViewBuilder
     private func deltaLabel(delta: Double, trend: TrendDirection?) -> some View {
         let isPositive = delta >= 0
-        let color = trend == .up ? ColorsToken.State.success : 
-                   (trend == .down ? ColorsToken.State.error : ColorsToken.Text.muted)
+        let color = trend == .up ? Color.success : 
+                   (trend == .down ? Color.destructive : Color.textTertiary)
         
         HStack(spacing: 2) {
             Text(isPositive ? "+" : "")
@@ -130,11 +130,11 @@ public struct RankedTableView: View {
         let iconAndColor: (icon: String, color: Color) = {
             switch trend {
             case .up:
-                return ("arrow.up.right", ColorsToken.State.success)
+                return ("arrow.up.right", Color.success)
             case .down:
-                return ("arrow.down.right", ColorsToken.State.error)
+                return ("arrow.down.right", Color.destructive)
             case .flat:
-                return ("arrow.right", ColorsToken.Text.muted)
+                return ("arrow.right", Color.textTertiary)
             }
         }()
         
@@ -147,12 +147,12 @@ public struct RankedTableView: View {
     private var emptyState: some View {
         ZStack {
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .fill(ColorsToken.Neutral.n50)
+                .fill(Color.surface)
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
-                .foregroundStyle(ColorsToken.Text.secondary)
+                .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(minHeight: 120)

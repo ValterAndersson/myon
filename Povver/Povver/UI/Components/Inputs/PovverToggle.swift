@@ -15,10 +15,10 @@ public struct PovverToggle: View {
         Toggle(isOn: $isOn) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 PovverText(title, style: .body)
-                if let subtitle { PovverText(subtitle, style: .footnote, color: ColorsToken.Text.secondary) }
+                if let subtitle { PovverText(subtitle, style: .footnote, color: Color.textSecondary) }
             }
         }
-        .toggleStyle(SwitchToggleStyle(tint: ColorsToken.Brand.primary))
+        .toggleStyle(SwitchToggleStyle(tint: Color.accent))
         .padding(.vertical, Space.xs)
     }
 }
