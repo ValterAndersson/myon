@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Exercise detail sheet - uses SheetScaffold for v1.1 consistency
 public struct ExerciseDetailSheet: View {
     let exerciseId: String?
     let exerciseName: String
@@ -18,25 +19,20 @@ public struct ExerciseDetailSheet: View {
     }
     
     public var body: some View {
-        NavigationView {
-            ScrollView {
-                if isLoading {
-                    loadingView
-                } else if let error = error {
-                    errorView(error)
-                } else if let exercise = exercise {
-                    exerciseContent(exercise)
-                } else {
-                    notFoundView
-                }
-            }
-            .background(Color.bg)
-            .navigationTitle(exerciseName)
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { onDismiss() }
-                }
+        SheetScaffold(
+            title: exerciseName,
+            doneTitle: "Done",
+            onCancel: nil,  // Only Done button, no Cancel
+            onDone: { onDismiss() }
+        ) {
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if let exercise = exercise {
+                exerciseContent(exercise)
+            } else {
+                notFoundView
             }
         }
         .task {
@@ -87,85 +83,87 @@ public struct ExerciseDetailSheet: View {
     // MARK: - Content
     
     private func exerciseContent(_ ex: Exercise) -> some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
-            // Header info
-            headerSection(ex)
-            
-            // Muscles
-            musclesSection(ex)
-            
-            // Execution notes
-            if !ex.executionNotes.isEmpty {
-                section(title: "How to Perform", icon: "list.number") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.executionNotes.indices, id: \.self) { index in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Text("\(index + 1).")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Color.accent)
-                                    .frame(width: 20, alignment: .leading)
-                                PovverText(ex.executionNotes[index], style: .body)
-                                    .foregroundColor(Color.textPrimary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                // Header info
+                headerSection(ex)
+                
+                // Muscles
+                musclesSection(ex)
+                
+                // Execution notes
+                if !ex.executionNotes.isEmpty {
+                    section(title: "How to Perform", icon: "list.number") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.executionNotes.indices, id: \.self) { index in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Text("\(index + 1).")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(Color.accent)
+                                        .frame(width: 20, alignment: .leading)
+                                    PovverText(ex.executionNotes[index], style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Common mistakes
-            if !ex.commonMistakes.isEmpty {
-                section(title: "Common Mistakes", icon: "exclamationmark.triangle") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.commonMistakes, id: \.self) { mistake in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(Color.destructive)
-                                PovverText(mistake, style: .body)
-                                    .foregroundColor(Color.textPrimary)
+                
+                // Common mistakes
+                if !ex.commonMistakes.isEmpty {
+                    section(title: "Common Mistakes", icon: "exclamationmark.triangle") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.commonMistakes, id: \.self) { mistake in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.destructive)
+                                    PovverText(mistake, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Programming notes
-            if !ex.programmingNotes.isEmpty {
-                section(title: "Programming Tips", icon: "lightbulb") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.programmingNotes, id: \.self) { note in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(Color.accent)
-                                PovverText(note, style: .body)
-                                    .foregroundColor(Color.textPrimary)
+                
+                // Programming notes
+                if !ex.programmingNotes.isEmpty {
+                    section(title: "Programming Tips", icon: "lightbulb") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.programmingNotes, id: \.self) { note in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "arrow.right.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.accent)
+                                    PovverText(note, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
-            }
-            
-            // Suitability notes
-            if !ex.suitabilityNotes.isEmpty {
-                section(title: "Best Suited For", icon: "person.fill.checkmark") {
-                    VStack(alignment: .leading, spacing: Space.sm) {
-                        ForEach(ex.suitabilityNotes, id: \.self) { note in
-                            HStack(alignment: .top, spacing: Space.sm) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(Color.success)
-                                PovverText(note, style: .body)
-                                    .foregroundColor(Color.textPrimary)
+                
+                // Suitability notes
+                if !ex.suitabilityNotes.isEmpty {
+                    section(title: "Best Suited For", icon: "person.fill.checkmark") {
+                        VStack(alignment: .leading, spacing: Space.sm) {
+                            ForEach(ex.suitabilityNotes, id: \.self) { note in
+                                HStack(alignment: .top, spacing: Space.sm) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Color.success)
+                                    PovverText(note, style: .body)
+                                        .foregroundColor(Color.textPrimary)
+                                }
                             }
                         }
                     }
                 }
+                
+                Spacer(minLength: Space.xl)
             }
-            
-            Spacer(minLength: Space.xl)
+            .padding(Space.lg)
         }
-        .padding(Space.lg)
     }
     
     private func headerSection(_ ex: Exercise) -> some View {

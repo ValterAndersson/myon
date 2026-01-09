@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Sheet for swapping an exercise - supports both AI suggestions and manual search
+/// Sheet for swapping an exercise - uses SheetScaffold for v1.1 consistency
+/// Supports both AI suggestions and manual search
 public struct ExerciseSwapSheet: View {
     let currentExercise: PlanExercise
     let onSwapWithAI: (ExerciseActionsRow.SwapReason, String) -> Void  // Reason + instruction
@@ -21,7 +22,11 @@ public struct ExerciseSwapSheet: View {
     }
     
     public var body: some View {
-        NavigationView {
+        SheetScaffold(
+            title: "Swap Exercise",
+            doneTitle: nil,  // No done button, actions are in the content
+            onCancel: { onDismiss() }
+        ) {
             VStack(spacing: 0) {
                 // Current exercise info
                 currentExerciseHeader
@@ -43,18 +48,8 @@ public struct ExerciseSwapSheet: View {
                     manualSearchView
                 }
             }
-            .background(Color.bg)
-            .navigationTitle("Swap Exercise")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Cancel") { onDismiss() }
-                        .foregroundColor(Color.textSecondary)
-                }
-            }
         }
         .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
     }
     
     // MARK: - Current Exercise Header
