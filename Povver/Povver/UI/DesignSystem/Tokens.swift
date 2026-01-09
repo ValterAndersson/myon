@@ -5,9 +5,36 @@ import UIKit
 /// These tokens aim to be stable and composable; components should consume tokens rather than hard-coded values.
 
 // MARK: - Semantic Color Tokens (v1.1 Premium Visual System)
-// Colors are auto-generated from Assets.xcassets color sets by Xcode.
-// Use: Color.bg, Color.surface, Color.accent, etc.
-// Note: separator was renamed to separatorLine to avoid UIKit conflict.
+// Public Color properties for use in default argument values.
+// These reference the color sets in Assets.xcassets.
+
+public extension Color {
+    // MARK: Neutrals
+    static let bg = Color("bg")
+    static let surface = Color("surface")
+    static let surfaceElevated = Color("surfaceElevated")
+    static let separatorLine = Color("separatorLine")
+    static let textPrimary = Color("textPrimary")
+    static let textSecondary = Color("textSecondary")
+    static let textTertiary = Color("textTertiary")
+    static let textInverse = Color("textInverse")
+    
+    // MARK: Brand Accent (Emerald)
+    static let accent = Color("accent")
+    static let accentPressed = Color("accentPressed")
+    static let accentMuted = Color("accentMuted")
+    static let accentStroke = Color("accentStroke")
+    
+    // MARK: Effort Accent (Orange - intensity only)
+    static let effort = Color("effort")
+    static let effortPressed = Color("effortPressed")
+    static let effortMuted = Color("effortMuted")
+    
+    // MARK: System
+    static let destructive = Color("destructive")
+    static let warning = Color("warning")
+    static let success = Color("success")
+}
 
 // MARK: - Light/Dark Mode Color Helper
 
