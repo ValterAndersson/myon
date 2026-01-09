@@ -76,11 +76,8 @@ def execute_job(job: Dict[str, Any], worker_id: str) -> Dict[str, Any]:
     """
     Execute a catalog curation job.
     
-    This is the main entry point for job processing. It:
-    1. Sets up job context
-    2. Generates execution plan based on job type
-    3. Invokes the agent with the plan
-    4. Returns the result
+    This is the main entry point for job processing. It delegates to
+    the JobExecutor which handles FAMILY_AUDIT, FAMILY_NORMALIZE, etc.
     
     Args:
         job: Job document from Firestore
@@ -89,9 +86,10 @@ def execute_job(job: Dict[str, Any], worker_id: str) -> Dict[str, Any]:
     Returns:
         Execution result with status and details
     """
+    from app.jobs.executor import execute_job as _execute_job
+    
     job_id = job.get("id", "unknown")
     job_type = job.get("type", "UNKNOWN")
-    payload = job.get("payload", {})
     
     logger.info("execute_job: job=%s, type=%s, worker=%s", job_id, job_type, worker_id)
     
@@ -102,29 +100,12 @@ def execute_job(job: Dict[str, Any], worker_id: str) -> Dict[str, Any]:
     if not ctx.is_valid():
         return {
             "success": False,
-            "error": "Invalid job context",
+            "error": {"code": "INVALID_CONTEXT", "message": "Invalid job context"},
             "job_id": job_id,
         }
     
-    # Generate execution plan
-    plan = generate_job_plan(job_type, payload)
-    
-    # Build the prompt for the agent
-    prompt = build_job_prompt(job, plan)
-    
-    # For Phase 0, return mock execution
-    # Phase 1+ will invoke the actual agent
-    logger.info("execute_job: would invoke agent with prompt length=%d", len(prompt))
-    
-    return {
-        "success": True,
-        "job_id": job_id,
-        "job_type": job_type,
-        "mode": ctx.mode,
-        "plan_generated": True,
-        "agent_invoked": False,  # Phase 0: not actually invoking
-        "_mock": True,
-    }
+    # Delegate to JobExecutor
+    return _execute_job(job, worker_id)
 
 
 def build_job_prompt(job: Dict[str, Any], plan) -> str:
