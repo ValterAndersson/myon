@@ -288,10 +288,18 @@ struct ProfileView: View {
         .padding(.top, Space.md)
     }
     
-    // MARK: - Edit Sheets
+    // MARK: - Edit Sheets - uses SheetScaffold for v1.1 consistency
     
     private var nicknameEditorSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Edit Nickname",
+            doneTitle: "Save",
+            onCancel: { showingNicknameEditor = false },
+            onDone: {
+                Task { await saveNickname() }
+                showingNicknameEditor = false
+            }
+        ) {
             VStack(spacing: Space.lg) {
                 TextField("Nickname", text: $editingNickname)
                     .textFieldStyle(.roundedBorder)
@@ -299,30 +307,23 @@ struct ProfileView: View {
                 
                 Spacer()
             }
-            .navigationTitle("Edit Nickname")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingNicknameEditor = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveNickname() }
-                        showingNicknameEditor = false
-                    }
-                }
-            }
         }
         .presentationDetents([.medium])
     }
     
     private var heightEditorSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Edit Height",
+            doneTitle: "Save",
+            onCancel: { showingHeightEditor = false },
+            onDone: {
+                Task { await saveHeight() }
+                showingHeightEditor = false
+            }
+        ) {
             VStack(spacing: Space.lg) {
                 Text("\(Int(editingHeight)) cm")
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.system(size: 36, weight: .bold).monospacedDigit())
                     .foregroundColor(Color.textPrimary)
                 
                 Slider(value: $editingHeight, in: 100...250, step: 1)
@@ -331,30 +332,23 @@ struct ProfileView: View {
                 Spacer()
             }
             .padding(.top, Space.xl)
-            .navigationTitle("Edit Height")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingHeightEditor = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveHeight() }
-                        showingHeightEditor = false
-                    }
-                }
-            }
         }
         .presentationDetents([.medium])
     }
     
     private var weightEditorSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Edit Weight",
+            doneTitle: "Save",
+            onCancel: { showingWeightEditor = false },
+            onDone: {
+                Task { await saveWeight() }
+                showingWeightEditor = false
+            }
+        ) {
             VStack(spacing: Space.lg) {
                 Text(String(format: "%.1f kg", editingWeight))
-                    .font(.system(size: 36, weight: .bold))
+                    .font(.system(size: 36, weight: .bold).monospacedDigit())
                     .foregroundColor(Color.textPrimary)
                 
                 Slider(value: $editingWeight, in: 30...200, step: 0.5)
@@ -363,27 +357,16 @@ struct ProfileView: View {
                 Spacer()
             }
             .padding(.top, Space.xl)
-            .navigationTitle("Edit Weight")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingWeightEditor = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveWeight() }
-                        showingWeightEditor = false
-                    }
-                }
-            }
         }
         .presentationDetents([.medium])
     }
     
     private var fitnessLevelPickerSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Fitness Level",
+            doneTitle: nil,
+            onCancel: { showingFitnessLevelPicker = false }
+        ) {
             List {
                 ForEach(["beginner", "intermediate", "advanced"], id: \.self) { level in
                     Button {
@@ -400,15 +383,6 @@ struct ProfileView: View {
                                     .foregroundColor(Color.accent)
                             }
                         }
-                    }
-                }
-            }
-            .navigationTitle("Fitness Level")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingFitnessLevelPicker = false
                     }
                 }
             }
