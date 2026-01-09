@@ -228,9 +228,117 @@ def get_target_history(doc_id: str, limit: int = 10) -> List[Dict[str, Any]]:
     return results
 
 
+def restore_from_journal(
+    change_id: str,
+    dry_run: bool = True,
+) -> Dict[str, Any]:
+    """
+    Restore documents to before-state from a journal entry.
+    
+    Used for manual rollback after failed apply.
+    
+    Args:
+        change_id: Journal change ID to rollback
+        dry_run: If True, return preview only without applying
+        
+    Returns:
+        Dict with restore results
+    """
+    db = _get_db()
+    journal_ref = db.collection(CHANGES_COLLECTION).document(change_id)
+    journal_doc = journal_ref.get()
+    
+    if not journal_doc.exists:
+        return {
+            "success": False,
+            "error": "JOURNAL_NOT_FOUND",
+            "message": f"Journal entry {change_id} not found",
+        }
+    
+    journal_data = journal_doc.to_dict()
+    operations = journal_data.get("operations", [])
+    
+    restore_actions = []
+    skipped = []
+    errors = []
+    
+    for op in operations:
+        before = op.get("before")
+        targets = op.get("targets", [])
+        op_type = op.get("operation_type")
+        
+        if not targets:
+            skipped.append({"reason": "no_targets", "operation": op_type})
+            continue
+        
+        if op_type == "CREATE_EXERCISE":
+            # Created doc - would need to delete to restore
+            for target in targets:
+                restore_actions.append({
+                    "action": "delete",
+                    "target": target,
+                    "reason": "Undo CREATE_EXERCISE",
+                })
+        elif before is None:
+            # No before snapshot - can't restore
+            skipped.append({
+                "reason": "no_before_snapshot",
+                "targets": targets,
+                "operation": op_type,
+            })
+        else:
+            # Has before snapshot - can restore
+            for target in targets:
+                restore_actions.append({
+                    "action": "restore",
+                    "target": target,
+                    "data": before,
+                    "reason": f"Undo {op_type}",
+                })
+    
+    result = {
+        "success": True,
+        "change_id": change_id,
+        "job_id": journal_data.get("job_id"),
+        "restore_actions": restore_actions,
+        "skipped": skipped,
+        "dry_run": dry_run,
+    }
+    
+    if not dry_run and restore_actions:
+        applied = 0
+        for action in restore_actions:
+            try:
+                target = action["target"]
+                doc_ref = db.collection("exercises").document(target)
+                
+                if action["action"] == "delete":
+                    doc_ref.delete()
+                    applied += 1
+                elif action["action"] == "restore":
+                    data = action["data"]
+                    data["restored_at"] = datetime.utcnow()
+                    data["restored_from_journal"] = change_id
+                    doc_ref.set(data, merge=True)
+                    applied += 1
+                    
+            except Exception as e:
+                errors.append({
+                    "target": action["target"],
+                    "error": str(e),
+                })
+        
+        result["applied_count"] = applied
+        result["errors"] = errors
+        result["success"] = len(errors) == 0
+    
+    return result
+
+
 __all__ = [
     "ChangeJournal",
     "record_change",
     "get_job_changes",
     "get_target_history",
+    "restore_from_journal",
 ]

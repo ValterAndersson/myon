@@ -490,12 +490,30 @@ class ApplyEngine:
         
         logger.info("Updated family registry %s", family_slug)
         return {"success": True}
+    
+    def apply_with_verify(self, plan: ChangePlan) -> ApplyResult:
+        """
+        Apply a Change Plan and verify post-state.
+        
+        Args:
+            plan: Validated Change Plan
+            
+        Returns:
+            ApplyResult with verification status
+        """
+        result = self.apply(plan)
+        
+        if result.success:
+            result = verify_post_state(self, plan, result)
+        
+        return result
 
 
 def apply_change_plan(
     plan: ChangePlan,
     job_id: Optional[str] = None,
     attempt_id: Optional[str] = None,
+    verify: bool = False,
 ) -> ApplyResult:
     """
     Apply a Change Plan.
@@ -506,13 +524,100 @@ def apply_change_plan(
         plan: Validated Change Plan
         job_id: Job ID (defaults to plan.job_id)
         attempt_id: Attempt ID
+        verify: If True, run post-verification after apply
         
     Returns:
         ApplyResult
     """
     job_id = job_id or plan.job_id
     engine = ApplyEngine(job_id, attempt_id)
+    
+    if verify:
+        return engine.apply_with_verify(plan)
     return engine.apply(plan)
+
+
+def verify_post_state(
+    engine: ApplyEngine,
+    plan: ChangePlan,
+    result: ApplyResult,
+) -> ApplyResult:
+    """
+    Verify post-state after apply.
+    
+    Re-fetches affected documents and runs validation.
+    
+    Args:
+        engine: ApplyEngine instance
+        plan: Original change plan
+        result: Apply result to enhance
+        
+    Returns:
+        ApplyResult with verification status
+    """
+    from app.plans.models import ValidationResult
+    
+    if not result.success:
+        return result
+    
+    # Re-fetch affected documents
+    affected_doc_ids = set()
+    for op in result.operations_applied:
+        affected_doc_ids.update(op.get("targets", []))
+    
+    if not affected_doc_ids:
+        result.verification_passed = True
+        return result
+    
+    # Fetch current state
+    post_state = {}
+    for doc_id in affected_doc_ids:
+        doc_ref = engine.db.collection(EXERCISES_COLLECTION).document(doc_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            post_state[doc_id] = doc.to_dict()
+    
+    # Verify expected fields exist
+    verification_errors = []
+    
+    for idx, op in enumerate(plan.operations):
+        if op.op_type == OperationType.RENAME_EXERCISE and op.after:
+            for doc_id in op.targets:
+                current = post_state.get(doc_id, {})
+                expected_name = op.after.get("name")
+                if current.get("name") != expected_name:
+                    verification_errors.append({
+                        "operation_index": idx,
+                        "doc_id": doc_id,
+                        "error": f"Name mismatch: expected '{expected_name}', got '{current.get('name')}'",
+                    })
+        
+        elif op.op_type == OperationType.PATCH_FIELDS and op.patch:
+            for doc_id in op.targets:
+                current = post_state.get(doc_id, {})
+                for field, expected in op.patch.items():
+                    if expected == "__DELETE__":
+                        if field in current:
+                            verification_errors.append({
+                                "operation_index": idx,
+                                "doc_id": doc_id,
+                                "error": f"Field '{field}' should have been deleted",
+                            })
+                    elif current.get(field) != expected:
+                        verification_errors.append({
+                            "operation_index": idx,
+                            "doc_id": doc_id,
+                            "error": f"Field '{field}' mismatch: expected '{expected}', got '{current.get(field)}'",
+                        })
+    
+    result.verification_passed = len(verification_errors) == 0
+    result.verification_errors = verification_errors
+    
+    if not result.verification_passed:
+        result.needs_repair = True
+        logger.warning("Post-verify failed with %d errors", len(verification_errors))
+    
+    return result
 
 
 __all__ = [

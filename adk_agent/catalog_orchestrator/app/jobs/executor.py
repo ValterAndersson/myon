@@ -665,7 +665,145 @@ def execute_job(job: Dict[str, Any], worker_id: str) -> Dict[str, Any]:
     return executor.execute()
 
 
+def execute_with_repair_loop(
+    job: Dict[str, Any],
+    worker_id: str,
+    max_repairs: int = 3,
+) -> Dict[str, Any]:
+    """
+    Execute a job with LLM repair loop on validation failure.
+    
+    When validation fails, feeds errors back to LLM for plan revision
+    and retries with bounded attempts.
+    
+    Args:
+        job: Job document from Firestore
+        worker_id: Worker ID processing this job
+        max_repairs: Maximum repair attempts (default 3)
+        
+    Returns:
+        Execution result with repair history
+    """
+    from app.plans.validators import validate_change_plan
+    from app.family.registry import get_family_exercises, get_or_create_family_registry
+    from app.plans.models import ChangePlan
+    
+    executor = JobExecutor(job, worker_id)
+    repair_history = []
+    
+    for attempt in range(max_repairs + 1):
+        result = executor.execute()
+        
+        # If not success or no plan, return immediately
+        if not result.get("success") or "plan" not in result:
+            result["repair_history"] = repair_history
+            return result
+        
+        # Check if we have validation errors to repair
+        validation = result.get("validation", {})
+        if validation.get("valid", True):
+            # No validation errors, check apply result
+            apply_result = result.get("apply_result", {})
+            if apply_result.get("needs_repair"):
+                # Post-verification failed
+                verification_errors = apply_result.get("verification_errors", [])
+                repair_history.append({
+                    "attempt": attempt,
+                    "error_type": "verification",
+                    "errors": verification_errors,
+                })
+                
+                if attempt == max_repairs:
+                    result["success"] = False
+                    result["status"] = "needs_review"
+                    result["error"] = {
+                        "code": "REPAIR_LOOP_EXHAUSTED",
+                        "message": f"Post-verification failed after {max_repairs} repair attempts",
+                    }
+                    result["repair_history"] = repair_history
+                    return result
+                
+                # Request LLM revision
+                revised_result = _request_plan_revision(
+                    executor, result, verification_errors, "verification"
+                )
+                if revised_result:
+                    result = revised_result
+                    continue
+            
+            # Success - no repairs needed
+            result["repair_history"] = repair_history
+            return result
+        
+        # Validation failed
+        errors = validation.get("errors", [])
+        repair_history.append({
+            "attempt": attempt,
+            "error_type": "validation",
+            "errors": errors,
+        })
+        
+        if attempt == max_repairs:
+            result["success"] = False
+            result["status"] = "needs_review"
+            result["error"] = {
+                "code": "REPAIR_LOOP_EXHAUSTED",
+                "message": f"Validation failed after {max_repairs} repair attempts",
+            }
+            result["repair_history"] = repair_history
+            return result
+        
+        # Request LLM revision
+        revised_result = _request_plan_revision(executor, result, errors, "validation")
+        if revised_result:
+            result = revised_result
+        else:
+            # LLM revision failed, return current result
+            result["repair_history"] = repair_history
+            return result
+    
+    result["repair_history"] = repair_history
+    return result
+
+
+def _request_plan_revision(
+    executor: JobExecutor,
+    current_result: Dict[str, Any],
+    errors: List[Dict[str, Any]],
+    error_type: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Request LLM to revise the plan based on errors.
+    
+    This is a stub that returns None - actual LLM integration
+    would call the shell agent to generate a revised plan.
+    
+    Args:
+        executor: Job executor instance
+        current_result: Current execution result
+        errors: Validation or verification errors
+        error_type: Type of errors ("validation" or "verification")
+        
+    Returns:
+        Revised result or None if revision not possible
+    """
+    logger.info(
+        "Repair loop: %s errors for job %s. LLM revision not yet implemented.",
+        error_type, executor.job_id
+    )
+    
+    # TODO: Implement LLM-based plan revision
+    # 1. Format errors into a prompt
+    # 2. Call shell agent with repair context
+    # 3. Parse revised plan
+    # 4. Re-execute with revised plan
+    
+    # For now, return None to indicate revision not available
+    return None
+
+
 __all__ = [
     "JobExecutor",
     "execute_job",
+    "execute_with_repair_loop",
 ]

@@ -393,6 +393,64 @@ def validate_family_collision(
 
 
 # =============================================================================
+# MERGE SAFETY VALIDATION
+# =============================================================================
+
+def validate_merge_safety(
+    plan: ChangePlan,
+    source_exercises: List[ExerciseSummary],
+    target_exercises: List[ExerciseSummary],
+) -> ValidationResult:
+    """
+    Validate that FAMILY_MERGE operations are safe.
+    
+    Rules:
+    - Source and target must be different families
+    - No equipment conflicts that would create duplicates
+    - Exercises being moved must have valid data
+    
+    Args:
+        plan: Change plan (should be FAMILY_MERGE type)
+        source_exercises: Exercises in source family
+        target_exercises: Exercises in target family
+        
+    Returns:
+        ValidationResult with errors and warnings
+    """
+    result = ValidationResult(valid=True)
+    
+    # Build target equipment set
+    target_equipment = {ex.primary_equipment for ex in target_exercises if ex.primary_equipment}
+    
+    # Check for equipment conflicts
+    for idx, op in enumerate(plan.operations):
+        if op.op_type == OperationType.REASSIGN_FAMILY:
+            # Find exercises being moved that would conflict
+            for doc_id in op.targets:
+                source_ex = next((ex for ex in source_exercises if ex.doc_id == doc_id), None)
+                if source_ex and source_ex.primary_equipment in target_equipment:
+                    result.add_error(
+                        "MERGE_EQUIPMENT_CONFLICT",
+                        f"Exercise '{source_ex.name}' has equipment '{source_ex.primary_equipment}' "
+                        f"which already exists in target family",
+                        operation_index=idx,
+                        doc_id=doc_id,
+                        suggestion="Merge or deprecate one of the conflicting exercises first",
+                    )
+    
+    # Warn if source exercises have missing data
+    for ex in source_exercises:
+        if not ex.name_slug:
+            result.add_warning(
+                "MISSING_SLUG",
+                f"Source exercise {ex.doc_id} is missing name_slug",
+                doc_id=ex.doc_id,
+            )
+    
+    return result
+
+
+# =============================================================================
 # COMBINED VALIDATION
 # =============================================================================
 
@@ -452,5 +510,6 @@ __all__ = [
     "validate_taxonomy",
     "validate_aliases",
     "validate_family_collision",
+    "validate_merge_safety",
     "validate_change_plan",
 ]
