@@ -164,13 +164,13 @@ struct FocusModeExerciseSearch: View {
                     exerciseList
                 }
             }
-            .background(ColorsToken.Background.screen)
+            .background(Color.bg)
             .navigationTitle("Add Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
         }
@@ -205,7 +205,7 @@ struct FocusModeExerciseSearch: View {
                 // Search field
                 HStack(spacing: Space.sm) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     
                     TextField("Search exercises...", text: $searchText)
                         .textFieldStyle(PlainTextFieldStyle())
@@ -218,13 +218,13 @@ struct FocusModeExerciseSearch: View {
                             searchText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                     }
                 }
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, 12)
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                 
                 // Filter button
@@ -241,14 +241,14 @@ struct FocusModeExerciseSearch: View {
                                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
                         }
                     }
-                    .foregroundColor(filters.isEmpty ? ColorsToken.Text.secondary : ColorsToken.Brand.primary)
+                    .foregroundColor(filters.isEmpty ? Color.textSecondary : Color.accent)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, 12)
-                    .background(filters.isEmpty ? ColorsToken.Surface.card : ColorsToken.Brand.primary.opacity(0.12))
+                    .background(filters.isEmpty ? Color.surface : Color.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     .overlay(
                         RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                            .stroke(filters.isEmpty ? Color.clear : ColorsToken.Brand.primary.opacity(0.3), lineWidth: 1)
+                            .stroke(filters.isEmpty ? Color.clear : Color.accent.opacity(0.3), lineWidth: 1)
                     )
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -262,7 +262,7 @@ struct FocusModeExerciseSearch: View {
             }
         }
         .padding(.bottom, Space.sm)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
     }
     
     // MARK: - Active Filter Pills
@@ -280,31 +280,31 @@ struct FocusModeExerciseSearch: View {
                         Text("Clear all")
                             .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(ColorsToken.Background.secondary)
+                    .background(Color.surfaceElevated)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
                 
                 // Muscle groups
                 ForEach(Array(filters.muscleGroups), id: \.self) { group in
-                    activeFilterPill(label: group, color: ColorsToken.Brand.primary) {
+                    activeFilterPill(label: group, color: Color.accent) {
                         filters.muscleGroups.remove(group)
                     }
                 }
                 
                 // Equipment
                 ForEach(Array(filters.equipment), id: \.self) { equip in
-                    activeFilterPill(label: equip, color: ColorsToken.State.info) {
+                    activeFilterPill(label: equip, color: Color.accent) {
                         filters.equipment.remove(equip)
                     }
                 }
                 
                 // Movement patterns
                 ForEach(Array(filters.movementPatterns), id: \.self) { pattern in
-                    activeFilterPill(label: pattern, color: ColorsToken.State.warning) {
+                    activeFilterPill(label: pattern, color: Color.warning) {
                         filters.movementPatterns.remove(pattern)
                     }
                 }
@@ -339,7 +339,7 @@ struct FocusModeExerciseSearch: View {
                 HStack {
                     Text("\(filteredExercises.count) exercises")
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.muted)
+                        .foregroundColor(Color.textTertiary)
                     Spacer()
                 }
                 .padding(.horizontal, Space.md)
@@ -374,7 +374,7 @@ struct FocusModeExerciseSearch: View {
                 .scaleEffect(1.2)
             Text("Loading exercises...")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .padding(.top, Space.md)
             Spacer()
         }
@@ -388,16 +388,16 @@ struct FocusModeExerciseSearch: View {
             
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 32))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No exercises found")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             if !searchText.isEmpty {
                 Text("Try a different search term")
                     .font(.system(size: 14))
-                    .foregroundColor(ColorsToken.Text.muted)
+                    .foregroundColor(Color.textTertiary)
             }
             
             if !filters.isEmpty {
@@ -406,7 +406,7 @@ struct FocusModeExerciseSearch: View {
                 } label: {
                     Text("Clear all filters")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
                 .padding(.top, Space.sm)
             }
@@ -436,7 +436,7 @@ struct ExerciseFilterSheet: View {
                                 FilterToggleChip(
                                     label: group.rawValue,
                                     isSelected: filters.muscleGroups.contains(group.rawValue),
-                                    color: ColorsToken.Brand.primary
+                                    color: Color.accent
                                 ) {
                                     toggleFilter(group.rawValue, in: &filters.muscleGroups)
                                 }
@@ -451,7 +451,7 @@ struct ExerciseFilterSheet: View {
                                 FilterToggleChip(
                                     label: equip.rawValue,
                                     isSelected: filters.equipment.contains(equip.rawValue),
-                                    color: ColorsToken.State.info
+                                    color: Color.accent
                                 ) {
                                     toggleFilter(equip.rawValue, in: &filters.equipment)
                                 }
@@ -466,7 +466,7 @@ struct ExerciseFilterSheet: View {
                                 FilterToggleChip(
                                     label: pattern.rawValue,
                                     isSelected: filters.movementPatterns.contains(pattern.rawValue),
-                                    color: ColorsToken.State.warning
+                                    color: Color.warning
                                 ) {
                                     toggleFilter(pattern.rawValue, in: &filters.movementPatterns)
                                 }
@@ -481,7 +481,7 @@ struct ExerciseFilterSheet: View {
                                 FilterToggleChip(
                                     label: level,
                                     isSelected: filters.difficulty.contains(level),
-                                    color: ColorsToken.Text.secondary
+                                    color: Color.textSecondary
                                 ) {
                                     toggleFilter(level, in: &filters.difficulty)
                                 }
@@ -491,7 +491,7 @@ struct ExerciseFilterSheet: View {
                 }
                 .padding(Space.lg)
             }
-            .background(ColorsToken.Background.screen)
+            .background(Color.bg)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -499,7 +499,7 @@ struct ExerciseFilterSheet: View {
                     Button("Clear") {
                         onClear()
                     }
-                    .foregroundColor(filters.isEmpty ? ColorsToken.Text.muted : ColorsToken.State.error)
+                    .foregroundColor(filters.isEmpty ? Color.textTertiary : Color.destructive)
                     .disabled(filters.isEmpty)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -507,7 +507,7 @@ struct ExerciseFilterSheet: View {
                     Button("Done") {
                         onApply()
                     }
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -522,15 +522,15 @@ struct ExerciseFilterSheet: View {
                         }
                     }
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(ColorsToken.Brand.primary)
+                    .background(Color.accent)
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                 }
                 .padding(.horizontal, Space.lg)
                 .padding(.bottom, Space.md)
-                .background(ColorsToken.Background.screen)
+                .background(Color.bg)
             }
         }
         .presentationDetents([.medium, .large])
@@ -541,7 +541,7 @@ struct ExerciseFilterSheet: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .textCase(.uppercase)
             
             content()
@@ -576,13 +576,13 @@ private struct FilterToggleChip: View {
                 Text(label)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
             }
-            .foregroundColor(isSelected ? .white : ColorsToken.Text.primary)
+            .foregroundColor(isSelected ? .textInverse : Color.textPrimary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(isSelected ? color : ColorsToken.Surface.card)
+            .background(isSelected ? color : Color.surface)
             .clipShape(Capsule())
             .overlay(
-                isSelected ? nil : Capsule().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                isSelected ? nil : Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -603,12 +603,12 @@ private struct ExerciseRowNew: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise.capitalizedName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                         .lineLimit(1)
                     
                     Text(exerciseSubtitle)
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -619,7 +619,7 @@ private struct ExerciseRowNew: View {
             Button(action: onInfo) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 16))
-                    .foregroundColor(ColorsToken.Text.muted)
+                    .foregroundColor(Color.textTertiary)
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(PlainButtonStyle())
@@ -628,14 +628,14 @@ private struct ExerciseRowNew: View {
             Button(action: onTap) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, 12)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .contentShape(Rectangle())
     }
     
@@ -668,12 +668,12 @@ struct FocusModeExerciseDetailSheet: View {
                     VStack(alignment: .leading, spacing: Space.sm) {
                         Text(exercise.capitalizedName)
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                         
                         if !exercise.capitalizedEquipment.isEmpty {
                             Label(exercise.capitalizedEquipment, systemImage: "dumbbell")
                                 .font(.system(size: 14))
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                     }
                     
@@ -684,7 +684,7 @@ struct FocusModeExerciseDetailSheet: View {
                         infoSection(title: "Primary Muscles") {
                             Text(exercise.capitalizedPrimaryMuscles.joined(separator: ", "))
                                 .font(.system(size: 15))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                         }
                     }
                     
@@ -692,7 +692,7 @@ struct FocusModeExerciseDetailSheet: View {
                         infoSection(title: "Secondary Muscles") {
                             Text(exercise.capitalizedSecondaryMuscles.joined(separator: ", "))
                                 .font(.system(size: 15))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                         }
                     }
                     
@@ -701,7 +701,7 @@ struct FocusModeExerciseDetailSheet: View {
                         infoSection(title: "Movement Type") {
                             Text(exercise.capitalizedMovementType)
                                 .font(.system(size: 15))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                         }
                     }
                     
@@ -710,7 +710,7 @@ struct FocusModeExerciseDetailSheet: View {
                         infoSection(title: "Difficulty") {
                             Text(exercise.capitalizedLevel)
                                 .font(.system(size: 15))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                         }
                     }
                     
@@ -723,7 +723,7 @@ struct FocusModeExerciseDetailSheet: View {
                                     Text(note)
                                 }
                                 .font(.system(size: 14))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                             }
                         }
                     }
@@ -737,14 +737,14 @@ struct FocusModeExerciseDetailSheet: View {
                                     Text(mistake)
                                 }
                                 .font(.system(size: 14))
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                             }
                         }
                     }
                 }
                 .padding(Space.lg)
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .navigationTitle("Exercise Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -759,7 +759,7 @@ struct FocusModeExerciseDetailSheet: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .textCase(.uppercase)
             
             content()

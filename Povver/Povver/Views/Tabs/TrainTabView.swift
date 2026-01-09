@@ -33,10 +33,10 @@ struct TrainTabView: View {
                 .progressViewStyle(.circular)
             Text("Loading...")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
     }
     
     /// Check for active workout on appear

@@ -43,13 +43,13 @@ public struct ExerciseSwapSheet: View {
                     manualSearchView
                 }
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .navigationTitle("Swap Exercise")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cancel") { onDismiss() }
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
         }
@@ -63,27 +63,27 @@ public struct ExerciseSwapSheet: View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("Currently:")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             HStack(spacing: Space.sm) {
                 Image(systemName: "dumbbell")
                     .font(.system(size: 16))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(currentExercise.name)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     Text(currentExercise.summaryLine)
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                 Spacer()
             }
             .padding(Space.md)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .padding(.horizontal, Space.lg)
@@ -122,17 +122,17 @@ public struct ExerciseSwapSheet: View {
             HStack(spacing: Space.md) {
                 Image(systemName: reason.icon)
                     .font(.system(size: 18))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                     .frame(width: 32)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(reason.label)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     Text(descriptionFor(reason))
                         .font(.system(size: 12))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .lineLimit(2)
                 }
                 
@@ -140,10 +140,10 @@ public struct ExerciseSwapSheet: View {
                 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                    .foregroundColor(Color.textSecondary.opacity(0.5))
             }
             .padding(Space.md)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
@@ -174,7 +174,7 @@ public struct ExerciseSwapSheet: View {
             // Search bar
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 
                 TextField("Search exercises...", text: $searchQuery)
                     .textFieldStyle(PlainTextFieldStyle())
@@ -183,13 +183,13 @@ public struct ExerciseSwapSheet: View {
                 if !searchQuery.isEmpty {
                     Button { searchQuery = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
             }
             .padding(Space.sm)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             .padding(.horizontal, Space.lg)
             .padding(.bottom, Space.md)
@@ -204,7 +204,7 @@ public struct ExerciseSwapSheet: View {
                 Spacer()
                 Text(error)
                     .font(.system(size: 14))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
                     .multilineTextAlignment(.center)
                     .padding()
                 Spacer()
@@ -213,10 +213,10 @@ public struct ExerciseSwapSheet: View {
                 VStack(spacing: Space.sm) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 40))
-                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                        .foregroundColor(Color.textSecondary.opacity(0.5))
                     Text("No exercises found")
                         .font(.system(size: 15))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 Spacer()
             } else if searchResults.isEmpty {
@@ -224,10 +224,10 @@ public struct ExerciseSwapSheet: View {
                 VStack(spacing: Space.sm) {
                     Image(systemName: "text.magnifyingglass")
                         .font(.system(size: 40))
-                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                        .foregroundColor(Color.textSecondary.opacity(0.5))
                     Text("Search for an exercise to swap")
                         .font(.system(size: 15))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 Spacer()
             } else {
@@ -252,19 +252,19 @@ public struct ExerciseSwapSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise.name)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     HStack(spacing: Space.sm) {
                         if !exercise.primaryMuscles.isEmpty {
                             Text(exercise.primaryMuscles.joined(separator: ", "))
                                 .font(.system(size: 12))
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                         
                         if !exercise.equipment.isEmpty {
                             Text("• \(exercise.equipment.joined(separator: ", "))")
                                 .font(.system(size: 12))
-                                .foregroundColor(ColorsToken.Text.secondary)
+                                .foregroundColor(Color.textSecondary)
                         }
                     }
                 }
@@ -273,11 +273,11 @@ public struct ExerciseSwapSheet: View {
                 
                 Image(systemName: "arrow.right.circle")
                     .font(.system(size: 18))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, 12)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
         }
         .buttonStyle(PlainButtonStyle())
     }

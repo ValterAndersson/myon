@@ -17,16 +17,16 @@ public struct EditSetSheet: View {
         VStack(alignment: .leading, spacing: Space.lg) {
             PovverText("Edit target", style: .headline)
             HStack {
-                PovverText("Sets", style: .subheadline, color: ColorsToken.Text.secondary)
+                PovverText("Sets", style: .subheadline, color: Color.textSecondary)
                 Stepper(value: $sets, in: 1...10) { PovverText(String(sets), style: .headline) }
             }
             HStack {
-                PovverText("Reps", style: .subheadline, color: ColorsToken.Text.secondary)
+                PovverText("Reps", style: .subheadline, color: Color.textSecondary)
                 Stepper(value: $reps, in: 1...30) { PovverText(String(reps), style: .headline) }
             }
             HStack {
-                PovverText("Weight", style: .subheadline, color: ColorsToken.Text.secondary)
-                Slider(value: $weight, in: 0...300, step: 2.5).tint(ColorsToken.Brand.primary)
+                PovverText("Weight", style: .subheadline, color: Color.textSecondary)
+                Slider(value: $weight, in: 0...300, step: 2.5).tint(Color.accent)
                 PovverText(String(format: "%.1f kg", weight), style: .headline)
             }
             PovverButton("Apply", style: .primary) { onSubmit(sets, reps, weight) }

@@ -95,7 +95,7 @@ struct MainTabsView: View {
             .tabItem { Label(MainTab.profile.label, systemImage: MainTab.profile.iconName) }
             .tag(MainTab.profile)
         }
-        .tint(ColorsToken.Brand.primary)
+        .tint(Color.accent)
     }
     
     /// Switch to a specific tab programmatically

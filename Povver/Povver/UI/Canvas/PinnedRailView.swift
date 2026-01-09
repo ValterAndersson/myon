@@ -14,14 +14,14 @@ public struct PinnedRailView: View {
                     ForEach(cards) { card in
                         Button(action: { onTap(card.id) }) {
                             HStack(spacing: Space.xs) {
-                                Icon("pin", size: .sm, color: ColorsToken.Text.secondary)
-                                if let t = card.title { PovverText(t, style: .footnote, color: ColorsToken.Text.primary) }
+                                Icon("pin", size: .sm, color: Color.textSecondary)
+                                if let t = card.title { PovverText(t, style: .footnote, color: Color.textPrimary) }
                             }
                             .padding(.vertical, Space.xs)
                             .padding(.horizontal, Space.sm)
-                            .background(ColorsToken.Surface.default)
+                            .background(Color.surface)
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline))
+                            .overlay(Capsule().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
                         }
                     }
                 }

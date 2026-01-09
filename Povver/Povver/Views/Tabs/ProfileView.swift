@@ -52,7 +52,7 @@ struct ProfileView: View {
                 Spacer(minLength: Space.xxl)
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -89,23 +89,23 @@ struct ProfileView: View {
                 // Avatar
                 ZStack {
                     Circle()
-                        .fill(ColorsToken.Brand.primary.opacity(0.15))
+                        .fill(Color.accent.opacity(0.15))
                         .frame(width: 64, height: 64)
                     
                     Text(initials)
                         .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(displayName)
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     if let email = user?.email ?? authService.currentUser?.email {
                         Text(email)
                             .font(.system(size: 14))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                 }
                 
@@ -146,7 +146,7 @@ struct ProfileView: View {
                 showingNicknameEditor = true
             }
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
@@ -189,7 +189,7 @@ struct ProfileView: View {
                 showingFitnessLevelPicker = true
             }
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
@@ -217,7 +217,7 @@ struct ProfileView: View {
                 )
             )
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
@@ -257,7 +257,7 @@ struct ProfileView: View {
             }
             .buttonStyle(PlainButtonStyle())
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
@@ -271,16 +271,16 @@ struct ProfileView: View {
             HStack {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .font(.system(size: 18))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
                 
                 Text("Sign Out")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
                 
                 Spacer()
             }
             .padding(Space.md)
-            .background(ColorsToken.Surface.card)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         }
         .buttonStyle(PlainButtonStyle())
@@ -323,7 +323,7 @@ struct ProfileView: View {
             VStack(spacing: Space.lg) {
                 Text("\(Int(editingHeight)) cm")
                     .font(.system(size: 36, weight: .bold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Slider(value: $editingHeight, in: 100...250, step: 1)
                     .padding()
@@ -355,7 +355,7 @@ struct ProfileView: View {
             VStack(spacing: Space.lg) {
                 Text(String(format: "%.1f kg", editingWeight))
                     .font(.system(size: 36, weight: .bold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Slider(value: $editingWeight, in: 30...200, step: 0.5)
                     .padding()
@@ -393,11 +393,11 @@ struct ProfileView: View {
                     } label: {
                         HStack {
                             Text(level.capitalized)
-                                .foregroundColor(ColorsToken.Text.primary)
+                                .foregroundColor(Color.textPrimary)
                             Spacer()
                             if editingFitnessLevel == level {
                                 Image(systemName: "checkmark")
-                                    .foregroundColor(ColorsToken.Brand.primary)
+                                    .foregroundColor(Color.accent)
                             }
                         }
                     }
@@ -421,7 +421,7 @@ struct ProfileView: View {
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
             .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(ColorsToken.Text.secondary)
+            .foregroundColor(Color.textSecondary)
             .padding(.horizontal, Space.lg)
             .padding(.top, Space.md)
     }
@@ -430,10 +430,10 @@ struct ProfileView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             Text(label)
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
     
@@ -634,24 +634,24 @@ private struct ProfileRow: View {
             HStack(spacing: Space.md) {
                 Image(systemName: icon)
                     .font(.system(size: 18))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .frame(width: 24)
                 
                 Text(title)
                     .font(.system(size: 15))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Spacer()
                 
                 Text(value)
                     .font(.system(size: 15))
-                    .foregroundColor(isEditable ? ColorsToken.Text.secondary : ColorsToken.Text.muted)
+                    .foregroundColor(isEditable ? Color.textSecondary : Color.textTertiary)
                     .lineLimit(1)
                 
                 if isEditable {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.muted)
+                        .foregroundColor(Color.textTertiary)
                 }
             }
             .padding(Space.md)
@@ -673,12 +673,12 @@ private struct ProfileRowToggle: View {
         HStack(spacing: Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .frame(width: 24)
             
             Text(title)
                 .font(.system(size: 15))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Spacer()
             
@@ -700,24 +700,24 @@ private struct ProfileRowLinkContent: View {
         HStack(spacing: Space.md) {
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .frame(width: 24)
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 15))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 Text(subtitle)
                     .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
             
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
         }
         .padding(Space.md)
         .contentShape(Rectangle())
@@ -731,17 +731,17 @@ private struct SubscriptionPlaceholderView: View {
         VStack(spacing: Space.lg) {
             Image(systemName: "creditcard")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("Subscription")
                 .font(.system(size: 20, weight: .semibold))
             
             Text("Manage your subscription plan")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Subscription")
     }
 }
@@ -751,17 +751,17 @@ private struct DevicesPlaceholderView: View {
         VStack(spacing: Space.lg) {
             Image(systemName: "applewatch")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("Connected Devices")
                 .font(.system(size: 20, weight: .semibold))
             
             Text("Link your Apple Watch or other devices")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Devices")
     }
 }
@@ -771,17 +771,17 @@ private struct MemoriesPlaceholderView: View {
         VStack(spacing: Space.lg) {
             Image(systemName: "brain")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("Memories")
                 .font(.system(size: 20, weight: .semibold))
             
             Text("What Coach has learned about your training")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Memories")
     }
 }

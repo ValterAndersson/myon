@@ -15,7 +15,7 @@ public struct CardOverflowMenu: View {
                 Button(action.label) { onAction(action) }
             }
         } label: {
-            Icon("ellipsis", size: .md, color: ColorsToken.Text.secondary)
+            Icon("ellipsis", size: .md, color: Color.textSecondary)
         }
         .menuStyle(.automatic)
     }

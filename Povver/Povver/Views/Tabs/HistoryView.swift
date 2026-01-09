@@ -26,7 +26,7 @@ struct HistoryView: View {
                 workoutsList
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -42,7 +42,7 @@ struct HistoryView: View {
                 .progressViewStyle(.circular)
             Text("Loading history...")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -53,15 +53,15 @@ struct HistoryView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
             
             Text("No workouts yet")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Text("Complete your first workout to see it here")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, Space.xl)
         }
@@ -77,11 +77,11 @@ struct HistoryView: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Text("History")
                         .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     Text("\(totalWorkoutCount) completed sessions")
                         .font(.system(size: 15))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 .padding(.horizontal, Space.lg)
                 .padding(.top, Space.md)
@@ -110,7 +110,7 @@ struct HistoryView: View {
                                 Spacer()
                                 Text("Load More")
                                     .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(ColorsToken.Brand.primary)
+                                    .foregroundColor(Color.accent)
                                 Spacer()
                             }
                             .padding(.vertical, Space.md)
@@ -247,11 +247,11 @@ private struct DateHeaderView: View {
         HStack {
             Text(formattedDate)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             Spacer()
         }
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
     }
 }
 
@@ -282,7 +282,7 @@ private struct HistoryWorkoutRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(workout.name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 HStack(spacing: Space.sm) {
                     Text(formattedTime)
@@ -292,7 +292,7 @@ private struct HistoryWorkoutRow: View {
                     Text("\(workout.exerciseCount) exercises")
                 }
                 .font(.system(size: 13))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
@@ -301,21 +301,21 @@ private struct HistoryWorkoutRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(workout.setCount) sets")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 if workout.totalVolume > 0 {
                     Text(formatVolume(workout.totalVolume))
                         .font(.system(size: 12))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
             
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
     }
     
@@ -345,7 +345,7 @@ struct WorkoutDetailView: View {
                 errorView
             }
         }
-        .background(ColorsToken.Background.screen)
+        .background(Color.bg)
         .navigationTitle("Workout")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -365,11 +365,11 @@ struct WorkoutDetailView: View {
         VStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
-                .foregroundColor(ColorsToken.State.warning)
+                .foregroundColor(Color.warning)
             
             Text("Workout not found")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -388,7 +388,7 @@ struct WorkoutDetailView: View {
                 } else {
                     Text("No exercises recorded")
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .padding(.horizontal, Space.lg)
                 }
                 
@@ -408,11 +408,11 @@ struct WorkoutDetailView: View {
         return VStack(alignment: .leading, spacing: Space.sm) {
             Text(workout.displayName)
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Text(dateString)
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             
             // Stats row
             HStack(spacing: Space.lg) {
@@ -436,10 +436,10 @@ struct WorkoutDetailView: View {
         VStack(spacing: 2) {
             Text(value)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             Text(label)
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
     
@@ -449,7 +449,7 @@ struct WorkoutDetailView: View {
             HStack {
                 Text("\(index). \(exercise.name)")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 Spacer()
             }
             
@@ -459,7 +459,7 @@ struct WorkoutDetailView: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .padding(.horizontal, Space.lg)
     }
@@ -498,12 +498,12 @@ private struct SetRowView: View {
             
             if set.isCompleted {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(ColorsToken.State.success)
+                    .foregroundColor(Color.success)
                     .font(.system(size: 14))
             }
         }
         .font(.system(size: 14).monospacedDigit())
-        .foregroundColor(ColorsToken.Text.primary)
+        .foregroundColor(Color.textPrimary)
     }
 }
 
@@ -531,12 +531,12 @@ struct ReadOnlySetGrid: View {
                     .frame(width: 36, alignment: .center)
             }
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(ColorsToken.Text.muted)
+            .foregroundColor(Color.textTertiary)
             .padding(.vertical, Space.xs)
             .padding(.horizontal, Space.sm)
             
             Divider()
-                .background(ColorsToken.Neutral.n100)
+                .background(Color.surfaceElevated)
             
             // Set rows
             ForEach(sets.indices, id: \.self) { index in
@@ -544,12 +544,12 @@ struct ReadOnlySetGrid: View {
                 
                 if index < sets.count - 1 {
                     Divider()
-                        .background(ColorsToken.Neutral.n50)
+                        .background(Color.surface)
                         .padding(.horizontal, Space.sm)
                 }
             }
         }
-        .background(ColorsToken.Neutral.n50)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
     }
 }
@@ -577,13 +577,13 @@ private struct ReadOnlySetRow: View {
     private var setTypeColor: Color {
         let lowercased = set.type.lowercased()
         if lowercased.contains("warm") {
-            return ColorsToken.State.warning // Yellow for warmup sets
+            return Color.warning // Yellow for warmup sets
         } else if lowercased.contains("fail") || lowercased.contains("amrap") {
-            return ColorsToken.State.error // Red for failure sets
+            return Color.destructive // Red for failure sets
         } else if lowercased.contains("drop") {
-            return ColorsToken.Brand.primary // Brand color for drop sets
+            return Color.accent // Brand color for drop sets
         } else {
-            return ColorsToken.Text.secondary
+            return Color.textSecondary
         }
     }
     
@@ -595,7 +595,7 @@ private struct ReadOnlySetRow: View {
                     // Special set type badge
                     Text(setTypeLabel)
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(.textInverse)
                         .frame(width: 24, height: 24)
                         .background(setTypeColor)
                         .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -603,7 +603,7 @@ private struct ReadOnlySetRow: View {
                     // Normal set number
                     Text("\(displayIndex)")
                         .font(.system(size: 14, weight: .medium).monospacedDigit())
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
             }
             .frame(width: 44, alignment: .center)
@@ -611,25 +611,25 @@ private struct ReadOnlySetRow: View {
             // WEIGHT column
             Text(String(format: "%.1f", set.weight))
                 .font(.system(size: 16, weight: .medium).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .center)
             
             // REPS column
             Text("\(set.reps)")
                 .font(.system(size: 16, weight: .medium).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
                 .frame(width: 60, alignment: .center)
             
             // RIR column
             Text(set.rir > 0 ? "\(set.rir)" : "-")
                 .font(.system(size: 14, weight: .medium).monospacedDigit())
-                .foregroundColor(set.rir > 0 ? ColorsToken.Text.primary : ColorsToken.Text.muted)
+                .foregroundColor(set.rir > 0 ? Color.textPrimary : Color.textTertiary)
                 .frame(width: 44, alignment: .center)
             
             // Checkmark column
             Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 16))
-                .foregroundColor(set.isCompleted ? ColorsToken.State.success : ColorsToken.Text.muted)
+                .foregroundColor(set.isCompleted ? Color.success : Color.textTertiary)
                 .frame(width: 36, alignment: .center)
         }
         .padding(.vertical, Space.sm)

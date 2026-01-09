@@ -49,18 +49,18 @@ public struct BarChartView: View {
             AxisMarks(values: .automatic) { _ in
                 AxisValueLabel()
                     .font(TypographyToken.caption)
-                    .foregroundStyle(ColorsToken.Text.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
         }
         .chartYAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(ColorsToken.Border.subtle)
+                    .foregroundStyle(Color.separator)
                 AxisTick(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(ColorsToken.Border.subtle)
+                    .foregroundStyle(Color.separator)
                 AxisValueLabel()
                     .font(TypographyToken.caption)
-                    .foregroundStyle(ColorsToken.Text.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
         }
         .chartLegend(.hidden)
@@ -78,7 +78,7 @@ public struct BarChartView: View {
                         .frame(width: 12, height: 8)
                     Text(s.name)
                         .font(TypographyToken.caption)
-                        .foregroundStyle(ColorsToken.Text.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
             }
         }
@@ -88,12 +88,12 @@ public struct BarChartView: View {
     private var emptyState: some View {
         ZStack {
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .fill(ColorsToken.Neutral.n50)
+                .fill(Color.surface)
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
             Text(spec.emptyState ?? "No data available")
                 .font(TypographyToken.callout)
-                .foregroundStyle(ColorsToken.Text.secondary)
+                .foregroundStyle(Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(minHeight: 160)

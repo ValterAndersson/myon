@@ -6,18 +6,18 @@ public struct InlineError: View {
     public var body: some View {
         HStack(spacing: Space.xs) {
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundColor(ColorsToken.State.error)
+                .foregroundColor(Color.destructive)
                 .frame(width: IconSizeToken.md, height: IconSizeToken.md)
-            PovverText(message, style: .footnote, color: ColorsToken.State.error)
+            PovverText(message, style: .footnote, color: Color.destructive)
                 .lineLimit(2)
         }
         .padding(.vertical, Space.xs)
         .padding(.horizontal, Space.sm)
-        .background(ColorsToken.State.error.opacity(0.08))
+        .background(Color.destructive.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.small, style: .continuous)
-                .stroke(ColorsToken.State.error.opacity(0.25), lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.destructive.opacity(0.25), lineWidth: StrokeWidthToken.hairline)
         )
     }
 }

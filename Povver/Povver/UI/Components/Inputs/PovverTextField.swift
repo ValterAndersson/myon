@@ -22,7 +22,7 @@ public struct PovverTextField: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            PovverText(title, style: .subheadline, color: ColorsToken.Text.secondary)
+            PovverText(title, style: .subheadline, color: Color.textSecondary)
             HStack(spacing: Space.sm) {
                 if isSecure {
                     SecureField(placeholder, text: $text)
@@ -38,7 +38,7 @@ public struct PovverTextField: View {
             }
             .padding(.vertical, Space.sm)
             .padding(.horizontal, Space.md)
-            .background(ColorsToken.Background.secondary)
+            .background(Color.surfaceElevated)
             .overlay(
                 RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
                     .stroke(validationBorderColor(), lineWidth: StrokeWidthToken.thick)
@@ -53,9 +53,9 @@ public struct PovverTextField: View {
 
     private func validationBorderColor() -> Color {
         switch validation {
-        case .normal: return focused ? ColorsToken.Brand.primary.opacity(0.6) : ColorsToken.Border.subtle
-        case .success: return ColorsToken.State.success
-        case .error: return ColorsToken.State.error
+        case .normal: return focused ? Color.accent.opacity(0.6) : Color.separator
+        case .success: return Color.success
+        case .error: return Color.destructive
         }
     }
 }

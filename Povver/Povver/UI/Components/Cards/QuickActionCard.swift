@@ -13,16 +13,16 @@ public struct QuickActionCard: View {
 
     public var body: some View {
         Button(action: action) {
-            SurfaceCard(elevation: ShadowsToken.level2, padding: InsetsToken.all(Space.md), backgroundColor: .white) {
+            SurfaceCard(elevation: ShadowsToken.level2, padding: InsetsToken.all(Space.md), backgroundColor: .surface) {
                 HStack(spacing: Space.md) {
                     Image(systemName: icon)
                         .resizable().scaledToFit()
                         .frame(width: IconSizeToken.md, height: IconSizeToken.md)
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     PovverText(title, style: .subheadline)
                         .lineLimit(2)
                     Spacer()
-                    Icon("chevron.right", size: .md, color: ColorsToken.Text.secondary)
+                    Icon("chevron.right", size: .md, color: Color.textSecondary)
                 }
                 .frame(height: 64)
             }

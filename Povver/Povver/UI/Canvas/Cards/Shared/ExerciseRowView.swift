@@ -37,7 +37,7 @@ public struct ExerciseRowView: View {
                 // Divider
                 if showDivider {
                     Rectangle()
-                        .fill(ColorsToken.Border.subtle.opacity(0.5))
+                        .fill(Color.separator.opacity(0.5))
                         .frame(height: 1)
                         .padding(.leading, Space.md)
                 }
@@ -54,12 +54,12 @@ public struct ExerciseRowView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(exercise.name)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     // Summary line
                     Text(exercise.summaryLine)
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                 Spacer()
@@ -67,11 +67,11 @@ public struct ExerciseRowView: View {
                 // Expand/collapse chevron
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                    .foregroundColor(Color.textSecondary.opacity(0.5))
             }
             .padding(.vertical, 12)
             .padding(.horizontal, Space.sm)
-            .background(isExpanded ? ColorsToken.Background.secondary.opacity(0.5) : ColorsToken.Surface.card)
+            .background(isExpanded ? Color.surfaceElevated.opacity(0.5) : Color.surface)
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
@@ -113,7 +113,7 @@ public struct ExerciseRowView: View {
                 onUndoDelete: nil  // TODO: Implement undo
             )
         }
-        .background(ColorsToken.Background.secondary.opacity(0.3))
+        .background(Color.surfaceElevated.opacity(0.3))
     }
     
     // MARK: - Set Operations
@@ -198,7 +198,7 @@ struct ExerciseRowView_Previews: PreviewProvider {
                 }
                 .padding()
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
         }
     }
     

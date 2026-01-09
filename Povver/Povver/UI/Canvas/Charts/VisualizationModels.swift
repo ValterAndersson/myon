@@ -22,12 +22,12 @@ public enum ChartColorToken: String, Codable {
     /// Map to design system colors
     public var color: Color {
         switch self {
-        case .primary: return ColorsToken.Brand.primary
-        case .secondary: return ColorsToken.Brand.secondary
-        case .success: return ColorsToken.State.success
-        case .warning: return ColorsToken.State.warning
-        case .danger: return ColorsToken.State.error
-        case .neutral: return ColorsToken.Neutral.n500
+        case .primary: return Color.accent
+        case .secondary: return Color.accent
+        case .success: return Color.success
+        case .warning: return Color.warning
+        case .danger: return Color.destructive
+        case .neutral: return Color.surface0
         }
     }
 }

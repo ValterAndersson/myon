@@ -8,7 +8,7 @@ public struct CardContainer<Content: View>: View {
         self.content = content()
     }
     public var body: some View {
-        SurfaceCard(elevation: elevationForStatus(), backgroundColor: ColorsToken.Surface.card) {
+        SurfaceCard(elevation: elevationForStatus(), backgroundColor: Color.surface) {
             content
         }
         .opacity(status == .expired ? 0.5 : 1)

@@ -19,15 +19,15 @@ public struct Avatar: View {
                     .scaledToFill()
             } else {
                 Circle()
-                    .fill(ColorsToken.Surface.default)
+                    .fill(Color.surface)
                 SwiftUI.Text(initials)
                     .font(.system(size: max(12, size * 0.4), weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline))
+        .overlay(Circle().stroke(Color.separator, lineWidth: StrokeWidthToken.hairline))
     }
 }
 

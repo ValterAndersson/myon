@@ -22,9 +22,9 @@ public struct ListCardWithExpandableOptions: View {
                     ForEach(options) { opt in
                         Button(action: { onSelect(opt.id) }) {
                             ListRow(title: opt.title, subtitle: opt.subtitle) {
-                                if let icon = opt.iconSystemName { Icon(icon, size: .md, color: ColorsToken.Text.primary) }
+                                if let icon = opt.iconSystemName { Icon(icon, size: .md, color: Color.textPrimary) }
                             } trailing: {
-                                Icon("chevron.right", size: .md, color: ColorsToken.Text.secondary)
+                                Icon("chevron.right", size: .md, color: Color.textSecondary)
                             }
                         }
                         .buttonStyle(PlainButtonStyle())

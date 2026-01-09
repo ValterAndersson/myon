@@ -23,7 +23,7 @@ public struct SmallContentCard: View {
     @ViewBuilder private var contentArea: some View {
         if let error { InlineError(error) }
         else if isLoading { SkeletonBlock(height: 16) }
-        else if isEmpty { PovverText("No content", style: .footnote, color: ColorsToken.Text.secondary) }
+        else if isEmpty { PovverText("No content", style: .footnote, color: Color.textSecondary) }
         else {
             switch model.data {
             case .text(let text): PovverText(text, style: .body)

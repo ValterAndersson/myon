@@ -45,12 +45,12 @@ public struct DropdownMenu: View {
                     HStack(spacing: Space.sm) {
                         Image(systemName: item.icon)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(item.isDestructive ? ColorsToken.State.error : ColorsToken.Text.secondary)
+                            .foregroundColor(item.isDestructive ? Color.destructive : Color.textSecondary)
                             .frame(width: 20)
                         
                         Text(item.title)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(item.isDestructive ? ColorsToken.State.error : ColorsToken.Text.primary)
+                            .foregroundColor(item.isDestructive ? Color.destructive : Color.textPrimary)
                         
                         Spacer()
                     }
@@ -62,16 +62,16 @@ public struct DropdownMenu: View {
                 
                 if item.id != items.last?.id {
                     Divider()
-                        .background(ColorsToken.Border.default.opacity(0.5))
+                        .background(Color.separator.opacity(0.5))
                 }
             }
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
-                .stroke(ColorsToken.Border.default.opacity(0.3), lineWidth: 0.5)
+                .stroke(Color.separator.opacity(0.3), lineWidth: 0.5)
         )
     }
 }
@@ -81,7 +81,7 @@ public struct DropdownMenu: View {
 private struct DropdownButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? ColorsToken.Background.secondary : Color.clear)
+            .background(configuration.isPressed ? Color.surfaceElevated : Color.clear)
     }
 }
 

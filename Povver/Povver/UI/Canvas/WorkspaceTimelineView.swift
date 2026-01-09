@@ -112,7 +112,7 @@ struct WorkspaceTimelineView: View {
                 .padding(.horizontal, Space.lg)
                 .padding(.bottom, Space.xxl)
             }
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .onAppear {
                 // Initial scroll to bottom
                 scrollToBottom(proxy: proxy, animated: false)
@@ -204,10 +204,10 @@ struct WorkspaceTimelineView: View {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text("Canvas")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 Text("Your AI coaching session")
                     .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             Spacer()
             if hasActiveThinking {
@@ -241,11 +241,11 @@ struct WorkspaceTimelineView: View {
                 .scaleEffect(0.7)
             Text("Working...")
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .padding(.horizontal, Space.sm)
         .padding(.vertical, Space.xxs)
-        .background(ColorsToken.Surface.default.opacity(0.8))
+        .background(Color.surface.opacity(0.8))
         .clipShape(Capsule())
     }
     
@@ -260,10 +260,10 @@ struct WorkspaceTimelineView: View {
                 Text("Latest")
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.white)
+            .foregroundColor(.textInverse)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
-            .background(ColorsToken.Brand.primary)
+            .background(Color.accent)
             .clipShape(Capsule())
             .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         }
@@ -305,16 +305,16 @@ struct WorkspaceTimelineView: View {
             VStack(alignment: .trailing, spacing: Space.xxs) {
                 Text(text)
                     .font(.system(size: 15))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.sm)
-                    .background(ColorsToken.Brand.primary)
+                    .background(Color.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .clipShape(BubbleShape(isUser: true))
                 
                 Text(Self.timeFormatter.string(from: timestamp))
                     .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.6))
+                    .foregroundColor(Color.textSecondary.opacity(0.6))
             }
         }
         .padding(.vertical, Space.sm)
@@ -327,24 +327,24 @@ struct WorkspaceTimelineView: View {
                 HStack(spacing: Space.xs) {
                     Image(systemName: "brain")
                         .font(.system(size: 12))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                     Text("Coach")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                 // Render markdown (bold, italic, bullets)
                 markdownText(text)
                     .font(.system(size: 15))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.sm)
-                    .background(ColorsToken.Surface.default)
+                    .background(Color.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 
                 Text(Self.timeFormatter.string(from: timestamp))
                     .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.6))
+                    .foregroundColor(Color.textSecondary.opacity(0.6))
             }
             Spacer(minLength: 60)
         }
@@ -366,17 +366,17 @@ struct WorkspaceTimelineView: View {
         HStack(spacing: Space.sm) {
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary.opacity(0.6))
+                .foregroundColor(Color.textSecondary.opacity(0.6))
             
             if let duration {
                 Text(String(format: "Thought for %.1fs", duration))
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             } else {
                 HStack(spacing: Space.xs) {
                     Text(text.isEmpty ? "Thinking..." : text)
                         .font(.system(size: 13))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     ProgressView()
                         .scaleEffect(0.6)
                 }
@@ -391,16 +391,16 @@ struct WorkspaceTimelineView: View {
         HStack(spacing: Space.sm) {
             Image(systemName: result != nil ? "checkmark.circle.fill" : "gearshape")
                 .font(.system(size: 12))
-                .foregroundColor(result != nil ? .green.opacity(0.7) : ColorsToken.Text.secondary.opacity(0.5))
+                .foregroundColor(result != nil ? .green.opacity(0.7) : Color.textSecondary.opacity(0.5))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(humanReadableToolName(name))
                     .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 if let result, !result.isEmpty {
                     Text(result)
                         .font(.system(size: 11))
-                        .foregroundColor(ColorsToken.Text.secondary.opacity(0.7))
+                        .foregroundColor(Color.textSecondary.opacity(0.7))
                         .lineLimit(1)
                 }
             }
@@ -410,12 +410,12 @@ struct WorkspaceTimelineView: View {
             if let duration {
                 Text(String(format: "%.1fs", duration))
                     .font(.system(size: 11))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                    .foregroundColor(Color.textSecondary.opacity(0.5))
             }
         }
         .padding(.vertical, Space.xxs)
         .padding(.horizontal, Space.sm)
-        .background(ColorsToken.Surface.default.opacity(0.3))
+        .background(Color.surface.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .padding(.leading, Space.lg)
     }
@@ -427,10 +427,10 @@ struct WorkspaceTimelineView: View {
             HStack(spacing: Space.xs) {
                 Image(systemName: artifactIcon(for: card))
                     .font(.system(size: 12))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 Text(artifactLabel(for: card))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
             }
             .padding(.leading, Space.xs)
             
@@ -471,15 +471,15 @@ struct WorkspaceTimelineView: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.xs) {
                 Image(systemName: "questionmark.circle.fill")
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
                 Text("Coach needs input")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ColorsToken.Brand.primary)
+                    .foregroundColor(Color.accent)
             }
             
             Text(prompt.question)
                 .font(.system(size: 15))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             TextField("Type your answer…", text: Binding(
                 get: { responses[prompt.id] ?? "" },
@@ -487,7 +487,7 @@ struct WorkspaceTimelineView: View {
             ))
             .font(.system(size: 15))
             .padding(Space.sm)
-            .background(ColorsToken.Background.secondary)
+            .background(Color.surfaceElevated)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             
             HStack(spacing: Space.md) {
@@ -497,7 +497,7 @@ struct WorkspaceTimelineView: View {
                 } label: {
                     Text("Skip")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                 Spacer()
@@ -513,13 +513,13 @@ struct WorkspaceTimelineView: View {
                         Image(systemName: "paperplane.fill")
                     }
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.sm)
                     .background(
                         (responses[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-                        ? ColorsToken.Text.secondary
-                        : ColorsToken.Brand.primary
+                        ? Color.textSecondary
+                        : Color.accent
                     )
                     .clipShape(Capsule())
                 }
@@ -527,11 +527,11 @@ struct WorkspaceTimelineView: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.default)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous)
-                .stroke(ColorsToken.Brand.primary.opacity(0.3), lineWidth: 1)
+                .stroke(Color.accent.opacity(0.3), lineWidth: 1)
         )
         .padding(.vertical, Space.sm)
     }
@@ -540,11 +540,11 @@ struct WorkspaceTimelineView: View {
     private func statusRow(text: String) -> some View {
         HStack(spacing: Space.sm) {
             Circle()
-                .fill(ColorsToken.Brand.primary.opacity(0.5))
+                .fill(Color.accent.opacity(0.5))
                 .frame(width: 6, height: 6)
             Text(text)
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
         .padding(.vertical, Space.xxs)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -591,9 +591,9 @@ struct WorkspaceTimelineView: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     CardHeader(title: card.title ?? "Update", subtitle: card.subtitle, lane: card.lane, status: card.status, timestamp: card.publishedAt)
                     if let detail = detailText(for: card) {
-                        PovverText(detail, style: .body, color: ColorsToken.Text.secondary)
+                        PovverText(detail, style: .body, color: Color.textSecondary)
                     } else {
-                        PovverText("New information available.", style: .body, color: ColorsToken.Text.secondary)
+                        PovverText("New information available.", style: .body, color: Color.textSecondary)
                     }
                 }
             }

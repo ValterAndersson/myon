@@ -91,10 +91,10 @@ struct FinishWorkoutSheet: View {
                     VStack(spacing: 4) {
                         Text(formatDuration(elapsedTime))
                             .font(.system(size: 44, weight: .light).monospacedDigit())
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                         Text("Duration")
                             .font(.system(size: 13))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Space.md)
@@ -107,7 +107,7 @@ struct FinishWorkoutSheet: View {
                         statColumn(value: "\(completedSets)/\(totalSets)", label: "Sets")
                         
                         Rectangle()
-                            .fill(ColorsToken.Stroke.card)
+                            .fill(Color.separator)
                             .frame(width: 1, height: 36)
                         
                         statColumn(value: "\(exerciseCount)", label: "Exercises")
@@ -120,7 +120,7 @@ struct FinishWorkoutSheet: View {
                 if let error = errorMessage {
                     Text(error)
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.State.error)
+                        .foregroundColor(Color.destructive)
                         .padding(.horizontal, Space.lg)
                         .padding(.top, Space.sm)
                 }
@@ -137,7 +137,7 @@ struct FinishWorkoutSheet: View {
                         HStack(spacing: Space.sm) {
                             if isLoading {
                                 ProgressView()
-                                    .tint(.white)
+                                    .tint(.textInverse)
                             } else {
                                 Image(systemName: "checkmark.circle.fill")
                                     .font(.system(size: 18))
@@ -145,10 +145,10 @@ struct FinishWorkoutSheet: View {
                             Text("Complete Workout")
                                 .font(.system(size: 17, weight: .semibold))
                         }
-                        .foregroundColor(.white)
+                        .foregroundColor(.textInverse)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(canComplete ? ColorsToken.Brand.emeraldFill : ColorsToken.Brand.emeraldFill.opacity(0.4))
+                        .background(canComplete ? Color.accent : Color.accent.opacity(0.4))
                         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -164,10 +164,10 @@ struct FinishWorkoutSheet: View {
                             Text("Discard Workout")
                                 .font(.system(size: 15, weight: .semibold))
                         }
-                        .foregroundColor(ColorsToken.State.error)
+                        .foregroundColor(Color.destructive)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
-                        .background(ColorsToken.State.error.opacity(0.08))
+                        .background(Color.destructive.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -177,7 +177,7 @@ struct FinishWorkoutSheet: View {
                 .padding(.bottom, Space.lg)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(ColorsToken.Background.primary)
+            .background(Color.bg)
             .navigationTitle("Finish Workout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -206,10 +206,10 @@ struct FinishWorkoutSheet: View {
         VStack(spacing: 2) {
             Text(value)
                 .font(.system(size: 20, weight: .semibold).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             Text(label)
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
     
@@ -322,7 +322,7 @@ struct NavCompactTimer: View {
                 .frame(minWidth: 72, alignment: .center)  // Stable width for mm:ss → h:mm:ss
                 .padding(.horizontal, Space.sm)
                 .padding(.vertical, 6)
-                .background(ColorsToken.Background.secondary)
+                .background(Color.surfaceElevated)
                 .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
@@ -365,7 +365,7 @@ struct CoachIconButton: View {
         Button(action: action) {
             Image(systemName: "sparkles")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
                 .frame(width: 32, height: 32)
         }
         .buttonStyle(PlainButtonStyle())
@@ -397,20 +397,20 @@ struct TimerPill: View {
         HStack(spacing: Space.xs) {
             Text(formatDuration(elapsedTime))
                 .font(.system(size: 14, weight: .medium).monospacedDigit())
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             if showProgress && totalSets > 0 {
                 Text("·")
-                    .foregroundColor(ColorsToken.Text.muted)
+                    .foregroundColor(Color.textTertiary)
                 
                 Text("\(completedSets)/\(totalSets)")
                     .font(.system(size: 13, weight: .medium).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Background.secondary)
+        .background(Color.surfaceElevated)
         .clipShape(Capsule())
         .fixedSize(horizontal: true, vertical: false)  // Each variant is fixed, but ViewThatFits picks which one
     }
@@ -440,10 +440,10 @@ struct CoachButton: View {
                 Text("Coach")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundColor(.white)
+            .foregroundColor(.textInverse)
             .padding(.horizontal, Space.md)
             .padding(.vertical, Space.sm)
-            .background(ColorsToken.Brand.emeraldFill)
+            .background(Color.accent)
             .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
@@ -461,7 +461,7 @@ struct ReorderToggleButton: View {
         Button(action: action) {
             Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(isReordering ? ColorsToken.Brand.primary : ColorsToken.Text.secondary)
+                .foregroundColor(isReordering ? Color.accent : Color.textSecondary)
                 .frame(width: 32, height: 32)
         }
         .buttonStyle(PlainButtonStyle())
@@ -504,7 +504,7 @@ struct WorkoutHero: View {
                     Button(action: onNameTap) {
                         Text(workoutName)
                             .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                             .lineLimit(2)
                             .truncationMode(.tail)
                             .multilineTextAlignment(.leading)
@@ -514,7 +514,7 @@ struct WorkoutHero: View {
                     // Date/time subtitle - lineLimit(1)
                     Text(formatStartTime(startTime))
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -543,7 +543,7 @@ struct WorkoutHero: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 22))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -554,7 +554,7 @@ struct WorkoutHero: View {
             Button(action: onTimerTap) {
                 Text(formatDuration(elapsedTime))
                     .font(.system(size: 48, weight: .light).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             .buttonStyle(PlainButtonStyle())
@@ -565,7 +565,7 @@ struct WorkoutHero: View {
             if totalSets > 0 {
                 Text("\(completedSets)/\(totalSets) sets completed")
                     .font(.system(size: 14).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             
@@ -583,10 +583,10 @@ struct WorkoutHero: View {
                             Text("Reorder")
                                 .font(.system(size: 14, weight: .medium))
                         }
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, Space.sm)
-                        .background(ColorsToken.Background.secondary)
+                        .background(Color.surfaceElevated)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -596,11 +596,11 @@ struct WorkoutHero: View {
             .padding(.top, Space.sm)
         }
         .padding(Space.lg)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -644,12 +644,12 @@ struct EmptyStateCard: View {
             // Icon
             Image(systemName: "dumbbell")
                 .font(.system(size: 36))
-                .foregroundColor(ColorsToken.Brand.primary.opacity(0.6))
+                .foregroundColor(Color.accent.opacity(0.6))
             
             // Title
             Text("Start by adding an exercise")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             // Bullet list instructions
             VStack(alignment: .leading, spacing: Space.sm) {
@@ -669,10 +669,10 @@ struct EmptyStateCard: View {
                     Text("Add Exercise")
                         .font(.system(size: 16, weight: .semibold))
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.textInverse)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(ColorsToken.Brand.emeraldFill)
+                .background(Color.accent)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -680,11 +680,11 @@ struct EmptyStateCard: View {
             .padding(.top, Space.sm)
         }
         .padding(.vertical, Space.xl)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -692,12 +692,12 @@ struct EmptyStateCard: View {
         HStack(spacing: Space.sm) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
                 .frame(width: 20)
             
             Text(text)
                 .font(.system(size: 14))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
         }
     }
 }
@@ -711,11 +711,11 @@ struct ReorderModeBanner: View {
         HStack {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
             
             Text("Reorder exercises")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ColorsToken.Text.primary)
+                .foregroundColor(Color.textPrimary)
             
             Spacer()
             
@@ -724,14 +724,14 @@ struct ReorderModeBanner: View {
                 Button(action: onDone) {
                     Text("Done")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(ColorsToken.Brand.primary)
+                        .foregroundColor(Color.accent)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.sm)
-        .background(ColorsToken.Brand.primary.opacity(0.08))
+        .background(Color.accent.opacity(0.08))
     }
 }
 
@@ -778,7 +778,7 @@ struct ActionRail: View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("Actions")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ColorsToken.Text.muted)
+                .foregroundColor(Color.textTertiary)
                 .padding(.leading, Space.md)
             
             ScrollView(.horizontal, showsIndicators: false) {
@@ -822,13 +822,13 @@ struct ActionPill: View {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundColor(isPrimary ? .white : ColorsToken.Brand.primary)
+            .foregroundColor(isPrimary ? .textInverse : Color.accent)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(isPrimary ? ColorsToken.Brand.emeraldFill : ColorsToken.Brand.primary.opacity(0.08))
+            .background(isPrimary ? Color.accent : Color.accent.opacity(0.08))
             .clipShape(Capsule())
             .overlay(
-                isPrimary ? nil : Capsule().stroke(ColorsToken.Brand.primary.opacity(0.2), lineWidth: StrokeWidthToken.hairline)
+                isPrimary ? nil : Capsule().stroke(Color.accent.opacity(0.2), lineWidth: StrokeWidthToken.hairline)
             )
         }
         .buttonStyle(PlainButtonStyle())
@@ -848,10 +848,10 @@ struct WorkoutBottomCTA: View {
             Button(action: onFinish) {
                 Text("Finish Workout")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textInverse)
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
-                    .background(ColorsToken.Brand.emeraldFill)
+                    .background(Color.accent)
                     .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -860,7 +860,7 @@ struct WorkoutBottomCTA: View {
             Button(action: onDiscard) {
                 Text("Discard Workout")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(ColorsToken.State.error)
+                    .foregroundColor(Color.destructive)
             }
             .buttonStyle(PlainButtonStyle())
             .padding(.top, Space.xs)
@@ -871,7 +871,9 @@ struct WorkoutBottomCTA: View {
     }
 }
 
-// MARK: - Exercise Card Container
+// MARK: - Exercise Card Container (v1.1 Premium Visual System)
+/// Exercise section container with neutral surface and hairline border.
+/// Active exercise is indicated ONLY by a 3pt leading accent bar, NOT a thick border.
 
 struct ExerciseCardContainer<Content: View>: View {
     let isActive: Bool
@@ -879,27 +881,23 @@ struct ExerciseCardContainer<Content: View>: View {
     
     var body: some View {
         content()
-            .background(ColorsToken.Surface.card)
-            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
+            .background(Color.surface)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard))
             .overlay(
-                RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                    .stroke(
-                        isActive ? ColorsToken.Stroke.cardActive : ColorsToken.Stroke.card,
-                        lineWidth: isActive ? 2 : StrokeWidthToken.hairline
-                    )
+                // Always use hairline separator stroke - never thick colored borders
+                RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard)
+                    .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
             )
-            .overlay(
-                // Left emerald accent for active card
-                isActive ?
-                    HStack {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(ColorsToken.Brand.primary)
-                            .frame(width: 3)
-                        Spacer()
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
-                : nil
-            )
+            .overlay(alignment: .leading) {
+                // Left accent bar for active exercise ONLY (2-3pt wide)
+                if isActive {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.accent)
+                        .frame(width: 3)
+                        .padding(.vertical, 2)
+                        .padding(.leading, 2)
+                }
+            }
     }
 }
 
@@ -913,7 +911,7 @@ struct WarmupDivider: View {
                 path.addLine(to: CGPoint(x: geo.size.width, y: 0.5))
             }
             .stroke(
-                ColorsToken.Separator.dottedWarmup,
+                Color.separator,
                 style: StrokeStyle(lineWidth: 1, dash: [3, 3])
             )
         }
@@ -933,7 +931,7 @@ struct CompletionCircle: View {
             ZStack {
                 Circle()
                     .stroke(
-                        isDone ? ColorsToken.State.success.opacity(0.3) : ColorsToken.Text.secondary.opacity(0.2),
+                        isDone ? Color.success.opacity(0.3) : Color.textSecondary.opacity(0.2),
                         lineWidth: isDone ? 2 : 1.5
                     )
                     .frame(width: 20, height: 20)
@@ -941,7 +939,7 @@ struct CompletionCircle: View {
                 if isDone {
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(ColorsToken.State.success)
+                        .foregroundColor(Color.success)
                 }
             }
             .frame(width: 44, height: 44) // 44pt hit target
@@ -965,11 +963,11 @@ struct ScopeSegmentedControl: View {
             scopeButton(.remaining, label: "Remaining", count: remainingCount)
             scopeButton(.allWorking, label: "All", count: allCount)
         }
-        .background(ColorsToken.Background.secondary)
+        .background(Color.surfaceElevated)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.small)
-                .stroke(ColorsToken.Border.subtle, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
         )
     }
     
@@ -990,10 +988,10 @@ struct ScopeSegmentedControl: View {
                         .font(.system(size: 11, weight: .regular).monospacedDigit())
                 }
             }
-            .foregroundColor(isSelected ? .white : ColorsToken.Text.secondary)
+            .foregroundColor(isSelected ? .textInverse : Color.textSecondary)
             .padding(.horizontal, Space.sm)
             .padding(.vertical, 6)
-            .background(isSelected ? ColorsToken.Brand.primary : Color.clear)
+            .background(isSelected ? Color.accent : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small - 2))
         }
         .buttonStyle(PlainButtonStyle())
@@ -1015,37 +1013,37 @@ struct ExerciseReorderRow: View {
             // Drag handle - prominent and interactive
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
                 .frame(width: 28, height: 28)
-                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .background(Color.accent.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                     .lineLimit(1)
                 
                 Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
                     .font(.system(size: 13).monospacedDigit())
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
             }
             
             Spacer()
             
             if exercise.isComplete {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(ColorsToken.State.success)
+                    .foregroundColor(Color.success)
                     .font(.system(size: 18))
             }
         }
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.md)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.card))
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadiusToken.card)
-                .stroke(ColorsToken.Stroke.card, lineWidth: StrokeWidthToken.hairline)
+                .stroke(Color.separator, lineWidth: StrokeWidthToken.hairline)
         )
         // Elevated appearance to signal "draggable"
         .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 2)
@@ -1078,16 +1076,16 @@ struct SwipeToDeleteRow<Content: View>: View {
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(.white)
+                        .foregroundColor(.textInverse)
                         .frame(width: deleteButtonWidth, height: 52)
-                        .background(ColorsToken.State.error)
+                        .background(Color.destructive)
                 }
                 .buttonStyle(PlainButtonStyle())
             }
             
             // Main content with gesture
             content()
-                .background(ColorsToken.Surface.card)
+                .background(Color.surface)
                 .offset(x: offset)
                 .gesture(
                     DragGesture()
@@ -1172,5 +1170,5 @@ struct SwipeToDeleteRow<Content: View>: View {
         Spacer()
     }
     .padding()
-    .background(ColorsToken.Background.screen)
+    .background(Color.bg)
 }

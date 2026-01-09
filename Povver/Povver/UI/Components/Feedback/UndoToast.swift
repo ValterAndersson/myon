@@ -9,12 +9,12 @@ public struct UndoToast: View {
     }
     public var body: some View {
         HStack(spacing: Space.md) {
-            PovverText(text, style: .callout, color: ColorsToken.Text.inverse)
+            PovverText(text, style: .callout, color: Color.textInverse)
             PovverButton("Undo", style: .secondary) { onUndo() }
-                .tint(.white)
+                .tint(.textInverse)
         }
         .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-        .background(ColorsToken.Brand.primary)
+        .background(Color.accent)
         .clipShape(Capsule())
         .shadowStyle(ShadowsToken.level2)
     }

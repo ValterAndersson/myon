@@ -41,10 +41,10 @@ public struct RoutineSummaryCard: View {
     
     private var statusColor: Color {
         switch model.status {
-        case .proposed: return ColorsToken.Brand.primary
-        case .accepted, .completed: return ColorsToken.State.success
-        case .active: return ColorsToken.State.warning
-        case .rejected, .expired: return ColorsToken.Text.secondary
+        case .proposed: return Color.accent
+        case .accepted, .completed: return Color.success
+        case .active: return Color.warning
+        case .rejected, .expired: return Color.textSecondary
         }
     }
     
@@ -58,7 +58,7 @@ public struct RoutineSummaryCard: View {
             
             // Divider
             Rectangle()
-                .fill(ColorsToken.Border.subtle)
+                .fill(Color.separator)
                 .frame(height: 1)
             
             // Workout days list
@@ -67,14 +67,14 @@ public struct RoutineSummaryCard: View {
             // Actions (only for proposed/active)
             if model.status == .proposed || model.status == .active {
                 Rectangle()
-                    .fill(ColorsToken.Border.subtle)
+                    .fill(Color.separator)
                     .frame(height: 1)
                 
                 actionButtons
                     .padding(Space.md)
             }
         }
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large))
         .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 2)
         .confirmationDialog("Routine Actions", isPresented: $showingActionsSheet, titleVisibility: .hidden) {
@@ -114,21 +114,21 @@ public struct RoutineSummaryCard: View {
                 // Routine icon
                 Image(systemName: routineData.isUpdate ? "arrow.triangle.2.circlepath.circle" : "calendar.badge.clock")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(routineData.isUpdate ? ColorsToken.State.warning : ColorsToken.Brand.primary)
+                    .foregroundColor(routineData.isUpdate ? Color.warning : Color.accent)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(routineData.name)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(ColorsToken.Text.primary)
+                        .foregroundColor(Color.textPrimary)
                     
                     HStack(spacing: 4) {
                         Text("\(routineData.workouts.count) workouts")
                         Text("•")
-                            .foregroundColor(ColorsToken.Text.secondary.opacity(0.5))
+                            .foregroundColor(Color.textSecondary.opacity(0.5))
                         Text("\(routineData.frequency)×/week")
                     }
                     .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                 }
                 
                 Spacer()
@@ -146,7 +146,7 @@ public struct RoutineSummaryCard: View {
                 Button { showingActionsSheet = true } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -167,10 +167,10 @@ public struct RoutineSummaryCard: View {
             }
         }
         .font(.system(size: 11, weight: .medium))
-        .foregroundColor(ColorsToken.State.warning)
+        .foregroundColor(Color.warning)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(ColorsToken.State.warning.opacity(0.12))
+        .background(Color.warning.opacity(0.12))
         .clipShape(Capsule())
     }
     
@@ -190,7 +190,7 @@ public struct RoutineSummaryCard: View {
                     // Separator between days
                     if index < routineData.workouts.count - 1 {
                         Rectangle()
-                            .fill(ColorsToken.Border.subtle)
+                            .fill(Color.separator)
                             .frame(height: 1)
                     }
                 }
@@ -216,11 +216,11 @@ public struct RoutineSummaryCard: View {
                     HStack(spacing: 6) {
                         Text("Day \(workout.day):")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(ColorsToken.Text.secondary)
+                            .foregroundColor(Color.textSecondary)
                         
                         Text(workout.title)
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(ColorsToken.Text.primary)
+                            .foregroundColor(Color.textPrimary)
                     }
                     
                     // Stats line
@@ -232,12 +232,12 @@ public struct RoutineSummaryCard: View {
                 // Expand/collapse chevron
                 Image(systemName: expandedDayIndex == index ? "chevron.down" : "chevron.right")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(ColorsToken.Text.secondary.opacity(0.6))
+                    .foregroundColor(Color.textSecondary.opacity(0.6))
             }
             .padding(.horizontal, Space.md)
             .padding(.vertical, 14)
             .contentShape(Rectangle())
-            .background(expandedDayIndex == index ? ColorsToken.Background.secondary.opacity(0.5) : Color.clear)
+            .background(expandedDayIndex == index ? Color.surfaceElevated.opacity(0.5) : Color.clear)
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -255,7 +255,7 @@ public struct RoutineSummaryCard: View {
                     Text("~\(duration) min")
                 }
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             }
             
             if exerciseCount > 0 {
@@ -269,7 +269,7 @@ public struct RoutineSummaryCard: View {
                     }
                 }
                 .font(.system(size: 12))
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
             }
         }
     }
@@ -322,7 +322,7 @@ public struct RoutineSummaryCard: View {
                 HStack {
                     Text("No exercises")
                         .font(.system(size: 14))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                     Spacer()
                 }
                 .padding(Space.md)
@@ -339,7 +339,7 @@ public struct RoutineSummaryCard: View {
             .padding(.vertical, 10)
         }
         .padding(.leading, Space.lg)
-        .background(ColorsToken.Background.secondary.opacity(0.3))
+        .background(Color.surfaceElevated.opacity(0.3))
     }
     
     // MARK: - Exercise Management
@@ -475,8 +475,8 @@ public struct RoutineSummaryCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .foregroundColor(ColorsToken.Text.secondary)
-                .background(ColorsToken.Background.secondary)
+                .foregroundColor(Color.textSecondary)
+                .background(Color.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -498,8 +498,8 @@ public struct RoutineSummaryCard: View {
                         .font(.system(size: 14, weight: .medium))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .foregroundColor(ColorsToken.Text.secondary)
-                        .background(ColorsToken.Background.secondary)
+                        .foregroundColor(Color.textSecondary)
+                        .background(Color.surfaceElevated)
                         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -523,8 +523,8 @@ public struct RoutineSummaryCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(routineData.isUpdate ? ColorsToken.State.warning : ColorsToken.Brand.primary)
-                .foregroundColor(.white)
+                .background(routineData.isUpdate ? Color.warning : Color.accent)
+                .foregroundColor(.textInverse)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -664,7 +664,7 @@ struct RoutineSummaryCard_Previews: PreviewProvider {
                 .environment(\.canvasCards, [pushCard])
                 .padding()
         }
-        .background(ColorsToken.Background.primary)
+        .background(Color.bg)
     }
 }
 #endif

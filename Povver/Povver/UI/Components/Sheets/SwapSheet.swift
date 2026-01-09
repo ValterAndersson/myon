@@ -17,7 +17,7 @@ public struct SwapSheet: View {
             TextField("Optional details", text: $details)
                 .textInputAutocapitalization(.sentences)
                 .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-                .background(ColorsToken.Background.secondary)
+                .background(Color.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
             PovverButton("Apply", style: .primary) {
                 onSubmit(choice, ["details": details])

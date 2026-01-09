@@ -21,7 +21,7 @@ public struct RefineSheet: View {
             TextField("Add context", text: $text)
                 .textInputAutocapitalization(.sentences)
                 .padding(InsetsToken.symmetric(vertical: Space.sm, horizontal: Space.md))
-                .background(ColorsToken.Background.secondary)
+                .background(Color.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
             PovverButton("Submit", style: .primary) { onSubmit(text) }
         }

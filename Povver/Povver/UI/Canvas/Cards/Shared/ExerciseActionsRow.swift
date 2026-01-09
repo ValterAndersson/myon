@@ -66,10 +66,10 @@ public struct ExerciseActionsRow: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8))
                 }
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .background(Color.accent.opacity(0.1))
                 .clipShape(Capsule())
             }
             
@@ -81,10 +81,10 @@ public struct ExerciseActionsRow: View {
                     Text("Info")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundColor(ColorsToken.Text.secondary)
+                .foregroundColor(Color.textSecondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(ColorsToken.Background.secondary)
+                .background(Color.surfaceElevated)
                 .clipShape(Capsule())
             }
             .buttonStyle(PlainButtonStyle())
@@ -98,10 +98,10 @@ public struct ExerciseActionsRow: View {
                         Text("Remove")
                             .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(ColorsToken.State.error.opacity(0.8))
+                    .foregroundColor(Color.destructive.opacity(0.8))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(ColorsToken.State.error.opacity(0.08))
+                    .background(Color.destructive.opacity(0.08))
                     .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())

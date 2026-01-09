@@ -12,7 +12,7 @@ public struct PovverText: View {
     private let align: TextAlignment
     private let lineLimit: Int?
 
-    public init(_ text: String, style: PovverTextStyle = .body, color: Color = ColorsToken.Text.primary, align: TextAlignment = .leading, lineLimit: Int? = nil) {
+    public init(_ text: String, style: PovverTextStyle = .body, color: Color = Color.textPrimary, align: TextAlignment = .leading, lineLimit: Int? = nil) {
         self.text = text
         self.style = style
         self.color = color

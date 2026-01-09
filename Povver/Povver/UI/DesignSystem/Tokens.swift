@@ -4,6 +4,37 @@ import UIKit
 /// Centralized design tokens for spacing, typography, colors, motion, and elevation.
 /// These tokens aim to be stable and composable; components should consume tokens rather than hard-coded values.
 
+// MARK: - Semantic Color Tokens (Canonical Callsite - v1.1 Premium Visual System)
+// All UI code should use these Color.xxx properties. ColorsToken is kept for backward compatibility.
+
+public extension Color {
+    // MARK: Neutrals
+    static let bg = Color("bg")
+    static let surface = Color("surface")
+    static let surfaceElevated = Color("surfaceElevated")
+    static let separator = Color("separator")
+    static let textPrimary = Color("textPrimary")
+    static let textSecondary = Color("textSecondary")
+    static let textTertiary = Color("textTertiary")
+    static let textInverse = Color("textInverse")
+    
+    // MARK: Brand Accent (Emerald)
+    static let accent = Color("accent")
+    static let accentPressed = Color("accentPressed")
+    static let accentMuted = Color("accentMuted")
+    static let accentStroke = Color("accentStroke")
+    
+    // MARK: Effort Accent (Orange - intensity only)
+    static let effort = Color("effort")
+    static let effortPressed = Color("effortPressed")
+    static let effortMuted = Color("effortMuted")
+    
+    // MARK: System
+    static let destructive = Color("destructive")
+    static let warning = Color("warning")
+    static let success = Color("success")
+}
+
 // MARK: - Light/Dark Mode Color Helper
 
 public extension Color {
@@ -59,6 +90,14 @@ public enum CornerRadiusToken {
     public static let large: CGFloat = 16
     public static let card: CGFloat = 18
     public static let pill: CGFloat = 999
+    
+    // MARK: v1.1 Premium Visual System Radii
+    /// Card container radius (16pt)
+    public static let radiusCard: CGFloat = 16
+    /// Control/button radius (12pt)
+    public static let radiusControl: CGFloat = 12
+    /// Icon container radius (10pt)
+    public static let radiusIcon: CGFloat = 10
 }
 
 public enum StrokeWidthToken {
@@ -108,6 +147,7 @@ public enum ShadowsToken {
 }
 
 public enum TypographyToken {
+    // MARK: Legacy (backward compatibility)
     public static var display: Font { .system(size: 34, weight: .bold, design: .default) }
     public static var title1: Font { .system(size: 28, weight: .semibold, design: .default) }
     public static var title2: Font { .system(size: 22, weight: .semibold, design: .default) }
@@ -120,6 +160,68 @@ public enum TypographyToken {
     public static var caption: Font { .system(size: 12, weight: .regular, design: .default) }
     public static var button: Font { .system(size: 17, weight: .semibold, design: .default) }
     public static var monospaceSmall: Font { .system(size: 13, weight: .regular, design: .monospaced) }
+    
+    // MARK: v1.1 Premium Visual System Roles
+    /// App title - ONLY for Coach landing headline ("What's on the agenda today?")
+    public static var appTitle: Font { .system(size: 34, weight: .semibold, design: .default) }
+    /// Screen title - for screen headings when not using large iOS nav titles
+    public static var screenTitle: Font { .system(size: 22, weight: .semibold, design: .default) }
+    /// Section header
+    public static var sectionHeader: Font { .system(size: 17, weight: .semibold, design: .default) }
+    /// Body strong (bold body)
+    public static var bodyStrong: Font { .system(size: 17, weight: .semibold, design: .default) }
+    /// Secondary text
+    public static var secondary: Font { .system(size: 15, weight: .regular, design: .default) }
+    /// Micro text
+    public static var micro: Font { .system(size: 12, weight: .regular, design: .default) }
+    
+    // MARK: Numeric Roles (monospaced digits always)
+    /// Large metric display (28pt semibold monospaced)
+    public static var metricL: Font { .system(size: 28, weight: .semibold, design: .default).monospacedDigit() }
+    /// Medium metric display (22pt semibold monospaced)
+    public static var metricM: Font { .system(size: 22, weight: .semibold, design: .default).monospacedDigit() }
+    /// Small metric display (17pt semibold monospaced)
+    public static var metricS: Font { .system(size: 17, weight: .semibold, design: .default).monospacedDigit() }
+}
+
+// MARK: - TextStyle Enum (v1.1 Premium Visual System)
+/// Named text style roles for consistent typography usage via .textStyle() modifier
+
+public enum TextStyle {
+    case appTitle       // 34/semibold - ONLY Coach landing headline
+    case screenTitle    // 22/semibold - screen headings
+    case sectionHeader  // 17/semibold - section headers
+    case body           // 17/regular - body text
+    case bodyStrong     // 17/semibold - emphasized body
+    case secondary      // 15/regular - secondary text
+    case caption        // 13/regular - captions
+    case micro          // 12/regular - smallest text
+    case metricL        // 28/semibold monospaced - large numbers
+    case metricM        // 22/semibold monospaced - medium numbers
+    case metricS        // 17/semibold monospaced - small numbers
+    
+    public var font: Font {
+        switch self {
+        case .appTitle: return TypographyToken.appTitle
+        case .screenTitle: return TypographyToken.screenTitle
+        case .sectionHeader: return TypographyToken.sectionHeader
+        case .body: return TypographyToken.body
+        case .bodyStrong: return TypographyToken.bodyStrong
+        case .secondary: return TypographyToken.secondary
+        case .caption: return TypographyToken.caption
+        case .micro: return TypographyToken.micro
+        case .metricL: return TypographyToken.metricL
+        case .metricM: return TypographyToken.metricM
+        case .metricS: return TypographyToken.metricS
+        }
+    }
+}
+
+public extension View {
+    /// Apply a named text style from the design system
+    func textStyle(_ style: TextStyle) -> some View {
+        self.font(style.font)
+    }
 }
 
 public enum ColorsToken {
@@ -150,7 +252,7 @@ public enum ColorsToken {
     }
     public enum Background {
         public static var primary: Color { Color.white.opacity(0.98) }
-        public static var secondary: Color { ColorsToken.Neutral.n50 }
+        public static var secondary: Color { Color.surface }
         /// Off-white screen background for premium surfaces
         public static var screen: Color { Color(hex: "FAFBFC") }
     }
@@ -183,7 +285,7 @@ public enum ColorsToken {
         /// Grid header row background
         public static var headerBar: Color {
             Color(
-                light: ColorsToken.Neutral.n100,
+                light: Color.surfaceElevated,
                 dark: Color(hex: "1E1E1E")
             )
         }
@@ -191,7 +293,7 @@ public enum ColorsToken {
         /// Alternating row for tables/grids
         public static var alternateRow: Color {
             Color(
-                light: ColorsToken.Neutral.n50.opacity(0.5),
+                light: Color.surface.opacity(0.5),
                 dark: Color(hex: "252525").opacity(0.5)
             )
         }
@@ -206,7 +308,7 @@ public enum ColorsToken {
         /// Card hairline stroke (~8% black opacity)
         public static var card: Color { Color.black.opacity(0.08) }
         /// Active card stroke (brand accent)
-        public static var cardActive: Color { ColorsToken.Brand.primary }
+        public static var cardActive: Color { Color.accent }
     }
     
     /// Separator/divider colors with dark mode support

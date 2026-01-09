@@ -78,10 +78,10 @@ public struct IterationActionsRow: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8))
                 }
-                .foregroundColor(ColorsToken.Brand.primary)
+                .foregroundColor(Color.accent)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .background(Color.accent.opacity(0.1))
                 .clipShape(Capsule())
             }
             
@@ -97,10 +97,10 @@ public struct IterationActionsRow: View {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundColor(ColorsToken.Text.primary)
+            .foregroundColor(Color.textPrimary)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(ColorsToken.Background.secondary)
+            .background(Color.surfaceElevated)
             .clipShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())

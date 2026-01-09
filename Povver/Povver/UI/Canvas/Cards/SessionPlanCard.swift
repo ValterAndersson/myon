@@ -50,10 +50,10 @@ public struct SessionPlanCard: View {
     
     private var statusColor: Color {
         switch model.status {
-        case .proposed: return ColorsToken.Brand.primary
-        case .accepted, .completed: return ColorsToken.State.success
-        case .active: return ColorsToken.State.warning
-        case .rejected, .expired: return ColorsToken.Text.secondary
+        case .proposed: return Color.accent
+        case .accepted, .completed: return Color.success
+        case .active: return Color.warning
+        case .rejected, .expired: return Color.textSecondary
         }
     }
     
@@ -79,7 +79,7 @@ public struct SessionPlanCard: View {
             
             // Divider
             Rectangle()
-                .fill(ColorsToken.Border.subtle)
+                .fill(Color.separator)
                 .frame(height: 1)
             
             // Exercise list using shared ExerciseRowView
@@ -91,7 +91,7 @@ public struct SessionPlanCard: View {
             }
         }
         .padding(Space.md)
-        .background(ColorsToken.Surface.card)
+        .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.large))
         .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 2)
         .onAppear {
@@ -135,7 +135,7 @@ public struct SessionPlanCard: View {
             HStack(alignment: .center, spacing: Space.sm) {
                 Text(model.title ?? "Workout")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(ColorsToken.Text.primary)
+                    .foregroundColor(Color.textPrimary)
                 
                 // Status pill
                 Text(statusText)
@@ -151,7 +151,7 @@ public struct SessionPlanCard: View {
                 Button { showingActionsSheet = true } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ColorsToken.Text.secondary)
+                        .foregroundColor(Color.textSecondary)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -160,7 +160,7 @@ public struct SessionPlanCard: View {
             if let coachNotes = model.meta?.notes, !coachNotes.isEmpty {
                 Text(coachNotes)
                     .font(.system(size: 13))
-                    .foregroundColor(ColorsToken.Text.secondary)
+                    .foregroundColor(Color.textSecondary)
                     .lineLimit(1)
             }
         }
@@ -182,7 +182,7 @@ public struct SessionPlanCard: View {
     private func summaryPill(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundColor(ColorsToken.Text.secondary)
+            .foregroundColor(Color.textSecondary)
     }
     
     // MARK: - Exercise List (using shared ExerciseRowView)
@@ -287,8 +287,8 @@ public struct SessionPlanCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .foregroundColor(ColorsToken.Brand.primary)
-                .background(ColorsToken.Brand.primary.opacity(0.1))
+                .foregroundColor(Color.accent)
+                .background(Color.accent.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
@@ -306,8 +306,8 @@ public struct SessionPlanCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(ColorsToken.Brand.primary)
-                .foregroundColor(.white)
+                .background(Color.accent)
+                .foregroundColor(.textInverse)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
             }
             .buttonStyle(PlainButtonStyle())
