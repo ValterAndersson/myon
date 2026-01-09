@@ -1338,3 +1338,143 @@ Sources
 - `firebase_functions/functions/utils/validation-response.js` (shared utility)
 - `firebase_functions/functions/canvas/propose-cards.js` (implementation example)
 - `firebase_functions/functions/canvas/schemas/card_types/session_plan.schema.json` (example schema)
+
+---
+
+## Catalog Admin v2 Collections
+
+### catalog_jobs/{jobId}
+Job queue for catalog curation operations.
+
+- Fields:
+  - `id: string` (document ID)
+  - `type: string` - Job type enum:
+    - `MAINTENANCE_SCAN`, `DUPLICATE_DETECTION_SCAN`, `ALIAS_INVARIANT_SCAN`
+    - `FAMILY_AUDIT`, `FAMILY_NORMALIZE`, `FAMILY_MERGE`, `FAMILY_SPLIT`, `FAMILY_RENAME_SLUG`
+    - `EXERCISE_ADD`, `TARGETED_FIX`, `ALIAS_REPAIR`
+  - `queue: 'priority' | 'maintenance'`
+  - `priority: number` (higher wins)
+  - `status: string`:
+    - `queued`, `leased`, `running`, `succeeded`, `succeeded_dry_run`
+    - `failed`, `needs_review`, `deadletter`, `deferred`
+  - `payload: object`:
+    - `family_slug?: string`
+    - `exercise_doc_ids?: string[]`
+    - `alias_slugs?: string[]`
+    - `mode: 'dry_run' | 'apply'`
+    - `intent?: object` (for EXERCISE_ADD)
+    - `merge_config?: object` (for FAMILY_MERGE)
+    - `split_config?: object` (for FAMILY_SPLIT)
+    - `rename_config?: object` (for FAMILY_RENAME_SLUG)
+  - `lease_owner?: string`
+  - `lease_expires_at?: Timestamp`
+  - `attempts: number`
+  - `max_attempts: number` (default 5)
+  - `run_after?: Timestamp`
+  - `result_summary?: object`
+  - `error?: object`
+  - `created_at, updated_at: Timestamp`
+
+### catalog_job_runs/{jobId}/attempts/{attemptId}
+Attempt logs for job execution debugging.
+
+- Fields:
+  - `id: string`
+  - `job_id: string`
+  - `attempt_number: number`
+  - `worker_id: string`
+  - `started_at, completed_at?: Timestamp`
+  - `status: 'running' | 'succeeded' | 'failed'`
+  - `change_plan?: object`
+  - `validator_output?: object`
+  - `operations_applied: number`
+  - `operations_skipped: number`
+  - `journal_id?: string`
+  - `error?: object`
+  - `events: Array<{ type, timestamp, data }>`
+
+### catalog_locks/{family_slug}
+Family-level locks for concurrent mutation prevention.
+
+- Fields:
+  - `family_slug: string` (document ID)
+  - `lease_owner: string`
+  - `lease_expires_at: Timestamp`
+  - `job_id: string`
+  - `acquired_at: Timestamp`
+
+### catalog_changes/{changeId}
+Journal of all applied mutations for audit trail.
+
+- Fields:
+  - `change_id: string` (document ID, format: `{job_id}_{attempt_id}`)
+  - `job_id: string`
+  - `attempt_id: string`
+  - `operations: Array<object>`:
+    - `operation_index: number`
+    - `operation_type: string`
+    - `targets: string[]`
+    - `before?: object`
+    - `after?: object`
+    - `idempotency_key?: string`
+    - `rationale: string`
+    - `success: boolean`
+    - `error?: string`
+    - `executed_at: Timestamp`
+  - `operation_count, successful_count, failed_count: number`
+  - `started_at, completed_at: Timestamp`
+  - `result_summary?: string`
+
+### catalog_idempotency/{key}
+Idempotency records for duplicate operation prevention.
+
+- Fields:
+  - `key: string` (document ID, format: `{job_id}:{operation_index}:{seed}`)
+  - `job_id: string`
+  - `operation_type: string`
+  - `targets: string[]`
+  - `result: 'success' | 'failed'`
+  - `executed_at: Timestamp`
+  - `expires_at: Timestamp` (TTL: 7 days)
+
+### exercise_families/{family_slug}
+Optional family registry for canonical family metadata.
+
+- Fields:
+  - `family_slug: string` (document ID)
+  - `base_name: string`
+  - `status: 'active' | 'deprecated' | 'merged_into:<slug>'`
+  - `allowed_equipments: string[]`
+  - `canonical_variants?: string[]`
+  - `primary_equipment_set: string[]`
+  - `notes?: string`
+  - `known_collisions?: string[]`
+  - `created_at, updated_at: Timestamp`
+
+---
+
+## Exercises Collection - Enriched Fields
+
+The `exercises/{exerciseId}` collection includes additional enriched fields populated by AI agents:
+
+- `enriched_instructions?: string[]` - AI-enhanced step-by-step instructions
+- `enriched_tips?: string[]` - AI-enhanced training tips
+- `enriched_cues?: string[]` - AI-enhanced coaching cues
+- `enriched_at?: Timestamp` - When enrichment was performed
+- `enriched_by?: string` - Agent/process that performed enrichment
+
+These fields are treated as canonical schema extensions. Validators should not reject documents containing these fields.
+
+---
+
+## Catalog Admin v2 Summary Diagram
+
+```
+catalog_jobs/{jobId}                    # Job queue
+  └─ catalog_job_runs/{jobId}/attempts/{attemptId}  # Attempt logs
+
+catalog_locks/{family_slug}             # Family locks
+catalog_changes/{changeId}              # Mutation journal
+catalog_idempotency/{key}               # Idempotency records
+exercise_families/{family_slug}         # Family registry (optional)
+```

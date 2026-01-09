@@ -90,6 +90,21 @@ class JobExecutor:
                 return self._execute_exercise_add()
             elif self.job_type == JobType.DUPLICATE_DETECTION_SCAN.value:
                 return self._execute_duplicate_detection_scan()
+            elif self.job_type == JobType.FAMILY_SPLIT.value:
+                from app.jobs.handlers import execute_family_split
+                return execute_family_split(self.job_id, self.payload, self.mode)
+            elif self.job_type == JobType.FAMILY_RENAME_SLUG.value:
+                from app.jobs.handlers import execute_family_rename_slug
+                return execute_family_rename_slug(self.job_id, self.payload, self.mode)
+            elif self.job_type == JobType.ALIAS_REPAIR.value:
+                from app.jobs.handlers import execute_alias_repair
+                return execute_alias_repair(self.job_id, self.payload, self.mode)
+            elif self.job_type == JobType.TARGETED_FIX.value:
+                from app.jobs.handlers import execute_targeted_fix
+                return execute_targeted_fix(self.job_id, self.payload, self.mode)
+            elif self.job_type == JobType.ALIAS_INVARIANT_SCAN.value:
+                from app.jobs.handlers import execute_alias_invariant_scan
+                return execute_alias_invariant_scan(self.job_id, self.payload, self.mode)
             else:
                 return {
                     "success": False,
