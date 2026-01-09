@@ -40,8 +40,8 @@ struct SetGridView: View {
     @State private var editScope: EditScope = .allWorking
     @State private var setTypePickerSetId: String? = nil
     
-    // Row height constant
-    private let rowHeight: CGFloat = 44
+    // Row height constant - unified with FocusModeSetGrid (52pt for gym use)
+    private let rowHeight: CGFloat = 52
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -372,16 +372,22 @@ private struct InlineEditingDock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if !isWarmupSet { scopeSelector }
-            HStack(alignment: .top, spacing: Space.sm) {
+            HStack(alignment: .center, spacing: Space.md) {
                 valueEditor
                 Spacer()
+                // Done button - matches FocusModeSetGrid style
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(Color.surfaceElevated)
-                        .clipShape(Circle())
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Done")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.textInverse)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.accent)
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(PlainButtonStyle())
             }
