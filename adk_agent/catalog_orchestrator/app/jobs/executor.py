@@ -278,9 +278,12 @@ class JobExecutor:
         }
         
         if self.mode == "apply":
-            # Phase 4: Actually apply the changes
-            result["applied"] = False
-            result["apply_message"] = "Apply engine not yet implemented (Phase 4)"
+            # Apply the changes using ApplyEngine
+            from app.apply.engine import apply_change_plan
+            
+            apply_result = apply_change_plan(plan, self.job_id)
+            result["applied"] = apply_result.success
+            result["apply_result"] = apply_result.to_dict()
         
         return result
     
