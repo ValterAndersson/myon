@@ -163,7 +163,11 @@ struct RoutinesListView: View {
             LazyVStack(spacing: Space.sm) {
                 ForEach(routines) { routine in
                     NavigationLink(destination: RoutineDetailView(routineId: routine.id, routineName: routine.name)) {
-                        LibraryRoutineRow(routine: routine)
+                        WorkoutRow.routine(
+                            name: routine.name,
+                            workoutCount: routine.workoutCount,
+                            isActive: routine.isActive
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -200,46 +204,6 @@ struct RoutineItem: Identifiable {
     let isActive: Bool
 }
 
-// MARK: - Routine Row View
-
-private struct LibraryRoutineRow: View {
-    let routine: RoutineItem
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Space.sm) {
-                    Text(routine.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Color.textPrimary)
-                    
-                    if routine.isActive {
-                        Text("Active")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(Color.success)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.success.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
-                }
-                
-                Text("\(routine.workoutCount) workouts")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color.textTertiary)
-        }
-        .padding(Space.md)
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-    }
-}
 
 // MARK: - Templates List View (Scaffold)
 
@@ -297,7 +261,11 @@ struct TemplatesListView: View {
             LazyVStack(spacing: Space.sm) {
                 ForEach(templates) { template in
                     NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                        LibraryTemplateRow(template: template)
+                        WorkoutRow.template(
+                            name: template.name,
+                            exerciseCount: template.exerciseCount,
+                            setCount: template.setCount
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -334,34 +302,6 @@ struct TemplateItem: Identifiable {
     let setCount: Int
 }
 
-// MARK: - Template Row View
-
-private struct LibraryTemplateRow: View {
-    let template: TemplateItem
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(template.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
-                
-                Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color.textTertiary)
-        }
-        .padding(Space.md)
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-    }
-}
 
 // MARK: - Exercises List View (Browse Mode)
 // Reuses FocusModeExerciseSearch patterns for consistency - loads exercises on open, tap for details
@@ -1008,7 +948,12 @@ struct RoutineDetailView: View {
                 VStack(spacing: Space.sm) {
                     ForEach(Array(templates.enumerated()), id: \.element.id) { index, template in
                         NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                            routineTemplateRow(template, dayNumber: index + 1)
+                            WorkoutRow.routineDay(
+                                day: index + 1,
+                                title: template.name,
+                                exerciseCount: template.exerciseCount,
+                                setCount: template.setCount
+                            )
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
@@ -1029,38 +974,6 @@ struct RoutineDetailView: View {
                 .font(.system(size: 13))
                 .foregroundColor(Color.textSecondary)
         }
-    }
-    
-    private func routineTemplateRow(_ template: TemplateItem, dayNumber: Int) -> some View {
-        HStack(spacing: Space.md) {
-            // Day badge
-            Text("Day \(dayNumber)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Color.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.accent.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(template.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
-                
-                Text("\(template.exerciseCount) exercises • \(template.setCount) sets")
-                    .font(.system(size: 13))
-                    .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color.textTertiary)
-        }
-        .padding(Space.md)
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
     }
     
     private func loadRoutineTemplates() async {

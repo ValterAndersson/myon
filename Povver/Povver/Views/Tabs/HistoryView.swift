@@ -90,12 +90,17 @@ struct HistoryView: View {
                 LazyVStack(spacing: Space.md, pinnedViews: [.sectionHeaders]) {
                     ForEach(groupedWorkouts, id: \.date) { group in
                         Section {
-                            ForEach(group.workouts) { workout in
-                                NavigationLink(destination: WorkoutDetailView(workoutId: workout.id)) {
-                                    HistoryWorkoutRow(workout: workout)
-                                }
-                                .buttonStyle(PlainButtonStyle())
+                        ForEach(group.workouts) { workout in
+                            NavigationLink(destination: WorkoutDetailView(workoutId: workout.id)) {
+                                WorkoutRow.history(
+                                    name: workout.name,
+                                    time: formatTime(workout.date),
+                                    duration: formatDuration(workout.duration),
+                                    exerciseCount: workout.exerciseCount
+                                )
                             }
+                            .buttonStyle(PlainButtonStyle())
+                        }
                         } header: {
                             DateHeaderView(date: group.date)
                         }
@@ -200,6 +205,24 @@ struct HistoryView: View {
         hasMorePages = workouts.count < allWorkouts.count
         isLoadingMore = false
     }
+    
+    // MARK: - Formatting Helpers
+    
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: date)
+    }
+    
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let hours = Int(duration) / 3600
+        let minutes = (Int(duration) % 3600) / 60
+        
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
 }
 
 // MARK: - History Workout Item
@@ -252,78 +275,6 @@ private struct DateHeaderView: View {
         }
         .padding(.vertical, Space.sm)
         .background(Color.bg)
-    }
-}
-
-// MARK: - History Workout Row
-
-private struct HistoryWorkoutRow: View {
-    let workout: HistoryWorkoutItem
-    
-    private var formattedDuration: String {
-        let hours = Int(workout.duration) / 3600
-        let minutes = (Int(workout.duration) % 3600) / 60
-        
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        }
-        return "\(minutes)m"
-    }
-    
-    private var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: workout.date)
-    }
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            // Workout info
-            VStack(alignment: .leading, spacing: 4) {
-                Text(workout.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
-                
-                HStack(spacing: Space.sm) {
-                    Text(formattedTime)
-                    Text("•")
-                    Text(formattedDuration)
-                    Text("•")
-                    Text("\(workout.exerciseCount) exercises")
-                }
-                .font(.system(size: 13))
-                .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            // Stats summary
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(workout.setCount) sets")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color.textPrimary)
-                
-                if workout.totalVolume > 0 {
-                    Text(formatVolume(workout.totalVolume))
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.textSecondary)
-                }
-            }
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color.textTertiary)
-        }
-        .padding(Space.md)
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-    }
-    
-    private func formatVolume(_ volume: Double) -> String {
-        if volume >= 1000 {
-            return String(format: "%.1fk kg", volume / 1000)
-        }
-        return String(format: "%.0f kg", volume)
     }
 }
 
