@@ -406,7 +406,10 @@ struct WorkoutDetailView: View {
             
             // Sets - Read-only grid with full details
             if !exercise.sets.isEmpty {
-                ReadOnlySetGrid(sets: exercise.sets)
+                SetTable(
+                    sets: exercise.sets.toSetCellModels(),
+                    mode: .readOnly
+                )
             }
         }
         .padding(Space.md)
@@ -428,163 +431,6 @@ struct WorkoutDetailView: View {
         }
         
         isLoading = false
-    }
-}
-
-// MARK: - Set Row View
-
-private struct SetRowView: View {
-    let set: WorkoutExerciseSet
-    let index: Int
-    
-    var body: some View {
-        HStack {
-            Text("\(index)")
-                .frame(width: 40, alignment: .leading)
-            Text(String(format: "%.1f", set.weight))
-                .frame(width: 60, alignment: .center)
-            Text("\(set.reps)")
-                .frame(width: 50, alignment: .center)
-            Spacer()
-            
-            if set.isCompleted {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(Color.success)
-                    .font(.system(size: 14))
-            }
-        }
-        .font(.system(size: 14).monospacedDigit())
-        .foregroundColor(Color.textPrimary)
-    }
-}
-
-// MARK: - Read-Only Set Grid
-
-/// Displays sets in a read-only grid format with SET, WEIGHT, REPS, RIR columns
-/// Modeled after FocusModeSetGrid but non-editable
-struct ReadOnlySetGrid: View {
-    let sets: [WorkoutExerciseSet]
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header row
-            HStack(spacing: 0) {
-                Text("SET")
-                    .frame(width: 44, alignment: .center)
-                Text("WEIGHT")
-                    .frame(maxWidth: .infinity, alignment: .center)
-                Text("REPS")
-                    .frame(width: 60, alignment: .center)
-                Text("RIR")
-                    .frame(width: 44, alignment: .center)
-                // Checkmark column
-                Image(systemName: "checkmark")
-                    .frame(width: 36, alignment: .center)
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(Color.textTertiary)
-            .padding(.vertical, Space.xs)
-            .padding(.horizontal, Space.sm)
-            
-            Divider()
-                .background(Color.surfaceElevated)
-            
-            // Set rows
-            ForEach(sets.indices, id: \.self) { index in
-                ReadOnlySetRow(set: sets[index], displayIndex: index + 1)
-                
-                if index < sets.count - 1 {
-                    Divider()
-                        .background(Color.surface)
-                        .padding(.horizontal, Space.sm)
-                }
-            }
-        }
-        .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
-    }
-}
-
-/// A single row in the read-only set grid
-private struct ReadOnlySetRow: View {
-    let set: WorkoutExerciseSet
-    let displayIndex: Int
-    
-    /// Set type indicator: W=warmup, F=failure, D=drop, number otherwise
-    private var setTypeLabel: String {
-        let lowercased = set.type.lowercased()
-        if lowercased.contains("warm") {
-            return "W"
-        } else if lowercased.contains("fail") || lowercased.contains("amrap") {
-            return "F"
-        } else if lowercased.contains("drop") {
-            return "D"
-        } else {
-            return "\(displayIndex)"
-        }
-    }
-    
-    /// Color for set type badge
-    private var setTypeColor: Color {
-        let lowercased = set.type.lowercased()
-        if lowercased.contains("warm") {
-            return Color.warning // Yellow for warmup sets
-        } else if lowercased.contains("fail") || lowercased.contains("amrap") {
-            return Color.destructive // Red for failure sets
-        } else if lowercased.contains("drop") {
-            return Color.accent // Brand color for drop sets
-        } else {
-            return Color.textSecondary
-        }
-    }
-    
-    var body: some View {
-        HStack(spacing: 0) {
-            // SET column with type indicator
-            ZStack {
-                if setTypeLabel != "\(displayIndex)" {
-                    // Special set type badge
-                    Text(setTypeLabel)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.textInverse)
-                        .frame(width: 24, height: 24)
-                        .background(setTypeColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else {
-                    // Normal set number
-                    Text("\(displayIndex)")
-                        .font(.system(size: 14, weight: .medium).monospacedDigit())
-                        .foregroundColor(Color.textSecondary)
-                }
-            }
-            .frame(width: 44, alignment: .center)
-            
-            // WEIGHT column
-            Text(String(format: "%.1f", set.weight))
-                .font(.system(size: 16, weight: .medium).monospacedDigit())
-                .foregroundColor(Color.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .center)
-            
-            // REPS column
-            Text("\(set.reps)")
-                .font(.system(size: 16, weight: .medium).monospacedDigit())
-                .foregroundColor(Color.textPrimary)
-                .frame(width: 60, alignment: .center)
-            
-            // RIR column
-            Text(set.rir > 0 ? "\(set.rir)" : "-")
-                .font(.system(size: 14, weight: .medium).monospacedDigit())
-                .foregroundColor(set.rir > 0 ? Color.textPrimary : Color.textTertiary)
-                .frame(width: 44, alignment: .center)
-            
-            // Checkmark column
-            Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 16))
-                .foregroundColor(set.isCompleted ? Color.success : Color.textTertiary)
-                .frame(width: 36, alignment: .center)
-        }
-        .padding(.vertical, Space.sm)
-        .padding(.horizontal, Space.sm)
     }
 }
 
