@@ -116,3 +116,140 @@ extension Array where Element == WorkoutExerciseSet {
         }
     }
 }
+
+// MARK: - PlanSet Mapper (Canvas/Planning)
+
+extension PlanSet {
+    /// Maps a planning set to SetCellModel for display.
+    /// Index label is passed in to avoid requiring the model to know its position.
+    /// Used in read-only planning previews and future unified editing.
+    func toSetCellModel(indexLabel: String, isActive: Bool = false) -> SetCellModel {
+        let indicator = setTypeIndicator(from: type)
+        
+        return SetCellModel(
+            id: id,
+            indexLabel: indicator != nil ? indicator!.label : indexLabel,
+            weight: weight.map { formatWeight($0) },
+            reps: "\(reps)",
+            rir: isWarmup ? nil : (rir.map { "\($0)" }),
+            setTypeIndicator: indicator,
+            isActive: isActive,
+            isCompleted: isCompleted ?? false
+        )
+    }
+    
+    private func setTypeIndicator(from type: SetType?) -> SetCellModel.SetTypeIndicator? {
+        switch type {
+        case .warmup: return .warmup
+        case .failureSet: return .failure
+        case .dropSet: return .drop
+        case .working, .none: return nil
+        }
+    }
+    
+    private func formatWeight(_ weight: Double) -> String {
+        // Unitless - SetTable will add unit in header
+        if weight.truncatingRemainder(dividingBy: 1) == 0 {
+            return "\(Int(weight))"
+        }
+        return String(format: "%.1f", weight)
+    }
+}
+
+extension Array where Element == PlanSet {
+    /// Convert array of PlanSet to SetCellModels with proper index labels.
+    /// Handles warmup vs working set numbering.
+    /// Optional activeSetId parameter to mark which set is active.
+    func toSetCellModels(activeSetId: String? = nil) -> [SetCellModel] {
+        var warmupIndex = 0
+        var workingIndex = 0
+        
+        return self.map { set in
+            let indexLabel: String
+            
+            if set.isWarmup {
+                warmupIndex += 1
+                indexLabel = "W\(warmupIndex)"
+            } else {
+                workingIndex += 1
+                indexLabel = "\(workingIndex)"
+            }
+            
+            return set.toSetCellModel(
+                indexLabel: indexLabel,
+                isActive: set.id == activeSetId
+            )
+        }
+    }
+}
+
+// MARK: - FocusModeSet Mapper (Execution)
+
+extension FocusModeSet {
+    /// Maps an execution set to SetCellModel for display.
+    /// Index label is passed in to avoid requiring the model to know its position.
+    /// Used for read-only views of active workouts; the specialized FocusModeSetGrid
+    /// handles the full interactive editing experience.
+    func toSetCellModel(indexLabel: String, isActive: Bool = false) -> SetCellModel {
+        let indicator = setTypeIndicator()
+        
+        return SetCellModel(
+            id: id,
+            indexLabel: indicator != nil ? indicator!.label : indexLabel,
+            weight: displayWeight.map { formatWeight($0) },
+            reps: displayReps.map { "\($0)" },
+            rir: isWarmup ? nil : (displayRir.map { "\($0)" }),
+            setTypeIndicator: indicator,
+            isActive: isActive,
+            isCompleted: isDone
+        )
+    }
+    
+    private func setTypeIndicator() -> SetCellModel.SetTypeIndicator? {
+        if isWarmup {
+            return .warmup
+        }
+        if tags?.isFailure == true {
+            return .failure
+        }
+        if setType == .dropset {
+            return .drop
+        }
+        return nil
+    }
+    
+    private func formatWeight(_ weight: Double) -> String {
+        // Unitless - SetTable will add unit in header
+        if weight.truncatingRemainder(dividingBy: 1) == 0 {
+            return "\(Int(weight))"
+        }
+        return String(format: "%.1f", weight)
+    }
+}
+
+extension Array where Element == FocusModeSet {
+    /// Convert array of FocusModeSet to SetCellModels with proper index labels.
+    /// Handles warmup vs working set numbering.
+    /// Optional activeSetId parameter to mark which set is active.
+    func toSetCellModels(activeSetId: String? = nil) -> [SetCellModel] {
+        var warmupIndex = 0
+        var workingIndex = 0
+        
+        return self.map { set in
+            let indexLabel: String
+            
+            if set.isWarmup {
+                warmupIndex += 1
+                indexLabel = "W\(warmupIndex)"
+            } else {
+                workingIndex += 1
+                indexLabel = "\(workingIndex)"
+            }
+            
+            return set.toSetCellModel(
+                indexLabel: indexLabel,
+                isActive: set.id == activeSetId
+            )
+        }
+    }
+}
