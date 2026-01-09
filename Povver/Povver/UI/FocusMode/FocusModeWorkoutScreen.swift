@@ -501,6 +501,8 @@ struct FocusModeWorkoutScreen: View {
         .presentationDetents([.medium, .large])
     }
     
+    /// v1.1 compliant start option: neutral surface with accent icon
+    /// No full accent-fill rows - only small PrimaryButton or accent icon accents
     private func startOptionButton(
         icon: String,
         title: String,
@@ -511,31 +513,47 @@ struct FocusModeWorkoutScreen: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: Space.md) {
+                // Icon: accent for primary, textSecondary for others
                 Image(systemName: icon)
                     .font(.system(size: 20))
-                    .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? .textInverse : Color.accent))
+                    .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? Color.accent : Color.textSecondary))
                     .frame(width: 32)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? .textInverse : Color.textPrimary))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textPrimary)
                     
                     Text(subtitle)
                         .font(.system(size: 13))
-                        .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? Color.textInverse.opacity(0.8) : Color.textSecondary))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textSecondary)
                 }
                 
                 Spacer()
                 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isDisabled ? Color.textTertiary : (isPrimary ? Color.textInverse.opacity(0.8) : Color.textSecondary))
+                // Primary: show "Start" label, others show chevron
+                if isPrimary && !isDisabled {
+                    Text("Start")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.textInverse)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(isDisabled ? Color.textTertiary : Color.textTertiary)
+                }
             }
             .padding(.horizontal, Space.lg)
             .padding(.vertical, 16)
-            .background(isPrimary ? Color.accent : Color.surface)
+            .background(Color.surface)
             .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+            .overlay(
+                RoundedRectangle(cornerRadius: CornerRadiusToken.medium)
+                    .stroke(Color.separatorLine, lineWidth: 0.5)
+            )
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(isDisabled)
