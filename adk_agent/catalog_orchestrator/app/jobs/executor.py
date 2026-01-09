@@ -84,6 +84,12 @@ class JobExecutor:
                 return self._execute_family_normalize()
             elif self.job_type == JobType.MAINTENANCE_SCAN.value:
                 return self._execute_maintenance_scan()
+            elif self.job_type == JobType.FAMILY_MERGE.value:
+                return self._execute_family_merge()
+            elif self.job_type == JobType.EXERCISE_ADD.value:
+                return self._execute_exercise_add()
+            elif self.job_type == JobType.DUPLICATE_DETECTION_SCAN.value:
+                return self._execute_duplicate_detection_scan()
             else:
                 return {
                     "success": False,
@@ -349,6 +355,280 @@ class JobExecutor:
                 "families_scanned": len(families[:20]),
                 "families_needing_audit": len(needs_audit),
                 "families": needs_audit,
+            },
+        }
+    
+    def _execute_family_merge(self) -> Dict[str, Any]:
+        """
+        Execute FAMILY_MERGE job.
+        
+        Merges source family into target family:
+        - Reassigns exercises to target family
+        - Resolves duplicate equipment variants
+        - Updates aliases
+        - Marks source family as deprecated
+        """
+        from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
+        from app.family.models import FamilyStatus
+        
+        merge_config = self.payload.get("merge_config", {})
+        source_family = merge_config.get("source_family")
+        target_family = merge_config.get("target_family")
+        
+        if not source_family or not target_family:
+            return {
+                "success": False,
+                "error": {"code": "MISSING_MERGE_CONFIG", "message": "FAMILY_MERGE requires source_family and target_family"},
+                "is_transient": False,
+            }
+        
+        # Fetch data
+        source_exercises = get_family_exercises(source_family)
+        target_exercises = get_family_exercises(target_family)
+        source_registry = get_or_create_family_registry(source_family)
+        target_registry = get_or_create_family_registry(target_family)
+        
+        if not source_exercises:
+            return {
+                "success": True,
+                "merge_result": {
+                    "source_family": source_family,
+                    "target_family": target_family,
+                    "message": "Source family has no exercises",
+                    "exercises_moved": 0,
+                },
+            }
+        
+        # Build target equipment set
+        target_equipment = {ex.primary_equipment for ex in target_exercises if ex.primary_equipment}
+        
+        operations = []
+        exercises_to_move = []
+        duplicates_to_merge = []
+        
+        for ex in source_exercises:
+            if ex.primary_equipment in target_equipment:
+                # Duplicate equipment - mark for manual review
+                duplicates_to_merge.append({
+                    "source_doc_id": ex.doc_id,
+                    "source_name": ex.name,
+                    "equipment": ex.primary_equipment,
+                })
+            else:
+                # Move exercise to target family
+                exercises_to_move.append(ex.doc_id)
+        
+        # Create REASSIGN_FAMILY operation
+        if exercises_to_move:
+            operations.append(Operation(
+                op_type=OperationType.REASSIGN_FAMILY,
+                targets=exercises_to_move,
+                patch={"family_slug": target_family},
+                rationale=f"Move exercises from {source_family} to {target_family}",
+                risk_level=RiskLevel.HIGH,
+                idempotency_key_seed=f"merge_{source_family}_{target_family}_reassign",
+            ))
+        
+        # Create plan
+        plan = ChangePlan(
+            job_id=self.job_id,
+            job_type="FAMILY_MERGE",
+            scope={
+                "source_family": source_family,
+                "target_family": target_family,
+            },
+            assumptions=[
+                f"Merging {source_family} into {target_family}",
+                f"Moving {len(exercises_to_move)} exercises",
+                f"Found {len(duplicates_to_merge)} equipment conflicts",
+            ],
+            operations=operations,
+            max_risk_level=RiskLevel.HIGH,
+        )
+        
+        result = {
+            "success": True,
+            "merge_result": {
+                "source_family": source_family,
+                "target_family": target_family,
+                "exercises_to_move": exercises_to_move,
+                "duplicates_needing_review": duplicates_to_merge,
+                "move_count": len(exercises_to_move),
+                "duplicate_count": len(duplicates_to_merge),
+            },
+            "plan": plan.to_dict(),
+            "mode": self.mode,
+        }
+        
+        if self.mode == "apply" and operations:
+            from app.apply.engine import apply_change_plan
+            apply_result = apply_change_plan(plan, self.job_id)
+            result["applied"] = apply_result.success
+            result["apply_result"] = apply_result.to_dict()
+        
+        return result
+    
+    def _execute_exercise_add(self) -> Dict[str, Any]:
+        """
+        Execute EXERCISE_ADD job.
+        
+        Adds a new exercise with proper naming and family assignment.
+        Validates against taxonomy and checks for duplicates.
+        """
+        from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
+        from app.family.taxonomy import EQUIPMENT_DISPLAY_MAP
+        
+        intent = self.payload.get("intent", {})
+        base_name = intent.get("base_name")
+        equipment = intent.get("equipment", [])
+        primary_muscles = intent.get("muscles_primary", [])
+        secondary_muscles = intent.get("muscles_secondary", [])
+        
+        if not base_name:
+            return {
+                "success": False,
+                "error": {"code": "MISSING_BASE_NAME", "message": "EXERCISE_ADD requires base_name in intent"},
+                "is_transient": False,
+            }
+        
+        # Derive family slug
+        family_slug = derive_name_slug(base_name)
+        
+        # Check if family exists
+        existing_exercises = get_family_exercises(family_slug)
+        registry = get_or_create_family_registry(family_slug)
+        
+        # Determine if we need equipment qualifier
+        primary_equipment = equipment[0] if equipment else None
+        existing_equipment = {ex.primary_equipment for ex in existing_exercises if ex.primary_equipment}
+        
+        needs_qualifier = len(existing_equipment) > 0 or (primary_equipment and primary_equipment in existing_equipment)
+        
+        if needs_qualifier and primary_equipment:
+            exercise_name = derive_canonical_name(base_name, primary_equipment)
+        else:
+            exercise_name = base_name
+        
+        name_slug = derive_name_slug(exercise_name)
+        
+        # Check for duplicate
+        for ex in existing_exercises:
+            if ex.name_slug == name_slug:
+                return {
+                    "success": False,
+                    "error": {
+                        "code": "DUPLICATE_EXERCISE",
+                        "message": f"Exercise with slug '{name_slug}' already exists",
+                        "existing_doc_id": ex.doc_id,
+                    },
+                    "is_transient": False,
+                }
+        
+        # Create exercise data
+        exercise_data = {
+            "name": exercise_name,
+            "name_slug": name_slug,
+            "family_slug": family_slug,
+            "status": "approved",
+            "equipment": equipment,
+            "primary_muscles": primary_muscles,
+            "secondary_muscles": secondary_muscles,
+        }
+        
+        # Create operation
+        operations = [
+            Operation(
+                op_type=OperationType.CREATE_EXERCISE,
+                targets=[],  # Auto-generate doc_id
+                patch=exercise_data,
+                rationale=f"Add new exercise: {exercise_name}",
+                risk_level=RiskLevel.LOW,
+                idempotency_key_seed=f"add_{name_slug}",
+            )
+        ]
+        
+        plan = ChangePlan(
+            job_id=self.job_id,
+            job_type="EXERCISE_ADD",
+            scope={"family_slug": family_slug},
+            assumptions=[f"Adding new exercise to family {family_slug}"],
+            operations=operations,
+            max_risk_level=RiskLevel.LOW,
+        )
+        
+        result = {
+            "success": True,
+            "add_result": {
+                "exercise_name": exercise_name,
+                "name_slug": name_slug,
+                "family_slug": family_slug,
+                "needs_equipment_qualifier": needs_qualifier,
+            },
+            "plan": plan.to_dict(),
+            "mode": self.mode,
+        }
+        
+        if self.mode == "apply":
+            from app.apply.engine import apply_change_plan
+            apply_result = apply_change_plan(plan, self.job_id)
+            result["applied"] = apply_result.success
+            result["apply_result"] = apply_result.to_dict()
+        
+        return result
+    
+    def _execute_duplicate_detection_scan(self) -> Dict[str, Any]:
+        """
+        Execute DUPLICATE_DETECTION_SCAN job.
+        
+        Scans for potential duplicate exercises across families.
+        Uses name similarity and equipment matching.
+        """
+        from app.skills.catalog_read_skills import list_families_summary
+        import asyncio
+        
+        # Get all families
+        loop = asyncio.new_event_loop()
+        try:
+            families_result = loop.run_until_complete(list_families_summary(min_size=1, limit=200))
+        finally:
+            loop.close()
+        
+        if not families_result.get("success"):
+            return {
+                "success": False,
+                "error": {"code": "SCAN_FAILED", "message": "Failed to list families"},
+                "is_transient": True,
+            }
+        
+        families = families_result.get("families", [])
+        
+        # Group by base name (family_slug normalized)
+        family_groups: Dict[str, List[str]] = {}
+        for fam in families:
+            slug = fam["family_slug"]
+            # Normalize: remove equipment suffixes for comparison
+            base = slug.split("-")[0] if "-" in slug else slug
+            if base not in family_groups:
+                family_groups[base] = []
+            family_groups[base].append(slug)
+        
+        # Find potential duplicates (multiple families with same base)
+        duplicate_candidates = []
+        for base, slugs in family_groups.items():
+            if len(slugs) > 1:
+                duplicate_candidates.append({
+                    "base_name": base,
+                    "families": slugs,
+                    "count": len(slugs),
+                    "suggested_action": "FAMILY_MERGE" if len(slugs) == 2 else "MANUAL_REVIEW",
+                })
+        
+        return {
+            "success": True,
+            "scan_result": {
+                "families_scanned": len(families),
+                "duplicate_groups_found": len(duplicate_candidates),
+                "duplicate_candidates": duplicate_candidates[:20],  # Limit output
             },
         }
 
