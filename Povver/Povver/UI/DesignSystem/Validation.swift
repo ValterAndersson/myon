@@ -7,7 +7,7 @@ public enum ValidationState: Equatable {
 
     public var color: Color {
         switch self {
-        case .normal: return Color.separator
+        case .normal: return Color.separatorLine
         case .success: return Color.success
         case .error: return Color.destructive
         }

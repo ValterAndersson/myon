@@ -53,7 +53,7 @@ public struct PovverTextField: View {
 
     private func validationBorderColor() -> Color {
         switch validation {
-        case .normal: return focused ? Color.accent.opacity(0.6) : Color.separator
+        case .normal: return focused ? Color.accent.opacity(0.6) : Color.separatorLine
         case .success: return Color.success
         case .error: return Color.destructive
         }

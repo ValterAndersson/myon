@@ -72,7 +72,7 @@ private struct MappedButtonStyle: ButtonStyle {
     }
 
     private func backgroundColor(pressed: Bool, enabled: Bool) -> Color {
-        guard enabled else { return .separator }
+        guard enabled else { return .separatorLine }
         switch kind {
         case .primary: 
             return pressed ? .accentPressed : .accent
@@ -86,11 +86,11 @@ private struct MappedButtonStyle: ButtonStyle {
     }
 
     private func borderColor(pressed: Bool, enabled: Bool) -> Color {
-        guard enabled else { return .separator }
+        guard enabled else { return .separatorLine }
         switch kind {
         case .primary: return .clear
-        case .secondary: return .separator
-        case .ghost: return pressed ? .separator : .clear
+        case .secondary: return .separatorLine
+        case .ghost: return pressed ? .separatorLine : .clear
         case .destructive: return .clear
         }
     }
