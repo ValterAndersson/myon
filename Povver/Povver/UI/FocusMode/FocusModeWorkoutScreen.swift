@@ -456,9 +456,13 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    /// Template picker sheet
+    /// Template picker sheet - uses SheetScaffold for v1.1 consistency
     private var templatePickerSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Choose Template",
+            doneTitle: nil,
+            onCancel: { showingTemplatePicker = false }
+        ) {
             List {
                 ForEach(templates) { template in
                     Button {
@@ -488,15 +492,6 @@ struct FocusModeWorkoutScreen: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("Choose Template")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        showingTemplatePicker = false
-                    }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -857,10 +852,25 @@ struct FocusModeWorkoutScreen: View {
         .background(Color.bg)
     }
     
-    // MARK: - Start Time Editor Sheet
+    // MARK: - Start Time Editor Sheet - uses SheetScaffold for v1.1 consistency
     
     private var startTimeEditorSheet: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Edit Start Time",
+            doneTitle: "Save",
+            onCancel: { activeSheet = nil },
+            onDone: {
+                Task {
+                    do {
+                        try await service.updateStartTime(editingStartTime)
+                        print("✅ Start time updated to: \(editingStartTime)")
+                    } catch {
+                        print("❌ Failed to update start time: \(error)")
+                    }
+                }
+                activeSheet = nil
+            }
+        ) {
             VStack(spacing: 0) {
                 // Time picker - wheel style with explicit height
                 DatePicker(
@@ -890,29 +900,6 @@ struct FocusModeWorkoutScreen: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(uiColor: .systemBackground))
-            .navigationTitle("Edit Start Time")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        activeSheet = nil
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            do {
-                                try await service.updateStartTime(editingStartTime)
-                                print("✅ Start time updated to: \(editingStartTime)")
-                            } catch {
-                                print("❌ Failed to update start time: \(error)")
-                            }
-                        }
-                        activeSheet = nil
-                    }
-                }
-            }
             .onAppear {
                 editingStartTime = service.workout?.startTime ?? Date()
             }
@@ -999,10 +986,15 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    // MARK: - AI Panel Placeholder
+    // MARK: - AI Panel Placeholder - uses SheetScaffold for v1.1 consistency
     
     private var aiPanelPlaceholder: some View {
-        NavigationStack {
+        SheetScaffold(
+            title: "Copilot",
+            doneTitle: "Done",
+            onCancel: { activeSheet = nil },
+            onDone: { activeSheet = nil }
+        ) {
             VStack(spacing: Space.xl) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 48))
@@ -1016,14 +1008,6 @@ struct FocusModeWorkoutScreen: View {
                     .foregroundColor(Color.textSecondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.bg)
-            .navigationTitle("Copilot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { activeSheet = nil }
-                }
-            }
         }
         .presentationDetents([.medium])
     }
@@ -1608,3 +1592,6 @@ enum FocusModeGridCell: Equatable, Hashable {
 #Preview {
     FocusModeWorkoutScreen()
 }
+
+// MARK: - Preview
+
