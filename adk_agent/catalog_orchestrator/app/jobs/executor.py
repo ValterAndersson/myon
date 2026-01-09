@@ -90,6 +90,10 @@ class JobExecutor:
                 return self._execute_exercise_add()
             elif self.job_type == JobType.DUPLICATE_DETECTION_SCAN.value:
                 return self._execute_duplicate_detection_scan()
+            elif self.job_type == JobType.CATALOG_ENRICH_FIELD.value:
+                return self._execute_catalog_enrich_field()
+            elif self.job_type == JobType.CATALOG_ENRICH_FIELD_SHARD.value:
+                return self._execute_catalog_enrich_field_shard()
             elif self.job_type == JobType.FAMILY_SPLIT.value:
                 from app.jobs.handlers import execute_family_split
                 return execute_family_split(self.job_id, self.payload, self.mode)
@@ -591,6 +595,281 @@ class JobExecutor:
         
         return result
     
+    def _execute_catalog_enrich_field(self) -> Dict[str, Any]:
+        """
+        Execute CATALOG_ENRICH_FIELD parent job.
+        
+        Enumerates target exercises and creates shard jobs for parallel processing.
+        """
+        from app.enrichment.models import EnrichmentSpec
+        from app.jobs.queue import create_job
+        from app.jobs.models import JobType, JobQueue
+        
+        enrichment_spec_data = self.payload.get("enrichment_spec", {})
+        filter_criteria = self.payload.get("filter_criteria")
+        exercise_ids = self.payload.get("exercise_doc_ids", [])
+        shard_size = self.payload.get("shard_size", 200)
+        
+        if not enrichment_spec_data:
+            return {
+                "success": False,
+                "error": {"code": "MISSING_ENRICHMENT_SPEC", "message": "CATALOG_ENRICH_FIELD requires enrichment_spec"},
+                "is_transient": False,
+            }
+        
+        spec = EnrichmentSpec.from_dict(enrichment_spec_data)
+        
+        # Get target exercise IDs
+        if exercise_ids:
+            # Explicit IDs provided
+            target_ids = exercise_ids
+        elif filter_criteria:
+            # Query exercises matching filter
+            target_ids = self._get_filtered_exercise_ids(filter_criteria)
+        else:
+            # All exercises
+            target_ids = self._get_all_exercise_ids()
+        
+        if not target_ids:
+            return {
+                "success": True,
+                "enrich_result": {
+                    "spec_id": spec.spec_id,
+                    "spec_version": spec.spec_version,
+                    "message": "No exercises match criteria",
+                    "shards_created": 0,
+                    "total_exercises": 0,
+                },
+            }
+        
+        # Chunk into shards
+        shards = [target_ids[i:i + shard_size] for i in range(0, len(target_ids), shard_size)]
+        
+        # Create child jobs
+        child_job_ids = []
+        for shard_ids in shards:
+            child = create_job(
+                job_type=JobType.CATALOG_ENRICH_FIELD_SHARD,
+                queue=JobQueue.MAINTENANCE,
+                exercise_doc_ids=shard_ids,
+                mode=self.mode,
+                enrichment_spec=enrichment_spec_data,
+                parent_job_id=self.job_id,
+            )
+            child_job_ids.append(child.id)
+        
+        return {
+            "success": True,
+            "enrich_result": {
+                "spec_id": spec.spec_id,
+                "spec_version": spec.spec_version,
+                "field_path": spec.field_path,
+                "shards_created": len(child_job_ids),
+                "total_exercises": len(target_ids),
+                "child_job_ids": child_job_ids,
+                "shard_size": shard_size,
+            },
+            "mode": self.mode,
+        }
+    
+    def _execute_catalog_enrich_field_shard(self) -> Dict[str, Any]:
+        """
+        Execute CATALOG_ENRICH_FIELD_SHARD child job.
+        
+        Processes a batch of exercises with LLM enrichment.
+        """
+        from app.enrichment.models import EnrichmentSpec, ShardResult
+        from app.enrichment.engine import compute_enrichment_batch
+        from app.enrichment.llm_client import get_llm_client
+        from app.apply.gate import require_all_gates, ApplyGateError
+        from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
+        from datetime import datetime
+        
+        enrichment_spec_data = self.payload.get("enrichment_spec", {})
+        exercise_ids = self.payload.get("exercise_doc_ids", [])
+        parent_job_id = self.payload.get("parent_job_id")
+        
+        if not enrichment_spec_data:
+            return {
+                "success": False,
+                "error": {"code": "MISSING_ENRICHMENT_SPEC", "message": "CATALOG_ENRICH_FIELD_SHARD requires enrichment_spec"},
+                "is_transient": False,
+            }
+        
+        if not exercise_ids:
+            return {
+                "success": True,
+                "shard_result": {
+                    "message": "No exercises in shard",
+                    "total": 0,
+                },
+            }
+        
+        spec = EnrichmentSpec.from_dict(enrichment_spec_data)
+        
+        # Check apply gate before proceeding with apply mode
+        if self.mode == "apply":
+            try:
+                require_all_gates(self.mode)
+            except ApplyGateError as e:
+                return {
+                    "success": False,
+                    "error": {"code": "APPLY_GATE_BLOCKED", "message": str(e)},
+                    "is_transient": False,
+                }
+        
+        # Fetch exercise data
+        exercises = self._get_exercises_batch(exercise_ids)
+        
+        if not exercises:
+            return {
+                "success": False,
+                "error": {"code": "NO_EXERCISES_FOUND", "message": f"None of {len(exercise_ids)} exercises found"},
+                "is_transient": True,
+            }
+        
+        # Create shard result tracker
+        shard_result = ShardResult(
+            shard_job_id=self.job_id,
+            parent_job_id=parent_job_id,
+            spec_id=spec.spec_id,
+            total_exercises=len(exercises),
+            started_at=datetime.utcnow(),
+        )
+        
+        # Get LLM client
+        llm_client = get_llm_client()
+        
+        # Compute enrichment for each exercise
+        enrichment_results = compute_enrichment_batch(exercises, spec, llm_client)
+        
+        # Build operations for successful enrichments
+        operations = []
+        for result in enrichment_results:
+            shard_result.results.append(result)
+            
+            if result.success and result.validation_passed:
+                shard_result.succeeded += 1
+                
+                # Build patch operation using nested field path
+                patch = self._build_nested_patch(spec.field_path, result.value)
+                
+                operations.append(Operation(
+                    op_type=OperationType.PATCH_FIELDS,
+                    targets=[result.exercise_id],
+                    patch=patch,
+                    rationale=f"Enrichment {spec.spec_id}:{spec.spec_version}",
+                    risk_level=RiskLevel.LOW,
+                    idempotency_key_seed=spec.idempotency_key(result.exercise_id),
+                ))
+            else:
+                shard_result.failed += 1
+        
+        shard_result.completed_at = datetime.utcnow()
+        
+        # Create change plan
+        plan = ChangePlan(
+            job_id=self.job_id,
+            job_type="CATALOG_ENRICH_FIELD_SHARD",
+            scope={
+                "parent_job_id": parent_job_id,
+                "spec_id": spec.spec_id,
+                "exercise_count": len(exercises),
+            },
+            assumptions=[f"Enriching {len(exercises)} exercises with {spec.spec_id}:{spec.spec_version}"],
+            operations=operations,
+            max_risk_level=RiskLevel.LOW,
+        )
+        
+        result = {
+            "success": True,
+            "shard_result": shard_result.to_dict(),
+            "plan": plan.to_dict(),
+            "mode": self.mode,
+        }
+        
+        if self.mode == "apply" and operations:
+            from app.apply.engine import apply_change_plan
+            apply_result = apply_change_plan(plan, self.job_id)
+            result["applied"] = apply_result.success
+            result["apply_result"] = apply_result.to_dict()
+        
+        return result
+    
+    def _get_filtered_exercise_ids(self, filter_criteria: Dict[str, Any]) -> List[str]:
+        """Get exercise IDs matching filter criteria."""
+        from google.cloud import firestore
+        
+        db = firestore.Client()
+        query = db.collection("exercises")
+        
+        if filter_criteria.get("equipment"):
+            query = query.where("equipment", "array_contains", filter_criteria["equipment"])
+        if filter_criteria.get("category"):
+            query = query.where("category", "==", filter_criteria["category"])
+        if filter_criteria.get("family_slug"):
+            query = query.where("family_slug", "==", filter_criteria["family_slug"])
+        
+        # Limit to avoid huge queries
+        query = query.limit(10000)
+        
+        return [doc.id for doc in query.stream()]
+    
+    def _get_all_exercise_ids(self, limit: int = 10000) -> List[str]:
+        """Get all exercise IDs (with limit)."""
+        from google.cloud import firestore
+        
+        db = firestore.Client()
+        query = db.collection("exercises").limit(limit)
+        
+        return [doc.id for doc in query.stream()]
+    
+    def _get_exercises_batch(self, exercise_ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch exercise documents by IDs."""
+        from google.cloud import firestore
+        
+        if not exercise_ids:
+            return []
+        
+        db = firestore.Client()
+        exercises = []
+        
+        # Batch in chunks of 10 (Firestore limit for in queries)
+        for i in range(0, len(exercise_ids), 10):
+            batch_ids = exercise_ids[i:i + 10]
+            refs = [db.collection("exercises").document(doc_id) for doc_id in batch_ids]
+            docs = db.get_all(refs)
+            
+            for doc in docs:
+                if doc.exists:
+                    data = doc.to_dict()
+                    data["id"] = doc.id
+                    data["doc_id"] = doc.id
+                    exercises.append(data)
+        
+        return exercises
+    
+    def _build_nested_patch(self, field_path: str, value: Any) -> Dict[str, Any]:
+        """
+        Build a nested patch dict from a dot-separated field path.
+        
+        E.g., "metadata.difficulty" -> {"metadata": {"difficulty": value}}
+        """
+        parts = field_path.split(".")
+        
+        if len(parts) == 1:
+            return {field_path: value}
+        
+        # Build nested structure
+        result = {}
+        current = result
+        for part in parts[:-1]:
+            current[part] = {}
+            current = current[part]
+        current[parts[-1]] = value
+        
+        return result
+
     def _execute_duplicate_detection_scan(self) -> Dict[str, Any]:
         """
         Execute DUPLICATE_DETECTION_SCAN job.

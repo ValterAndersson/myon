@@ -39,6 +39,10 @@ class JobType(str, Enum):
     
     # Alias jobs
     ALIAS_REPAIR = "ALIAS_REPAIR"
+    
+    # Enrichment jobs (LLM-backed field population)
+    CATALOG_ENRICH_FIELD = "CATALOG_ENRICH_FIELD"          # Parent: shards and creates child jobs
+    CATALOG_ENRICH_FIELD_SHARD = "CATALOG_ENRICH_FIELD_SHARD"  # Child: processes a batch of exercises
 
 
 class JobQueue(str, Enum):
@@ -70,6 +74,12 @@ class JobPayload:
     intent: Optional[Dict[str, Any]] = None  # For EXERCISE_ADD
     merge_config: Optional[Dict[str, Any]] = None  # For FAMILY_MERGE
     
+    # Enrichment job fields
+    enrichment_spec: Optional[Dict[str, Any]] = None  # For CATALOG_ENRICH_FIELD
+    filter_criteria: Optional[Dict[str, Any]] = None  # For filtering exercises
+    shard_size: int = 200  # Max exercises per shard
+    parent_job_id: Optional[str] = None  # For child shards
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to Firestore-compatible dict."""
         return {
@@ -79,6 +89,10 @@ class JobPayload:
             "mode": self.mode,
             "intent": self.intent,
             "merge_config": self.merge_config,
+            "enrichment_spec": self.enrichment_spec,
+            "filter_criteria": self.filter_criteria,
+            "shard_size": self.shard_size,
+            "parent_job_id": self.parent_job_id,
         }
     
     @classmethod
@@ -91,6 +105,10 @@ class JobPayload:
             mode=data.get("mode", "dry_run"),
             intent=data.get("intent"),
             merge_config=data.get("merge_config"),
+            enrichment_spec=data.get("enrichment_spec"),
+            filter_criteria=data.get("filter_criteria"),
+            shard_size=data.get("shard_size", 200),
+            parent_job_id=data.get("parent_job_id"),
         )
 
 

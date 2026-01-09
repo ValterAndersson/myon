@@ -56,6 +56,10 @@ def create_job(
     mode: str = "dry_run",
     intent: Optional[Dict[str, Any]] = None,
     merge_config: Optional[Dict[str, Any]] = None,
+    enrichment_spec: Optional[Dict[str, Any]] = None,
+    filter_criteria: Optional[Dict[str, Any]] = None,
+    shard_size: int = 200,
+    parent_job_id: Optional[str] = None,
 ) -> Job:
     """
     Create a new job in the queue.
@@ -69,6 +73,10 @@ def create_job(
         mode: "dry_run" or "apply"
         intent: Intent data for EXERCISE_ADD
         merge_config: Config for FAMILY_MERGE
+        enrichment_spec: Enrichment specification for CATALOG_ENRICH_FIELD
+        filter_criteria: Filter for selecting exercises
+        shard_size: Exercises per shard for enrichment
+        parent_job_id: Parent job ID for shard jobs
         
     Returns:
         Created Job object
@@ -84,6 +92,10 @@ def create_job(
         mode=mode,
         intent=intent,
         merge_config=merge_config,
+        enrichment_spec=enrichment_spec,
+        filter_criteria=filter_criteria,
+        shard_size=shard_size,
+        parent_job_id=parent_job_id,
     )
     
     job = Job(
