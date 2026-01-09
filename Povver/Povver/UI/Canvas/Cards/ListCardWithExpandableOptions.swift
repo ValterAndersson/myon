@@ -20,14 +20,17 @@ public struct ListCardWithExpandableOptions: View {
                 }
                 VStack(spacing: Space.sm) {
                     ForEach(options) { opt in
-                        Button(action: { onSelect(opt.id) }) {
-                            ListRow(title: opt.title, subtitle: opt.subtitle) {
-                                if let icon = opt.iconSystemName { Icon(icon, size: .md, color: Color.textPrimary) }
-                            } trailing: {
-                                Icon("chevron.right", size: .md, color: Color.textSecondary)
+                        ListRow(
+                            title: opt.title,
+                            subtitle: opt.subtitle,
+                            accessory: .chevron,
+                            action: { onSelect(opt.id) },
+                            leading: {
+                                if let icon = opt.iconSystemName {
+                                    Icon(icon, size: .md, color: Color.textPrimary)
+                                }
                             }
-                        }
-                        .buttonStyle(PlainButtonStyle())
+                        )
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
