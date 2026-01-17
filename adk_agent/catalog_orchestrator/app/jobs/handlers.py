@@ -118,7 +118,7 @@ def execute_family_split(
     
     if mode == "apply" and operations:
         from app.apply.engine import apply_change_plan
-        apply_result = apply_change_plan(plan, job_id)
+        apply_result = apply_change_plan(plan, mode=mode, job_id=job_id)
         result["applied"] = apply_result.success
         result["apply_result"] = apply_result.to_dict()
     
@@ -205,7 +205,7 @@ def execute_family_rename_slug(
     
     if mode == "apply":
         from app.apply.engine import apply_change_plan
-        apply_result = apply_change_plan(plan, job_id)
+        apply_result = apply_change_plan(plan, mode=mode, job_id=job_id)
         result["applied"] = apply_result.success
         result["apply_result"] = apply_result.to_dict()
     
@@ -272,7 +272,7 @@ def execute_alias_repair(
     
     if mode == "apply" and operations:
         from app.apply.engine import apply_change_plan
-        apply_result = apply_change_plan(plan, job_id)
+        apply_result = apply_change_plan(plan, mode=mode, job_id=job_id)
         result["applied"] = apply_result.success
         result["apply_result"] = apply_result.to_dict()
     
@@ -342,7 +342,7 @@ def execute_targeted_fix(
     
     if mode == "apply" and operations:
         from app.apply.engine import apply_change_plan
-        apply_result = apply_change_plan(plan, job_id)
+        apply_result = apply_change_plan(plan, mode=mode, job_id=job_id)
         result["applied"] = apply_result.success
         result["apply_result"] = apply_result.to_dict()
     
