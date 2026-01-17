@@ -1,0 +1,93 @@
+# Catalog Worker - Cloud Run Job Configuration
+# =============================================
+#
+# Deploy:
+#   gcloud run jobs replace cloud-run-job.yaml --region=REGION
+#
+# Execute manually:
+#   gcloud run jobs execute catalog-worker --region=REGION
+#
+# Note: Replace myon-53d85 and REGION before deploying.
+
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-worker
+  annotations:
+    # Allow multiple concurrent executions (leasing/locks handle exclusivity)
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Allow up to 5 concurrent executions per trigger
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      # Allow up to 3 retries on task failure
+      taskCount: 1
+      parallelism: 1
+      
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+              
+              resources:
+                limits:
+                  memory: "2Gi"
+                  cpu: "1"
+              
+              env:
+                # Worker configuration
+                - name: MAX_JOBS_PER_RUN
+                  value: "10"
+                - name: MAX_SECONDS_PER_RUN
+                  value: "840"  # 14 min
+                - name: SAFETY_MARGIN_SECS
+                  value: "60"
+                
+                # Apply gate - set to "true" only in production
+                - name: CATALOG_APPLY_ENABLED
+                  value: "false"
+                
+                # Watchdog dry-run mode
+                - name: WATCHDOG_DRY_RUN
+                  value: "true"
+          
+          # 15 minute timeout (matches Cloud Run Job max)
+          timeoutSeconds: 900
+          
+          # Use default service account (must have Firestore access)
+          # Override with: serviceAccountName: catalog-worker@myon-53d85.iam.gserviceaccount.com
+
+---
+# Watchdog Job - Separate job for lease/lock cleanup
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-watchdog
+spec:
+  template:
+    spec:
+      taskCount: 1
+      parallelism: 1
+      
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+              
+              # Override command to run watchdog
+              command: ["python", "workers/catalog_worker.py", "watchdog"]
+              
+              resources:
+                limits:
+                  memory: "512Mi"
+                  cpu: "0.5"
+              
+              env:
+                - name: WATCHDOG_DRY_RUN
+                  value: "false"
+          
+          # 5 minute timeout for watchdog
+          timeoutSeconds: 300

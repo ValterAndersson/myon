@@ -1,0 +1,39 @@
+# Catalog Worker - Cloud Run Job Configuration
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-worker
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      taskCount: 1
+      parallelism: 1
+      
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+              
+              resources:
+                limits:
+                  memory: "2Gi"
+                  cpu: "1"
+              
+              env:
+                - name: MAX_JOBS_PER_RUN
+                  value: "10"
+                - name: MAX_SECONDS_PER_RUN
+                  value: "840"
+                - name: SAFETY_MARGIN_SECS
+                  value: "60"
+                - name: CATALOG_APPLY_ENABLED
+                  value: "false"
+                - name: WATCHDOG_DRY_RUN
+                  value: "true"
+          
+          timeoutSeconds: 900
