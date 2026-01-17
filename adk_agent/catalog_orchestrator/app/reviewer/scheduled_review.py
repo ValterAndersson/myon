@@ -1,16 +1,26 @@
 """
 Scheduled Review - Cloud Run Job entrypoint for periodic catalog reviews.
 
-This module provides the scheduled review runner that:
-1. Pages through the catalog in batches
-2. Reviews exercises for quality issues
-3. Creates jobs for exercises needing improvement
-4. Reports summary metrics
+This module provides the scheduled review runner that uses the unified
+CatalogReviewAgent to:
+1. Page through the catalog in batches
+2. Review exercises for health (KEEP, ENRICH, FIX, ARCHIVE, MERGE)
+3. Detect duplicates
+4. Analyze equipment gaps
+5. Create jobs for all decisions
+6. Report summary metrics
+
+Architecture:
+- Single LLM call per batch (not fragmented)
+- Concurrent batch processing
+- All decisions in one response
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import logging
 import os
 import sys
@@ -20,13 +30,18 @@ from typing import Any, Dict, List, Optional
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.reviewer.catalog_reviewer import CatalogReviewer, BatchReviewResult
-from app.reviewer.review_job_creator import create_jobs_from_review
+from app.reviewer.review_agent import (
+    CatalogReviewAgent,
+    BatchReviewResult,
+    ExerciseDecision,
+    review_catalog,
+)
+from app.jobs.models import JobType, JobQueue
 
 logger = logging.getLogger(__name__)
 
 # Configuration
-DEFAULT_BATCH_SIZE = 50
+DEFAULT_BATCH_SIZE = 20  # Smaller batches for better LLM context
 DEFAULT_MAX_EXERCISES = 500
 DEFAULT_MAX_JOBS = 100
 
@@ -35,49 +50,259 @@ def _get_firestore_client():
     """Get Firestore client for catalog reads."""
     try:
         from google.cloud import firestore
+        
+        # Check if using emulator - use demo project for emulator
+        emulator_host = os.environ.get("FIRESTORE_EMULATOR_HOST")
+        if emulator_host:
+            logger.info("Using Firestore emulator at %s", emulator_host)
+            return firestore.Client(project="demo-povver")
+        
+        # Production - use default ADC project
         return firestore.Client()
     except Exception as e:
         logger.warning("Failed to get Firestore client: %s", e)
         return None
 
 
-def fetch_exercises_page(
+def fetch_all_exercises(
     db,
-    limit: int = 50,
-    start_after: Optional[str] = None,
-    filter_unnormalized: bool = False,
+    max_exercises: int = 500,
 ) -> List[Dict[str, Any]]:
     """
-    Fetch a page of exercises from Firestore.
+    Fetch exercises from Firestore.
     
     Args:
         db: Firestore client
-        limit: Maximum exercises per page
-        start_after: Document name to start after (for pagination)
-        filter_unnormalized: If True, only return exercises without family_slug
+        max_exercises: Maximum exercises to fetch
+        
+    Returns:
+        List of exercise dicts
     """
     if not db:
         return []
     
-    query = db.collection("exercises").order_by("name").limit(limit)
-    
-    if start_after:
-        query = query.start_after({"name": start_after})
-    
-    docs = query.get()
     exercises = []
+    last_doc = None
     
-    for doc in docs:
-        data = doc.to_dict()
-        data["id"] = doc.id
+    while len(exercises) < max_exercises:
+        batch_size = min(500, max_exercises - len(exercises))
+        query = db.collection("exercises").order_by("name").limit(batch_size)
         
-        # Apply filter if requested
-        if filter_unnormalized and data.get("family_slug"):
-            continue
+        if last_doc:
+            query = query.start_after(last_doc)
         
-        exercises.append(data)
+        docs = list(query.stream())
+        
+        if not docs:
+            break
+        
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            data["doc_id"] = doc.id
+            exercises.append(data)
+        
+        last_doc = docs[-1]
+        
+        if len(docs) < batch_size:
+            break
     
+    logger.info("Fetched %d exercises from Firestore", len(exercises))
     return exercises
+
+
+def create_jobs_from_decisions(
+    batch_results: List[BatchReviewResult],
+    exercises: List[Dict[str, Any]],
+    dry_run: bool = True,
+    max_jobs: int = 100,
+) -> Dict[str, Any]:
+    """
+    Create jobs from review agent decisions.
+    
+    Args:
+        batch_results: List of BatchReviewResult from review agent
+        exercises: Original exercise data (for lookup)
+        dry_run: If True, don't actually create jobs
+        max_jobs: Maximum jobs to create
+        
+    Returns:
+        Summary of jobs created
+    """
+    from app.jobs.queue import create_job
+    
+    # Determine job mode based on dry_run flag
+    job_mode = "dry_run" if dry_run else "apply"
+    
+    # Build exercise lookup for family_slug extraction
+    exercise_lookup: Dict[str, Dict[str, Any]] = {}
+    for ex in exercises:
+        ex_id = ex.get("id") or ex.get("doc_id", "")
+        if ex_id:
+            exercise_lookup[ex_id] = ex
+    
+    jobs_created = {
+        "enrich": [],
+        "fixidentity": [],
+        "archive": [],
+        "merge": [],
+        "add_exercise": [],
+    }
+    total_jobs = 0
+    
+    # Process all batch results
+    for batch in batch_results:
+        for decision in batch.decisions:
+            if total_jobs >= max_jobs:
+                break
+            
+            if decision.decision == "KEEP":
+                continue
+            
+            # Get exercise data for family_slug
+            ex_data = exercise_lookup.get(decision.exercise_id, {})
+            family_slug = ex_data.get("family_slug", "")
+            
+            job_info = {
+                "exercise_id": decision.exercise_id,
+                "exercise_name": decision.exercise_name,
+                "family_slug": family_slug,
+                "decision": decision.decision,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+            }
+            
+            if not dry_run:
+                try:
+                    if decision.decision == "ENRICH":
+                        job = create_job(
+                            job_type=JobType.CATALOG_ENRICH_FIELD,
+                            queue=JobQueue.MAINTENANCE,
+                            priority=50,
+                            mode=job_mode,
+                            exercise_doc_ids=[decision.exercise_id],
+                            enrichment_spec={
+                                "type": "full_enrich",
+                                "reason": decision.reasoning,
+                            },
+                        )
+                        job_info["job_id"] = job.id
+                        jobs_created["enrich"].append(job_info)
+                        
+                    elif decision.decision == "FIX_IDENTITY":
+                        # FIX_IDENTITY -> TARGETED_FIX (not FAMILY_NORMALIZE)
+                        # TARGETED_FIX handles individual exercise fixes
+                        job = create_job(
+                            job_type=JobType.TARGETED_FIX,
+                            queue=JobQueue.PRIORITY,
+                            priority=70,
+                            mode=job_mode,
+                            family_slug=family_slug or None,
+                            exercise_doc_ids=[decision.exercise_id],
+                            enrichment_spec={
+                                "type": "fix_identity",
+                                "fix_details": decision.fix_details,
+                                "reason": decision.reasoning,
+                            },
+                        )
+                        job_info["job_id"] = job.id
+                        jobs_created["fixidentity"].append(job_info)
+                        
+                    elif decision.decision == "ARCHIVE":
+                        job = create_job(
+                            job_type=JobType.TARGETED_FIX,
+                            queue=JobQueue.MAINTENANCE,
+                            priority=30,
+                            mode=job_mode,
+                            exercise_doc_ids=[decision.exercise_id],
+                            enrichment_spec={
+                                "type": "archive",
+                                "reason": decision.reasoning,
+                            },
+                        )
+                        job_info["job_id"] = job.id
+                        jobs_created["archive"].append(job_info)
+                        
+                    elif decision.decision == "MERGE":
+                        # MERGE -> TARGETED_FIX with merge details
+                        # Full FAMILY_MERGE is complex and needs manual review
+                        job = create_job(
+                            job_type=JobType.TARGETED_FIX,
+                            queue=JobQueue.PRIORITY,
+                            priority=60,
+                            mode=job_mode,
+                            family_slug=family_slug or None,
+                            exercise_doc_ids=[decision.exercise_id],
+                            enrichment_spec={
+                                "type": "merge_candidate",
+                                "merge_into": decision.merge_into,
+                                "reason": decision.reasoning,
+                            },
+                        )
+                        job_info["job_id"] = job.id
+                        jobs_created["merge"].append(job_info)
+                    
+                    total_jobs += 1
+                    
+                except Exception as e:
+                    logger.exception("Failed to create job for %s: %s", decision.exercise_id, e)
+                    job_info["error"] = str(e)
+            else:
+                # Dry-run: just record what would be created
+                job_info["job_id"] = f"dry-run-{decision.decision.lower()}-{decision.exercise_id}"
+                jobs_created[decision.decision.lower().replace("_", "")].append(job_info)
+                total_jobs += 1
+        
+        # Process gaps (suggested new exercises)
+        for gap in batch.gaps:
+            if total_jobs >= max_jobs:
+                break
+            
+            job_info = {
+                "family_slug": gap.family_slug,
+                "suggested_name": gap.suggested_name,
+                "missing_equipment": gap.missing_equipment,
+                "confidence": gap.confidence,
+                "reasoning": gap.reasoning,
+            }
+            
+            if not dry_run:
+                try:
+                    job = create_job(
+                        job_type=JobType.EXERCISE_ADD,
+                        queue=JobQueue.MAINTENANCE,
+                        priority=30,
+                        mode=job_mode,
+                        family_slug=gap.family_slug,
+                        intent={
+                            "base_name": gap.suggested_name,
+                            "equipment": [gap.missing_equipment],
+                            "source": "unified_review_agent",
+                        },
+                    )
+                    job_info["job_id"] = job.id
+                    total_jobs += 1
+                except Exception as e:
+                    logger.exception("Failed to create gap job: %s", e)
+                    job_info["error"] = str(e)
+            else:
+                job_info["job_id"] = f"dry-run-gap-{gap.family_slug}-{gap.missing_equipment}"
+                total_jobs += 1
+            
+            jobs_created["add_exercise"].append(job_info)
+    
+    return {
+        "total_jobs": total_jobs,
+        "dry_run": dry_run,
+        "jobs": jobs_created,
+        "by_type": {
+            "enrich": len(jobs_created["enrich"]),
+            "fix_identity": len(jobs_created["fixidentity"]),
+            "archive": len(jobs_created["archive"]),
+            "merge": len(jobs_created["merge"]),
+            "add_exercise": len(jobs_created["add_exercise"]),
+        },
+    }
 
 
 def run_scheduled_review(
@@ -85,78 +310,71 @@ def run_scheduled_review(
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_jobs: int = DEFAULT_MAX_JOBS,
     dry_run: bool = True,
-    filter_unnormalized: bool = False,
+    run_gap_analysis: bool = True,
+    enable_llm_review: bool = True,  # Now True by default since we're LLM-first
 ) -> Dict[str, Any]:
     """
-    Run a scheduled catalog review.
+    Run a scheduled catalog review using the unified LLM review agent.
     
     Args:
         max_exercises: Maximum exercises to review
-        batch_size: Exercises per batch
+        batch_size: Exercises per LLM batch
         max_jobs: Maximum jobs to create
         dry_run: If True, don't create jobs
-        filter_unnormalized: If True, only review unnormalized exercises
+        run_gap_analysis: If True, include gap suggestions in review
+        enable_llm_review: Must be True for unified agent
         
     Returns:
         Summary of review and jobs created
     """
     start_time = datetime.now(timezone.utc)
     logger.info(
-        "Starting scheduled review: max_exercises=%d, batch_size=%d, dry_run=%s",
-        max_exercises, batch_size, dry_run
+        "Starting scheduled review: max_exercises=%d, batch_size=%d, dry_run=%s, gap_analysis=%s",
+        max_exercises, batch_size, dry_run, run_gap_analysis
     )
     
     db = _get_firestore_client()
-    reviewer = CatalogReviewer(dry_run=dry_run)
+    
+    # Fetch all exercises
+    exercises = fetch_all_exercises(db, max_exercises)
+    
+    if not exercises:
+        logger.warning("No exercises found to review")
+        return {
+            "started_at": start_time.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "duration_seconds": 0,
+            "dry_run": dry_run,
+            "review": {"total_reviewed": 0},
+            "jobs": {"total_created": 0},
+        }
+    
+    # Run unified review agent
+    batch_results = review_catalog(
+        exercises=exercises,
+        batch_size=batch_size,
+        include_gap_analysis=run_gap_analysis,
+    )
     
     # Aggregate results
-    all_results = BatchReviewResult()
-    last_name = None
-    total_fetched = 0
+    total_reviewed = sum(r.exercises_reviewed for r in batch_results)
+    total_keep = sum(r.keep_count for r in batch_results)
+    total_enrich = sum(r.enrich_count for r in batch_results)
+    total_fix = sum(r.fix_count for r in batch_results)
+    total_archive = sum(r.archive_count for r in batch_results)
+    total_merge = sum(r.merge_count for r in batch_results)
+    total_gaps = sum(len(r.gaps) for r in batch_results)
+    total_duplicates = sum(len(r.duplicates) for r in batch_results)
     
-    # Page through catalog
-    while total_fetched < max_exercises:
-        # Fetch batch
-        exercises = fetch_exercises_page(
-            db,
-            limit=batch_size,
-            start_after=last_name,
-            filter_unnormalized=filter_unnormalized,
-        )
-        
-        if not exercises:
-            logger.info("No more exercises to review")
-            break
-        
-        total_fetched += len(exercises)
-        last_name = exercises[-1].get("name")
-        
-        # Review batch
-        batch_result = reviewer.review_batch(exercises)
-        
-        # Aggregate
-        all_results.total_reviewed += batch_result.total_reviewed
-        all_results.issues_found += batch_result.issues_found
-        all_results.exercises_needing_enrichment += batch_result.exercises_needing_enrichment
-        all_results.exercises_needing_human_review += batch_result.exercises_needing_human_review
-        all_results.results.extend(batch_result.results)
-        
-        for sev, count in batch_result.issues_by_severity.items():
-            all_results.issues_by_severity[sev] = all_results.issues_by_severity.get(sev, 0) + count
-        for cat, count in batch_result.issues_by_category.items():
-            all_results.issues_by_category[cat] = all_results.issues_by_category.get(cat, 0) + count
-        
-        logger.info(
-            "Reviewed batch: %d exercises, %d issues found",
-            len(exercises), batch_result.issues_found
-        )
-        
-        if len(exercises) < batch_size:
-            break
+    logger.info(
+        "Review complete: %d exercises | KEEP=%d ENRICH=%d FIX=%d ARCHIVE=%d MERGE=%d | %d gaps",
+        total_reviewed, total_keep, total_enrich, total_fix, total_archive, total_merge, total_gaps
+    )
     
-    # Create jobs
-    job_result = create_jobs_from_review(
-        all_results,
+    # Create jobs from decisions
+    job_result = create_jobs_from_decisions(
+        batch_results,
+        exercises=exercises,
         dry_run=dry_run,
         max_jobs=max_jobs,
     )
@@ -170,20 +388,28 @@ def run_scheduled_review(
         "duration_seconds": duration_secs,
         "dry_run": dry_run,
         "review": {
-            "total_reviewed": all_results.total_reviewed,
-            "issues_found": all_results.issues_found,
-            "exercises_needing_enrichment": all_results.exercises_needing_enrichment,
-            "exercises_needing_human_review": all_results.exercises_needing_human_review,
-            "issues_by_severity": all_results.issues_by_severity,
-            "issues_by_category": all_results.issues_by_category,
+            "total_reviewed": total_reviewed,
+            "decisions": {
+                "keep": total_keep,
+                "enrich": total_enrich,
+                "fix_identity": total_fix,
+                "archive": total_archive,
+                "merge": total_merge,
+            },
+            "gaps_suggested": total_gaps,
+            "duplicates_found": total_duplicates,
         },
-        "jobs": job_result,
+        "jobs": {
+            "total_created": job_result["total_jobs"],
+            "by_type": job_result["by_type"],
+            "dry_run": dry_run,
+        },
     }
     
     logger.info(
         "Scheduled review complete: reviewed %d exercises, created %d jobs in %.1f seconds",
-        all_results.total_reviewed,
-        job_result.get("jobs_created", 0),
+        total_reviewed,
+        job_result["total_jobs"],
         duration_secs,
     )
     
@@ -199,7 +425,7 @@ def main():
     )
     parser.add_argument(
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
-        help="Exercises per batch"
+        help="Exercises per LLM batch"
     )
     parser.add_argument(
         "--max-jobs", type=int, default=DEFAULT_MAX_JOBS,
@@ -214,8 +440,8 @@ def main():
         help="Actually create jobs (disables dry-run)"
     )
     parser.add_argument(
-        "--unnormalized-only", action="store_true",
-        help="Only review unnormalized exercises"
+        "--skip-gap-analysis", action="store_true",
+        help="Skip equipment gap analysis"
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true",
@@ -238,11 +464,10 @@ def main():
         batch_size=args.batch_size,
         max_jobs=args.max_jobs,
         dry_run=dry_run,
-        filter_unnormalized=args.unnormalized_only,
+        run_gap_analysis=not args.skip_gap_analysis,
     )
     
     # Print summary
-    import json
     print("\n" + "=" * 60)
     print("SCHEDULED REVIEW SUMMARY")
     print("=" * 60)
