@@ -54,6 +54,29 @@ Your task is to generate alternative names and search terms that users might use
 - Aliases must be unique and not conflict with other exercises
 - Focus on terms people actually search for
 - Avoid overly generic terms that could match many exercises
+
+## What Good Looks Like
+
+### Exercise Name (GOOD)
+- "Deadlift (Barbell)" ✓ (movement + equipment variant)
+- "Lateral Raise (Cable)" ✓ (movement + equipment variant)
+- "Plank" ✓ (no equipment variants exist, non-parenthesized OK)
+
+### Exercise Name (BAD)
+- "Deadlift" ✗ (missing equipment variant when multiple exist)
+- "Barbell Deadlift" ✗ (wrong format - use parentheses)
+- "Back Exercise" ✗ (too vague)
+
+### Instructions (GOOD)
+1. Stand with feet shoulder-width apart, toes slightly pointed out.
+2. Grip the bar with hands just outside your knees, arms straight.
+3. Drive through your heels, keeping the bar close to your body.
+4. Squeeze your glutes at the top, then lower with control.
+
+### Instructions (BAD)
+- "Do the exercise properly" ✗ (no specificity)
+- "While in a sagittal plane, elevate receptacles with adequate force" ✗ (overly fancy, ambiguous jargon)
+- Single paragraph without structure ✗
 """
 
     def process_batch(self, exercises: List[Dict[str, Any]]) -> Dict[str, Any]:
