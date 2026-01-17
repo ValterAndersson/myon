@@ -63,7 +63,7 @@ const { ensureExerciseExists } = require('./exercises/ensure-exercise-exists');
 const { resolveExercise } = require('./exercises/resolve-exercise');
 const { mergeExercises } = require('./exercises/merge-exercises');
 const { backfillNormalizeFamily } = require('./exercises/backfill-normalize-family');
-const { backupExercises } = require('./maintenance/backup-exercises');
+const { backupExercises, duplicateCatalog } = require('./maintenance/backup-exercises');
 const { repointAlias } = require('./maintenance/repoint-alias');
 const { repointShorthandAliases } = require('./maintenance/repoint-shorthand-aliases');
 const { normalizeCatalog } = require('./exercises/normalize-catalog');
@@ -184,6 +184,7 @@ exports.resolveExercise = functions.https.onRequest((req, res) => withApiKey(res
 exports.mergeExercises = functions.https.onRequest((req, res) => withApiKey(mergeExercises)(req, res));
 exports.backfillNormalizeFamily = functions.https.onRequest((req, res) => withApiKey(backfillNormalizeFamily)(req, res));
 exports.backupExercises = functions.https.onRequest((req, res) => withApiKey(backupExercises)(req, res));
+exports.duplicateCatalog = functions.https.onRequest((req, res) => withApiKey(duplicateCatalog)(req, res));
 exports.repointAlias = functions.https.onRequest((req, res) => withApiKey(repointAlias)(req, res));
 exports.repointShorthandAliases = functions.https.onRequest((req, res) => withApiKey(repointShorthandAliases)(req, res));
 exports.upsertAlias = functions.https.onRequest((req, res) => withApiKey(upsertAlias)(req, res));
