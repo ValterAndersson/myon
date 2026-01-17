@@ -2,30 +2,49 @@
 Apply Engine - Execute Change Plans with idempotency and journaling.
 
 This is the core mutation engine. It:
-1. Checks idempotency for each operation
-2. Takes before-snapshots
-3. Applies mutations atomically
-4. Records in journal
-5. Verifies post-state
+1. Enforces apply gate (mode + env var)
+2. Validates patch paths against allowlist
+3. Checks idempotency for each operation
+4. Takes before-snapshots
+5. Applies mutations with dotted Firestore paths
+6. Records in journal
+7. Verifies post-state
 
 Key rules:
+- Apply gate is enforced HERE, not by callers
+- Mode controls intent, env var controls capability
 - doc_id is authoritative (Firestore document ID)
+- Create uses deterministic IDs: {family_slug}__{name_slug}
 - __DELETE__ sentinel maps to firestore.DELETE_FIELD
 - All operations are idempotent under retry
+- Alias docs must have exactly one of exercise_id XOR family_slug
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore
+try:
+    from google.cloud.exceptions import AlreadyExists
+except ImportError:
+    # Fallback for different google-cloud-core versions
+    from google.api_core.exceptions import AlreadyExists
 
 from app.plans.models import ChangePlan, Operation, OperationType
 from app.apply.idempotency import IdempotencyGuard
 from app.apply.journal import ChangeJournal
+from app.apply.gate import ApplyGateError, require_apply_gate, check_apply_gate
+from app.apply.paths import (
+    DELETE_SENTINEL,
+    validate_patch_paths,
+    flatten_for_firestore,
+    get_in,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +52,10 @@ logger = logging.getLogger(__name__)
 EXERCISES_COLLECTION = "exercises"
 ALIASES_COLLECTION = "exercise_aliases"
 
-# Sentinel for field deletion
-DELETE_SENTINEL = "__DELETE__"
+# Doc ID format for deterministic creates
+DOC_ID_SEPARATOR = "__"
+DOC_ID_PATTERN = re.compile(r'^[a-z0-9_-]+$')
+DOC_ID_MAX_LENGTH = 128
 
 # Initialize Firestore client lazily
 _db: Optional[firestore.Client] = None
@@ -48,27 +69,69 @@ def _get_db() -> firestore.Client:
     return _db
 
 
+def derive_deterministic_doc_id(family_slug: str, name_slug: str) -> str:
+    """
+    Derive deterministic exercise doc ID.
+    
+    Format: {family_slug}__{name_slug}
+    
+    Args:
+        family_slug: Family slug
+        name_slug: Exercise name slug
+        
+    Returns:
+        Deterministic doc ID
+    """
+    # Normalize slugs
+    family = (family_slug or "unknown").lower().replace(" ", "_")
+    name = (name_slug or "unknown").lower().replace(" ", "_")
+    
+    doc_id = f"{family}{DOC_ID_SEPARATOR}{name}"
+    
+    # Truncate if too long
+    if len(doc_id) > DOC_ID_MAX_LENGTH:
+        doc_id = doc_id[:DOC_ID_MAX_LENGTH]
+    
+    return doc_id
+
+
 @dataclass
 class ApplyResult:
     """Result of applying a Change Plan."""
     success: bool
+    mode: str = "dry_run"
     applied_count: int = 0
     skipped_count: int = 0
     failed_count: int = 0
     change_id: Optional[str] = None
     errors: List[Dict[str, Any]] = field(default_factory=list)
     operations_applied: List[Dict[str, Any]] = field(default_factory=list)
+    gate_blocked: bool = False
+    dry_run_preview: Optional[List[Dict[str, Any]]] = None
+    verification_passed: Optional[bool] = None
+    verification_errors: Optional[List[Dict[str, Any]]] = None
+    needs_repair: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "success": self.success,
+            "mode": self.mode,
             "applied_count": self.applied_count,
             "skipped_count": self.skipped_count,
             "failed_count": self.failed_count,
             "change_id": self.change_id,
             "errors": self.errors,
             "operations_applied": self.operations_applied,
+            "gate_blocked": self.gate_blocked,
         }
+        if self.dry_run_preview is not None:
+            result["dry_run_preview"] = self.dry_run_preview
+        if self.verification_passed is not None:
+            result["verification_passed"] = self.verification_passed
+            result["verification_errors"] = self.verification_errors
+        if self.needs_repair:
+            result["needs_repair"] = True
+        return result
 
 
 class ApplyEngine:
@@ -76,17 +139,26 @@ class ApplyEngine:
     Engine for applying Change Plans.
     
     Uses idempotency guard and journaling for safe execution.
+    The apply gate is enforced HERE, not by callers.
     """
     
-    def __init__(self, job_id: str, attempt_id: Optional[str] = None):
+    def __init__(
+        self,
+        job_id: str,
+        mode: str = "dry_run",
+        attempt_id: Optional[str] = None,
+    ):
         """
         Initialize engine for a job.
         
         Args:
             job_id: Job ID
+            mode: 'apply' or 'dry_run' (default: dry_run)
             attempt_id: Attempt ID
         """
         self.job_id = job_id
+        self.mode = mode
+        self.attempt_id = attempt_id
         self.db = _get_db()
         self.idempotency = IdempotencyGuard(job_id)
         self.journal = ChangeJournal(job_id, attempt_id)
@@ -95,16 +167,93 @@ class ApplyEngine:
         """
         Apply a Change Plan.
         
+        Gate enforcement:
+        - If mode != 'apply': returns dry_run preview
+        - If mode == 'apply' but env gate off: raises APPLY_GATE_BLOCKED
+        - If mode == 'apply' and env gate on: applies mutations
+        
         Args:
             plan: Validated Change Plan
             
         Returns:
             ApplyResult with counts and errors
+            
+        Raises:
+            ApplyGateError: If mode='apply' but env gate is not enabled
         """
-        logger.info("Applying plan: job=%s, operations=%d", 
-                   self.job_id, len(plan.operations))
+        logger.info("ApplyEngine: job=%s, mode=%s, operations=%d",
+                   self.job_id, self.mode, len(plan.operations))
         
-        result = ApplyResult(success=True)
+        # Mode check - dry_run returns preview only
+        if self.mode != "apply":
+            return self._dry_run(plan)
+        
+        # Apply mode - check env gate (fail fast, don't silently dry_run)
+        if not check_apply_gate():
+            raise ApplyGateError(
+                "APPLY_GATE_BLOCKED: mode='apply' but CATALOG_APPLY_ENABLED is not set. "
+                "Set CATALOG_APPLY_ENABLED=true to enable mutations.",
+                gate_type="env_var",
+            )
+        
+        # Validate all patch paths before any writes
+        path_errors = self._validate_all_paths(plan)
+        if path_errors:
+            return ApplyResult(
+                success=False,
+                mode=self.mode,
+                errors=[{"code": "INVALID_PATCH_PATHS", "paths": path_errors}],
+            )
+        
+        # Apply mutations
+        result = self._apply_mutations(plan)
+        return result
+    
+    def _dry_run(self, plan: ChangePlan) -> ApplyResult:
+        """
+        Generate dry-run preview without mutations.
+        
+        Returns what would happen if applied.
+        """
+        preview = []
+        
+        for idx, op in enumerate(plan.operations):
+            if op.op_type == OperationType.NO_CHANGE:
+                continue
+            
+            preview.append({
+                "index": idx,
+                "op_type": op.op_type.value,
+                "targets": op.targets,
+                "patch": op.patch if op.patch else None,
+                "before": op.before,
+                "after": op.after,
+                "rationale": op.rationale,
+            })
+        
+        return ApplyResult(
+            success=True,
+            mode="dry_run",
+            dry_run_preview=preview,
+            skipped_count=len(preview),
+        )
+    
+    def _validate_all_paths(self, plan: ChangePlan) -> List[Dict[str, str]]:
+        """Validate all patch paths in plan against allowlist."""
+        all_errors = []
+        
+        for idx, op in enumerate(plan.operations):
+            if op.patch:
+                errors = validate_patch_paths(op.patch)
+                for err in errors:
+                    err["operation_index"] = idx
+                    all_errors.append(err)
+        
+        return all_errors
+    
+    def _apply_mutations(self, plan: ChangePlan) -> ApplyResult:
+        """Apply all mutations in the plan."""
+        result = ApplyResult(success=True, mode=self.mode)
         
         for idx, operation in enumerate(plan.operations):
             if operation.op_type == OperationType.NO_CHANGE:
@@ -122,6 +271,7 @@ class ApplyEngine:
                         "index": idx,
                         "op_type": operation.op_type.value,
                         "targets": operation.targets,
+                        "doc_id": op_result.get("doc_id"),
                     })
                 else:
                     result.failed_count += 1
@@ -145,16 +295,7 @@ class ApplyEngine:
         return result
     
     def _apply_operation(self, idx: int, operation: Operation) -> Dict[str, Any]:
-        """
-        Apply a single operation.
-        
-        Args:
-            idx: Operation index
-            operation: Operation to apply
-            
-        Returns:
-            Result dict with success/skipped/error
-        """
+        """Apply a single operation."""
         # Check idempotency
         idempotency_seed = operation.idempotency_key_seed or f"op_{idx}"
         should_execute, key = self.idempotency.check_and_record(
@@ -202,24 +343,21 @@ class ApplyEngine:
         doc_id = op.targets[0]
         doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
         
-        # Get before snapshot
         before_doc = doc_ref.get()
         if not before_doc.exists:
             return {"success": False, "error": {"code": "DOC_NOT_FOUND", "message": f"Exercise {doc_id} not found"}}
         
         before_data = before_doc.to_dict()
         
-        # Build update
+        # Use dotted path update
         update = {
             "name": op.after.get("name"),
             "name_slug": op.after.get("name_slug"),
             "updated_at": datetime.utcnow(),
         }
         
-        # Apply update
         doc_ref.update(update)
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -234,39 +372,35 @@ class ApplyEngine:
         return {"success": True}
     
     def _apply_patch_fields(self, idx: int, op: Operation) -> Dict[str, Any]:
-        """Apply PATCH_FIELDS operation."""
+        """Apply PATCH_FIELDS operation using dotted Firestore paths."""
         if not op.targets or not op.patch:
             return {"success": False, "error": {"code": "INVALID_OP", "message": "Missing targets or patch"}}
         
         doc_id = op.targets[0]
         doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
         
-        # Get before snapshot
         before_doc = doc_ref.get()
         if not before_doc.exists:
             return {"success": False, "error": {"code": "DOC_NOT_FOUND", "message": f"Exercise {doc_id} not found"}}
         
         before_data = before_doc.to_dict()
         
-        # Build update, handling DELETE_SENTINEL
-        update = {}
-        for field, value in op.patch.items():
-            if value == DELETE_SENTINEL:
-                update[field] = firestore.DELETE_FIELD
-            else:
-                update[field] = value
-        
+        # Convert patch to Firestore format (dotted paths + DELETE_FIELD)
+        update = flatten_for_firestore(op.patch)
         update["updated_at"] = datetime.utcnow()
         
-        # Apply update
         doc_ref.update(update)
         
-        # Record in journal
+        # Record before values for journal
+        before_values = {}
+        for path in op.patch.keys():
+            before_values[path] = get_in(before_data, path)
+        
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
             targets=[doc_id],
-            before={k: before_data.get(k) for k in op.patch.keys()},
+            before=before_values,
             after=op.patch,
             idempotency_key=op.idempotency_key_seed,
             rationale=op.rationale,
@@ -276,43 +410,70 @@ class ApplyEngine:
         return {"success": True}
     
     def _apply_upsert_alias(self, idx: int, op: Operation) -> Dict[str, Any]:
-        """Apply UPSERT_ALIAS operation."""
+        """
+        Apply UPSERT_ALIAS operation.
+        
+        Enforces one-of invariant: exactly one of exercise_id XOR family_slug.
+        """
         if not op.targets or not op.patch:
             return {"success": False, "error": {"code": "INVALID_OP", "message": "Missing targets or patch"}}
         
         alias_slug = op.targets[0]
-        doc_ref = self.db.collection(ALIASES_COLLECTION).document(alias_slug)
+        exercise_id = op.patch.get("exercise_id")
+        family_slug = op.patch.get("family_slug")
         
-        # Get before snapshot
+        # Enforce one-of invariant
+        if exercise_id and family_slug:
+            return {
+                "success": False,
+                "error": {
+                    "code": "ALIAS_BOTH_FIELDS",
+                    "message": f"Alias {alias_slug} cannot have both exercise_id and family_slug",
+                },
+            }
+        if not exercise_id and not family_slug:
+            return {
+                "success": False,
+                "error": {
+                    "code": "ALIAS_NO_TARGET",
+                    "message": f"Alias {alias_slug} must have exercise_id or family_slug",
+                },
+            }
+        
+        doc_ref = self.db.collection(ALIASES_COLLECTION).document(alias_slug)
         before_doc = doc_ref.get()
         before_data = before_doc.to_dict() if before_doc.exists else None
         
-        # Build alias document
+        # Build alias document with explicit field clearing
         alias_data = {
             "alias_slug": alias_slug,
-            "exercise_id": op.patch.get("exercise_id"),
-            "family_slug": op.patch.get("family_slug"),
             "updated_at": datetime.utcnow(),
         }
+        
+        if exercise_id:
+            alias_data["exercise_id"] = exercise_id
+            alias_data["family_slug"] = firestore.DELETE_FIELD  # Clear other field
+        else:
+            alias_data["family_slug"] = family_slug
+            alias_data["exercise_id"] = firestore.DELETE_FIELD  # Clear other field
         
         if not before_doc.exists:
             alias_data["created_at"] = datetime.utcnow()
         
-        # Apply upsert
         doc_ref.set(alias_data, merge=True)
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
             targets=[alias_slug],
             before=before_data,
-            after=alias_data,
+            after={"exercise_id": exercise_id, "family_slug": family_slug},
             idempotency_key=op.idempotency_key_seed,
             rationale=op.rationale,
         )
         
-        logger.info("Upserted alias %s → %s", alias_slug, op.patch.get("exercise_id"))
+        target = exercise_id or family_slug
+        logger.info("Upserted alias %s → %s", alias_slug, target)
         return {"success": True}
     
     def _apply_delete_alias(self, idx: int, op: Operation) -> Dict[str, Any]:
@@ -323,18 +484,15 @@ class ApplyEngine:
         alias_slug = op.targets[0]
         doc_ref = self.db.collection(ALIASES_COLLECTION).document(alias_slug)
         
-        # Get before snapshot
         before_doc = doc_ref.get()
         before_data = before_doc.to_dict() if before_doc.exists else None
         
         if not before_doc.exists:
             logger.warning("Alias %s not found for deletion", alias_slug)
-            return {"success": True}  # Idempotent: already deleted
+            return {"success": True}  # Idempotent
         
-        # Delete
         doc_ref.delete()
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -349,24 +507,25 @@ class ApplyEngine:
         return {"success": True}
     
     def _apply_create_exercise(self, idx: int, op: Operation) -> Dict[str, Any]:
-        """Apply CREATE_EXERCISE operation."""
+        """
+        Apply CREATE_EXERCISE operation.
+        
+        Uses deterministic doc ID for idempotency: {family_slug}__{name_slug}
+        Doc ID collision is primary idempotency mechanism.
+        """
         if not op.patch:
             return {"success": False, "error": {"code": "INVALID_OP", "message": "Missing patch"}}
         
-        # Generate doc ID if not provided
-        doc_id = op.targets[0] if op.targets else None
+        # Derive deterministic doc ID
+        family_slug = op.patch.get("family_slug", "")
+        name_slug = op.patch.get("name_slug", "")
         
-        if doc_id:
-            doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
+        if op.targets:
+            doc_id = op.targets[0]
         else:
-            doc_ref = self.db.collection(EXERCISES_COLLECTION).document()
-            doc_id = doc_ref.id
+            doc_id = derive_deterministic_doc_id(family_slug, name_slug)
         
-        # Check if already exists
-        existing = doc_ref.get()
-        if existing.exists:
-            logger.warning("Exercise %s already exists", doc_id)
-            return {"success": True}  # Idempotent
+        doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
         
         # Build exercise document
         exercise_data = dict(op.patch)
@@ -374,10 +533,19 @@ class ApplyEngine:
         exercise_data["updated_at"] = datetime.utcnow()
         exercise_data["status"] = exercise_data.get("status", "approved")
         
-        # Create
-        doc_ref.set(exercise_data)
+        # Use create() for idempotency - fails if doc exists
+        try:
+            doc_ref.create(exercise_data)
+        except AlreadyExists:
+            logger.info("Exercise %s already exists (idempotent create)", doc_id)
+            return {"success": True, "skipped": True, "doc_id": doc_id}
+        except Exception as e:
+            # Check if it's actually an AlreadyExists error
+            if "already exists" in str(e).lower():
+                logger.info("Exercise %s already exists (idempotent create)", doc_id)
+                return {"success": True, "skipped": True, "doc_id": doc_id}
+            raise
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -399,14 +567,12 @@ class ApplyEngine:
         doc_id = op.targets[0]
         doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
         
-        # Get before snapshot
         before_doc = doc_ref.get()
         if not before_doc.exists:
             return {"success": False, "error": {"code": "DOC_NOT_FOUND", "message": f"Exercise {doc_id} not found"}}
         
         before_data = before_doc.to_dict()
         
-        # Update status
         update = {
             "status": "deprecated",
             "deprecated_at": datetime.utcnow(),
@@ -415,7 +581,6 @@ class ApplyEngine:
         
         doc_ref.update(update)
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -445,7 +610,6 @@ class ApplyEngine:
                 "updated_at": datetime.utcnow(),
             })
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -468,7 +632,6 @@ class ApplyEngine:
         
         family_slug = op.targets[0]
         
-        # Build registry from patch
         registry = FamilyRegistry(
             family_slug=family_slug,
             base_name=op.patch.get("base_name", family_slug),
@@ -477,7 +640,6 @@ class ApplyEngine:
         
         upsert_family_registry(registry)
         
-        # Record in journal
         self.journal.record_operation(
             operation_index=idx,
             operation_type=op.op_type.value,
@@ -492,18 +654,10 @@ class ApplyEngine:
         return {"success": True}
     
     def apply_with_verify(self, plan: ChangePlan) -> ApplyResult:
-        """
-        Apply a Change Plan and verify post-state.
-        
-        Args:
-            plan: Validated Change Plan
-            
-        Returns:
-            ApplyResult with verification status
-        """
+        """Apply a Change Plan and verify post-state."""
         result = self.apply(plan)
         
-        if result.success:
+        if result.success and result.mode == "apply":
             result = verify_post_state(self, plan, result)
         
         return result
@@ -511,6 +665,7 @@ class ApplyEngine:
 
 def apply_change_plan(
     plan: ChangePlan,
+    mode: str = "dry_run",
     job_id: Optional[str] = None,
     attempt_id: Optional[str] = None,
     verify: bool = False,
@@ -522,15 +677,19 @@ def apply_change_plan(
     
     Args:
         plan: Validated Change Plan
+        mode: 'apply' or 'dry_run'
         job_id: Job ID (defaults to plan.job_id)
         attempt_id: Attempt ID
         verify: If True, run post-verification after apply
         
     Returns:
         ApplyResult
+        
+    Raises:
+        ApplyGateError: If mode='apply' but env gate not enabled
     """
     job_id = job_id or plan.job_id
-    engine = ApplyEngine(job_id, attempt_id)
+    engine = ApplyEngine(job_id, mode=mode, attempt_id=attempt_id)
     
     if verify:
         return engine.apply_with_verify(plan)
@@ -542,25 +701,10 @@ def verify_post_state(
     plan: ChangePlan,
     result: ApplyResult,
 ) -> ApplyResult:
-    """
-    Verify post-state after apply.
-    
-    Re-fetches affected documents and runs validation.
-    
-    Args:
-        engine: ApplyEngine instance
-        plan: Original change plan
-        result: Apply result to enhance
-        
-    Returns:
-        ApplyResult with verification status
-    """
-    from app.plans.models import ValidationResult
-    
+    """Verify post-state after apply."""
     if not result.success:
         return result
     
-    # Re-fetch affected documents
     affected_doc_ids = set()
     for op in result.operations_applied:
         affected_doc_ids.update(op.get("targets", []))
@@ -569,7 +713,6 @@ def verify_post_state(
         result.verification_passed = True
         return result
     
-    # Fetch current state
     post_state = {}
     for doc_id in affected_doc_ids:
         doc_ref = engine.db.collection(EXERCISES_COLLECTION).document(doc_id)
@@ -577,7 +720,6 @@ def verify_post_state(
         if doc.exists:
             post_state[doc_id] = doc.to_dict()
     
-    # Verify expected fields exist
     verification_errors = []
     
     for idx, op in enumerate(plan.operations):
@@ -596,18 +738,19 @@ def verify_post_state(
             for doc_id in op.targets:
                 current = post_state.get(doc_id, {})
                 for field, expected in op.patch.items():
-                    if expected == "__DELETE__":
-                        if field in current:
+                    actual = get_in(current, field)
+                    if expected == DELETE_SENTINEL:
+                        if actual is not None:
                             verification_errors.append({
                                 "operation_index": idx,
                                 "doc_id": doc_id,
                                 "error": f"Field '{field}' should have been deleted",
                             })
-                    elif current.get(field) != expected:
+                    elif actual != expected:
                         verification_errors.append({
                             "operation_index": idx,
                             "doc_id": doc_id,
-                            "error": f"Field '{field}' mismatch: expected '{expected}', got '{current.get(field)}'",
+                            "error": f"Field '{field}' mismatch: expected '{expected}', got '{actual}'",
                         })
     
     result.verification_passed = len(verification_errors) == 0
@@ -624,5 +767,7 @@ __all__ = [
     "ApplyEngine",
     "apply_change_plan",
     "ApplyResult",
+    "ApplyGateError",
     "DELETE_SENTINEL",
+    "derive_deterministic_doc_id",
 ]
