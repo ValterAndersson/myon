@@ -24,12 +24,15 @@ from app.reviewer.catalog_reviewer import (
 logger = logging.getLogger(__name__)
 
 
+# Human review job type (for low confidence LLM decisions)
+HUMAN_REVIEW_JOB_TYPE = JobType.FAMILY_AUDIT  # Audit jobs require human review
+
 # Category to job type mapping
 CATEGORY_TO_JOB_TYPE = {
-    IssueCategory.CONTENT: JobType.ENRICHMENT,
-    IssueCategory.ANATOMY: JobType.ENRICHMENT,
-    IssueCategory.BIOMECHANICS: JobType.ENRICHMENT,
-    IssueCategory.TAXONOMY: JobType.NORMALIZE,
+    IssueCategory.CONTENT: JobType.CATALOG_ENRICH_FIELD,
+    IssueCategory.ANATOMY: JobType.CATALOG_ENRICH_FIELD,
+    IssueCategory.BIOMECHANICS: JobType.CATALOG_ENRICH_FIELD,
+    IssueCategory.TAXONOMY: JobType.FAMILY_AUDIT,
 }
 
 # Severity to queue mapping
@@ -109,9 +112,19 @@ class ReviewJobCreator:
         Create a single job for an exercise with issues.
         
         Groups issues by category and creates appropriate job type.
+        If LLM confidence is low, escalates to human review instead of auto-fix.
         """
         if not result.issues:
             return None
+        
+        # Check for low-confidence LLM issues
+        llm_issues = [i for i in result.issues if i.message and i.message.startswith("[LLM]")]
+        needs_human_escalation = result.needs_human_review
+        
+        # If we have LLM issues and the result explicitly flags for human review,
+        # create a human review job instead of auto-fix
+        if needs_human_escalation and llm_issues:
+            return self._create_human_review_job(result, llm_issues)
         
         # Group issues by category
         issues_by_category: Dict[IssueCategory, List[QualityIssue]] = {}
@@ -122,7 +135,7 @@ class ReviewJobCreator:
         
         # Determine primary job type from most severe category
         primary_category = self._get_primary_category(issues_by_category)
-        job_type = CATEGORY_TO_JOB_TYPE.get(primary_category, JobType.ENRICHMENT)
+        job_type = CATEGORY_TO_JOB_TYPE.get(primary_category, JobType.CATALOG_ENRICH_FIELD)
         
         # Determine queue from most severe issue
         max_severity = max(i.severity for i in result.issues)
@@ -210,6 +223,69 @@ class ReviewJobCreator:
                     return cat
         
         return IssueCategory.CONTENT
+    
+    def _create_human_review_job(
+        self,
+        result: ReviewResult,
+        llm_issues: List[QualityIssue],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a human review job when LLM confidence is low.
+        
+        Instead of auto-fixing, escalates to human for verification.
+        """
+        # Format issues for human review
+        issue_descriptions = []
+        for issue in llm_issues:
+            desc = f"- {issue.field}: {issue.message}"
+            if issue.suggested_fix:
+                desc += f"\n  Suggested: {issue.suggested_fix}"
+            issue_descriptions.append(desc)
+        
+        job_info = {
+            "exercise_id": result.exercise_id,
+            "exercise_name": result.exercise_name,
+            "family_slug": result.family_slug,
+            "job_type": "HUMAN_REVIEW",
+            "queue": JobQueue.PRIORITY.value,
+            "priority": 90,  # High priority for human review
+            "issue_count": len(llm_issues),
+            "requires_human": True,
+            "escalation_reason": "Low confidence LLM analysis - needs human verification",
+            "issues": issue_descriptions,
+        }
+        
+        if not self.dry_run:
+            try:
+                # Create audit job for human review
+                job = create_job(
+                    job_type=HUMAN_REVIEW_JOB_TYPE,
+                    queue=JobQueue.PRIORITY,
+                    priority=90,
+                    family_slug=result.family_slug,
+                    exercise_ids=[result.exercise_id],
+                    enrichment_spec={
+                        "type": "human_review",
+                        "exercise_id": result.exercise_id,
+                        "issues": issue_descriptions,
+                        "quality_score": result.quality_score,
+                        "llm_issue_count": len(llm_issues),
+                    },
+                )
+                job_info["job_id"] = job.job_id
+                self._jobs_created += 1
+                logger.info(
+                    "Created HUMAN_REVIEW job %s for exercise %s (LLM low confidence)",
+                    job.job_id, result.exercise_id
+                )
+            except Exception as e:
+                logger.exception("Failed to create human review job for %s: %s", result.exercise_id, e)
+                job_info["error"] = str(e)
+        else:
+            job_info["job_id"] = f"dry-run-human-{result.exercise_id}"
+            self._jobs_created += 1
+        
+        return job_info
     
     def _build_enrichment_spec(
         self,
