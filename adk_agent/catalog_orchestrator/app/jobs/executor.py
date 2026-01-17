@@ -497,7 +497,16 @@ class JobExecutor:
         from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
         from app.family.taxonomy import EQUIPMENT_DISPLAY_MAP
         
-        intent = self.payload.get("intent", {})
+        # Support both "intent" (new format) and "enrichment_spec" (legacy format)
+        intent = self.payload.get("intent") or {}
+        if not intent:
+            # Fall back to enrichment_spec for legacy jobs
+            enrichment_spec = self.payload.get("enrichment_spec") or {}
+            intent = {
+                "base_name": enrichment_spec.get("suggested_name"),
+                "equipment": enrichment_spec.get("equipment", []),
+            }
+        
         base_name = intent.get("base_name")
         equipment = intent.get("equipment", [])
         primary_muscles = intent.get("muscles_primary", [])
@@ -1054,8 +1063,8 @@ def _request_plan_revision(
     """
     Request LLM to revise the plan based on errors.
     
-    This is a stub that returns None - actual LLM integration
-    would call the shell agent to generate a revised plan.
+    Uses gemini-2.5-pro to analyze validation/verification errors
+    and suggest a revised plan that addresses the issues.
     
     Args:
         executor: Job executor instance
@@ -1066,19 +1075,140 @@ def _request_plan_revision(
     Returns:
         Revised result or None if revision not possible
     """
+    import json
+    
     logger.info(
-        "Repair loop: %s errors for job %s. LLM revision not yet implemented.",
+        "Repair loop: Requesting LLM revision for %s errors on job %s",
         error_type, executor.job_id
     )
     
-    # TODO: Implement LLM-based plan revision
-    # 1. Format errors into a prompt
-    # 2. Call shell agent with repair context
-    # 3. Parse revised plan
-    # 4. Re-execute with revised plan
-    
-    # For now, return None to indicate revision not available
-    return None
+    try:
+        from app.enrichment.llm_client import get_llm_client
+        
+        llm_client = get_llm_client()
+        
+        # Format errors for LLM
+        error_descriptions = []
+        for err in errors:
+            if isinstance(err, dict):
+                error_descriptions.append(
+                    f"- {err.get('code', 'ERROR')}: {err.get('message', str(err))}"
+                )
+            else:
+                error_descriptions.append(f"- {str(err)}")
+        
+        errors_text = "\n".join(error_descriptions) if error_descriptions else "Unknown errors"
+        
+        # Get the current plan
+        current_plan = current_result.get("plan", {})
+        
+        prompt = f"""You are a catalog curation expert. A change plan failed validation.
+Your task is to analyze the errors and suggest how to fix the plan.
+
+## Job Context
+Job ID: {executor.job_id}
+Job Type: {executor.job_type}
+Family: {executor.family_slug or 'N/A'}
+Mode: {executor.mode}
+
+## Current Plan (Failed)
+{json.dumps(current_plan, indent=2)[:2000]}
+
+## {error_type.title()} Errors
+{errors_text}
+
+## Your Task
+Analyze why the plan failed and suggest specific fixes. Consider:
+
+1. For INVALID_PATCH_PATHS: The field path may not be in the allowlist
+2. For DUPLICATE_OPERATION: An operation may already have been applied
+3. For MISSING_TARGETS: An operation is missing required targets
+4. For verification errors: The expected post-state doesn't match actual
+
+## Response Format
+Respond with a JSON object:
+{{
+    "can_repair": true/false,
+    "analysis": "Brief analysis of what went wrong",
+    "suggested_fixes": [
+        {{
+            "operation_index": 0,
+            "fix_type": "remove" | "modify" | "add",
+            "description": "What to change"
+        }}
+    ],
+    "confidence": "high" | "medium" | "low"
+}}
+
+If the errors cannot be automatically repaired (e.g., fundamental data issue),
+set "can_repair": false and explain why in "analysis".
+
+Respond with ONLY the JSON object."""
+
+        response = llm_client.complete(
+            prompt=prompt,
+            output_schema={"type": "object"},
+            require_reasoning=True,
+        )
+        
+        # Parse response
+        try:
+            llm_result = json.loads(response)
+        except json.JSONDecodeError:
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                llm_result = json.loads(json_match.group())
+            else:
+                logger.warning("Could not parse LLM repair response for job %s", executor.job_id)
+                return None
+        
+        # Check if LLM thinks repair is possible
+        if not llm_result.get("can_repair", False):
+            logger.info(
+                "LLM determined repair not possible for job %s: %s",
+                executor.job_id, llm_result.get("analysis", "Unknown reason")
+            )
+            return None
+        
+        # Check confidence - if low, don't attempt repair
+        if llm_result.get("confidence") == "low":
+            logger.info(
+                "LLM has low confidence in repair for job %s, skipping",
+                executor.job_id
+            )
+            return None
+        
+        # Log the suggested fixes
+        logger.info(
+            "LLM repair analysis for job %s: %s",
+            executor.job_id, llm_result.get("analysis", "")
+        )
+        
+        # For now, we log the suggestions but don't automatically apply them
+        # This is conservative - we want to verify the repair loop works before auto-applying
+        suggested_fixes = llm_result.get("suggested_fixes", [])
+        
+        if not suggested_fixes:
+            logger.info("LLM provided no specific fixes for job %s", executor.job_id)
+            return None
+        
+        # In future: Apply the suggested fixes to create a revised plan
+        # For now, return None but log the suggestions
+        logger.info(
+            "LLM suggested %d fixes for job %s (auto-apply not yet enabled): %s",
+            len(suggested_fixes),
+            executor.job_id,
+            json.dumps(suggested_fixes)
+        )
+        
+        # Return None for now - when we're confident in the repair logic,
+        # we can enable auto-application of fixes
+        return None
+        
+    except Exception as e:
+        logger.exception("LLM repair request failed for job %s: %s", executor.job_id, e)
+        return None
 
 
 __all__ = [

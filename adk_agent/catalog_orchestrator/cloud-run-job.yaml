@@ -1,29 +1,31 @@
-# Catalog Worker - Cloud Run Job Configuration
-# =============================================
+# Catalog Orchestrator - Cloud Run Job Configurations
+# ====================================================
 #
-# Deploy:
-#   gcloud run jobs replace cloud-run-job.yaml --region=REGION
+# Deploy all jobs:
+#   gcloud run jobs replace cloud-run-job.yaml --region=europe-west1
 #
 # Execute manually:
-#   gcloud run jobs execute catalog-worker --region=REGION
-#
-# Note: Replace myon-53d85 and REGION before deploying.
+#   gcloud run jobs execute catalog-worker --region=europe-west1
+#   gcloud run jobs execute catalog-review --region=europe-west1
+#   gcloud run jobs execute catalog-cleanup --region=europe-west1
+#   gcloud run jobs execute catalog-watchdog --region=europe-west1
 
+---
+# =============================================================================
+# CATALOG WORKER - Processes jobs from queue (every 15 min)
+# =============================================================================
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
   name: catalog-worker
   annotations:
-    # Allow multiple concurrent executions (leasing/locks handle exclusivity)
     run.googleapis.com/launch-stage: BETA
 spec:
   template:
     metadata:
       annotations:
-        # Allow up to 5 concurrent executions per trigger
         run.googleapis.com/execution-environment: gen2
     spec:
-      # Allow up to 3 retries on task failure
       taskCount: 1
       parallelism: 1
       
@@ -38,30 +40,94 @@ spec:
                   cpu: "1"
               
               env:
-                # Worker configuration
+                # 0 = unlimited (run until queue empty)
                 - name: MAX_JOBS_PER_RUN
-                  value: "10"
+                  value: "0"
+                # 0 = no internal deadline (Cloud Run manages timeout)
                 - name: MAX_SECONDS_PER_RUN
-                  value: "840"  # 14 min
-                - name: SAFETY_MARGIN_SECS
-                  value: "60"
+                  value: "0"
                 
-                # Apply gate - set to "true" only in production
+                # Apply gate - ENABLE for production
                 - name: CATALOG_APPLY_ENABLED
-                  value: "false"
-                
-                # Watchdog dry-run mode
-                - name: WATCHDOG_DRY_RUN
                   value: "true"
           
-          # 15 minute timeout (matches Cloud Run Job max)
-          timeoutSeconds: 900
+          # 3 hour timeout (generous for large batches)
+          timeoutSeconds: 10800
           
-          # Use default service account (must have Firestore access)
-          # Override with: serviceAccountName: catalog-worker@myon-53d85.iam.gserviceaccount.com
+          # Use default service account (must have Firestore + Vertex AI access)
 
 ---
-# Watchdog Job - Separate job for lease/lock cleanup
+# =============================================================================
+# CATALOG REVIEW - LLM reviews catalog, creates jobs (daily 03:00 UTC)
+# =============================================================================
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-review
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      taskCount: 1
+      parallelism: 1
+      
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+              
+              # Run the scheduled review with apply mode
+              command: ["python", "-m", "app.reviewer.scheduled_review"]
+              args: ["--apply", "--max-exercises", "1000"]
+              
+              resources:
+                limits:
+                  memory: "4Gi"  # More memory for LLM processing
+                  cpu: "2"
+              
+              env:
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "myon-53d85"
+          
+          # 4 hour timeout for full catalog review
+          timeoutSeconds: 14400
+
+---
+# =============================================================================
+# CATALOG CLEANUP - Archives old jobs (daily 08:00 UTC)
+# =============================================================================
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-cleanup
+spec:
+  template:
+    spec:
+      taskCount: 1
+      parallelism: 1
+      
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+              
+              # Run cleanup with apply mode
+              command: ["python", "cli.py", "cleanup-jobs", "--apply"]
+              
+              resources:
+                limits:
+                  memory: "512Mi"
+                  cpu: "0.5"
+          
+          # 1 hour timeout
+          timeoutSeconds: 3600
+
+---
+# =============================================================================
+# CATALOG WATCHDOG - Cleans up expired leases/locks (every 6 hours)
+# =============================================================================
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
@@ -77,7 +143,7 @@ spec:
           containers:
             - image: gcr.io/myon-53d85/catalog-worker:latest
               
-              # Override command to run watchdog
+              # Run watchdog mode
               command: ["python", "workers/catalog_worker.py", "watchdog"]
               
               resources:
@@ -89,5 +155,5 @@ spec:
                 - name: WATCHDOG_DRY_RUN
                   value: "false"
           
-          # 5 minute timeout for watchdog
-          timeoutSeconds: 300
+          # 30 minute timeout
+          timeoutSeconds: 1800

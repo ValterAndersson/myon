@@ -531,7 +531,7 @@ def retry_job_cmd(job_id: str, delay: int):
 # =============================================================================
 
 @cli.command("run-worker")
-@click.option("--max-jobs", default=10, type=int, help="Max jobs to process")
+@click.option("--max-jobs", default=0, type=int, help="Max jobs to process (0 = unlimited)")
 @click.option("--apply/--no-apply", default=False, help="Enable apply mode (default: dry-run)")
 def run_worker_local(max_jobs: int, apply: bool):
     """
@@ -542,21 +542,18 @@ def run_worker_local(max_jobs: int, apply: bool):
     Example:
         python cli.py run-worker
         python cli.py run-worker --max-jobs 5
-        python cli.py run-worker --apply  # Warning: will write to Firestore!
+        python cli.py run-worker --apply  # Will write to Firestore
     """
     import os
     
-    # Set environment
+    # Set environment (0 = unlimited)
     os.environ["MAX_JOBS_PER_RUN"] = str(max_jobs)
     os.environ["CATALOG_APPLY_ENABLED"] = "true" if apply else "false"
     
     if apply:
-        click.echo(click.style("⚠ WARNING: Apply mode enabled - will write to Firestore!", fg="red"))
-        if not click.confirm("Continue?"):
-            click.echo("Aborted")
-            return
+        click.echo(click.style("⚠ Apply mode enabled - will write to Firestore!", fg="yellow"))
     
-    click.echo(f"Starting worker (max_jobs={max_jobs}, apply={apply})...")
+    click.echo(f"Starting worker (max_jobs={'unlimited' if max_jobs == 0 else max_jobs}, apply={apply})...")
     
     from workers.catalog_worker import run_worker
     run_worker()
@@ -636,6 +633,284 @@ def trigger_worker_remote(region: str, project: Optional[str], wait: bool):
 
 
 # =============================================================================
+# LIST CHANGES (AUDIT TRAIL)
+# =============================================================================
+
+@cli.command("list-changes")
+@click.option("--job-id", help="Filter by job ID")
+@click.option("--limit", default=20, type=int, help="Max changes to show")
+def list_changes(job_id: Optional[str], limit: int):
+    """
+    List catalog changes from the audit trail.
+    
+    Shows all mutations made to the exercise catalog with before/after snapshots.
+    
+    Example:
+        python cli.py list-changes
+        python cli.py list-changes --job-id job-abc123
+        python cli.py list-changes --limit 50
+    """
+    from google.cloud import firestore
+    
+    db = firestore.Client()
+    query = db.collection("catalog_changes").order_by(
+        "completed_at", direction=firestore.Query.DESCENDING
+    )
+    
+    if job_id:
+        query = query.where("job_id", "==", job_id)
+    
+    query = query.limit(limit)
+    changes = list(query.stream())
+    
+    if not changes:
+        click.echo("No changes found")
+        return
+    
+    click.echo(f"Found {len(changes)} change record(s):\n")
+    
+    for doc in changes:
+        data = doc.to_dict()
+        
+        successful = data.get("successful_count", 0)
+        failed = data.get("failed_count", 0)
+        total = data.get("operation_count", 0)
+        
+        status_icon = "✅" if failed == 0 else "⚠️"
+        
+        click.echo(f"{status_icon} {data.get('change_id', doc.id)}")
+        click.echo(f"   Job: {data.get('job_id')} | Ops: {successful}/{total} succeeded")
+        
+        completed = data.get("completed_at")
+        if completed:
+            completed_str = completed.isoformat() if hasattr(completed, 'isoformat') else str(completed)
+            click.echo(f"   Completed: {completed_str}")
+        
+        # Show operation summary
+        for op in data.get("operations", [])[:3]:  # Show first 3 ops
+            op_type = op.get("operation_type", "?")
+            targets = op.get("targets", [])
+            target_str = ", ".join(targets[:2]) + ("..." if len(targets) > 2 else "")
+            click.echo(f"   - {op_type}: {target_str}")
+        
+        if len(data.get("operations", [])) > 3:
+            click.echo(f"   ... and {len(data['operations']) - 3} more operations")
+        click.echo()
+
+
+@cli.command("change-details")
+@click.argument("change_id")
+def change_details(change_id: str):
+    """
+    Show detailed information about a specific change.
+    
+    Includes before/after snapshots for each operation.
+    
+    Example:
+        python cli.py change-details job-abc123_12345678
+    """
+    from google.cloud import firestore
+    import json
+    
+    db = firestore.Client()
+    doc = db.collection("catalog_changes").document(change_id).get()
+    
+    if not doc.exists:
+        click.echo(click.style(f"✗ Change not found: {change_id}", fg="red"), err=True)
+        sys.exit(1)
+    
+    data = doc.to_dict()
+    
+    click.echo(f"Change: {change_id}")
+    click.echo(f"  Job ID:      {data.get('job_id')}")
+    click.echo(f"  Attempt ID:  {data.get('attempt_id')}")
+    click.echo(f"  Started:     {data.get('started_at')}")
+    click.echo(f"  Completed:   {data.get('completed_at')}")
+    click.echo(f"  Summary:     {data.get('result_summary')}")
+    click.echo(f"  Operations:  {data.get('operation_count', 0)} ({data.get('successful_count', 0)} succeeded)")
+    
+    click.echo("\nOperations:")
+    for i, op in enumerate(data.get("operations", [])):
+        success = "✅" if op.get("success") else "❌"
+        click.echo(f"\n  {success} Operation {i}: {op.get('operation_type')}")
+        click.echo(f"     Targets: {op.get('targets')}")
+        
+        if op.get("before"):
+            click.echo(f"     Before: {json.dumps(op['before'], indent=2, default=str)[:200]}")
+        if op.get("after"):
+            click.echo(f"     After:  {json.dumps(op['after'], indent=2, default=str)[:200]}")
+        if op.get("error"):
+            click.echo(click.style(f"     Error: {op['error']}", fg="red"))
+
+
+# =============================================================================
+# SCHEDULED REVIEW
+# =============================================================================
+
+@cli.command("run-review")
+@click.option("--max-exercises", default=500, type=int, help="Max exercises to review")
+@click.option("--batch-size", default=20, type=int, help="Exercises per LLM batch")
+@click.option("--max-jobs", default=100, type=int, help="Max jobs to create")
+@click.option("--dry-run/--apply", default=True, help="Dry-run mode (default: True)")
+@click.option("--skip-gap-analysis", is_flag=True, help="Skip equipment gap analysis")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+def run_review_cmd(
+    max_exercises: int,
+    batch_size: int,
+    max_jobs: int,
+    dry_run: bool,
+    skip_gap_analysis: bool,
+    verbose: bool,
+):
+    """
+    Run the unified LLM catalog review agent.
+    
+    Reviews exercises using LLM to decide:
+    - KEEP: Good quality, no action
+    - ENRICH: Missing data, needs enrichment
+    - FIX_IDENTITY: Name/slug malformed
+    - ARCHIVE: Test data, garbage, mistakes
+    - MERGE: Duplicate of another exercise
+    
+    Also detects equipment gaps and suggests new exercises.
+    
+    Examples:
+        python cli.py run-review                    # Dry-run review
+        python cli.py run-review --apply            # Create jobs
+        python cli.py run-review --max-exercises 50 --batch-size 10 -v
+    """
+    import logging
+    
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    
+    from app.reviewer.scheduled_review import run_scheduled_review
+    
+    click.echo(f"Running unified LLM catalog review...")
+    click.echo(f"  Max exercises:   {max_exercises}")
+    click.echo(f"  Batch size:      {batch_size}")
+    click.echo(f"  Max jobs:        {max_jobs}")
+    click.echo(f"  Dry-run:         {dry_run}")
+    click.echo(f"  Gap analysis:    {not skip_gap_analysis}")
+    click.echo()
+    
+    summary = run_scheduled_review(
+        max_exercises=max_exercises,
+        batch_size=batch_size,
+        max_jobs=max_jobs,
+        dry_run=dry_run,
+        run_gap_analysis=not skip_gap_analysis,
+    )
+    
+    click.echo("\n" + "=" * 60)
+    click.echo("REVIEW SUMMARY")
+    click.echo("=" * 60)
+    
+    review = summary.get("review", {})
+    click.echo(f"\nReviewed:     {review.get('total_reviewed', 0)} exercises")
+    
+    decisions = review.get("decisions", {})
+    click.echo(f"\nDecisions:")
+    click.echo(f"  KEEP:         {decisions.get('keep', 0)}")
+    click.echo(f"  ENRICH:       {decisions.get('enrich', 0)}")
+    click.echo(f"  FIX_IDENTITY: {decisions.get('fix_identity', 0)}")
+    click.echo(f"  ARCHIVE:      {decisions.get('archive', 0)}")
+    click.echo(f"  MERGE:        {decisions.get('merge', 0)}")
+    
+    click.echo(f"\nGaps suggested: {review.get('gaps_suggested', 0)}")
+    click.echo(f"Duplicates found: {review.get('duplicates_found', 0)}")
+    
+    jobs = summary.get("jobs", {})
+    click.echo(f"\nJobs created: {jobs.get('total_created', 0)}")
+    
+    by_type = jobs.get("by_type", {})
+    if any(by_type.values()):
+        click.echo(f"  Enrich:       {by_type.get('enrich', 0)}")
+        click.echo(f"  Fix:          {by_type.get('fix_identity', 0)}")
+        click.echo(f"  Archive:      {by_type.get('archive', 0)}")
+        click.echo(f"  Merge:        {by_type.get('merge', 0)}")
+        click.echo(f"  Add exercise: {by_type.get('add_exercise', 0)}")
+    
+    if dry_run:
+        click.echo(click.style("\n⚠ Dry-run mode: No jobs were actually created", fg="yellow"))
+        click.echo("  Run with --apply to create jobs")
+    
+    click.echo(f"\nDuration: {summary.get('duration_seconds', 0):.1f} seconds")
+
+
+# =============================================================================
+# BACKUP CATALOG
+# =============================================================================
+
+@cli.command("backup-catalog")
+@click.option("--target", default="exercises-v2-backup", help="Target collection name")
+@click.option("--incremental", is_flag=True, help="Only copy docs newer than last backup")
+def backup_catalog_cmd(target: str, incremental: bool):
+    """
+    Create a backup of the exercises catalog.
+    
+    Uses the duplicateCatalog Firebase function to create a full copy.
+    
+    Examples:
+        python cli.py backup-catalog
+        python cli.py backup-catalog --target exercises-backup-2025-01-17
+        python cli.py backup-catalog --incremental
+    """
+    import requests
+    import subprocess
+    
+    # Get Firebase Functions URL
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "myon-53d85")
+    function_url = f"https://us-central1-{project_id}.cloudfunctions.net/duplicateCatalog"
+    
+    click.echo(f"Creating backup to: {target}")
+    click.echo(f"Incremental: {incremental}")
+    click.echo(f"Function URL: {function_url}")
+    
+    # Get ID token for auth
+    try:
+        result = subprocess.run(
+            ["gcloud", "auth", "print-identity-token"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            click.echo(click.style("✗ Failed to get auth token. Run: gcloud auth login", fg="red"), err=True)
+            sys.exit(1)
+        token = result.stdout.strip()
+    except FileNotFoundError:
+        click.echo(click.style("✗ gcloud not found. Install Google Cloud SDK.", fg="red"), err=True)
+        sys.exit(1)
+    
+    # Call the function
+    try:
+        response = requests.post(
+            function_url,
+            json={"target": target, "incremental": incremental},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=300,  # 5 minutes timeout for large catalogs
+        )
+        
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            click.echo(click.style("✓ Backup completed", fg="green"))
+            click.echo(f"  Copied: {data.get('copied', '?')} exercises")
+            click.echo(f"  Skipped: {data.get('skipped', 0)}")
+            click.echo(f"  Target: {data.get('target_collection', target)}")
+            click.echo(f"  Migration tag: {data.get('migration_tag', '?')}")
+        else:
+            click.echo(click.style(f"✗ Backup failed: {response.status_code}", fg="red"), err=True)
+            click.echo(response.text, err=True)
+            sys.exit(1)
+            
+    except Exception as e:
+        click.echo(click.style(f"✗ Request failed: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
 # QUEUE STATS
 # =============================================================================
 
@@ -677,6 +952,180 @@ def queue_stats():
     
     total = sum(status_counts.values())
     click.echo(f"\nTotal: {total} jobs")
+
+
+# =============================================================================
+# JOB CLEANUP
+# =============================================================================
+
+@cli.command("cleanup-jobs")
+@click.option("--completed-days", default=7, type=int, 
+              help="Delete completed jobs older than N days (default: 7)")
+@click.option("--failed-days", default=30, type=int,
+              help="Delete failed jobs older than N days (default: 30)")
+@click.option("--dry-run/--apply", default=True, help="Dry-run mode (default: True)")
+def cleanup_jobs_cmd(completed_days: int, failed_days: int, dry_run: bool):
+    """
+    Clean up old completed jobs from catalog_jobs.
+    
+    Archives jobs to run_history before deleting.
+    
+    Examples:
+        python cli.py cleanup-jobs                # Preview what would be deleted
+        python cli.py cleanup-jobs --apply        # Actually delete
+        python cli.py cleanup-jobs --completed-days 3 --apply
+    """
+    from app.jobs.run_history import cleanup_completed_jobs
+    
+    click.echo(f"Cleaning up jobs...")
+    click.echo(f"  Completed retention: {completed_days} days")
+    click.echo(f"  Failed retention:    {failed_days} days")
+    click.echo(f"  Dry-run:             {dry_run}")
+    click.echo()
+    
+    result = cleanup_completed_jobs(
+        dry_run=dry_run,
+        completed_retention_days=completed_days,
+        failed_retention_days=failed_days,
+    )
+    
+    if dry_run:
+        click.echo(f"Would delete: {result.get('would_delete', 0)} jobs")
+        if result.get('sample_jobs'):
+            click.echo("\nSample jobs:")
+            for job in result['sample_jobs']:
+                click.echo(f"  - {job['id']}: {job['type']} ({job['status']})")
+        click.echo(click.style("\n⚠ Dry-run mode: No jobs deleted", fg="yellow"))
+        click.echo("  Run with --apply to delete jobs")
+    else:
+        click.echo(click.style("✓ Cleanup complete", fg="green"))
+        click.echo(f"  Archived: {result.get('archived', 0)}")
+        click.echo(f"  Deleted:  {result.get('deleted', 0)}")
+
+
+# =============================================================================
+# RUN HISTORY
+# =============================================================================
+
+@cli.command("run-history")
+@click.option("--job-type", help="Filter by job type")
+@click.option("--status", help="Filter by status")
+@click.option("--family", help="Filter by family_slug")
+@click.option("--limit", default=20, type=int, help="Max records (default: 20)")
+def run_history_cmd(job_type: Optional[str], status: Optional[str], 
+                    family: Optional[str], limit: int):
+    """
+    View catalog job run history.
+    
+    Shows audit trail of all job executions.
+    
+    Examples:
+        python cli.py run-history
+        python cli.py run-history --job-type EXERCISE_ADD
+        python cli.py run-history --status succeeded --limit 50
+    """
+    from app.jobs.run_history import get_run_history
+    from app.jobs.models import JobType, JobStatus
+    
+    # Parse job type if provided
+    jt = None
+    if job_type:
+        try:
+            jt = JobType(job_type)
+        except ValueError:
+            click.echo(click.style(f"Invalid job type: {job_type}", fg="red"), err=True)
+            return
+    
+    # Parse status if provided
+    st = None
+    if status:
+        try:
+            st = JobStatus(status)
+        except ValueError:
+            click.echo(click.style(f"Invalid status: {status}", fg="red"), err=True)
+            return
+    
+    records = get_run_history(
+        job_type=jt,
+        status=st,
+        family_slug=family,
+        limit=limit,
+    )
+    
+    if not records:
+        click.echo("No run history found")
+        return
+    
+    click.echo(f"Found {len(records)} run history records:\n")
+    
+    for rec in records:
+        status_icon = {
+            "succeeded": "✅",
+            "succeeded_dry_run": "✅",
+            "failed": "❌",
+            "needs_review": "⚠️",
+        }.get(rec.get("status", ""), "❓")
+        
+        click.echo(f"{status_icon} {rec.get('job_id', '?')}")
+        click.echo(f"   Type: {rec.get('job_type')} | Status: {rec.get('status')}")
+        click.echo(f"   Duration: {rec.get('duration_ms', 0)}ms | Changes: {rec.get('changes_count', 0)}")
+        
+        if rec.get('family_slug'):
+            click.echo(f"   Family: {rec['family_slug']}")
+        if rec.get('completed_at'):
+            click.echo(f"   Completed: {rec['completed_at']}")
+        click.echo()
+
+
+# =============================================================================
+# DAILY SUMMARY
+# =============================================================================
+
+@cli.command("daily-summary")
+@click.option("--date", help="Date in YYYY-MM-DD format (default: today)")
+def daily_summary_cmd(date: Optional[str]):
+    """
+    View daily job summary statistics.
+    
+    Shows aggregated stats for a specific day.
+    
+    Examples:
+        python cli.py daily-summary
+        python cli.py daily-summary --date 2026-01-17
+    """
+    from app.jobs.run_history import get_daily_summary
+    
+    summary = get_daily_summary(date)
+    
+    if not summary:
+        click.echo(f"No summary found for {date or 'today'}")
+        return
+    
+    click.echo(f"Daily Summary: {date or 'today'}")
+    click.echo("=" * 40)
+    
+    click.echo(f"\nTotal Jobs: {summary.get('total_jobs', 0)}")
+    click.echo(f"Total Duration: {summary.get('total_duration_ms', 0) / 1000:.1f}s")
+    click.echo(f"Total Changes: {summary.get('total_changes', 0)}")
+    
+    by_type = summary.get('jobs_by_type', {})
+    if by_type:
+        click.echo("\nBy Type:")
+        for jt, count in sorted(by_type.items()):
+            click.echo(f"  {jt}: {count}")
+    
+    by_status = summary.get('jobs_by_status', {})
+    if by_status:
+        click.echo("\nBy Status:")
+        for st, count in sorted(by_status.items()):
+            icon = "✅" if "succeeded" in st else "❌" if st == "failed" else "⚠️"
+            click.echo(f"  {icon} {st}: {count}")
+    
+    by_mode = summary.get('jobs_by_mode', {})
+    if by_mode:
+        click.echo("\nBy Mode:")
+        for mode, count in sorted(by_mode.items()):
+            click.echo(f"  {mode}: {count}")
 
 
 if __name__ == "__main__":

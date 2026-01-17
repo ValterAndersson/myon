@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Worker configuration
 WORKER_ID = os.getenv("WORKER_ID", f"worker-{uuid.uuid4().hex[:8]}")
-MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "10"))
-MAX_SECONDS_PER_RUN = int(os.getenv("MAX_SECONDS_PER_RUN", "840"))  # 14 min
-SAFETY_MARGIN_SECS = int(os.getenv("SAFETY_MARGIN_SECS", "60"))  # 1 min buffer
+MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "0"))  # 0 = unlimited
+MAX_SECONDS_PER_RUN = int(os.getenv("MAX_SECONDS_PER_RUN", "0"))  # 0 = no deadline
+SAFETY_MARGIN_SECS = int(os.getenv("SAFETY_MARGIN_SECS", "60"))  # Buffer if deadline set
 HEARTBEAT_INTERVAL_SECS = int(os.getenv("HEARTBEAT_INTERVAL_SECS", "60"))
 
 # Apply mode gate
@@ -204,8 +204,13 @@ class CatalogWorker:
         Check if we're within time budget.
         
         Returns:
-            True if we can continue, False if we should exit
+            True if we can continue, False if deadline exceeded
+            Always returns True if MAX_SECONDS_PER_RUN=0 (no deadline)
         """
+        # 0 = no deadline
+        if MAX_SECONDS_PER_RUN == 0:
+            return True
+        
         if time.time() > self._deadline:
             log_event("deadline_reached", reason="time_budget_exhausted")
             return False
@@ -217,16 +222,17 @@ class CatalogWorker:
         
         Exit conditions:
         - No jobs available (exit immediately, no retry)
-        - MAX_JOBS_PER_RUN reached
-        - Deadline exceeded
+        - MAX_JOBS_PER_RUN reached (if > 0)
+        - Deadline exceeded (if MAX_SECONDS_PER_RUN > 0)
         - Signal received
         """
         from app.jobs.queue import poll_job
         
         jobs_this_run = 0
         
-        while self.running and jobs_this_run < MAX_JOBS_PER_RUN:
-            # Check time budget before polling
+        # 0 = unlimited jobs
+        while self.running and (MAX_JOBS_PER_RUN == 0 or jobs_this_run < MAX_JOBS_PER_RUN):
+            # Check time budget before polling (skipped if no deadline)
             if not self._check_deadline():
                 break
             
@@ -377,6 +383,14 @@ class CatalogWorker:
                 
                 complete_job(job_id, self.worker_id, final_status, result)
                 
+                # Write run history
+                self._write_run_history(
+                    job=job,
+                    status=final_status,
+                    duration_ms=duration_ms,
+                    changes=result.get("changes"),
+                )
+                
                 log_event(
                     "job_completed",
                     job_id=job_id,
@@ -391,6 +405,14 @@ class CatalogWorker:
                 error = result.get("error", {"message": "Unknown error"})
                 is_transient = result.get("is_transient", True)
                 fail_job(job_id, self.worker_id, error, is_transient)
+                
+                # Write run history for failures
+                self._write_run_history(
+                    job=job,
+                    status=JobStatus.FAILED,
+                    duration_ms=duration_ms,
+                    error=error,
+                )
                 
                 log_event(
                     "job_failed",
@@ -454,6 +476,48 @@ class CatalogWorker:
             JobType.CATALOG_ENRICH_FIELD,
         }
         return job_type in lock_required_types
+    
+    def _write_run_history(
+        self,
+        job,
+        status,
+        duration_ms: int,
+        changes: Optional[list] = None,
+        error: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Write run history and update daily summary.
+        
+        Called after every job completion (success or failure).
+        """
+        try:
+            from app.jobs.run_history import write_run_history, update_daily_summary
+            
+            # Write individual run history
+            write_run_history(
+                job=job,
+                status=status,
+                duration_ms=duration_ms,
+                changes=changes,
+                error=error,
+                worker_id=self.worker_id,
+            )
+            
+            # Update daily summary
+            update_daily_summary(
+                job_type=job.type,
+                status=status,
+                mode=job.payload.mode,
+                duration_ms=duration_ms,
+                changes_count=len(changes) if changes else 0,
+            )
+        except Exception as e:
+            # Don't fail the job if history logging fails
+            log_event(
+                "run_history_error",
+                job_id=job.id,
+                error=str(e),
+            )
 
 
 def run_worker():
