@@ -451,6 +451,240 @@ def validate_merge_safety(
 
 
 # =============================================================================
+# COMPILED PLAN VALIDATION (POST-STATE)
+# =============================================================================
+
+def validate_compiled_plan(compiled: "CompiledPlan") -> ValidationResult:
+    """
+    Validate a compiled plan against its post-state.
+    
+    This is the PRIMARY validation that gates writes. It validates
+    the 4 core invariants against the simulated post-state, not raw ops.
+    
+    4 Core Invariants:
+    1. Schema / required fields (for creates/patches touching required fields)
+    2. Taxonomy / naming (equipment suffix when multi-equipment)
+    3. Slug + alias uniqueness (no collisions in post_state)
+    4. Alias one-of + target exists
+    
+    Args:
+        compiled: CompiledPlan from PlanCompiler
+        
+    Returns:
+        ValidationResult with all errors and warnings
+    """
+    from app.plans.state_compiler import CompiledPlan, ExerciseDoc, AliasDoc
+    
+    result = ValidationResult(valid=True)
+    post = compiled.post_state
+    
+    # Check compilation errors first
+    if compiled.compilation_errors:
+        for err in compiled.compilation_errors:
+            result.add_error(
+                "COMPILATION_ERROR",
+                err.get("error", "Unknown compilation error"),
+                operation_index=err.get("operation_index"),
+            )
+    
+    # ==========================================================================
+    # INVARIANT 1: Schema / required fields
+    # ==========================================================================
+    for doc_id, exercise in post.exercises.items():
+        # Required fields check
+        if not exercise.name:
+            result.add_error(
+                "MISSING_REQUIRED_FIELD",
+                f"Exercise {doc_id} missing required field: name",
+                doc_id=doc_id,
+                field="name",
+            )
+        if not exercise.name_slug:
+            result.add_error(
+                "MISSING_REQUIRED_FIELD",
+                f"Exercise {doc_id} missing required field: name_slug",
+                doc_id=doc_id,
+                field="name_slug",
+            )
+        if not exercise.family_slug:
+            result.add_error(
+                "MISSING_REQUIRED_FIELD",
+                f"Exercise {doc_id} missing required field: family_slug",
+                doc_id=doc_id,
+                field="family_slug",
+            )
+        if not exercise.status:
+            result.add_error(
+                "MISSING_REQUIRED_FIELD",
+                f"Exercise {doc_id} missing required field: status",
+                doc_id=doc_id,
+                field="status",
+            )
+    
+    # ==========================================================================
+    # INVARIANT 2: Taxonomy / naming (equipment suffix when multi-equipment)
+    # ==========================================================================
+    # Use equipment[0] (primary_equipment) to determine if multi-equipment
+    primary_equipment_set = compiled.primary_equipment_set
+    is_multi_equipment = len(primary_equipment_set) > 1
+    
+    if is_multi_equipment:
+        for doc_id, exercise in post.exercises.items():
+            if exercise.status == "deprecated":
+                continue  # Skip deprecated
+            
+            # Check if name has equipment qualifier
+            has_qualifier = "(" in exercise.name and ")" in exercise.name
+            if not has_qualifier and exercise.primary_equipment:
+                result.add_error(
+                    "MISSING_EQUIPMENT_QUALIFIER",
+                    f"Multi-equipment family requires equipment qualifier in name: '{exercise.name}'",
+                    doc_id=doc_id,
+                    suggestion=f"{exercise.name} ({EQUIPMENT_DISPLAY_MAP.get(exercise.primary_equipment, exercise.primary_equipment)})",
+                )
+    
+    # ==========================================================================
+    # INVARIANT 3: Slug + alias uniqueness
+    # ==========================================================================
+    # Check slug collisions among exercises
+    slug_owners: Dict[str, str] = {}  # name_slug → doc_id
+    for doc_id, exercise in post.exercises.items():
+        if not exercise.name_slug:
+            continue
+        
+        if exercise.name_slug in slug_owners:
+            other_id = slug_owners[exercise.name_slug]
+            result.add_error(
+                "SLUG_COLLISION",
+                f"Slug '{exercise.name_slug}' used by both {other_id} and {doc_id}",
+                doc_id=doc_id,
+                field="name_slug",
+            )
+        else:
+            slug_owners[exercise.name_slug] = doc_id
+    
+    # Check alias slug uniqueness (alias_slug should not conflict with exercise slugs or other aliases)
+    alias_slugs_seen: Dict[str, bool] = {}
+    for alias_slug, alias in post.aliases.items():
+        if alias_slug in alias_slugs_seen:
+            result.add_error(
+                "DUPLICATE_ALIAS",
+                f"Alias '{alias_slug}' appears multiple times",
+                field="alias_slug",
+            )
+        alias_slugs_seen[alias_slug] = True
+    
+    # ==========================================================================
+    # INVARIANT 4: Alias one-of + target exists
+    # ==========================================================================
+    exercise_ids = set(post.exercises.keys())
+    
+    for alias_slug, alias in post.aliases.items():
+        # One-of check: exactly one of exercise_id XOR family_slug
+        has_exercise = bool(alias.exercise_id)
+        has_family = bool(alias.family_slug)
+        
+        if has_exercise and has_family:
+            result.add_error(
+                "ALIAS_BOTH_FIELDS",
+                f"Alias '{alias_slug}' cannot have both exercise_id and family_slug",
+                field="alias_slug",
+            )
+        elif not has_exercise and not has_family:
+            result.add_error(
+                "ALIAS_NO_TARGET",
+                f"Alias '{alias_slug}' must have exercise_id or family_slug",
+                field="alias_slug",
+            )
+        
+        # Target exists check
+        if has_exercise and alias.exercise_id not in exercise_ids:
+            # Exercise might be outside snapshot, warn rather than error
+            result.add_warning(
+                "ALIAS_TARGET_NOT_IN_SNAPSHOT",
+                f"Alias '{alias_slug}' points to exercise '{alias.exercise_id}' not in snapshot",
+                field="exercise_id",
+            )
+        
+        if has_family and alias.family_slug != post.family_slug:
+            # Family-level alias pointing to different family
+            result.add_warning(
+                "ALIAS_FAMILY_MISMATCH",
+                f"Alias '{alias_slug}' points to family '{alias.family_slug}' but snapshot is for '{post.family_slug}'",
+                field="family_slug",
+            )
+    
+    # Update valid flag
+    result.valid = len(result.errors) == 0
+    
+    logger.info(
+        "Validated compiled plan: valid=%s, errors=%d, warnings=%d",
+        result.valid, len(result.errors), len(result.warnings)
+    )
+    
+    return result
+
+
+def validate_global_slug_uniqueness(
+    compiled: "CompiledPlan",
+) -> ValidationResult:
+    """
+    Validate that slugs touched in plan don't collide with catalog outside snapshot.
+    
+    This is a targeted lookup for slugs in the plan diff, not a full scan.
+    Call this BEFORE apply to catch global collisions.
+    
+    Args:
+        compiled: CompiledPlan with slugs_touched set
+        
+    Returns:
+        ValidationResult with collision errors
+    """
+    from google.cloud import firestore
+    
+    result = ValidationResult(valid=True)
+    
+    if not compiled.slugs_touched:
+        return result
+    
+    db = firestore.Client()
+    exercises_in_snapshot = set(compiled.post_state.exercises.keys())
+    
+    # Check each touched slug
+    for name_slug in compiled.slugs_touched:
+        # Skip if this is a doc_id (likely already in snapshot)
+        if name_slug in exercises_in_snapshot:
+            continue
+        
+        # Query for exercises with this slug outside the snapshot
+        query = db.collection("exercises").where("name_slug", "==", name_slug).limit(1)
+        for doc in query.stream():
+            if doc.id not in exercises_in_snapshot:
+                result.add_error(
+                    "GLOBAL_SLUG_COLLISION",
+                    f"Slug '{name_slug}' already exists in catalog (doc: {doc.id})",
+                    field="name_slug",
+                    doc_id=doc.id,
+                )
+    
+    # Check alias collisions
+    for alias_slug in compiled.aliases_touched:
+        if alias_slug in compiled.post_state.aliases:
+            continue  # Already in our plan
+        
+        alias_doc = db.collection("exercise_aliases").document(alias_slug).get()
+        if alias_doc.exists:
+            result.add_error(
+                "GLOBAL_ALIAS_COLLISION",
+                f"Alias '{alias_slug}' already exists in catalog",
+                field="alias_slug",
+            )
+    
+    result.valid = len(result.errors) == 0
+    return result
+
+
+# =============================================================================
 # COMBINED VALIDATION
 # =============================================================================
 
@@ -512,4 +746,6 @@ __all__ = [
     "validate_family_collision",
     "validate_merge_safety",
     "validate_change_plan",
+    "validate_compiled_plan",
+    "validate_global_slug_uniqueness",
 ]
