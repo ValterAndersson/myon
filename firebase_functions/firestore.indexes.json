@@ -1,10 +1,11 @@
 {
   "indexes": [
     {
-      "collectionGroup": "workouts",
+      "collectionGroup": "catalog_jobs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "source_meta.key", "order": "ASCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lease_expires_at", "order": "ASCENDING" }
       ]
     },
     {
