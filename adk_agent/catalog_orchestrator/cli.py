@@ -225,6 +225,177 @@ def enrich_field(
 
 
 # =============================================================================
+# MAINTENANCE SCAN
+# =============================================================================
+
+@cli.command("maintenance-scan")
+@click.option("--mode", default="dry_run", type=click.Choice(["dry_run", "apply"]),
+              help="Execution mode (default: dry_run)")
+def maintenance_scan(mode: str):
+    """
+    Scan all families for issues needing maintenance.
+    
+    Creates a MAINTENANCE_SCAN job that will:
+    - Scan all exercise families
+    - Detect naming issues (missing equipment qualifiers)
+    - Detect duplicate equipment variants
+    - Report families needing audit/normalization
+    
+    Example:
+        python cli.py maintenance-scan
+        python cli.py maintenance-scan --mode apply
+    """
+    try:
+        job = create_job(
+            job_type=JobType.MAINTENANCE_SCAN,
+            queue=JobQueue.MAINTENANCE,
+            mode=mode,
+        )
+        
+        click.echo(click.style("✓ Maintenance scan job queued", fg="green"))
+        click.echo(f"  Job ID:    {job.id}")
+        click.echo(f"  Type:      {job.type.value}")
+        click.echo(f"  Queue:     {job.queue.value}")
+        click.echo(f"  Mode:      {mode}")
+        
+        click.echo(click.style("\nRun worker to process:", fg="cyan"))
+        click.echo("  FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python workers/catalog_worker.py")
+            
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to create job: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# DUPLICATE DETECTION SCAN
+# =============================================================================
+
+@cli.command("duplicate-scan")
+@click.option("--mode", default="dry_run", type=click.Choice(["dry_run", "apply"]),
+              help="Execution mode (default: dry_run)")
+def duplicate_scan(mode: str):
+    """
+    Scan for potential duplicate exercises across families.
+    
+    Creates a DUPLICATE_DETECTION_SCAN job that will:
+    - Compare exercise names across all families
+    - Detect near-duplicate families
+    - Suggest merge candidates
+    
+    Example:
+        python cli.py duplicate-scan
+    """
+    try:
+        job = create_job(
+            job_type=JobType.DUPLICATE_DETECTION_SCAN,
+            queue=JobQueue.MAINTENANCE,
+            mode=mode,
+        )
+        
+        click.echo(click.style("✓ Duplicate detection scan job queued", fg="green"))
+        click.echo(f"  Job ID:    {job.id}")
+        click.echo(f"  Type:      {job.type.value}")
+        click.echo(f"  Queue:     {job.queue.value}")
+        click.echo(f"  Mode:      {mode}")
+        
+        click.echo(click.style("\nRun worker to process:", fg="cyan"))
+        click.echo("  FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python workers/catalog_worker.py")
+            
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to create job: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# FAMILY AUDIT
+# =============================================================================
+
+@cli.command("family-audit")
+@click.argument("family_slug")
+@click.option("--mode", default="dry_run", type=click.Choice(["dry_run", "apply"]),
+              help="Execution mode (default: dry_run)")
+def family_audit(family_slug: str, mode: str):
+    """
+    Audit a specific exercise family.
+    
+    Creates a FAMILY_AUDIT job that will:
+    - Check naming conformance
+    - Detect equipment variants
+    - Find duplicates within family
+    - Validate alias integrity
+    
+    Example:
+        python cli.py family-audit lateral-raise
+        python cli.py family-audit deadlift
+    """
+    try:
+        job = create_job(
+            job_type=JobType.FAMILY_AUDIT,
+            queue=JobQueue.PRIORITY,
+            family_slug=family_slug,
+            mode=mode,
+        )
+        
+        click.echo(click.style("✓ Family audit job queued", fg="green"))
+        click.echo(f"  Job ID:    {job.id}")
+        click.echo(f"  Type:      {job.type.value}")
+        click.echo(f"  Family:    {family_slug}")
+        click.echo(f"  Mode:      {mode}")
+        
+        click.echo(click.style("\nRun worker to process:", fg="cyan"))
+        click.echo("  FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python workers/catalog_worker.py")
+            
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to create job: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# FAMILY NORMALIZE
+# =============================================================================
+
+@cli.command("family-normalize")
+@click.argument("family_slug")
+@click.option("--mode", default="dry_run", type=click.Choice(["dry_run", "apply"]),
+              help="Execution mode (default: dry_run)")
+def family_normalize(family_slug: str, mode: str):
+    """
+    Normalize exercise naming in a family.
+    
+    Creates a FAMILY_NORMALIZE job that will:
+    - Add equipment qualifiers to multi-equipment families
+    - Update slugs and aliases
+    - Ensure canonical naming
+    
+    Example:
+        python cli.py family-normalize lateral-raise --mode apply
+    """
+    try:
+        job = create_job(
+            job_type=JobType.FAMILY_NORMALIZE,
+            queue=JobQueue.PRIORITY,
+            family_slug=family_slug,
+            mode=mode,
+        )
+        
+        click.echo(click.style("✓ Family normalize job queued", fg="green"))
+        click.echo(f"  Job ID:    {job.id}")
+        click.echo(f"  Type:      {job.type.value}")
+        click.echo(f"  Family:    {family_slug}")
+        click.echo(f"  Mode:      {mode}")
+        
+        if mode == "apply":
+            click.echo(click.style("\n⚠ Apply mode: Changes will be written to Firestore", fg="yellow"))
+        
+        click.echo(click.style("\nRun worker to process:", fg="cyan"))
+        click.echo("  FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 CATALOG_APPLY_ENABLED=true python workers/catalog_worker.py")
+            
+    except Exception as e:
+        click.echo(click.style(f"✗ Failed to create job: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
 # JOB STATUS
 # =============================================================================
 
@@ -322,6 +493,190 @@ def list_jobs(status: Optional[str], job_type: Optional[str], limit: int):
         
         click.echo(f"{status_icon} {data.get('id', doc.id)}")
         click.echo(f"   Type: {data.get('type')} | Status: {job_status}")
+
+
+# =============================================================================
+# RETRY JOB
+# =============================================================================
+
+@cli.command("retry-job")
+@click.argument("job_id")
+@click.option("--delay", default=0, type=int, help="Delay in seconds before retry")
+def retry_job_cmd(job_id: str, delay: int):
+    """
+    Retry a failed/deadlettered job.
+    
+    Example:
+        python cli.py retry-job job-abc123def456
+        python cli.py retry-job job-abc123def456 --delay 60
+    """
+    from app.jobs.queue import retry_job
+    
+    try:
+        success = retry_job(job_id, delay_seconds=delay)
+        if success:
+            click.echo(click.style(f"✓ Job {job_id} queued for retry", fg="green"))
+            if delay > 0:
+                click.echo(f"  Run after: {delay} seconds")
+        else:
+            click.echo(click.style(f"✗ Failed to retry job {job_id}", fg="red"), err=True)
+            sys.exit(1)
+    except Exception as e:
+        click.echo(click.style(f"✗ Error: {e}", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# RUN WORKER LOCALLY
+# =============================================================================
+
+@cli.command("run-worker")
+@click.option("--max-jobs", default=10, type=int, help="Max jobs to process")
+@click.option("--apply/--no-apply", default=False, help="Enable apply mode (default: dry-run)")
+def run_worker_local(max_jobs: int, apply: bool):
+    """
+    Run the worker locally for testing.
+    
+    By default runs in dry-run mode (CATALOG_APPLY_ENABLED=false).
+    
+    Example:
+        python cli.py run-worker
+        python cli.py run-worker --max-jobs 5
+        python cli.py run-worker --apply  # Warning: will write to Firestore!
+    """
+    import os
+    
+    # Set environment
+    os.environ["MAX_JOBS_PER_RUN"] = str(max_jobs)
+    os.environ["CATALOG_APPLY_ENABLED"] = "true" if apply else "false"
+    
+    if apply:
+        click.echo(click.style("⚠ WARNING: Apply mode enabled - will write to Firestore!", fg="red"))
+        if not click.confirm("Continue?"):
+            click.echo("Aborted")
+            return
+    
+    click.echo(f"Starting worker (max_jobs={max_jobs}, apply={apply})...")
+    
+    from workers.catalog_worker import run_worker
+    run_worker()
+
+
+# =============================================================================
+# RUN WATCHDOG LOCALLY
+# =============================================================================
+
+@cli.command("run-watchdog")
+@click.option("--dry-run/--no-dry-run", default=True, help="Dry-run mode (default: True)")
+def run_watchdog_local(dry_run: bool):
+    """
+    Run the watchdog locally for testing.
+    
+    Cleans up expired leases and orphaned locks.
+    
+    Example:
+        python cli.py run-watchdog
+        python cli.py run-watchdog --no-dry-run  # Actually clean up
+    """
+    import os
+    
+    os.environ["WATCHDOG_DRY_RUN"] = "true" if dry_run else "false"
+    
+    if not dry_run:
+        click.echo(click.style("⚠ WARNING: Dry-run disabled - will modify Firestore!", fg="yellow"))
+    
+    click.echo(f"Starting watchdog (dry_run={dry_run})...")
+    
+    from workers.catalog_worker import run_watchdog
+    run_watchdog()
+
+
+# =============================================================================
+# TRIGGER CLOUD RUN JOB (REQUIRES GCLOUD AUTH)
+# =============================================================================
+
+@cli.command("trigger-worker")
+@click.option("--region", default="europe-west1", help="Cloud Run region")
+@click.option("--project", envvar="PROJECT_ID", help="GCP project ID")
+@click.option("--wait/--no-wait", default=False, help="Wait for completion")
+def trigger_worker_remote(region: str, project: Optional[str], wait: bool):
+    """
+    Trigger the Cloud Run Job worker (requires gcloud auth).
+    
+    Example:
+        python cli.py trigger-worker --project my-project
+        python cli.py trigger-worker --project my-project --wait
+    """
+    import subprocess
+    
+    if not project:
+        click.echo(click.style("✗ Project ID required (--project or PROJECT_ID env)", fg="red"), err=True)
+        sys.exit(1)
+    
+    cmd = ["gcloud", "run", "jobs", "execute", "catalog-worker", f"--region={region}"]
+    if wait:
+        cmd.append("--wait")
+    
+    click.echo(f"Triggering catalog-worker in {project}/{region}...")
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            click.echo(click.style("✓ Worker triggered", fg="green"))
+            if result.stdout:
+                click.echo(result.stdout)
+        else:
+            click.echo(click.style(f"✗ Failed to trigger worker", fg="red"), err=True)
+            if result.stderr:
+                click.echo(result.stderr, err=True)
+            sys.exit(1)
+    except FileNotFoundError:
+        click.echo(click.style("✗ gcloud not found. Install Google Cloud SDK.", fg="red"), err=True)
+        sys.exit(1)
+
+
+# =============================================================================
+# QUEUE STATS
+# =============================================================================
+
+@cli.command("queue-stats")
+def queue_stats():
+    """Show job queue statistics."""
+    from google.cloud import firestore
+    
+    db = firestore.Client()
+    
+    # Count by status
+    status_counts = {}
+    for status in ["queued", "leased", "running", "succeeded", "succeeded_dry_run", 
+                   "failed", "needs_review", "deadletter"]:
+        query = db.collection("catalog_jobs").where("status", "==", status)
+        count = len(list(query.limit(1000).stream()))
+        if count > 0:
+            status_counts[status] = count
+    
+    click.echo("Job Queue Stats")
+    click.echo("===============")
+    
+    if not status_counts:
+        click.echo("No jobs found")
+        return
+    
+    for status, count in sorted(status_counts.items()):
+        icon = {
+            "queued": "⏳",
+            "leased": "🔒",
+            "running": "▶️",
+            "succeeded": "✅",
+            "succeeded_dry_run": "✅",
+            "failed": "❌",
+            "needs_review": "⚠️",
+            "deadletter": "💀",
+        }.get(status, "❓")
+        click.echo(f"  {icon} {status}: {count}")
+    
+    total = sum(status_counts.values())
+    click.echo(f"\nTotal: {total} jobs")
 
 
 if __name__ == "__main__":
