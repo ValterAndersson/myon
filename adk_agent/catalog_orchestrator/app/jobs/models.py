@@ -131,6 +131,9 @@ class Job:
     max_attempts: int = 5
     run_after: Optional[datetime] = None
     
+    # Execution tracking
+    started_at: Optional[datetime] = None  # When job started executing
+    
     # Debug fields (for watchdog recovery)
     last_error_at: Optional[datetime] = None
     last_lease_owner: Optional[str] = None
@@ -157,6 +160,7 @@ class Job:
             "attempts": self.attempts,
             "max_attempts": self.max_attempts,
             "run_after": self.run_after,
+            "started_at": self.started_at,
             "last_error_at": self.last_error_at,
             "last_lease_owner": self.last_lease_owner,
             "result_summary": self.result_summary,
@@ -180,6 +184,7 @@ class Job:
             attempts=data.get("attempts", 0),
             max_attempts=data.get("max_attempts", 5),
             run_after=data.get("run_after"),
+            started_at=data.get("started_at"),
             last_error_at=data.get("last_error_at"),
             last_lease_owner=data.get("last_lease_owner"),
             result_summary=data.get("result_summary"),
