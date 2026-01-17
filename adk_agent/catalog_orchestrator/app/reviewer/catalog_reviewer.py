@@ -13,6 +13,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from app.reviewer.what_good_looks_like import (
+    WHAT_GOOD_LOOKS_LIKE,
+    INSTRUCTIONS_GUIDANCE,
+    MUSCLE_MAPPING_GUIDANCE,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,6 +188,7 @@ class CatalogReviewer:
         llm_client=None,
         analyst_agent=None,
         dry_run: bool = True,
+        enable_llm_review: bool = False,
     ):
         """
         Initialize the catalog reviewer.
@@ -190,10 +197,12 @@ class CatalogReviewer:
             llm_client: LLM client for analysis (optional)
             analyst_agent: Existing AnalystAgent to reuse (optional)
             dry_run: If True, only report issues without creating jobs
+            enable_llm_review: If True, use LLM for semantic quality analysis
         """
         self.llm_client = llm_client
         self.analyst_agent = analyst_agent
         self.dry_run = dry_run
+        self.enable_llm_review = enable_llm_review
         
     def review_exercise(self, exercise: Dict[str, Any]) -> ReviewResult:
         """
@@ -215,8 +224,8 @@ class CatalogReviewer:
         self._check_equipment(exercise, result)
         self._check_taxonomy(exercise, result)
         
-        # Phase 2: LLM analysis (if analyst available)
-        if self.analyst_agent:
+        # Phase 2: LLM semantic analysis (if enabled)
+        if self.enable_llm_review:
             self._apply_llm_analysis(exercise, result)
         
         # Compute quality score
@@ -416,38 +425,150 @@ class CatalogReviewer:
                 current_value=None,
             ))
     
-    def _apply_llm_analysis(self, exercise: Dict[str, Any], result: ReviewResult):
-        """Apply LLM-based quality analysis."""
-        if not self.analyst_agent:
-            return
+    def _get_llm_client(self):
+        """Get or create LLM client."""
+        if self.llm_client is None:
+            from app.enrichment.llm_client import get_llm_client
+            self.llm_client = get_llm_client()
+        return self.llm_client
+    
+    def _build_llm_review_prompt(self, exercise: Dict[str, Any]) -> str:
+        """Build prompt for LLM quality review with reasoning guidelines."""
+        name = exercise.get("name", "Unknown")
+        equipment = exercise.get("equipment", [])
+        primary_muscles = exercise.get("primary_muscles", [])
+        secondary_muscles = exercise.get("secondary_muscles", [])
+        instructions = exercise.get("instructions", "")
+        category = exercise.get("category", "")
         
+        prompt = f"""{WHAT_GOOD_LOOKS_LIKE}
+
+{INSTRUCTIONS_GUIDANCE}
+
+{MUSCLE_MAPPING_GUIDANCE}
+
+---
+
+## Current Task: Review Exercise Quality
+
+### Exercise Data
+Name: {name}
+Equipment: {', '.join(equipment) if equipment else 'None'}
+Category: {category}
+Primary Muscles: {', '.join(primary_muscles) if primary_muscles else 'None'}
+Secondary Muscles: {', '.join(secondary_muscles) if secondary_muscles else 'None'}
+Instructions: {instructions[:500] + '...' if len(instructions) > 500 else instructions}
+
+---
+
+## Your Reasoning Process
+
+Before flagging any issues, ask yourself:
+1. Would a gym user be harmed or confused by the current content?
+2. Is this a genuine problem or just my personal preference?
+3. If instructions are understandable and safe, they're good enough - don't change them.
+4. If muscle mappings are anatomically reasonable, they're good enough - don't change them.
+
+## Response Format
+{{
+    "needs_action": true/false,
+    "reasoning": "Why this exercise does/doesn't need changes",
+    "confidence": "high" | "medium" | "low",
+    "issues": [
+        {{
+            "field": "primary_muscles" | "secondary_muscles" | "instructions" | "name",
+            "category": "anatomy" | "content" | "biomechanics",
+            "severity": "high" | "medium" | "low",
+            "message": "Brief description of the issue",
+            "suggested_fix": "Optional suggestion"
+        }}
+    ]
+}}
+
+## Rules
+- Only flag genuine problems that affect user safety or understanding
+- If you're unsure whether something is wrong, don't flag it
+- Better to miss a minor issue than to create unnecessary work
+- If exercise looks good enough, return empty issues array
+
+Respond with ONLY the JSON object."""
+
+        return prompt
+    
+    def _apply_llm_analysis(self, exercise: Dict[str, Any], result: ReviewResult):
+        """Apply LLM-based semantic quality analysis."""
+        import json
+        
+        # Use llm_client directly if available
         try:
-            # Use existing analyst to analyze the exercise
-            analysis = self.analyst_agent.analyze_exercise(exercise)
+            llm_client = self._get_llm_client()
             
-            # Convert analyst issues to our format
+            prompt = self._build_llm_review_prompt(exercise)
+            
+            # Call LLM with reasoning model for quality analysis
+            response = llm_client.complete(
+                prompt=prompt,
+                output_schema={"type": "object"},
+                require_reasoning=True,  # Use gemini-2.5-pro
+            )
+            
+            # Parse response - handle markdown code blocks
+            try:
+                # Strip markdown code block wrappers if present
+                clean_response = response.strip()
+                if clean_response.startswith("```json"):
+                    clean_response = clean_response[7:]  # Remove ```json
+                if clean_response.startswith("```"):
+                    clean_response = clean_response[3:]  # Remove ```
+                if clean_response.endswith("```"):
+                    clean_response = clean_response[:-3]  # Remove trailing ```
+                clean_response = clean_response.strip()
+                
+                analysis = json.loads(clean_response)
+            except json.JSONDecodeError:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if json_match:
+                    try:
+                        analysis = json.loads(json_match.group())
+                    except json.JSONDecodeError:
+                        logger.warning("Could not parse LLM review response for %s: %s", result.exercise_id, response[:200])
+                        return
+                else:
+                    logger.warning("Could not parse LLM review response for %s: %s", result.exercise_id, response[:200])
+                    return
+            
+            # Convert LLM issues to our format
             if analysis and analysis.get("issues"):
+                severity_map = {
+                    "critical": IssueSeverity.CRITICAL,
+                    "high": IssueSeverity.HIGH,
+                    "medium": IssueSeverity.MEDIUM,
+                    "low": IssueSeverity.LOW,
+                }
+                category_map = {
+                    "content": IssueCategory.CONTENT,
+                    "anatomy": IssueCategory.ANATOMY,
+                    "biomechanics": IssueCategory.BIOMECHANICS,
+                    "taxonomy": IssueCategory.TAXONOMY,
+                }
+                
                 for issue in analysis["issues"]:
-                    severity_map = {
-                        "critical": IssueSeverity.CRITICAL,
-                        "high": IssueSeverity.HIGH,
-                        "medium": IssueSeverity.MEDIUM,
-                        "low": IssueSeverity.LOW,
-                    }
-                    category_map = {
-                        "content": IssueCategory.CONTENT,
-                        "anatomy": IssueCategory.ANATOMY,
-                        "biomechanics": IssueCategory.BIOMECHANICS,
-                        "taxonomy": IssueCategory.TAXONOMY,
-                    }
-                    
                     result.issues.append(QualityIssue(
                         field=issue.get("field", "general"),
                         category=category_map.get(issue.get("category", "content"), IssueCategory.CONTENT),
                         severity=severity_map.get(issue.get("severity", "medium"), IssueSeverity.MEDIUM),
-                        message=issue.get("message", ""),
+                        message=f"[LLM] {issue.get('message', '')}",
                         suggested_fix=issue.get("suggested_fix"),
                     ))
+                    
+            logger.debug(
+                "LLM review for %s: %d issues found", 
+                result.exercise_id, 
+                len(analysis.get("issues", []))
+            )
+            
         except Exception as e:
             logger.warning("LLM analysis failed for %s: %s", result.exercise_id, e)
     
