@@ -126,10 +126,10 @@ class VertexLLMClient(LLMClient):
         
         model = GenerativeModel(model_name)
         
-        # Configure generation
+        # Configure generation - higher token limit for structured JSON responses
         config = GenerationConfig(
             temperature=0.1 if require_reasoning else 0.0,
-            max_output_tokens=1024,
+            max_output_tokens=16384,  # Large limit for batch JSON responses
         )
         
         # If output schema provided, add JSON mode instructions
@@ -143,7 +143,28 @@ class VertexLLMClient(LLMClient):
                 generation_config=config,
             )
             
-            result = response.text.strip()
+            # Debug: Log response structure for thinking models
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'finish_reason'):
+                    logger.debug("Finish reason: %s", candidate.finish_reason)
+                if hasattr(candidate, 'content') and candidate.content.parts:
+                    # Get all text parts (thinking models may have multiple)
+                    all_text = []
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            all_text.append(part.text)
+                    if len(all_text) > 1:
+                        logger.debug("Response has %d text parts", len(all_text))
+                        # Use last part which is typically the final answer
+                        result = all_text[-1].strip()
+                    else:
+                        result = response.text.strip()
+                else:
+                    result = response.text.strip()
+            else:
+                result = response.text.strip()
+            
             logger.debug("LLM response length: %d chars", len(result))
             
             return result
