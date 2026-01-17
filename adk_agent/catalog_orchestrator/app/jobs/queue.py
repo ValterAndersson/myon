@@ -13,8 +13,22 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+
+def _utcnow() -> datetime:
+    """Return timezone-aware UTC datetime for Firestore compatibility."""
+    return datetime.now(timezone.utc)
+
+
+def _make_naive(dt: datetime) -> datetime:
+    """Convert timezone-aware datetime to naive UTC datetime for comparison."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
 
 from google.cloud import firestore
 
@@ -156,8 +170,8 @@ def poll_job(worker_id: str) -> Optional[Job]:
     for doc in candidates:
         data = doc.to_dict()
         
-        # Check run_after
-        run_after = data.get("run_after")
+        # Check run_after (handle timezone-aware datetimes from Firestore)
+        run_after = _make_naive(data.get("run_after"))
         if run_after and run_after > now:
             continue
         
@@ -201,13 +215,13 @@ def lease_job(job_id: str, worker_id: str) -> Optional[Job]:
         if data.get("status") != JobStatus.QUEUED.value:
             return None
         
-        # Check run_after
-        run_after = data.get("run_after")
+        # Check run_after (handle timezone-aware datetimes from Firestore)
+        run_after = _make_naive(data.get("run_after"))
         if run_after and run_after > now:
             return None
         
-        # Check existing lease
-        existing_lease = data.get("lease_expires_at")
+        # Check existing lease (handle timezone-aware datetimes from Firestore)
+        existing_lease = _make_naive(data.get("lease_expires_at"))
         if existing_lease and existing_lease > now:
             return None
         
@@ -463,7 +477,7 @@ def acquire_family_lock(
         
         if doc.exists:
             data = doc.to_dict()
-            existing_expires = data.get("expires_at")
+            existing_expires = _make_naive(data.get("expires_at"))
             
             # Check if lock is expired
             if existing_expires and existing_expires > now:
@@ -537,6 +551,151 @@ def release_family_lock(family_slug: str, job_id: str, worker_id: str) -> bool:
         return False
 
 
+def mark_job_running(job_id: str, worker_id: str) -> bool:
+    """
+    Transition job from LEASED to RUNNING.
+    
+    This MUST be called before any writes begin.
+    Required precondition for apply operations.
+    
+    Args:
+        job_id: Job to transition
+        worker_id: Worker that holds the lease
+        
+    Returns:
+        True if transitioned successfully
+        
+    Raises:
+        LockLostError: If job is not in leased state or owned by different worker
+    """
+    db = get_db()
+    doc_ref = db.collection(JOBS_COLLECTION).document(job_id)
+    
+    @firestore.transactional
+    def running_transaction(transaction, doc_ref):
+        doc = doc_ref.get(transaction=transaction)
+        if not doc.exists:
+            raise LockLostError(f"Job {job_id} not found")
+        
+        data = doc.to_dict()
+        now = datetime.utcnow()
+        
+        # Verify ownership
+        if data.get("lease_owner") != worker_id:
+            raise LockLostError(
+                f"Job {job_id} owned by {data.get('lease_owner')}, not {worker_id}"
+            )
+        
+        # Verify status is LEASED or already RUNNING
+        status = data.get("status")
+        if status == JobStatus.RUNNING.value:
+            return True  # Already running
+        
+        if status != JobStatus.LEASED.value:
+            raise LockLostError(
+                f"Job {job_id} status is {status}, expected LEASED"
+            )
+        
+        # Transition to RUNNING
+        transaction.update(doc_ref, {
+            "status": JobStatus.RUNNING.value,
+            "started_at": now,
+            "updated_at": now,
+        })
+        
+        return True
+    
+    transaction = db.transaction()
+    try:
+        success = running_transaction(transaction, doc_ref)
+        if success:
+            logger.info("Job %s transitioned to RUNNING", job_id)
+        return success
+    except LockLostError:
+        raise
+    except Exception as e:
+        logger.error("Failed to mark job %s running: %s", job_id, e)
+        raise LockLostError(f"Failed to transition job {job_id}: {e}")
+
+
+def renew_family_lock(
+    family_slug: str,
+    job_id: str,
+    worker_id: str,
+    lock_duration_secs: int = LEASE_DURATION_SECS,
+) -> bool:
+    """
+    Renew family lock if still owned by this job/worker.
+    
+    Call this as heartbeat during long operations.
+    
+    Args:
+        family_slug: Family lock to renew
+        job_id: Job that holds the lock
+        worker_id: Worker that holds the lock
+        lock_duration_secs: New lock duration
+        
+    Returns:
+        True if renewed
+        
+    Raises:
+        LockLostError: If lock is not owned by this job/worker
+    """
+    db = get_db()
+    lock_ref = db.collection(LOCKS_COLLECTION).document(family_slug)
+    
+    @firestore.transactional
+    def renew_lock_transaction(transaction, lock_ref):
+        doc = lock_ref.get(transaction=transaction)
+        now = datetime.utcnow()
+        
+        if not doc.exists:
+            raise LockLostError(f"Lock for {family_slug} does not exist")
+        
+        data = doc.to_dict()
+        
+        # Verify ownership by BOTH job_id AND worker_id
+        if data.get("job_id") != job_id:
+            raise LockLostError(
+                f"Lock for {family_slug} owned by job {data.get('job_id')}, not {job_id}"
+            )
+        if data.get("worker_id") != worker_id:
+            raise LockLostError(
+                f"Lock for {family_slug} owned by worker {data.get('worker_id')}, not {worker_id}"
+            )
+        
+        # Renew
+        new_expires = now + timedelta(seconds=lock_duration_secs)
+        transaction.update(lock_ref, {
+            "expires_at": new_expires,
+            "renewed_at": now,
+        })
+        
+        return True
+    
+    transaction = db.transaction()
+    try:
+        success = renew_lock_transaction(transaction, lock_ref)
+        if success:
+            logger.debug("Renewed lock for family: %s", family_slug)
+        return success
+    except LockLostError:
+        raise
+    except Exception as e:
+        logger.warning("Failed to renew lock for %s: %s", family_slug, e)
+        raise LockLostError(f"Failed to renew lock for {family_slug}: {e}")
+
+
+class LockLostError(Exception):
+    """
+    Raised when a lock or lease is lost.
+    
+    This is a RETRYABLE error - the job should be returned to queue
+    for another attempt, not deadlettered.
+    """
+    pass
+
+
 def renew_lease(job_id: str, worker_id: str) -> bool:
     """
     Renew job lease if expiring soon and still owned.
@@ -547,6 +706,9 @@ def renew_lease(job_id: str, worker_id: str) -> bool:
         
     Returns:
         True if renewed, False if lease lost or not expiring soon
+        
+    Raises:
+        LockLostError: If lease was lost to another worker
     """
     db = get_db()
     doc_ref = db.collection(JOBS_COLLECTION).document(job_id)
@@ -565,7 +727,7 @@ def renew_lease(job_id: str, worker_id: str) -> bool:
             return False
         
         # Check if renewal needed (within margin)
-        expires = data.get("lease_expires_at")
+        expires = _make_naive(data.get("lease_expires_at"))
         if not expires:
             return False
         
@@ -600,5 +762,8 @@ __all__ = [
     "retry_job",
     "acquire_family_lock",
     "release_family_lock",
+    "renew_family_lock",
     "renew_lease",
+    "mark_job_running",
+    "LockLostError",
 ]

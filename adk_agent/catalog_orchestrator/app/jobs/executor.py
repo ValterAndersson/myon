@@ -306,7 +306,7 @@ class JobExecutor:
             # Apply the changes using ApplyEngine
             from app.apply.engine import apply_change_plan
             
-            apply_result = apply_change_plan(plan, self.job_id)
+            apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
             result["applied"] = apply_result.success
             result["apply_result"] = apply_result.to_dict()
         
@@ -481,7 +481,7 @@ class JobExecutor:
         
         if self.mode == "apply" and operations:
             from app.apply.engine import apply_change_plan
-            apply_result = apply_change_plan(plan, self.job_id)
+            apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
             result["applied"] = apply_result.success
             result["apply_result"] = apply_result.to_dict()
         
@@ -589,7 +589,7 @@ class JobExecutor:
         
         if self.mode == "apply":
             from app.apply.engine import apply_change_plan
-            apply_result = apply_change_plan(plan, self.job_id)
+            apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
             result["applied"] = apply_result.success
             result["apply_result"] = apply_result.to_dict()
         
@@ -790,7 +790,7 @@ class JobExecutor:
         
         if self.mode == "apply" and operations:
             from app.apply.engine import apply_change_plan
-            apply_result = apply_change_plan(plan, self.job_id)
+            apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
             result["applied"] = apply_result.success
             result["apply_result"] = apply_result.to_dict()
         
