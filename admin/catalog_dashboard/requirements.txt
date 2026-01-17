@@ -1,0 +1,7 @@
+flask>=3.0.0
+flask-cors>=4.0.0
+google-cloud-firestore>=2.16.0
+google-cloud-scheduler>=2.13.0
+google-cloud-run>=0.10.0
+google-cloud-logging>=3.10.0
+gunicorn>=21.0.0
