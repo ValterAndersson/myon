@@ -41,9 +41,10 @@ from app.jobs.models import JobType, JobQueue
 logger = logging.getLogger(__name__)
 
 # Configuration
-DEFAULT_BATCH_SIZE = 20  # Smaller batches for better LLM context
-DEFAULT_MAX_EXERCISES = 500
-DEFAULT_MAX_JOBS = 100
+# V1.1: Increased limits for faster iteration during development
+DEFAULT_BATCH_SIZE = 50  # Larger batches for efficiency (was 20)
+DEFAULT_MAX_EXERCISES = 1000  # Review full catalog (was 500)
+DEFAULT_MAX_JOBS = 500  # Create more jobs per run (was 100)
 
 
 def _get_firestore_client():

@@ -34,6 +34,15 @@ ALLOWED_FLAT_PATHS: Set[str] = {
     # Alias document fields (also validated via this path)
     "exercise_id",
     "alias_slug",
+    # --- V1.1: Fields used by enrichment ---
+    "muscles",
+    "movement",
+    "execution_notes",
+    "suitability_notes",
+    "coaching_cues",
+    "variant_key",
+    "created_by",
+    "version",
 }
 
 # Array fields - whole-array replace only (not element-wise)
@@ -44,6 +53,11 @@ ALLOWED_ARRAY_PATHS: Set[str] = {
     "movement_pattern",
     "tags",
     "programming_use_cases",
+    # --- V1.1: Additional array fields ---
+    "stimulus_tags",
+    "alias_slugs",
+    "aliases",
+    "images",
 }
 
 # Deep map paths - allowed nested updates via dotted path

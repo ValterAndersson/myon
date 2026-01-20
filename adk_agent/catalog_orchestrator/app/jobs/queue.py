@@ -753,6 +753,113 @@ def renew_lease(job_id: str, worker_id: str) -> bool:
         return False
 
 
+# =============================================================================
+# JOB DEDUPLICATION
+# =============================================================================
+
+def find_pending_job(
+    job_type: JobType,
+    exercise_doc_id: str,
+) -> Optional[str]:
+    """
+    Check if a pending job exists for this exercise and type.
+    
+    Used to prevent duplicate job creation when reviewer runs frequently.
+    A job is "pending" if status is QUEUED, LEASED, or RUNNING.
+    
+    Args:
+        job_type: Type of job to check for
+        exercise_doc_id: Exercise document ID
+        
+    Returns:
+        Job ID if a pending job exists, None otherwise
+    """
+    db = get_db()
+    
+    # Query jobs of this type that are still pending
+    pending_statuses = [
+        JobStatus.QUEUED.value,
+        JobStatus.LEASED.value,
+        JobStatus.RUNNING.value,
+    ]
+    
+    query = (
+        db.collection(JOBS_COLLECTION)
+        .where("type", "==", job_type.value)
+        .where("status", "in", pending_statuses)
+        .limit(200)  # Check recent jobs (uses type+status index)
+    )
+    
+    for doc in query.stream():
+        data = doc.to_dict()
+        payload = data.get("payload", {})
+        exercise_ids = payload.get("exercise_doc_ids", [])
+        
+        # Check if this exercise is in the job's target list
+        if exercise_doc_id in exercise_ids:
+            logger.debug(
+                "Found pending job %s for exercise %s",
+                doc.id, exercise_doc_id
+            )
+            return doc.id
+    
+    return None
+
+
+def find_pending_jobs_batch(
+    job_type: JobType,
+    exercise_doc_ids: List[str],
+) -> Dict[str, str]:
+    """
+    Check for pending jobs for multiple exercises at once.
+    
+    More efficient than calling find_pending_job() in a loop.
+    
+    Args:
+        job_type: Type of job to check for
+        exercise_doc_ids: List of exercise document IDs
+        
+    Returns:
+        Dict mapping exercise_id -> pending job_id (only for exercises with pending jobs)
+    """
+    if not exercise_doc_ids:
+        return {}
+    
+    db = get_db()
+    exercise_set = set(exercise_doc_ids)
+    result = {}
+    
+    pending_statuses = [
+        JobStatus.QUEUED.value,
+        JobStatus.LEASED.value,
+        JobStatus.RUNNING.value,
+    ]
+    
+    query = (
+        db.collection(JOBS_COLLECTION)
+        .where("type", "==", job_type.value)
+        .where("status", "in", pending_statuses)
+        .limit(500)
+    )
+    
+    for doc in query.stream():
+        data = doc.to_dict()
+        payload = data.get("payload", {})
+        job_exercise_ids = payload.get("exercise_doc_ids", [])
+        
+        for ex_id in job_exercise_ids:
+            if ex_id in exercise_set and ex_id not in result:
+                result[ex_id] = doc.id
+    
+    if result:
+        logger.info(
+            "Found %d exercises with pending %s jobs",
+            len(result), job_type.value
+        )
+    
+    return result
+
+
 __all__ = [
     "create_job",
     "poll_job",
@@ -766,4 +873,6 @@ __all__ = [
     "renew_lease",
     "mark_job_running",
     "LockLostError",
+    "find_pending_job",
+    "find_pending_jobs_batch",
 ]

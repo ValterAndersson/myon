@@ -43,6 +43,9 @@ class JobType(str, Enum):
     # Enrichment jobs (LLM-backed field population)
     CATALOG_ENRICH_FIELD = "CATALOG_ENRICH_FIELD"          # Parent: shards and creates child jobs
     CATALOG_ENRICH_FIELD_SHARD = "CATALOG_ENRICH_FIELD_SHARD"  # Child: processes a batch of exercises
+    
+    # Schema maintenance jobs (V1.1)
+    SCHEMA_CLEANUP = "SCHEMA_CLEANUP"  # Remove deprecated fields from exercises
 
 
 class JobQueue(str, Enum):

@@ -360,6 +360,50 @@ def derive_canonical_name(base_name: str, equipment: Optional[str]) -> str:
     return f"{clean_base} ({suffix})"
 
 
+def derive_movement_family(name: str) -> str:
+    """
+    Derive family slug from exercise name by stripping equipment.
+    
+    Extracts just the base movement for family grouping.
+    
+    Rules:
+    - Remove equipment suffix in parentheses: "Deadlift (Barbell)" → "deadlift"
+    - Remove equipment keywords: "Dumbbell Curl" → "curl"
+    - Convert to underscore slug format: "Bench Press" → "bench_press"
+    
+    Args:
+        name: Exercise name (e.g., "Deadlift (Barbell)", "Dumbbell Bench Press")
+        
+    Returns:
+        Family slug using underscores (e.g., "deadlift", "bench_press")
+    """
+    # Step 1: Remove parenthetical suffix (equipment qualifier)
+    base = re.sub(r'\s*\([^)]+\)\s*$', '', name).strip()
+    
+    # Step 2: Remove leading equipment keywords
+    base_lower = base.lower()
+    equipment_prefixes = [
+        "barbell", "dumbbell", "kettlebell", "cable", "machine", 
+        "band", "bodyweight", "weighted", "smith machine",
+        "ez bar", "hex bar", "trap bar", "landmine",
+    ]
+    for prefix in equipment_prefixes:
+        if base_lower.startswith(prefix + " "):
+            base = base[len(prefix):].strip()
+            break
+    
+    # Step 3: Convert to underscore slug
+    slug = unicodedata.normalize('NFKD', base)
+    slug = slug.encode('ascii', 'ignore').decode('ascii')
+    slug = slug.lower()
+    slug = re.sub(r'[\s-]+', '_', slug)  # Use underscores
+    slug = re.sub(r'[^a-z0-9_]', '', slug)
+    slug = re.sub(r'_+', '_', slug)
+    slug = slug.strip('_')
+    
+    return slug
+
+
 def derive_name_slug(name: str) -> str:
     """
     Derive deterministic slug from exercise name.
@@ -606,6 +650,7 @@ __all__ = [
     "detect_equipment_from_name",
     "derive_equipment_suffix",
     "derive_canonical_name",
+    "derive_movement_family",
     "derive_name_slug",
     "compute_primary_equipment_set",
     "normalize_equipment_value",

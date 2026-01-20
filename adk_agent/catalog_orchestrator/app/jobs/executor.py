@@ -31,6 +31,7 @@ from app.family.taxonomy import (
     detect_duplicate_equipment,
     derive_canonical_name,
     derive_name_slug,
+    derive_movement_family,
 )
 from app.plans.models import ChangePlan, ValidationResult
 from app.plans.compiler import create_audit_plan, create_normalize_plan
@@ -109,6 +110,9 @@ class JobExecutor:
             elif self.job_type == JobType.ALIAS_INVARIANT_SCAN.value:
                 from app.jobs.handlers import execute_alias_invariant_scan
                 return execute_alias_invariant_scan(self.job_id, self.payload, self.mode)
+            elif self.job_type == JobType.SCHEMA_CLEANUP.value:
+                from app.jobs.handlers import execute_schema_cleanup
+                return execute_schema_cleanup(self.job_id, self.payload, self.mode)
             else:
                 return {
                     "success": False,
@@ -519,8 +523,9 @@ class JobExecutor:
                 "is_transient": False,
             }
         
-        # Derive family slug
-        family_slug = derive_name_slug(base_name)
+        # Derive family slug using movement extraction (strips equipment)
+        # V1.1: Use derive_movement_family for proper grouping
+        family_slug = derive_movement_family(base_name)
         
         # Check if family exists
         existing_exercises = get_family_exercises(family_slug)

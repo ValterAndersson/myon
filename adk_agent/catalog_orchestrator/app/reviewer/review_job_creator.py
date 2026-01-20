@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.jobs.models import JobType, JobQueue
-from app.jobs.queue import create_job
+from app.jobs.queue import create_job, find_pending_job
 from app.reviewer.catalog_reviewer import (
     BatchReviewResult,
     ReviewResult,
@@ -113,9 +113,36 @@ class ReviewJobCreator:
         
         Groups issues by category and creates appropriate job type.
         If LLM confidence is low, escalates to human review instead of auto-fix.
+        Skips job creation if a pending job already exists for this exercise.
         """
         if not result.issues:
             return None
+        
+        # Determine job type first for dedup check
+        issues_by_category_preview: Dict[IssueCategory, List[QualityIssue]] = {}
+        for issue in result.issues:
+            if issue.category not in issues_by_category_preview:
+                issues_by_category_preview[issue.category] = []
+            issues_by_category_preview[issue.category].append(issue)
+        
+        primary_category = self._get_primary_category(issues_by_category_preview)
+        job_type = CATEGORY_TO_JOB_TYPE.get(primary_category, JobType.CATALOG_ENRICH_FIELD)
+        
+        # Check for existing pending job (skip in dry-run mode)
+        if not self.dry_run:
+            existing_job_id = find_pending_job(job_type, result.exercise_id)
+            if existing_job_id:
+                logger.debug(
+                    "Skipping exercise %s - pending job exists: %s",
+                    result.exercise_id, existing_job_id
+                )
+                return {
+                    "exercise_id": result.exercise_id,
+                    "exercise_name": result.exercise_name,
+                    "skipped": True,
+                    "reason": f"Pending job exists: {existing_job_id}",
+                    "existing_job_id": existing_job_id,
+                }
         
         # Check for low-confidence LLM issues
         llm_issues = [i for i in result.issues if i.message and i.message.startswith("[LLM]")]

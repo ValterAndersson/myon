@@ -392,10 +392,118 @@ def execute_alias_invariant_scan(
     }
 
 
+def execute_schema_cleanup(
+    job_id: str,
+    payload: Dict[str, Any],
+    mode: str = "dry_run",
+) -> Dict[str, Any]:
+    """
+    Execute SCHEMA_CLEANUP job.
+    
+    Removes deprecated fields from exercises.
+    V1.1: Used for cleaning up legacy/debug fields.
+    
+    Args:
+        job_id: Job ID
+        payload: Job payload with exercise_doc_ids
+        mode: "dry_run" or "apply"
+    """
+    from google.cloud import firestore
+    from app.apply.engine import apply_change_plan
+    
+    # Deprecated fields to remove
+    DEPRECATED_FIELDS = [
+        "_debug_project_id",
+        "delete_candidate",
+        "delete_candidate_justification",
+        "enriched_description",
+        "enriched_common_mistakes",
+        "enriched_programming_use_cases",
+    ]
+    
+    exercise_doc_ids = payload.get("exercise_doc_ids", [])
+    fields_to_remove = payload.get("fields_to_remove", DEPRECATED_FIELDS)
+    
+    if not exercise_doc_ids:
+        return {
+            "success": False,
+            "error": {"code": "MISSING_TARGETS", "message": "SCHEMA_CLEANUP requires exercise_doc_ids"},
+            "is_transient": False,
+        }
+    
+    # Fetch exercises to check which have deprecated fields
+    db = firestore.Client()
+    exercises_with_fields = []
+    
+    for doc_id in exercise_doc_ids:
+        doc = db.collection("exercises").document(doc_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            deprecated_present = [f for f in fields_to_remove if f in data]
+            if deprecated_present:
+                exercises_with_fields.append({
+                    "doc_id": doc_id,
+                    "name": data.get("name", "Unknown"),
+                    "deprecated_fields": deprecated_present,
+                })
+    
+    if not exercises_with_fields:
+        return {
+            "success": True,
+            "cleanup_result": {
+                "message": "No exercises have deprecated fields",
+                "exercises_checked": len(exercise_doc_ids),
+                "exercises_cleaned": 0,
+            },
+        }
+    
+    # Create operations to delete deprecated fields
+    operations = []
+    for ex in exercises_with_fields:
+        # Build delete patch using Firestore DELETE_FIELD sentinel
+        operations.append(Operation(
+            op_type=OperationType.PATCH_FIELDS,
+            targets=[ex["doc_id"]],
+            patch={field: firestore.DELETE_FIELD for field in ex["deprecated_fields"]},
+            rationale=f"Remove deprecated fields: {', '.join(ex['deprecated_fields'])}",
+            risk_level=RiskLevel.LOW,
+            idempotency_key_seed=f"cleanup_{ex['doc_id']}_{','.join(sorted(ex['deprecated_fields']))}",
+        ))
+    
+    plan = ChangePlan(
+        job_id=job_id,
+        job_type="SCHEMA_CLEANUP",
+        scope={"exercise_count": len(exercises_with_fields)},
+        assumptions=[f"Removing deprecated fields from {len(exercises_with_fields)} exercises"],
+        operations=operations,
+        max_risk_level=RiskLevel.LOW,
+    )
+    
+    result = {
+        "success": True,
+        "cleanup_result": {
+            "exercises_checked": len(exercise_doc_ids),
+            "exercises_with_deprecated": len(exercises_with_fields),
+            "fields_removed": fields_to_remove,
+            "details": exercises_with_fields,
+        },
+        "plan": plan.to_dict(),
+        "mode": mode,
+    }
+    
+    if mode == "apply" and operations:
+        apply_result = apply_change_plan(plan, mode=mode, job_id=job_id)
+        result["applied"] = apply_result.success
+        result["apply_result"] = apply_result.to_dict()
+    
+    return result
+
+
 __all__ = [
     "execute_family_split",
     "execute_family_rename_slug",
     "execute_alias_repair",
     "execute_targeted_fix",
     "execute_alias_invariant_scan",
+    "execute_schema_cleanup",
 ]

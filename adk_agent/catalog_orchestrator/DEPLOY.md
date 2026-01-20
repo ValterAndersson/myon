@@ -62,11 +62,11 @@ gcloud scheduler jobs create http trigger-catalog-worker \
     --oauth-service-account-email="${PROJECT_ID}@appspot.gserviceaccount.com" \
     --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform"
 
-# Review - daily at 03:00 UTC (LLM catalog review)
+# Review - every 3 hours (LLM catalog review) - V1.1: increased from daily
 gcloud scheduler jobs create http trigger-catalog-review \
     --project=$PROJECT_ID \
     --location=$REGION \
-    --schedule="0 3 * * *" \
+    --schedule="0 */3 * * *" \
     --time-zone="UTC" \
     --uri="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/catalog-review:run" \
     --http-method=POST \
@@ -156,7 +156,7 @@ gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=ca
 | Job | Schedule | Timeout | What It Does |
 |-----|----------|---------|--------------|
 | **catalog-worker** | Every 15 min | 3h | Processes job queue (unlimited jobs per run) |
-| **catalog-review** | Daily 03:00 UTC | 4h | LLM reviews 1000 exercises, creates fix/enrich/add jobs |
+| **catalog-review** | Every 3 hours | 4h | LLM reviews 1000 exercises, creates fix/enrich/add jobs (V1.1: was daily) |
 | **catalog-cleanup** | Daily 08:00 UTC | 1h | Archives jobs >7 days, deletes from queue |
 | **catalog-watchdog** | Every 6 hours | 30m | Cleans up expired leases, dead locks |
 
