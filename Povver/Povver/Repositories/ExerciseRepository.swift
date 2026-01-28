@@ -5,7 +5,56 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
     init() {
         super.init(collection: Firestore.firestore().collection("exercises"))
     }
-    
+
+    /// Override list() to add error logging and manual ID injection
+    override func list() async throws -> [Exercise] {
+        let snapshot = try await collection.getDocuments()
+        print("[ExerciseRepository] Fetched \(snapshot.documents.count) documents from Firestore")
+
+        var exercises: [Exercise] = []
+        var errorCount = 0
+
+        for document in snapshot.documents {
+            do {
+                var exercise = try document.data(as: Exercise.self)
+                // Manually inject document ID since @DocumentID may not work with custom init
+                if exercise.id == nil {
+                    exercise.id = document.documentID
+                }
+                exercises.append(exercise)
+            } catch {
+                errorCount += 1
+                if errorCount <= 5 {
+                    print("[ExerciseRepository] Failed to decode \(document.documentID): \(error)")
+                }
+            }
+        }
+
+        if errorCount > 0 {
+            print("[ExerciseRepository] Total decode errors: \(errorCount) / \(snapshot.documents.count)")
+        }
+        print("[ExerciseRepository] Successfully decoded \(exercises.count) exercises")
+
+        return exercises
+    }
+
+    /// Override read() to add manual ID injection
+    override func read(id: String) async throws -> Exercise? {
+        let document = try await collection.document(id).getDocument()
+        guard document.exists else { return nil }
+
+        do {
+            var exercise = try document.data(as: Exercise.self)
+            if exercise.id == nil {
+                exercise.id = document.documentID
+            }
+            return exercise
+        } catch {
+            print("[ExerciseRepository] Failed to decode \(id): \(error)")
+            throw error
+        }
+    }
+
     func getExercisesByCategory(_ category: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("category", isEqualTo: category)

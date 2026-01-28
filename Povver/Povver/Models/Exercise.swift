@@ -1,9 +1,11 @@
 import Foundation
+import FirebaseFirestore
 
 struct Exercise: Identifiable, Codable {
-    let id: String
+    @DocumentID var id: String?
     let name: String
     let category: String
+    let description: String
     let metadata: ExerciseMetadata
     let movement: Movement
     let equipment: [String]
@@ -13,56 +15,66 @@ struct Exercise: Identifiable, Codable {
     let programmingNotes: [String]
     let stimulusTags: [String]
     let suitabilityNotes: [String]
-    
+    let coachingCues: [String]
+    let tips: [String]
+
     // Custom init for decoding with defaults for missing optional fields
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
+        // Initialize @DocumentID wrapper - Firestore will inject the actual doc ID after decoding
+        _id = DocumentID(wrappedValue: nil)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Unknown Exercise"
         category = try container.decodeIfPresent(String.self, forKey: .category) ?? "exercise"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         metadata = try container.decodeIfPresent(ExerciseMetadata.self, forKey: .metadata) ?? ExerciseMetadata.empty
         movement = try container.decodeIfPresent(Movement.self, forKey: .movement) ?? Movement.empty
         equipment = try container.decodeIfPresent([String].self, forKey: .equipment) ?? []
         muscles = try container.decodeIfPresent(Muscles.self, forKey: .muscles) ?? Muscles.empty
-        
-        // These fields may be missing in some documents - default to empty arrays
+
+        // Content arrays - default to empty if missing
         executionNotes = try container.decodeIfPresent([String].self, forKey: .executionNotes) ?? []
         commonMistakes = try container.decodeIfPresent([String].self, forKey: .commonMistakes) ?? []
         programmingNotes = try container.decodeIfPresent([String].self, forKey: .programmingNotes) ?? []
         stimulusTags = try container.decodeIfPresent([String].self, forKey: .stimulusTags) ?? []
         suitabilityNotes = try container.decodeIfPresent([String].self, forKey: .suitabilityNotes) ?? []
+        coachingCues = try container.decodeIfPresent([String].self, forKey: .coachingCues) ?? []
+        tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
     }
     
     // Computed properties for backward compatibility and capitalized text
     var level: String { metadata.level }
     var movementType: String { movement.type }
+    var movementSplit: String? { movement.split }
     var primaryMuscles: [String] { muscles.primary }
     var secondaryMuscles: [String] { muscles.secondary }
     var muscleCategories: [String] { muscles.category ?? [] }
     var muscleContributions: [String: Double] { muscles.contribution ?? [:] }
     var stimulus: String { stimulusTags.joined(separator: ", ") }
     var suitability: String { suitabilityNotes.joined(separator: " ") }
-    
+
     var capitalizedName: String { name.capitalized }
     var capitalizedCategory: String { category.capitalized }
     var capitalizedLevel: String { level.capitalized }
     var capitalizedMovementType: String { movementType.capitalized }
+    var capitalizedMovementSplit: String? { movementSplit?.capitalized }
     var capitalizedEquipment: String { equipment.joined(separator: ", ").capitalized }
     var capitalizedPrimaryMuscles: [String] { primaryMuscles.map { $0.capitalized } }
     var capitalizedSecondaryMuscles: [String] { secondaryMuscles.map { $0.capitalized } }
-    var capitalizedMuscleCategories: [String] { 
+    var capitalizedMuscleCategories: [String] {
         guard let categories = muscles.category else { return [] }
         return categories.map { $0.capitalized }
     }
-    var capitalizedMuscleContributions: [String: Double] { 
+    var capitalizedMuscleContributions: [String: Double] {
         guard let contributions = muscles.contribution else { return [:] }
         return Dictionary(uniqueKeysWithValues: contributions.map { ($0.key.capitalized, $0.value) })
     }
-    var capitalizedExecutionNotes: [String] { executionNotes.map { $0.capitalized } }
-    var capitalizedCommonMistakes: [String] { commonMistakes.map { $0.capitalized } }
-    var capitalizedProgrammingNotes: [String] { programmingNotes.map { $0.capitalized } }
-    var capitalizedStimulus: String { stimulus.capitalized }
-    var capitalizedSuitability: String { suitability.capitalized }
+    var capitalizedExecutionNotes: [String] { executionNotes }  // Don't capitalize sentences
+    var capitalizedCommonMistakes: [String] { commonMistakes }
+    var capitalizedProgrammingNotes: [String] { programmingNotes }
+    var capitalizedCoachingCues: [String] { coachingCues }
+    var capitalizedTips: [String] { tips }
+    var capitalizedStimulus: String { stimulus }
+    var capitalizedSuitability: String { suitability }
     
     // Convenience methods for muscle contributions
     func getContribution(for muscle: String) -> Double? {
@@ -82,9 +94,10 @@ struct Exercise: Identifiable, Codable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id
+        // Note: id is NOT included here - @DocumentID is injected by Firestore from document path
         case name
         case category
+        case description
         case metadata
         case movement
         case equipment
@@ -94,6 +107,8 @@ struct Exercise: Identifiable, Codable {
         case programmingNotes = "programming_use_cases"
         case stimulusTags = "stimulus_tags"
         case suitabilityNotes = "suitability_notes"
+        case coachingCues = "coaching_cues"
+        case tips
     }
 }
 
@@ -111,22 +126,29 @@ struct ExerciseMetadata: Codable {
     let level: String
     let planeOfMotion: String?
     let unilateral: Bool?
-    
+
     static let empty = ExerciseMetadata(level: "intermediate", planeOfMotion: nil, unilateral: nil)
-    
+
     init(level: String, planeOfMotion: String?, unilateral: Bool?) {
         self.level = level
         self.planeOfMotion = planeOfMotion
         self.unilateral = unilateral
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         level = try container.decodeIfPresent(String.self, forKey: .level) ?? "intermediate"
-        planeOfMotion = try container.decodeIfPresent(String.self, forKey: .planeOfMotion)
+        // Handle both string and array formats for plane_of_motion
+        if let stringValue = try? container.decodeIfPresent(String.self, forKey: .planeOfMotion) {
+            planeOfMotion = stringValue
+        } else if let arrayValue = try? container.decodeIfPresent([String].self, forKey: .planeOfMotion) {
+            planeOfMotion = arrayValue.first
+        } else {
+            planeOfMotion = nil
+        }
         unilateral = try container.decodeIfPresent(Bool.self, forKey: .unilateral)
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case level
         case planeOfMotion = "plane_of_motion"
@@ -137,20 +159,27 @@ struct ExerciseMetadata: Codable {
 struct Movement: Codable {
     let split: String?
     let type: String
-    
+
     static let empty = Movement(split: nil, type: "other")
-    
+
     init(split: String?, type: String) {
         self.split = split
         self.type = type
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        split = try container.decodeIfPresent(String.self, forKey: .split)
+        // Handle both string and array formats for split
+        if let stringValue = try? container.decodeIfPresent(String.self, forKey: .split) {
+            split = stringValue
+        } else if let arrayValue = try? container.decodeIfPresent([String].self, forKey: .split) {
+            split = arrayValue.first
+        } else {
+            split = nil
+        }
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? "other"
     }
-    
+
     enum CodingKeys: String, CodingKey {
         case split
         case type

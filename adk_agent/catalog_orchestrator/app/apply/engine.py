@@ -137,10 +137,45 @@ class ApplyResult:
 
 class ApplyEngine:
     """
-    Engine for applying Change Plans.
-    
-    Uses idempotency guard and journaling for safe execution.
-    The apply gate is enforced HERE, not by callers.
+    Engine for applying ChangePlan mutations to Firestore.
+
+    This is the ONLY place where catalog mutations happen.
+    All writes go through this engine for safety.
+
+    LIFECYCLE:
+        1. __init__(job_id, mode) - Set up engine for a job
+        2. apply(plan) - Execute the plan
+           - If mode="dry_run": return preview, no mutations
+           - If mode="apply" + gate off: raise ApplyGateError
+           - If mode="apply" + gate on: execute mutations
+        3. Optionally: apply_with_verify(plan) - Apply + post-verification
+
+    SAFETY MECHANISMS:
+        - Apply gate: mode="apply" requires CATALOG_APPLY_ENABLED=true env var
+        - Path validation: all patch paths checked against ALLOWED_*_PATHS
+        - Idempotency: operations tracked, duplicates skipped on retry
+        - Journaling: before/after snapshots recorded in catalog_changes
+        - Post-verification: optionally check that mutations took effect
+
+    OPERATION HANDLERS:
+        RENAME_EXERCISE     -> Updates name, name_slug
+        PATCH_FIELDS        -> Dotted path update (the workhorse)
+        CREATE_EXERCISE     -> Uses deterministic doc ID for idempotency
+        DEPRECATE_EXERCISE  -> Sets status="deprecated"
+        UPSERT_ALIAS        -> Enforces exercise_id XOR family_slug
+        DELETE_ALIAS        -> Idempotent deletion
+        REASSIGN_FAMILY     -> Bulk update family_slug
+        UPDATE_FAMILY_REGISTRY -> Updates exercise_families collection
+
+    GOTCHAS:
+        - DELETE_SENTINEL ("__DELETE__") maps to firestore.DELETE_FIELD
+        - CREATE_EXERCISE uses doc ID collision for idempotency (not transactions)
+        - UPSERT_ALIAS clears the "other" field (exercise_id clears family_slug)
+        - Journal saved even on partial failure (for debugging)
+
+    CALLERS:
+        - apply_change_plan() - Convenience function
+        - JobExecutor handlers - Via plan building and apply
     """
     
     def __init__(
@@ -185,11 +220,14 @@ class ApplyEngine:
         logger.info("ApplyEngine: job=%s, mode=%s, operations=%d",
                    self.job_id, self.mode, len(plan.operations))
         
-        # Mode check - dry_run returns preview only
+        # Mode check - dry_run returns preview only (no gate check needed)
         if self.mode != "apply":
             return self._dry_run(plan)
-        
-        # Apply mode - check env gate (fail fast, don't silently dry_run)
+
+        # IMPORTANT: Apply mode requires explicit opt-in via environment variable.
+        # We FAIL LOUDLY rather than silently falling back to dry_run.
+        # Why: Silent fallback would hide configuration errors in production.
+        # The job would appear to succeed but nothing would actually change.
         if not check_apply_gate():
             raise ApplyGateError(
                 "APPLY_GATE_BLOCKED: mode='apply' but CATALOG_APPLY_ENABLED is not set. "
@@ -533,8 +571,12 @@ class ApplyEngine:
         exercise_data["created_at"] = datetime.utcnow()
         exercise_data["updated_at"] = datetime.utcnow()
         exercise_data["status"] = exercise_data.get("status", "approved")
-        
-        # Use create() for idempotency - fails if doc exists
+
+        # IDEMPOTENCY STRATEGY: Use Firestore create() which fails if doc exists.
+        # This is simpler and more reliable than check-then-create (which has race).
+        # On retry, AlreadyExists -> success with skipped=True.
+        # Doc ID is deterministic ({family_slug}-{name_slug}) so same exercise
+        # always gets same ID, making retries safe.
         try:
             doc_ref.create(exercise_data)
         except AlreadyExists:

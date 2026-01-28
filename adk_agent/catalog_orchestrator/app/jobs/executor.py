@@ -1,16 +1,59 @@
 """
-Job Executor - Execute catalog curation jobs.
+Job Executor - Central dispatcher for all catalog curation job types.
 
-This module implements the full job execution pipeline:
-1. Fetch context (family summary, exercises, aliases)
-2. For audit jobs: analyze and create audit plan
-3. For normalize jobs: analyze and create normalize plan
-4. Validate plan using deterministic validators
-5. For dry_run: return plan preview
-6. For apply: apply changes (Phase 4)
+═══════════════════════════════════════════════════════════════════════════════
+ENTRY POINTS (what you'll call from outside)
+═══════════════════════════════════════════════════════════════════════════════
 
-The executor does NOT call LLM for Phase 2/3. It uses deterministic
-logic to generate plans from data. LLM integration comes in Phase 4+.
+  execute_job(job: Dict, worker_id: str) -> Dict
+      Main entry point. Call this to execute any job type.
+      Returns {"success": bool, "error"?: {...}, "plan"?: {...}, ...}
+
+  execute_with_repair_loop(job: Dict, worker_id: str, max_repairs: int) -> Dict
+      Same as execute_job but with LLM-assisted retry on validation failure.
+      Use for production; logs suggested fixes but doesn't auto-apply them (yet).
+
+═══════════════════════════════════════════════════════════════════════════════
+DISPATCH TABLE (JobType -> Handler)
+═══════════════════════════════════════════════════════════════════════════════
+
+  FAMILY_AUDIT          -> _execute_family_audit()         # Read-only analysis
+  FAMILY_NORMALIZE      -> _execute_family_normalize()     # Add equipment suffixes
+  FAMILY_MERGE          -> _execute_family_merge()         # Merge two families
+  FAMILY_SPLIT          -> handlers.execute_family_split() # Split by equipment
+  FAMILY_RENAME_SLUG    -> handlers.execute_family_rename_slug()
+  MAINTENANCE_SCAN      -> _execute_maintenance_scan()     # Emit targeted jobs
+  DUPLICATE_DETECTION   -> _execute_duplicate_detection_scan()
+  EXERCISE_ADD          -> _execute_exercise_add()         # Create new exercise
+  TARGETED_FIX          -> handlers.execute_targeted_fix() # Patch fields
+  ALIAS_REPAIR          -> handlers.execute_alias_repair()
+  ALIAS_INVARIANT_SCAN  -> handlers.execute_alias_invariant_scan()
+  SCHEMA_CLEANUP        -> handlers.execute_schema_cleanup()
+  CATALOG_ENRICH_FIELD  -> _execute_catalog_enrich_field() # Parent: shards work
+  CATALOG_ENRICH_FIELD_SHARD -> _execute_catalog_enrich_field_shard() # LLM call
+
+═══════════════════════════════════════════════════════════════════════════════
+INVARIANTS (rules that must always hold)
+═══════════════════════════════════════════════════════════════════════════════
+
+  1. Jobs with mode="dry_run" NEVER mutate Firestore
+  2. Jobs with mode="apply" require CATALOG_APPLY_ENABLED=true env var
+  3. All handlers return {"success": bool, ...} - never throw for expected errors
+  4. Lock-requiring jobs: TARGETED_FIX, EXERCISE_ADD, FAMILY_*, SCHEMA_CLEANUP,
+     CATALOG_ENRICH_FIELD_SHARD (acquired by worker, not executor)
+  5. Parent CATALOG_ENRICH_FIELD creates child SHARD jobs - does NOT enrich directly
+
+═══════════════════════════════════════════════════════════════════════════════
+GOTCHAS (things that might surprise you)
+═══════════════════════════════════════════════════════════════════════════════
+
+  • CATALOG_ENRICH_FIELD is a "meta job" - it just shards work and queues children
+  • EXERCISE_ADD checks for slug collision BEFORE creating (not transactional)
+  • Holistic enrichment mode triggered when enrichment_spec has fields_to_enrich
+  • execute_with_repair_loop logs LLM suggestions but doesn't auto-apply (conservative)
+  • Job handlers in handlers.py are imported lazily to avoid circular imports
+
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 from __future__ import annotations
@@ -43,9 +86,23 @@ logger = logging.getLogger(__name__)
 class JobExecutor:
     """
     Execute catalog curation jobs.
-    
-    Uses deterministic logic for plan generation in Phase 2/3.
-    LLM integration added in Phase 4+.
+
+    LIFECYCLE:
+        1. __init__() - Parse job dict, extract payload fields
+        2. execute() - Dispatch to job-type handler
+        3. Handler builds ChangePlan with Operations
+        4. Plan validated by plans.validators
+        5. If mode="apply", ApplyEngine executes mutations
+
+    CALLERS:
+        - execute_job() - Simple wrapper, use this
+        - execute_with_repair_loop() - With LLM retry on failure
+        - CatalogWorker.process_job() - Production entry point
+
+    GOTCHAS:
+        - mode is extracted from payload, NOT from job root
+        - family_slug may be None for catalog-wide jobs (scans)
+        - Handlers in handlers.py are imported lazily (avoid circular imports)
     """
     
     def __init__(self, job: Dict[str, Any], worker_id: str):
@@ -724,16 +781,35 @@ class JobExecutor:
     
     def _execute_catalog_enrich_field_shard(self) -> Dict[str, Any]:
         """
-        Execute CATALOG_ENRICH_FIELD_SHARD child job.
-        
-        Processes a batch of exercises with LLM enrichment.
-        
-        Supports two modes:
-        1. Legacy single-field mode: enrichment_spec.field_path is set
-        2. Holistic mode: enrichment_spec.fields_to_enrich is set (from reviewer)
-        
-        Holistic mode passes full exercise to LLM with reviewer hints and lets
-        it decide what fields to update.
+        Execute CATALOG_ENRICH_FIELD_SHARD - the job that actually calls LLM.
+
+        This is where enrichment happens. Parent CATALOG_ENRICH_FIELD just shards.
+
+        MODES:
+            Holistic (preferred): enrichment_spec.fields_to_enrich is set
+                -> Calls enrich_exercise_holistic() for each exercise
+                -> LLM sees full doc + reviewer hints, decides what to update
+                -> More coherent results than single-field
+
+            Legacy single-field: enrichment_spec.field_path is set
+                -> Calls compute_enrichment_batch() with EnrichmentSpec
+                -> One LLM call per field per exercise
+                -> Used for targeted field generation
+
+        PAYLOAD REQUIREMENTS:
+            enrichment_spec: Dict with mode-specific fields
+            exercise_doc_ids: List of exercise doc IDs to enrich
+            parent_job_id: Optional parent job ID for tracking
+
+        GOTCHAS:
+            - Checks apply gate BEFORE fetching exercises (fail fast)
+            - Missing exercises are logged but don't fail the job
+            - Returns partial success if some exercises fail
+            - Normalization (muscle names, stimulus tags) applied after LLM
+
+        CALLERS:
+            - CatalogWorker (from job queue)
+            - Never call directly - use queue system
         """
         from app.enrichment.models import EnrichmentSpec, ShardResult, EnrichmentResult
         from app.enrichment.engine import compute_enrichment_batch, enrich_exercise_holistic

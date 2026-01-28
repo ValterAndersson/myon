@@ -1,17 +1,37 @@
 'use strict';
 
-// Import workouts from Strong app CSV and upsert into MYON for an existing user.
-// Usage: node scripts/import_strong_csv.js <USER_ID> [CSV_PATH]
-// Notes:
-// - API base and key are hardcoded for convenience.
-// - Resolves exercises via resolveExercise; unmatched entries are reported and skipped.
+/**
+ * Import workouts from Strong app CSV and upsert into MYON for an existing user.
+ *
+ * Usage:
+ *   node scripts/import_strong_csv.js <USER_ID> [CSV_PATH] [OPTIONS]
+ *
+ * Options:
+ *   --interactive    Prompt for exercise disambiguation when multiple matches found
+ *   --cleanup        Clean up duplicate workouts before importing
+ *   --dry-run        Show what would be imported without making changes
+ *
+ * Examples:
+ *   node scripts/import_strong_csv.js abc123 strong.csv --interactive
+ *   node scripts/import_strong_csv.js abc123 --cleanup
+ */
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const readline = require('readline');
 
 let admin = null;
 let firestore = null;
+
+// CLI flags
+const args = process.argv.slice(2);
+const FLAGS = {
+  interactive: args.includes('--interactive'),
+  cleanup: args.includes('--cleanup'),
+  dryRun: args.includes('--dry-run'),
+};
+const positionalArgs = args.filter(a => !a.startsWith('--'));
 
 function getFirestore() {
   if (!admin) {
@@ -22,7 +42,7 @@ function getFirestore() {
         const functionsDir = path.resolve(__dirname, 'firebase_functions', 'functions');
         admin = require(require.resolve('firebase-admin', { paths: [functionsDir] }));
       } catch (err) {
-        throw new Error('firebase-admin is required for dedupe lookup. Install it or run from functions dir.');
+        throw new Error('firebase-admin is required. Install it or run from functions dir.');
       }
     }
     if (!admin.apps.length) {
@@ -63,7 +83,6 @@ async function httpJson(method, endpoint, body, extraHeaders) {
 
 async function ensureUserDoc(userId) {
   try {
-    // Create minimal user mirrors via preferences; safe no-op if exists
     await httpJson('POST', 'updateUserPreferences', {
       userId,
       preferences: {
@@ -76,20 +95,10 @@ async function ensureUserDoc(userId) {
   }
 }
 
-async function followCanonical(exerciseId) {
-  try {
-    const resp = await httpJson('POST', 'getExercise', { exerciseId });
-    // Shapes: { success, data: { id, ... } } or nested
-    const data = resp?.data || resp;
-    if (data && typeof data === 'object') {
-      const ex = data.exercise || data;
-      if (ex && typeof ex === 'object') return ex.id || exerciseId;
-    }
-  } catch (_) {}
-  return exerciseId;
-}
+// =============================================================================
+// CSV PARSING
+// =============================================================================
 
-// Minimal CSV parser for semicolon- or comma-delimited, double-quoted values.
 function parseCSV(content) {
   const lines = content.split(/\r?\n/).filter(l => l.length > 0);
   if (lines.length === 0) return [];
@@ -150,30 +159,24 @@ function toNumber(str) {
 
 function parseStrongDate(dateStr) {
   if (!dateStr) throw new Error('Missing Date column in CSV export.');
-  // Input like: 2024-06-18 11:04:00 (local time)
-  // Treat as local and convert to ISO.
   return new Date(dateStr.replace(' ', 'T'));
 }
 
 function parseExerciseName(raw) {
-  // Example: "Deadlift (Barbell)" => baseName: Deadlift, equipment: [Barbell]
   const m = raw.match(/^(.*?)(?:\s*\((.*)\))?$/);
   const base = (m && m[1]) ? m[1].trim() : raw.trim();
   const equipRaw = (m && m[2]) ? m[2].trim() : '';
-  // Split on '-' or ',' to get tokens; trim
   const equipment = equipRaw ? equipRaw.split(/-|,/).map(s => s.trim()).filter(Boolean) : [];
   return { base, equipment };
 }
 
 function deriveRIR(rpeStr) {
   const rpe = toNumber(rpeStr);
-  if (!Number.isFinite(rpe)) return 2; // default when missing
-  // Discrete mapping per table, capped to max RIR = 4
-  // 10 -> 0, 9.5 -> 0, 9 -> 1, 8.5 -> 1 (possibly 2), 8 -> 2, 7.5 -> 2, 7 -> 3, 5-6 -> 4
+  if (!Number.isFinite(rpe)) return 2;
   let rir;
   if (rpe >= 9.5) rir = 0;
   else if (rpe >= 9.0) rir = 1;
-  else if (rpe >= 8.5) rir = 1; // could be 2; choose conservative 1
+  else if (rpe >= 8.5) rir = 1;
   else if (rpe >= 8.0) rir = 2;
   else if (rpe >= 7.5) rir = 2;
   else if (rpe >= 7.0) rir = 3;
@@ -210,86 +213,345 @@ function groupByWorkout(rows) {
   return groups;
 }
 
-async function resolveExerciseCached(cache, base, equipment, userId) {
-  const key = `${base}|${equipment.join(',')}`;
-  if (cache.has(key)) return cache.get(key);
-  // Try resolveExercise first
-  try {
-    const resp = await httpJson('POST', 'resolveExercise', { q: base, context: { available_equipment: equipment } });
-    const best = resp?.data?.best || resp?.data?.data?.best || resp?.data?.best || resp?.best;
-    if (best?.id) {
-      const canonicalId = await followCanonical(best.id);
-      cache.set(key, canonicalId);
-      return canonicalId;
+// =============================================================================
+// INTERACTIVE PROMPTS
+// =============================================================================
+
+let rl = null;
+
+function getReadline() {
+  if (!rl) {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  }
+  return rl;
+}
+
+function closeReadline() {
+  if (rl) {
+    rl.close();
+    rl = null;
+  }
+}
+
+async function prompt(question) {
+  return new Promise((resolve) => {
+    getReadline().question(question, (answer) => {
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function promptChoice(message, options) {
+  console.log(`\n${message}`);
+  options.forEach((opt, i) => {
+    console.log(`  [${i + 1}] ${opt.label}`);
+  });
+
+  while (true) {
+    const answer = await prompt(`Choice [1-${options.length}]: `);
+    const num = parseInt(answer, 10);
+    if (num >= 1 && num <= options.length) {
+      return options[num - 1];
     }
-  } catch (_) {}
-  // Fallback: searchExercises
+    // Default to first option on empty input
+    if (answer === '') {
+      return options[0];
+    }
+    console.log(`Please enter a number between 1 and ${options.length}`);
+  }
+}
+
+// =============================================================================
+// EXERCISE RESOLUTION
+// =============================================================================
+
+async function searchExercises(query, limit = 10) {
   try {
-    const url = `${API_BASE_URL.replace(/\/$/, '')}/searchExercises?query=${encodeURIComponent(base)}&limit=5`;
+    const url = `${API_BASE_URL}/searchExercises?query=${encodeURIComponent(query)}&limit=${limit}`;
     const res = await fetch(url, { headers: { 'X-API-Key': API_KEY } });
     const json = await res.json();
-    const items = json?.data?.items || [];
-    if (items.length) {
-      const canonicalId = await followCanonical(items[0].id);
-      cache.set(key, canonicalId);
-      return canonicalId;
-    }
-  } catch (_) {}
-  // Create placeholder draft as a last resort
+    return json?.data?.items || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function getExercisesByFamily(familySlug) {
   try {
-    const ensure = await httpJson('POST', 'ensureExerciseExists', { exercise: { name: base, equipment } }, { 'X-User-Id': userId });
-    const createdId = ensure?.data?.exercise_id || ensure?.exercise_id;
-    if (createdId) {
-      const canonicalId = await followCanonical(createdId);
-      cache.set(key, canonicalId);
-      return canonicalId;
+    const db = getFirestore();
+    const snap = await db.collection('exercises')
+      .where('family_slug', '==', familySlug)
+      .get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function normalizeForMatching(str) {
+  return str.toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/dumbbell|dumbell|db/g, 'dumbbell')
+    .replace(/barbell|bb/g, 'barbell')
+    .replace(/cable/g, 'cable')
+    .replace(/machine/g, 'machine');
+}
+
+function scoreMatch(strongName, strongEquip, exercise) {
+  let score = 0;
+  const exName = (exercise.name || '').toLowerCase();
+  const exEquip = (exercise.equipment || []).map(e => e.toLowerCase());
+  const strongBase = normalizeForMatching(strongName);
+
+  // Name similarity
+  if (exName.includes(strongBase) || strongBase.includes(normalizeForMatching(exName.split('(')[0]))) {
+    score += 50;
+  }
+
+  // Equipment match
+  for (const eq of strongEquip) {
+    const normEq = normalizeForMatching(eq);
+    if (exEquip.some(e => normalizeForMatching(e).includes(normEq) || normEq.includes(normalizeForMatching(e)))) {
+      score += 30;
     }
-  } catch (_) {}
-  cache.set(key, null);
+  }
+
+  // Exact equipment match bonus
+  if (strongEquip.length > 0 && exEquip.length > 0) {
+    const strongEquipNorm = strongEquip.map(normalizeForMatching).sort().join(',');
+    const exEquipNorm = exEquip.map(normalizeForMatching).sort().join(',');
+    if (strongEquipNorm === exEquipNorm) {
+      score += 20;
+    }
+  }
+
+  return score;
+}
+
+async function resolveExerciseInteractive(cache, strongName, strongEquip, userId, sessionMappings) {
+  const cacheKey = `${strongName}|${strongEquip.join(',')}`;
+
+  // Check session cache first
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  if (sessionMappings.has(strongName)) {
+    const mapped = sessionMappings.get(strongName);
+    cache.set(cacheKey, mapped);
+    return mapped;
+  }
+
+  // Search for candidates
+  const { base } = parseExerciseName(strongName);
+  const candidates = await searchExercises(base, 10);
+
+  if (candidates.length === 0) {
+    console.log(`  [!] No matches found for "${strongName}" - skipping`);
+    cache.set(cacheKey, null);
+    return null;
+  }
+
+  // Score and sort candidates
+  const scored = candidates.map(c => ({
+    ...c,
+    score: scoreMatch(base, strongEquip, c),
+  })).sort((a, b) => b.score - a.score);
+
+  // If best match has high confidence (>70) and is significantly better than second, auto-select
+  if (scored[0].score >= 70 && (!scored[1] || scored[0].score - scored[1].score >= 20)) {
+    console.log(`  [*] Auto-matched "${strongName}" -> "${scored[0].name}" (score: ${scored[0].score})`);
+    cache.set(cacheKey, scored[0].id);
+    return scored[0].id;
+  }
+
+  // Interactive mode: prompt user
+  if (FLAGS.interactive) {
+    const options = scored.slice(0, 5).map(c => ({
+      label: `${c.name} [${(c.equipment || []).join(', ')}] (score: ${c.score})`,
+      value: c.id,
+    }));
+    options.push({ label: 'Skip this exercise', value: null });
+
+    const choice = await promptChoice(
+      `Multiple matches for "${strongName}":`,
+      options
+    );
+
+    // Remember for this session (same Strong name -> same choice)
+    sessionMappings.set(strongName, choice.value);
+    cache.set(cacheKey, choice.value);
+    return choice.value;
+  }
+
+  // Non-interactive: use best match if score is decent
+  if (scored[0].score >= 50) {
+    console.log(`  [?] Best guess for "${strongName}" -> "${scored[0].name}" (score: ${scored[0].score})`);
+    cache.set(cacheKey, scored[0].id);
+    return scored[0].id;
+  }
+
+  console.log(`  [!] Low confidence match for "${strongName}" - skipping (use --interactive to choose)`);
+  cache.set(cacheKey, null);
   return null;
 }
 
+// =============================================================================
+// DUPLICATE CLEANUP
+// =============================================================================
+
+async function cleanupDuplicateWorkouts(userId, dryRun = false) {
+  console.log('\n--- Cleaning up duplicate workouts ---');
+
+  const db = getFirestore();
+  const workoutsRef = db.collection('users').doc(userId).collection('workouts');
+  const snap = await workoutsRef.get();
+
+  if (snap.empty) {
+    console.log('No workouts found.');
+    return { deleted: 0, kept: 0 };
+  }
+
+  // Group by source_meta.key (our dedup key)
+  const byKey = new Map();
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const key = data?.source_meta?.key;
+    if (!key) continue; // Only process imported workouts
+
+    if (!byKey.has(key)) {
+      byKey.set(key, []);
+    }
+    byKey.get(key).push({
+      id: doc.id,
+      createTime: doc.createTime?.toMillis() || 0,
+      data,
+    });
+  }
+
+  let deleted = 0;
+  let kept = 0;
+
+  for (const [key, docs] of byKey.entries()) {
+    if (docs.length <= 1) {
+      kept += docs.length;
+      continue;
+    }
+
+    // Sort by creation time, keep the oldest
+    docs.sort((a, b) => a.createTime - b.createTime);
+    const [keep, ...remove] = docs;
+
+    console.log(`  Key: ${key}`);
+    console.log(`    Keeping: ${keep.id} (created ${new Date(keep.createTime).toISOString()})`);
+
+    for (const dup of remove) {
+      console.log(`    Removing: ${dup.id} (created ${new Date(dup.createTime).toISOString()})`);
+      if (!dryRun) {
+        await workoutsRef.doc(dup.id).delete();
+      }
+      deleted++;
+    }
+    kept++;
+  }
+
+  console.log(`\nDuplicate cleanup: ${deleted} removed, ${kept} kept${dryRun ? ' (dry-run)' : ''}`);
+  return { deleted, kept };
+}
+
+// =============================================================================
+// MAIN IMPORT
+// =============================================================================
+
 async function main() {
-  const userId = process.argv[2];
-  const csvPath = process.argv[3] || path.resolve(process.cwd(), 'strong_workouts.csv');
+  const userId = positionalArgs[0];
+  const csvPath = positionalArgs[1] || path.resolve(process.cwd(), 'strong_workouts.csv');
+
   if (!userId) {
-    console.error('Usage: node scripts/import_strong_csv.js <USER_ID> [CSV_PATH]');
+    console.error('Usage: node scripts/import_strong_csv.js <USER_ID> [CSV_PATH] [OPTIONS]');
+    console.error('');
+    console.error('Options:');
+    console.error('  --interactive    Prompt for exercise disambiguation');
+    console.error('  --cleanup        Clean up duplicate workouts before importing');
+    console.error('  --dry-run        Show what would be imported without making changes');
     process.exit(1);
   }
+
+  console.log('Strong CSV Import');
+  console.log('==================');
+  console.log(`User ID:      ${userId}`);
+  console.log(`Interactive:  ${FLAGS.interactive}`);
+  console.log(`Dry-run:      ${FLAGS.dryRun}`);
+
+  // Cleanup mode
+  if (FLAGS.cleanup) {
+    await cleanupDuplicateWorkouts(userId, FLAGS.dryRun);
+    if (!positionalArgs[1]) {
+      // Just cleanup, no import
+      closeReadline();
+      return;
+    }
+  }
+
   if (!fs.existsSync(csvPath)) {
     console.error('CSV file not found:', csvPath);
     process.exit(1);
   }
 
-  console.log('Importing Strong CSV for user:', userId, 'from', csvPath);
-  // Ensure Firestore shows the parent user doc so subcollections are visible
+  console.log(`CSV file:     ${csvPath}`);
+  console.log('');
+
   await ensureUserDoc(userId);
+
   const content = fs.readFileSync(csvPath, 'utf8');
   const rows = parseCSV(content);
   if (!rows.length) {
     console.log('No rows parsed. Exiting.');
+    closeReadline();
     return;
   }
+
   const groups = groupByWorkout(rows);
-  console.log('Workouts to import:', groups.size);
+  console.log(`Workouts to import: ${groups.size}\n`);
 
   const exerciseCache = new Map();
+  const sessionMappings = new Map(); // Remember user choices for this session
   const unresolved = new Set();
   let imported = 0;
-  // Optional manual mapping file next to CSV: same name + .map.json
-  const mappingPath = csvPath + '.map.json';
-  let manualMap = {};
-  if (fs.existsSync(mappingPath)) {
-    try { manualMap = JSON.parse(fs.readFileSync(mappingPath, 'utf8')); } catch (_) {}
+  let skipped = 0;
+
+  // Pre-fetch existing workouts for dedup
+  const db = getFirestore();
+  const existingKeys = new Set();
+  try {
+    const workoutsSnap = await db.collection('users').doc(userId).collection('workouts').get();
+    for (const doc of workoutsSnap.docs) {
+      const key = doc.data()?.source_meta?.key;
+      if (key) existingKeys.add(key);
+    }
+    console.log(`Found ${existingKeys.size} existing imported workouts\n`);
+  } catch (e) {
+    console.warn('Could not fetch existing workouts:', e.message);
   }
 
   for (const [, bundle] of groups) {
     const { rows: wrows, meta } = bundle;
-    // Metadata
     const start = parseStrongDate(meta.dateStr);
     const duration = toNumber(wrows[0]['Duration (sec)']) || 3600;
     const end = new Date(start.getTime() + duration * 1000);
     const workoutNotes = (wrows.find(r => r['Workout Notes']) || {})['Workout Notes'] || '';
+
+    // Build dedup key
+    const roundedStart = new Date(Math.floor(start.getTime() / (10 * 60 * 1000)) * (10 * 60 * 1000));
+    const normalizedName = (meta.name || '').trim();
+    const importKey = `${roundedStart.toISOString()}|${normalizedName}`;
+
+    // Skip if already exists
+    if (existingKeys.has(importKey)) {
+      console.log(`[SKIP] "${meta.name}" @ ${meta.dateStr} (already imported)`);
+      skipped++;
+      continue;
+    }
 
     // Group by exercise name
     const byEx = new Map();
@@ -300,20 +562,21 @@ async function main() {
       byEx.get(exName).push(r);
     }
 
+    console.log(`\n[IMPORT] "${meta.name}" @ ${meta.dateStr}`);
+
     const exercises = [];
     for (const [exName, srows] of byEx.entries()) {
       const { base, equipment } = parseExerciseName(exName);
-      let exId = null;
-      // Manual mapping takes precedence when provided
-      if (manualMap[exName]) {
-        exId = manualMap[exName];
-      } else {
-        exId = await resolveExerciseCached(exerciseCache, base, equipment, userId);
-      }
+
+      const exId = await resolveExerciseInteractive(
+        exerciseCache, exName, equipment, userId, sessionMappings
+      );
+
       if (!exId) {
         unresolved.add(exName);
-        continue; // skip unknown exercise to avoid touching catalog
+        continue;
       }
+
       // Sort sets by Set Order
       srows.sort((a, b) => sortSetOrder(a['Set Order'], b['Set Order']));
       const sets = [];
@@ -327,7 +590,6 @@ async function main() {
         if (order === 'WARM_UP') type = 'warmup';
         if (order === 'DROP_SET') type = 'drop set';
         if (order === 'FAILURE') type = 'failure set';
-        // Mark incomplete if reps missing or zero; still record weight if present
         const isCompleted = Number.isFinite(reps) && reps > 0;
         sets.push({
           reps: Number.isFinite(reps) ? reps : 0,
@@ -338,18 +600,18 @@ async function main() {
           seconds: Number.isFinite(seconds) ? seconds : undefined,
         });
       }
-      // Drop empty set lists
+
       if (sets.length === 0) continue;
       exercises.push({ exercise_id: exId, name: base, position: exercises.length, sets });
     }
 
     if (exercises.length === 0) {
-      console.log('Skipping workout with no resolvable exercises:', meta.name, meta.dateStr);
+      console.log(`  [!] Skipping - no resolvable exercises`);
+      skipped++;
       continue;
     }
 
-    // Build a dedupe digest that is resilient to small time skews: round start to 10-min buckets
-    const roundedStart = new Date(Math.floor(start.getTime() / (10 * 60 * 1000)) * (10 * 60 * 1000));
+    // Build digest for ID
     const digestObj = {
       dateBucket: roundedStart.toISOString(),
       name: meta.name,
@@ -357,38 +619,10 @@ async function main() {
     };
     const digest = crypto.createHash('sha1').update(JSON.stringify(digestObj)).digest('hex');
 
-    // Dedup existing workout with same import key
-    const normalizedName = (meta.name || '').trim();
-    const importKey = `${roundedStart.toISOString()}|${normalizedName}`;
-    let existingWorkoutId = null;
-    try {
-      const db = getFirestore();
-      const userDoc = db.collection('users').doc(userId);
-      const workoutsSnap = await userDoc.collection('workouts')
-        .where('source_meta.key', '==', importKey)
-        .get();
-      if (!workoutsSnap.empty) {
-        const docs = workoutsSnap.docs.sort((a, b) => {
-          const at = a.createTime?.seconds || 0;
-          const bt = b.createTime?.seconds || 0;
-          return at - bt;
-        });
-        existingWorkoutId = docs[0].id;
-        const duplicates = docs.slice(1);
-        if (duplicates.length) {
-          await Promise.all(
-            duplicates.map((doc) => doc.ref.delete().catch(() => {}))
-          );
-        }
-      }
-    } catch (e) {
-      console.warn('Existing workout lookup failed (continuing):', e.message);
-    }
-
     const payload = {
       userId,
       workout: {
-        id: existingWorkoutId || `imp:strong:${digest}`,
+        id: `imp:strong:${digest}`,
         start_time: iso(start),
         end_time: iso(end),
         notes: `Strong import — ${meta.name}${workoutNotes ? ' — ' + workoutNotes : ''}`,
@@ -397,29 +631,57 @@ async function main() {
       },
     };
 
-    try {
-      await httpJson('POST', 'upsertWorkout', payload);
-      imported += 1;
-    } catch (e) {
-      console.error('Failed to import workout', meta.name, meta.dateStr, e.message);
+    if (FLAGS.dryRun) {
+      console.log(`  [DRY-RUN] Would import ${exercises.length} exercises`);
+      imported++;
+    } else {
+      try {
+        await httpJson('POST', 'upsertWorkout', payload);
+        console.log(`  [OK] Imported ${exercises.length} exercises`);
+        imported++;
+        existingKeys.add(importKey); // Track for dedup within this run
+      } catch (e) {
+        console.error(`  [ERROR] ${e.message}`);
+      }
     }
   }
 
-  console.log('Imported workouts:', imported, '/', groups.size);
+  // Summary
+  console.log('\n==================');
+  console.log('IMPORT SUMMARY');
+  console.log('==================');
+  console.log(`Total workouts:  ${groups.size}`);
+  console.log(`Imported:        ${imported}`);
+  console.log(`Skipped:         ${skipped}`);
+
   if (unresolved.size) {
-    console.log('Unresolved exercise names (skipped):');
-    for (const n of unresolved) console.log('-', n);
+    console.log(`\nUnresolved exercises (${unresolved.size}):`);
+    for (const n of unresolved) console.log(`  - ${n}`);
   }
-  console.log('Running analytics controller...');
-  try {
-    const run = await httpJson('POST', 'runAnalyticsForUser', { userId });
-    console.log('Analytics result:', run?.data || run);
-  } catch (e) {
-    console.warn('Analytics controller failed:', e.message);
+
+  if (sessionMappings.size > 0) {
+    console.log(`\nExercise mappings used this session:`);
+    for (const [strong, exId] of sessionMappings.entries()) {
+      console.log(`  "${strong}" -> ${exId || '(skipped)'}`);
+    }
+  }
+
+  closeReadline();
+
+  // Run analytics
+  if (!FLAGS.dryRun && imported > 0) {
+    console.log('\nRunning analytics controller...');
+    try {
+      const run = await httpJson('POST', 'runAnalyticsForUser', { userId });
+      console.log('Analytics result:', run?.data || run);
+    } catch (e) {
+      console.warn('Analytics controller failed:', e.message);
+    }
   }
 }
 
 main().catch(err => {
+  closeReadline();
   console.error('Import failed:', err?.message || err);
   process.exit(1);
 });

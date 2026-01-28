@@ -98,11 +98,12 @@ class TemplateManager: ObservableObject {
     
     // MARK: - Exercise Management
     func addExercise(_ exercise: Exercise, at position: Int? = nil) {
-        guard var template = currentTemplate else { return }
-        
+        guard var template = currentTemplate,
+              let exerciseId = exercise.id else { return }
+
         let templateExercise = WorkoutTemplateExercise(
             id: UUID().uuidString,
-            exerciseId: exercise.id,
+            exerciseId: exerciseId,
             position: position ?? template.exercises.count,
             sets: [],
             restBetweenSets: nil

@@ -1,10 +1,53 @@
 """
-Enrichment Engine - Compute field values using LLM.
+Enrichment Engine - LLM-powered field generation for exercises.
 
-This module provides the core enrichment logic:
-- Prompt construction from exercise data and spec
-- LLM invocation with appropriate model selection
-- Response parsing and validation
+═══════════════════════════════════════════════════════════════════════════════
+ENTRY POINTS
+═══════════════════════════════════════════════════════════════════════════════
+
+  enrich_exercise_holistic(exercise, reviewer_hint, llm_client) -> Dict
+      PREFERRED. Pass full exercise doc, LLM decides what to update.
+      Returns {"success": bool, "changes": {field: value}, "reasoning": str}
+
+  compute_enrichment(exercise, spec, llm_client) -> EnrichmentResult
+      Single-field enrichment using EnrichmentSpec.
+      Legacy mode - use holistic for new code.
+
+  enrich_field_with_guide(exercise, field_path, llm_client) -> Dict
+      Single-field using ExerciseFieldGuide specs.
+      Returns {"success": bool, "value": Any, "field_path": str}
+
+═══════════════════════════════════════════════════════════════════════════════
+LOCKED FIELDS (never modified by enrichment)
+═══════════════════════════════════════════════════════════════════════════════
+
+  name, name_slug, family_slug, status, created_at, updated_at, doc_id, id
+
+  Why: These define exercise identity. Changing them would break references.
+  If LLM suggests changing these, the suggestion is silently dropped.
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT NORMALIZATION (applied to all LLM output)
+═══════════════════════════════════════════════════════════════════════════════
+
+  muscles.primary/secondary: underscores -> spaces, lowercase, dedupe
+  muscles.contribution: keys normalized, values clamped to 0.0-1.0
+  stimulus_tags: title case, dedupe by lowercase
+  category: validated against VALID_CATEGORIES, fallback to "compound"
+
+  Why: LLM output is inconsistent. Normalization ensures data quality.
+
+═══════════════════════════════════════════════════════════════════════════════
+GOTCHAS
+═══════════════════════════════════════════════════════════════════════════════
+
+  • Holistic mode imports WHAT_GOOD_LOOKS_LIKE from reviewer module (at runtime)
+  • LLM response parsing handles markdown code blocks, truncated JSON
+  • enrich_exercise_holistic returns success=True with empty changes if nothing needed
+  • Golden examples selected by matching category/equipment (may not be perfect)
+  • ENRICHABLE_FIELD_PATHS is the allowlist - unlisted fields are dropped
+
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 from __future__ import annotations
@@ -609,22 +652,46 @@ def enrich_exercise_holistic(
 ) -> Dict[str, Any]:
     """
     Holistically enrich an exercise document using LLM.
-    
-    Passes the full exercise to LLM with guidance (WHAT_GOOD_LOOKS_LIKE)
-    and lets it decide what fields to update. The reviewer_hint provides
-    context about what the reviewer found wrong.
-    
+
+    This is the PREFERRED enrichment method. Pass the full exercise doc,
+    LLM sees everything and decides what to update coherently.
+
+    WHY HOLISTIC:
+        Single LLM call that can see relationships between fields.
+        E.g., if it sets muscles.primary, it can also set muscles.contribution
+        to match. Single-field mode can't do this.
+
+    PROMPT INCLUDES:
+        - WHAT_GOOD_LOOKS_LIKE (philosophy from reviewer module)
+        - INSTRUCTIONS_GUIDANCE, MUSCLE_MAPPING_GUIDANCE
+        - A golden example for reference
+        - The full exercise document
+        - reviewer_hint (what the reviewer flagged)
+
+    LOCKED FIELDS (silently dropped if LLM suggests changes):
+        name, name_slug, family_slug, status
+
+    NORMALIZATION (applied after LLM response):
+        - Muscle names: underscores -> spaces, lowercase
+        - stimulus_tags: title case, dedupe
+        - category: validated against VALID_CATEGORIES
+
     Args:
         exercise: Full exercise document
         reviewer_hint: Optional hint from the reviewer about issues found
-        llm_client: LLM client
-        
+        llm_client: LLM client (uses default if not provided)
+
     Returns:
         Dict with:
-        - success: bool
+        - success: bool - True even if no changes needed
         - changes: Dict[str, Any] - flat dict of dotted paths to new values
         - reasoning: str - LLM's reasoning
-        - confidence: str
+        - confidence: str - "high", "medium", or "low"
+        - error: str (only if success=False)
+
+    CALLERS:
+        - _execute_holistic_enrichment() in executor.py
+        - Can also call directly for testing/debugging
     """
     from app.reviewer.what_good_looks_like import WHAT_GOOD_LOOKS_LIKE
     

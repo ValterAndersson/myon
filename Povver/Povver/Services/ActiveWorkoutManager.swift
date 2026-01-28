@@ -188,11 +188,12 @@ class ActiveWorkoutManager: ObservableObject {
     
     // MARK: - Exercise Management
     func addExercise(_ exercise: Exercise, at position: Int? = nil) {
-        guard var workout = activeWorkout else { return }
-        
+        guard var workout = activeWorkout,
+              let exerciseId = exercise.id else { return }
+
         let activeExercise = ActiveExercise(
             id: UUID().uuidString,
-            exerciseId: exercise.id,
+            exerciseId: exerciseId,
             name: exercise.name,
             position: position ?? workout.exercises.count,
             sets: []

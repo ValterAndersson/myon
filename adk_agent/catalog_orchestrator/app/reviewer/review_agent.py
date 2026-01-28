@@ -327,12 +327,45 @@ class BatchReviewResult:
 
 class CatalogReviewAgent:
     """
-    Unified LLM agent for catalog review.
-    
-    Reviews batches of exercises and returns comprehensive decisions:
-    - Health triage for each exercise
-    - Duplicate clusters
-    - Equipment gap suggestions
+    Unified LLM agent for catalog review - the "brain" of catalog curation.
+
+    Reviews batches of exercises and makes ALL decisions in one LLM call:
+    - Health triage: KEEP, ENRICH, FIX_IDENTITY, ARCHIVE, MERGE
+    - Duplicate detection: clusters of same-exercise-different-name
+    - Gap analysis: missing equipment variants
+
+    WHY UNIFIED:
+        Previous approach had separate agents for each task. This caused:
+        - Inconsistent decisions (triage agent says KEEP, duplicate agent says MERGE)
+        - More LLM calls (expensive, slow)
+        - Lost context between calls
+
+        Unified agent sees everything, decides coherently.
+
+    PROMPT STRUCTURE:
+        1. SYSTEM_PROMPT - Role, capabilities, naming taxonomy, decision framework
+        2. FEW_SHOT_EXAMPLES - Calibration examples for each decision type
+        3. Family context - What equipment variants already exist
+        4. Exercises to review - JSON batch
+        5. Response format - OUTPUT_SCHEMA
+
+    DECISION TYPES:
+        KEEP         -> No action, exercise is fine
+        ENRICH       -> Create CATALOG_ENRICH_FIELD job
+        FIX_IDENTITY -> Create TARGETED_FIX job (name/family_slug)
+        ARCHIVE      -> Create job to set status="deprecated"
+        MERGE        -> Create job to merge into canonical exercise
+
+    GOTCHAS:
+        - On LLM failure, all exercises marked KEEP (fail safe)
+        - Batch size of 20 balances context vs. token cost
+        - Response parsing handles truncated JSON (common with large batches)
+        - family_context built from exercises if not provided
+        - Gap analysis can be disabled (include_gap_analysis=False)
+
+    CALLERS:
+        - scheduled_review.py - Production entry point
+        - review_catalog() - Convenience wrapper for full catalog
     """
     
     def __init__(
@@ -419,14 +452,35 @@ Respond with ONLY the JSON object, no markdown code blocks."""
         family_context: Optional[Dict[str, List[str]]] = None,
     ) -> BatchReviewResult:
         """
-        Review a batch of exercises.
-        
+        Review a batch of exercises - MAIN ENTRY POINT.
+
+        Makes one LLM call for the entire batch. Returns decisions for
+        each exercise plus duplicate clusters and gap suggestions.
+
         Args:
-            exercises: List of exercise dicts
-            family_context: Optional dict of family_slug -> existing equipment
-            
+            exercises: List of exercise dicts (from Firestore)
+                Required fields: id/doc_id, name, equipment
+                Optional: family_slug, instructions, muscles, etc.
+            family_context: Dict of family_slug -> list of equipment already covered
+                If None, built from the exercises in this batch.
+                Pass explicit context for catalog-wide gap analysis.
+
         Returns:
-            BatchReviewResult with all decisions
+            BatchReviewResult with:
+            - decisions: List[ExerciseDecision] - one per input exercise
+            - duplicates: List[DuplicateCluster] - groups of duplicates found
+            - gaps: List[GapSuggestion] - missing equipment variants
+            - summary counts: keep_count, enrich_count, fix_count, etc.
+
+        FAILURE BEHAVIOR:
+            On LLM failure (network, parsing, timeout), returns all KEEP decisions
+            with confidence="low" and reasoning explaining the failure.
+            This is fail-safe: no action taken on uncertainty.
+
+        CALLERS:
+            - scheduled_review.run_scheduled_review() - Production
+            - review_catalog() - Convenience wrapper
+            - Tests
         """
         result = BatchReviewResult(exercises_reviewed=len(exercises))
         
@@ -540,9 +594,26 @@ Respond with ONLY the JSON object, no markdown code blocks."""
         return result
     
     def _parse_response(self, response: str) -> Dict[str, Any]:
-        """Parse LLM response to JSON."""
+        """
+        Parse LLM response to JSON.
+
+        PARSING STRATEGY (in order of attempt):
+        1. Extract from markdown code blocks (```json ... ```)
+        2. Parse as-is if already valid JSON
+        3. Find first { and matching } using brace counting
+        4. Attempt to repair truncated JSON (close open braces/brackets)
+
+        WHY SO COMPLEX:
+        LLM responses are inconsistent. Sometimes wrapped in markdown,
+        sometimes with trailing text, sometimes truncated (token limit).
+        We try hard to extract usable JSON rather than failing.
+
+        FAILURE BEHAVIOR:
+        Returns {"exercises": [], "duplicates": [], "gaps": []}
+        This causes all exercises to get no decision (handled by caller).
+        """
         import re
-        
+
         # Clean response
         clean = response.strip()
         

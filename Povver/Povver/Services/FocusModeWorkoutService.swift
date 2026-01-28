@@ -515,10 +515,11 @@ class FocusModeWorkoutService: ObservableObject {
         exercise: Exercise,
         withSets initialSets: [FocusModeSet]? = nil
     ) async throws {
-        guard let workout = workout else {
+        guard let workout = workout,
+              let exerciseId = exercise.id else {
             throw FocusModeError.noActiveWorkout
         }
-        
+
         let newInstanceId = UUID().uuidString
         let defaultSets = initialSets ?? [
             FocusModeSet(
@@ -529,25 +530,25 @@ class FocusModeWorkoutService: ObservableObject {
                 targetRir: 2
             )
         ]
-        
+
         let newExercise = FocusModeExercise(
             instanceId: newInstanceId,
-            exerciseId: exercise.id,
+            exerciseId: exerciseId,
             name: exercise.name,
             position: workout.exercises.count,
             sets: defaultSets
         )
-        
+
         // 1. Apply optimistically - exercise appears immediately
         var updatedWorkout = workout
         updatedWorkout.exercises.append(newExercise)
         self.workout = updatedWorkout
-        
+
         // Haptic feedback immediately on tap
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        
+
         print("[addExercise] Optimistically added exercise: \(newInstanceId) with sets: \(defaultSets.map { $0.id })")
-        
+
         // 2. Build mutation for coordinator
         let mutationSets = defaultSets.map { set in
             MutationSetData(
@@ -559,15 +560,15 @@ class FocusModeWorkoutService: ObservableObject {
                 targetWeight: set.targetWeight
             )
         }
-        
+
         // 3. Mark as syncing for UI indicator
         markExerciseSyncing(newInstanceId)
-        
+
         // 4. Enqueue to coordinator (fire-and-forget, coordinator handles sync/rollback)
         await mutationCoordinator.setWorkout(workout.id)
         await mutationCoordinator.enqueue(.addExercise(
             instanceId: newInstanceId,
-            exerciseId: exercise.id,
+            exerciseId: exerciseId,
             name: exercise.name,
             position: newExercise.position,
             sets: mutationSets
