@@ -49,12 +49,16 @@ QUALITY_BENCHMARKS = {
             r"proprioceptive",  # unless explained
         ],
     },
-    "primary_muscles": {
+    # New schema: muscles.primary, muscles.secondary, muscles.category, muscles.contribution
+    "muscles.primary": {
         "min_count": 1,
         "max_count": 3,
     },
-    "secondary_muscles": {
+    "muscles.secondary": {
         "should_exist": True,  # Not required but flagged
+    },
+    "muscles.contribution": {
+        "required": False,  # Nice to have
     },
     "equipment": {
         "must_match_name": True,  # If name says "(Dumbbell)", equipment must include dumbbell
@@ -223,7 +227,10 @@ class CatalogReviewer:
         self._check_muscles(exercise, result)
         self._check_equipment(exercise, result)
         self._check_taxonomy(exercise, result)
-        
+        self._check_schema_migration(exercise, result)
+        self._check_category(exercise, result)
+        self._check_content_completeness(exercise, result)
+
         # Phase 2: LLM semantic analysis (if enabled)
         if self.enable_llm_review:
             self._apply_llm_analysis(exercise, result)
@@ -345,38 +352,66 @@ class CatalogReviewer:
                 ))
     
     def _check_muscles(self, exercise: Dict[str, Any], result: ReviewResult):
-        """Check muscle mappings against benchmarks."""
-        primary = exercise.get("primary_muscles", [])
-        secondary = exercise.get("secondary_muscles", [])
-        benchmarks_primary = QUALITY_BENCHMARKS["primary_muscles"]
-        benchmarks_secondary = QUALITY_BENCHMARKS["secondary_muscles"]
-        
-        # Primary muscles check
-        if len(primary) < benchmarks_primary["min_count"]:
+        """Check muscle mappings against new schema (muscles.primary, etc)."""
+        muscles = exercise.get("muscles", {}) or {}
+        primary = muscles.get("primary", [])
+        secondary = muscles.get("secondary", [])
+        contribution = muscles.get("contribution", {})
+        benchmarks_primary = QUALITY_BENCHMARKS["muscles.primary"]
+        benchmarks_secondary = QUALITY_BENCHMARKS["muscles.secondary"]
+
+        # Check for legacy-only fields (no new schema)
+        has_legacy_primary = exercise.get("primary_muscles")
+        has_legacy_secondary = exercise.get("secondary_muscles")
+        has_new_schema = bool(primary)
+
+        if has_legacy_primary and not has_new_schema:
             result.issues.append(QualityIssue(
-                field="primary_muscles",
+                field="muscles.primary",
                 category=IssueCategory.ANATOMY,
                 severity=IssueSeverity.HIGH,
-                message=f"Missing primary muscles: needs at least {benchmarks_primary['min_count']}",
+                message="Exercise uses legacy primary_muscles field, needs migration to muscles.primary",
+                current_value=has_legacy_primary,
+            ))
+            # Don't check further - needs migration first
+            return
+
+        # Primary muscles check (new schema)
+        if len(primary) < benchmarks_primary["min_count"]:
+            result.issues.append(QualityIssue(
+                field="muscles.primary",
+                category=IssueCategory.ANATOMY,
+                severity=IssueSeverity.HIGH,
+                message=f"Missing muscles.primary: needs at least {benchmarks_primary['min_count']}",
                 current_value=primary,
             ))
         elif len(primary) > benchmarks_primary["max_count"]:
             result.issues.append(QualityIssue(
-                field="primary_muscles",
+                field="muscles.primary",
                 category=IssueCategory.ANATOMY,
                 severity=IssueSeverity.MEDIUM,
                 message=f"Too many primary muscles ({len(primary)}): max {benchmarks_primary['max_count']}",
                 current_value=primary,
             ))
-        
+
         # Secondary muscles check
         if benchmarks_secondary.get("should_exist") and not secondary:
             result.issues.append(QualityIssue(
-                field="secondary_muscles",
+                field="muscles.secondary",
                 category=IssueCategory.ANATOMY,
                 severity=IssueSeverity.LOW,
-                message="No secondary muscles defined",
+                message="No muscles.secondary defined",
                 current_value=secondary,
+            ))
+
+        # Contribution check - nice to have
+        if not contribution and (primary or secondary):
+            result.issues.append(QualityIssue(
+                field="muscles.contribution",
+                category=IssueCategory.ANATOMY,
+                severity=IssueSeverity.LOW,
+                message="Missing muscles.contribution percentages",
+                current_value=None,
             ))
     
     def _check_equipment(self, exercise: Dict[str, Any], result: ReviewResult):
@@ -424,7 +459,107 @@ class CatalogReviewer:
                 message="Has family_slug but missing variant_key",
                 current_value=None,
             ))
-    
+
+    def _check_schema_migration(self, exercise: Dict[str, Any], result: ReviewResult):
+        """Check if exercise needs schema migration from legacy to new format."""
+        # Legacy fields that should be migrated
+        legacy_fields = {
+            "primary_muscles": "muscles.primary",
+            "secondary_muscles": "muscles.secondary",
+            "instructions": "execution_notes",
+        }
+
+        muscles = exercise.get("muscles", {}) or {}
+        legacy_issues = []
+
+        for legacy_field, new_field in legacy_fields.items():
+            has_legacy = exercise.get(legacy_field) is not None
+
+            # Determine if new field exists
+            if "." in new_field:
+                parts = new_field.split(".")
+                new_value = muscles.get(parts[1]) if parts[0] == "muscles" else None
+            else:
+                new_value = exercise.get(new_field)
+
+            has_new = bool(new_value)
+
+            if has_legacy and not has_new:
+                # Legacy only - needs migration
+                legacy_issues.append(f"{legacy_field} -> {new_field}")
+            elif has_legacy and has_new:
+                # Both exist - needs cleanup (delete legacy)
+                pass  # This is handled by SCHEMA_CLEANUP job
+
+        if legacy_issues:
+            result.issues.append(QualityIssue(
+                field="schema",
+                category=IssueCategory.TAXONOMY,
+                severity=IssueSeverity.HIGH,
+                message=f"Exercise needs schema migration: {', '.join(legacy_issues)}",
+                current_value=None,
+            ))
+
+    def _check_category(self, exercise: Dict[str, Any], result: ReviewResult):
+        """Check category value is valid."""
+        category = exercise.get("category", "")
+        allowed_values = QUALITY_BENCHMARKS["category"]["allowed_values"]
+
+        if not category:
+            result.issues.append(QualityIssue(
+                field="category",
+                category=IssueCategory.TAXONOMY,
+                severity=IssueSeverity.HIGH,
+                message="Missing category field",
+                current_value=None,
+            ))
+        elif category not in allowed_values:
+            result.issues.append(QualityIssue(
+                field="category",
+                category=IssueCategory.TAXONOMY,
+                severity=IssueSeverity.HIGH,
+                message=f"Invalid category '{category}': must be one of {allowed_values}",
+                current_value=category,
+                suggested_fix="compound" if "exercise" in category.lower() else None,
+            ))
+
+    def _check_content_completeness(self, exercise: Dict[str, Any], result: ReviewResult):
+        """Check for missing content arrays that should be enriched."""
+        # Required content arrays (HIGH priority if missing)
+        required_arrays = {
+            "execution_notes": "Step-by-step execution instructions",
+            "common_mistakes": "Common form errors to avoid",
+        }
+
+        # Nice-to-have content arrays (MEDIUM priority if missing)
+        optional_arrays = {
+            "suitability_notes": "Who the exercise is suitable for",
+            "programming_use_cases": "When to program this exercise",
+            "stimulus_tags": "Training stimulus tags (Hypertrophy, Strength, etc.)",
+        }
+
+        for field, description in required_arrays.items():
+            value = exercise.get(field)
+            if not value or (isinstance(value, list) and len(value) == 0):
+                result.issues.append(QualityIssue(
+                    field=field,
+                    category=IssueCategory.CONTENT,
+                    severity=IssueSeverity.HIGH,
+                    message=f"Missing {field}: {description}",
+                    current_value=value,
+                ))
+
+        for field, description in optional_arrays.items():
+            value = exercise.get(field)
+            if not value or (isinstance(value, list) and len(value) == 0):
+                result.issues.append(QualityIssue(
+                    field=field,
+                    category=IssueCategory.CONTENT,
+                    severity=IssueSeverity.MEDIUM,
+                    message=f"Missing {field}: {description}",
+                    current_value=value,
+                ))
+
     def _get_llm_client(self):
         """Get or create LLM client."""
         if self.llm_client is None:

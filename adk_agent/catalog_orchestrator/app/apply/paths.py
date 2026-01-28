@@ -43,6 +43,22 @@ ALLOWED_FLAT_PATHS: Set[str] = {
     "variant_key",
     "created_by",
     "version",
+    # --- V1.2: Holistic enrichment fields ---
+    "muscles.primary",
+    "muscles.secondary",
+    "muscles.category",
+    "movement.type",
+    "movement.split",
+    "metadata.level",
+    "metadata.plane_of_motion",
+    "metadata.unilateral",
+    # --- V1.3: Top-level enrichment fields (LLM output format) ---
+    "family",
+    "difficulty",
+    "movement_type",
+    "plane_of_motion",
+    "force_type",
+    "bilateral",
 }
 
 # Array fields - whole-array replace only (not element-wise)

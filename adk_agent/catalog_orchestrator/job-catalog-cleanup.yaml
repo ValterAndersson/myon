@@ -1,0 +1,23 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-cleanup
+spec:
+  template:
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+          - command:
+            - python
+            - cli.py
+            - cleanup-jobs
+            - --apply
+            image: gcr.io/myon-53d85/catalog-worker:latest
+            resources:
+              limits:
+                cpu: '0.5'
+                memory: 512Mi
+          timeoutSeconds: 3600

@@ -554,6 +554,456 @@ def enrich_all_missing_fields(
     return enriched
 
 
+# =============================================================================
+# HOLISTIC ENRICHMENT
+# =============================================================================
+
+# Fields that are LOCKED and should never be modified by enrichment
+LOCKED_FIELDS = {
+    "name",
+    "name_slug", 
+    "family_slug",
+    "status",
+    "created_at",
+    "updated_at",
+    "doc_id",
+    "id",
+}
+
+# Fields that CAN be enriched
+ENRICHABLE_FIELD_PATHS = {
+    # Legacy fields (still allow enrichment for backwards compatibility)
+    "instructions",
+    "equipment",
+    "category",
+    "primary_muscles",
+    "secondary_muscles",
+    # New schema muscle fields
+    "muscles.primary",
+    "muscles.secondary",
+    "muscles.category",
+    "muscles.contribution",
+    # Metadata
+    "metadata.level",
+    "metadata.plane_of_motion",
+    "metadata.unilateral",
+    # Movement
+    "movement.type",
+    "movement.split",
+    # Content arrays
+    "execution_notes",
+    "common_mistakes",
+    "suitability_notes",
+    "programming_use_cases",
+    "stimulus_tags",
+    "coaching_cues",
+    "tips",
+    "description",
+}
+
+
+def enrich_exercise_holistic(
+    exercise: Dict[str, Any],
+    reviewer_hint: str = "",
+    llm_client: Optional[LLMClient] = None,
+) -> Dict[str, Any]:
+    """
+    Holistically enrich an exercise document using LLM.
+    
+    Passes the full exercise to LLM with guidance (WHAT_GOOD_LOOKS_LIKE)
+    and lets it decide what fields to update. The reviewer_hint provides
+    context about what the reviewer found wrong.
+    
+    Args:
+        exercise: Full exercise document
+        reviewer_hint: Optional hint from the reviewer about issues found
+        llm_client: LLM client
+        
+    Returns:
+        Dict with:
+        - success: bool
+        - changes: Dict[str, Any] - flat dict of dotted paths to new values
+        - reasoning: str - LLM's reasoning
+        - confidence: str
+    """
+    from app.reviewer.what_good_looks_like import WHAT_GOOD_LOOKS_LIKE
+    
+    client = llm_client or get_llm_client()
+    exercise_id = exercise.get("id", exercise.get("doc_id", "unknown"))
+    
+    try:
+        # Build the prompt
+        prompt = _build_holistic_enrichment_prompt(exercise, reviewer_hint)
+        
+        # Call LLM with structured output hint
+        raw_response = client.complete(
+            prompt=prompt,
+            output_schema={"type": "object"},
+            require_reasoning=True,
+        )
+        
+        # Parse response
+        parsed = _parse_holistic_response(raw_response)
+        
+        if not parsed.get("changes"):
+            logger.info(
+                "Holistic enrichment for %s: no changes needed (reasoning: %s)",
+                exercise_id, parsed.get("reasoning", "none")[:100]
+            )
+            return {
+                "success": True,
+                "changes": {},
+                "reasoning": parsed.get("reasoning", "No changes needed"),
+                "confidence": parsed.get("confidence", "high"),
+            }
+        
+        # Filter changes to only enrichable fields (as flat dotted paths)
+        valid_changes = {}
+        for field_path, value in parsed["changes"].items():
+            # Skip locked fields
+            if field_path in LOCKED_FIELDS:
+                logger.warning("Skipping locked field: %s", field_path)
+                continue
+            
+            # Check if field is enrichable
+            if field_path in ENRICHABLE_FIELD_PATHS:
+                valid_changes[field_path] = value
+            else:
+                # Check if it matches a prefix pattern
+                is_valid = False
+                for allowed in ENRICHABLE_FIELD_PATHS:
+                    if field_path.startswith(allowed + "."):
+                        is_valid = True
+                        break
+                
+                if is_valid:
+                    valid_changes[field_path] = value
+                else:
+                    logger.warning("Skipping non-enrichable field: %s", field_path)
+        
+        # Normalize the changes for consistency
+        normalized_changes = normalize_enrichment_output(valid_changes)
+
+        logger.info(
+            "Holistic enrichment for %s: %d changes (confidence: %s)",
+            exercise_id, len(normalized_changes), parsed.get("confidence", "unknown")
+        )
+
+        return {
+            "success": True,
+            "changes": normalized_changes,
+            "reasoning": parsed.get("reasoning", ""),
+            "confidence": parsed.get("confidence", "high"),
+        }
+        
+    except Exception as e:
+        logger.exception("Holistic enrichment failed for %s: %s", exercise_id, e)
+        return {
+            "success": False,
+            "changes": {},
+            "reasoning": f"Error: {e}",
+            "confidence": "low",
+            "error": str(e),
+        }
+
+
+def _build_holistic_enrichment_prompt(
+    exercise: Dict[str, Any],
+    reviewer_hint: str = "",
+) -> str:
+    """Build prompt for holistic exercise enrichment."""
+    from app.reviewer.what_good_looks_like import (
+        WHAT_GOOD_LOOKS_LIKE,
+        INSTRUCTIONS_GUIDANCE,
+        MUSCLE_MAPPING_GUIDANCE,
+    )
+    
+    # Get a golden example for reference
+    example = _get_relevant_golden_example(exercise, "instructions")
+    example_json = json.dumps(example, indent=2) if example else "N/A"
+    
+    # Format current exercise data (exclude timestamps and internal fields)
+    display_exercise = {k: v for k, v in exercise.items() 
+                       if k not in {"created_at", "updated_at", "doc_id", "id", "_debug_project_id"}}
+    exercise_json = json.dumps(display_exercise, indent=2, default=str)
+    
+    prompt = f"""{WHAT_GOOD_LOOKS_LIKE}
+
+{INSTRUCTIONS_GUIDANCE}
+
+{MUSCLE_MAPPING_GUIDANCE}
+
+---
+
+## Reference: What Good Data Looks Like
+
+Here's an example of a well-enriched exercise:
+
+```json
+{example_json}
+```
+
+---
+
+## Your Task
+
+Review this exercise and enrich any fields that need improvement.
+
+### Current Exercise Data
+
+```json
+{exercise_json}
+```
+
+"""
+
+    if reviewer_hint:
+        prompt += f"""### Reviewer Hint
+
+The catalog reviewer flagged these issues:
+{reviewer_hint}
+
+This is a hint about what might need fixing, but use your judgment - you may find
+other issues or decide the flagged issue isn't actually a problem.
+
+"""
+
+    prompt += """### Rules
+
+1. **NEVER change**: name, name_slug, family_slug, status (these are locked)
+2. **CAN change**:
+   - muscles.primary, muscles.secondary, muscles.category, muscles.contribution
+   - metadata.level, metadata.plane_of_motion, metadata.unilateral
+   - movement.type, movement.split
+   - equipment, category, description
+   - execution_notes, common_mistakes, suitability_notes
+   - programming_use_cases, stimulus_tags
+3. Follow the "If it ain't broke, don't fix it" principle
+4. Only make changes that would actually help a user
+
+### Priority Fields to Generate (if missing)
+
+Check these fields and ADD them if they're missing or empty:
+
+1. **muscles.contribution** - Map of muscle name to decimal contribution (0.0-1.0), must sum to ~1.0
+   Example: `{"quadriceps": 0.45, "glutes": 0.35, "hamstrings": 0.20}`
+
+2. **stimulus_tags** - 4-6 training stimulus tags in Title Case
+   Example: `["Hypertrophy", "Compound Movement", "Strength", "Core Engagement"]`
+
+3. **programming_use_cases** - 3-5 complete sentences about when to use this exercise
+   Example: `["Primary compound movement for leg-focused strength programs.", ...]`
+
+4. **suitability_notes** - 2-4 notes about who this exercise is suitable for
+   Example: `["Excellent for building posterior chain strength.", "Requires good hip mobility."]`
+
+5. **category** - Must be one of: compound, isolation, cardio, mobility, core
+   If currently "exercise", change it to "compound" or "isolation" as appropriate
+
+6. **muscles.primary** - If empty, add 1-3 primary muscles (use lowercase, spaces not underscores)
+   Example: `["quadriceps", "gluteus maximus"]` NOT `["Quadriceps", "gluteus_maximus"]`
+
+### Response Format
+
+Respond with a JSON object:
+
+```json
+{
+  "reasoning": "Brief explanation of what you found and what you're changing",
+  "confidence": "high" | "medium" | "low",
+  "changes": {
+    "muscles.contribution": {"muscle name": 0.XX, ...},
+    "stimulus_tags": ["Tag1", "Tag2", ...],
+    "programming_use_cases": ["Sentence 1.", "Sentence 2.", ...],
+    "suitability_notes": ["Note 1.", "Note 2.", ...],
+    "category": "compound",
+    ...
+  }
+}
+```
+
+If no changes are needed, return `"changes": {}`
+
+Use flat dotted paths for nested fields (e.g., "muscles.primary" not {"muscles": {"primary": ...}})
+
+Respond with ONLY the JSON object."""
+
+    return prompt
+
+
+def _parse_holistic_response(raw_response: str) -> Dict[str, Any]:
+    """Parse LLM response from holistic enrichment."""
+    response = raw_response.strip()
+    
+    # Handle markdown code blocks
+    if "```" in response:
+        parts = response.split("```")
+        if len(parts) >= 2:
+            response = parts[1]
+            if response.startswith("json"):
+                response = response[4:]
+            response = response.strip()
+    
+    try:
+        parsed = json.loads(response)
+        return {
+            "reasoning": parsed.get("reasoning", ""),
+            "confidence": parsed.get("confidence", "medium"),
+            "changes": parsed.get("changes", {}),
+        }
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse holistic response: %s", e)
+        # Try to extract JSON from the response
+        import re
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group())
+                return {
+                    "reasoning": parsed.get("reasoning", ""),
+                    "confidence": parsed.get("confidence", "medium"),
+                    "changes": parsed.get("changes", {}),
+                }
+            except:
+                pass
+        
+        return {
+            "reasoning": f"Failed to parse: {response[:200]}",
+            "confidence": "low",
+            "changes": {},
+        }
+
+
+# =============================================================================
+# OUTPUT NORMALIZATION
+# =============================================================================
+
+# Valid category values
+VALID_CATEGORIES = {"compound", "isolation", "cardio", "mobility", "core"}
+
+
+def normalize_enrichment_output(changes: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize enrichment output to ensure consistent formatting.
+
+    Fixes:
+    - Muscle names: underscores → spaces, lowercase
+    - stimulus_tags: dedupe, title case
+    - category: validate against allowed values
+    - programming_use_cases, suitability_notes: ensure proper formatting
+    """
+    normalized = {}
+
+    for field_path, value in changes.items():
+        if value is None:
+            continue
+
+        # Normalize muscle arrays
+        if field_path in ("muscles.primary", "muscles.secondary"):
+            normalized[field_path] = _normalize_muscle_names(value)
+
+        # Normalize muscle contribution map
+        elif field_path == "muscles.contribution":
+            normalized[field_path] = _normalize_contribution_map(value)
+
+        # Normalize stimulus_tags
+        elif field_path == "stimulus_tags":
+            normalized[field_path] = _normalize_stimulus_tags(value)
+
+        # Validate category
+        elif field_path == "category":
+            normalized[field_path] = _normalize_category(value)
+
+        # Pass through other fields
+        else:
+            normalized[field_path] = value
+
+    return normalized
+
+
+def _normalize_muscle_names(muscles: List[str]) -> List[str]:
+    """Normalize muscle names: underscores → spaces, lowercase."""
+    if not isinstance(muscles, list):
+        return muscles
+
+    normalized = []
+    seen = set()
+
+    for muscle in muscles:
+        if not isinstance(muscle, str):
+            continue
+        # Underscores to spaces, lowercase, strip
+        clean = muscle.replace("_", " ").lower().strip()
+        if clean and clean not in seen:
+            normalized.append(clean)
+            seen.add(clean)
+
+    return normalized
+
+
+def _normalize_contribution_map(contribution: Dict[str, float]) -> Dict[str, float]:
+    """Normalize contribution map keys (muscle names)."""
+    if not isinstance(contribution, dict):
+        return contribution
+
+    normalized = {}
+    for muscle, pct in contribution.items():
+        if not isinstance(muscle, str):
+            continue
+        # Normalize muscle name
+        clean_name = muscle.replace("_", " ").lower().strip()
+        if clean_name:
+            # Ensure percentage is float between 0 and 1
+            if isinstance(pct, (int, float)):
+                normalized[clean_name] = min(1.0, max(0.0, float(pct)))
+
+    return normalized
+
+
+def _normalize_stimulus_tags(tags: List[str]) -> List[str]:
+    """Normalize stimulus tags: dedupe, title case."""
+    if not isinstance(tags, list):
+        return tags
+
+    normalized = []
+    seen = set()
+
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        # Title case, strip
+        clean = tag.strip().title()
+        # Normalize common variations
+        clean = clean.replace("_", " ")
+        lower = clean.lower()
+
+        if clean and lower not in seen:
+            normalized.append(clean)
+            seen.add(lower)
+
+    return normalized
+
+
+def _normalize_category(category: str) -> str:
+    """Normalize category value."""
+    if not isinstance(category, str):
+        return "compound"  # Default
+
+    clean = category.lower().strip()
+
+    # Fix common invalid values
+    if clean in VALID_CATEGORIES:
+        return clean
+    if clean == "exercise":
+        return "compound"  # Default fallback
+    if "isol" in clean:
+        return "isolation"
+    if "compound" in clean or "multi" in clean:
+        return "compound"
+
+    return "compound"  # Default
+
+
 __all__ = [
     "build_enrichment_prompt",
     "compute_enrichment",
@@ -563,4 +1013,9 @@ __all__ = [
     "build_field_guide_prompt",
     "enrich_field_with_guide",
     "enrich_all_missing_fields",
+    # Holistic enrichment
+    "enrich_exercise_holistic",
+    "normalize_enrichment_output",
+    "LOCKED_FIELDS",
+    "ENRICHABLE_FIELD_PATHS",
 ]

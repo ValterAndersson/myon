@@ -606,6 +606,42 @@ class JobExecutor:
             apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
             result["applied"] = apply_result.success
             result["apply_result"] = apply_result.to_dict()
+            
+            # If exercise was created successfully, queue enrichment job
+            if apply_result.success and apply_result.operations_applied:
+                created_doc_id = None
+                for op_applied in apply_result.operations_applied:
+                    if op_applied.get("doc_id"):
+                        created_doc_id = op_applied.get("doc_id")
+                        break
+                
+                if created_doc_id:
+                    try:
+                        from app.jobs.queue import create_job
+                        from app.jobs.models import JobType, JobQueue
+                        
+                        # Queue enrichment job for the new exercise
+                        enrich_job = create_job(
+                            job_type=JobType.CATALOG_ENRICH_FIELD,
+                            queue=JobQueue.PRIORITY,  # High priority for new exercises
+                            priority=90,
+                            exercise_doc_ids=[created_doc_id],
+                            mode="apply",
+                            enrichment_spec={
+                                "spec_id": "new_exercise_enrichment",
+                                "spec_version": "v1",
+                                "field_path": "primary_muscles",  # Will enrich all missing fields
+                                "output_type": "array",
+                                "instructions": "Enrich all missing fields for this new exercise",
+                            },
+                        )
+                        result["enrichment_job_id"] = enrich_job.job_id
+                        logger.info(
+                            "Queued enrichment job %s for new exercise %s",
+                            enrich_job.job_id, created_doc_id
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to queue enrichment job for %s: %s", created_doc_id, e)
         
         return result
     
@@ -691,9 +727,16 @@ class JobExecutor:
         Execute CATALOG_ENRICH_FIELD_SHARD child job.
         
         Processes a batch of exercises with LLM enrichment.
+        
+        Supports two modes:
+        1. Legacy single-field mode: enrichment_spec.field_path is set
+        2. Holistic mode: enrichment_spec.fields_to_enrich is set (from reviewer)
+        
+        Holistic mode passes full exercise to LLM with reviewer hints and lets
+        it decide what fields to update.
         """
-        from app.enrichment.models import EnrichmentSpec, ShardResult
-        from app.enrichment.engine import compute_enrichment_batch
+        from app.enrichment.models import EnrichmentSpec, ShardResult, EnrichmentResult
+        from app.enrichment.engine import compute_enrichment_batch, enrich_exercise_holistic
         from app.enrichment.llm_client import get_llm_client
         from app.apply.gate import require_all_gates, ApplyGateError
         from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
@@ -719,7 +762,9 @@ class JobExecutor:
                 },
             }
         
-        spec = EnrichmentSpec.from_dict(enrichment_spec_data)
+        # Detect mode: holistic (fields_to_enrich) vs single-field (field_path)
+        fields_to_enrich = enrichment_spec_data.get("fields_to_enrich", [])
+        is_holistic_mode = bool(fields_to_enrich) or not enrichment_spec_data.get("field_path")
         
         # Check apply gate before proceeding with apply mode
         if self.mode == "apply":
@@ -742,6 +787,165 @@ class JobExecutor:
                 "is_transient": True,
             }
         
+        # Get LLM client
+        llm_client = get_llm_client()
+        
+        if is_holistic_mode:
+            # HOLISTIC MODE: Pass full doc to LLM with reviewer hints
+            return self._execute_holistic_enrichment(
+                exercises=exercises,
+                enrichment_spec_data=enrichment_spec_data,
+                parent_job_id=parent_job_id,
+                llm_client=llm_client,
+            )
+        else:
+            # LEGACY SINGLE-FIELD MODE
+            return self._execute_single_field_enrichment(
+                exercises=exercises,
+                enrichment_spec_data=enrichment_spec_data,
+                parent_job_id=parent_job_id,
+                llm_client=llm_client,
+            )
+    
+    def _execute_holistic_enrichment(
+        self,
+        exercises: List[Dict[str, Any]],
+        enrichment_spec_data: Dict[str, Any],
+        parent_job_id: Optional[str],
+        llm_client,
+    ) -> Dict[str, Any]:
+        """
+        Execute holistic enrichment - pass full doc to LLM with reviewer hints.
+        """
+        from app.enrichment.engine import enrich_exercise_holistic
+        from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
+        from datetime import datetime
+        
+        spec_id = enrichment_spec_data.get("spec_id", "holistic")
+        spec_version = enrichment_spec_data.get("spec_version", "v1")
+        
+        # Extract reviewer hint from instructions/fields_to_enrich
+        fields_to_enrich = enrichment_spec_data.get("fields_to_enrich", [])
+        instructions = enrichment_spec_data.get("instructions", "")
+        
+        reviewer_hint = instructions
+        if fields_to_enrich and not reviewer_hint:
+            reviewer_hint = f"Fields flagged for review: {', '.join(fields_to_enrich)}"
+        
+        operations = []
+        results_summary = {
+            "total": len(exercises),
+            "succeeded": 0,
+            "failed": 0,
+            "no_changes": 0,
+        }
+        
+        for exercise in exercises:
+            exercise_id = exercise.get("id", exercise.get("doc_id", "unknown"))
+            
+            # Call holistic enrichment
+            result = enrich_exercise_holistic(
+                exercise=exercise,
+                reviewer_hint=reviewer_hint,
+                llm_client=llm_client,
+            )
+            
+            if not result["success"]:
+                results_summary["failed"] += 1
+                logger.warning(
+                    "Holistic enrichment failed for %s: %s",
+                    exercise_id, result.get("error", "unknown")
+                )
+                continue
+            
+            changes = result.get("changes", {})
+            
+            if not changes:
+                results_summary["no_changes"] += 1
+                logger.info(
+                    "Holistic enrichment for %s: no changes needed",
+                    exercise_id
+                )
+                continue
+            
+            results_summary["succeeded"] += 1
+            
+            # Build PATCH_FIELDS operation with FLAT dotted paths
+            # The changes dict is already in flat format: {"muscles.primary": [...], ...}
+            operations.append(Operation(
+                op_type=OperationType.PATCH_FIELDS,
+                targets=[exercise_id],
+                patch=changes,  # Already flat dotted paths!
+                rationale=f"Holistic enrichment: {result.get('reasoning', '')[:100]}",
+                risk_level=RiskLevel.LOW,
+                idempotency_key_seed=f"holistic_{spec_id}_{spec_version}_{exercise_id}",
+            ))
+            
+            logger.info(
+                "Holistic enrichment for %s: %d field changes",
+                exercise_id, len(changes)
+            )
+        
+        # Log summary
+        logger.info(
+            "Holistic enrichment batch complete: %d/%d succeeded, %d no changes, %d failed",
+            results_summary["succeeded"],
+            results_summary["total"],
+            results_summary["no_changes"],
+            results_summary["failed"],
+        )
+        
+        # Create change plan
+        plan = ChangePlan(
+            job_id=self.job_id,
+            job_type="CATALOG_ENRICH_FIELD_SHARD",
+            scope={
+                "parent_job_id": parent_job_id,
+                "spec_id": spec_id,
+                "mode": "holistic",
+                "exercise_count": len(exercises),
+            },
+            assumptions=[f"Holistic enrichment of {len(exercises)} exercises"],
+            operations=operations,
+            max_risk_level=RiskLevel.LOW,
+        )
+        
+        result = {
+            "success": True,
+            "shard_result": {
+                "spec_id": spec_id,
+                "mode": "holistic",
+                **results_summary,
+            },
+            "plan": plan.to_dict(),
+            "mode": self.mode,
+        }
+        
+        if self.mode == "apply" and operations:
+            from app.apply.engine import apply_change_plan
+            apply_result = apply_change_plan(plan, mode=self.mode, job_id=self.job_id)
+            result["applied"] = apply_result.success
+            result["apply_result"] = apply_result.to_dict()
+        
+        return result
+    
+    def _execute_single_field_enrichment(
+        self,
+        exercises: List[Dict[str, Any]],
+        enrichment_spec_data: Dict[str, Any],
+        parent_job_id: Optional[str],
+        llm_client,
+    ) -> Dict[str, Any]:
+        """
+        Execute legacy single-field enrichment using EnrichmentSpec.
+        """
+        from app.enrichment.models import EnrichmentSpec, ShardResult
+        from app.enrichment.engine import compute_enrichment_batch
+        from app.plans.models import Operation, OperationType, RiskLevel, ChangePlan
+        from datetime import datetime
+        
+        spec = EnrichmentSpec.from_dict(enrichment_spec_data)
+        
         # Create shard result tracker
         shard_result = ShardResult(
             shard_job_id=self.job_id,
@@ -750,9 +954,6 @@ class JobExecutor:
             total_exercises=len(exercises),
             started_at=datetime.utcnow(),
         )
-        
-        # Get LLM client
-        llm_client = get_llm_client()
         
         # Compute enrichment for each exercise
         enrichment_results = compute_enrichment_batch(exercises, spec, llm_client)
@@ -765,8 +966,10 @@ class JobExecutor:
             if result.success and result.validation_passed:
                 shard_result.succeeded += 1
                 
-                # Build patch operation using nested field path
-                patch = self._build_nested_patch(spec.field_path, result.value)
+                # Build FLAT patch using dotted path directly
+                # e.g., "muscles.primary" -> {"muscles.primary": [...]}
+                # NOT nested: {"muscles": {"primary": [...]}}
+                patch = {spec.field_path: result.value}
                 
                 operations.append(Operation(
                     op_type=OperationType.PATCH_FIELDS,
@@ -788,6 +991,7 @@ class JobExecutor:
             scope={
                 "parent_job_id": parent_job_id,
                 "spec_id": spec.spec_id,
+                "mode": "single_field",
                 "exercise_count": len(exercises),
             },
             assumptions=[f"Enriching {len(exercises)} exercises with {spec.spec_id}:{spec.spec_version}"],

@@ -53,7 +53,8 @@ EXERCISES_COLLECTION = "exercises"
 ALIASES_COLLECTION = "exercise_aliases"
 
 # Doc ID format for deterministic creates
-DOC_ID_SEPARATOR = "__"
+# V1.1: Changed from "__" to "-" for cleaner, consistent slugs
+DOC_ID_SEPARATOR = "-"
 DOC_ID_PATTERN = re.compile(r'^[a-z0-9_-]+$')
 DOC_ID_MAX_LENGTH = 128
 

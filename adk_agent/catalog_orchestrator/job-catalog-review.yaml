@@ -1,0 +1,32 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-review
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+          - args:
+            - --apply
+            - --max-exercises
+            - '1000'
+            command:
+            - python
+            - -m
+            - app.reviewer.scheduled_review
+            env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: myon-53d85
+            image: gcr.io/myon-53d85/catalog-worker:latest
+            resources:
+              limits:
+                cpu: '2'
+                memory: 4Gi
+          timeoutSeconds: 14400

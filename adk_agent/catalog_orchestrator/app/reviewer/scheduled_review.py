@@ -41,10 +41,11 @@ from app.jobs.models import JobType, JobQueue
 logger = logging.getLogger(__name__)
 
 # Configuration
-# V1.1: Increased limits for faster iteration during development
-DEFAULT_BATCH_SIZE = 50  # Larger batches for efficiency (was 20)
-DEFAULT_MAX_EXERCISES = 1000  # Review full catalog (was 500)
-DEFAULT_MAX_JOBS = 500  # Create more jobs per run (was 100)
+# V1.2: Reverted batch_size to 20 for better LLM response parsing stability
+# Larger batches (50) caused JSON parsing failures in 80% of batches
+DEFAULT_BATCH_SIZE = 20  # Stable batch size - larger values cause LLM truncation issues
+DEFAULT_MAX_EXERCISES = 1000  # Review full catalog
+DEFAULT_MAX_JOBS = 500  # Create more jobs per run
 
 
 def _get_firestore_client():
@@ -255,6 +256,13 @@ def create_jobs_from_decisions(
                 total_jobs += 1
         
         # Process gaps (suggested new exercises)
+        # First, get Firestore client and import helpers for duplicate check
+        from app.family.taxonomy import derive_name_slug, derive_canonical_name
+        from google.cloud import firestore as fs
+        from google.cloud.firestore_v1 import FieldFilter
+        
+        gap_db = fs.Client() if not dry_run else None
+        
         for gap in batch.gaps:
             if total_jobs >= max_jobs:
                 break
@@ -266,6 +274,28 @@ def create_jobs_from_decisions(
                 "confidence": gap.confidence,
                 "reasoning": gap.reasoning,
             }
+            
+            # Compute expected slug and check for duplicates
+            if not dry_run and gap_db:
+                exercise_name = derive_canonical_name(gap.suggested_name, gap.missing_equipment)
+                expected_slug = derive_name_slug(exercise_name)
+                
+                # Check if exercise with this slug already exists
+                query = gap_db.collection('exercises').where(
+                    filter=FieldFilter('name_slug', '==', expected_slug)
+                ).limit(1)
+                existing_docs = list(query.stream())
+                
+                if existing_docs:
+                    existing_doc_id = existing_docs[0].id
+                    logger.info(
+                        "Skipping EXERCISE_ADD gap for '%s' (slug: %s) - already exists: %s",
+                        gap.suggested_name, expected_slug, existing_doc_id
+                    )
+                    job_info["skipped"] = True
+                    job_info["skip_reason"] = f"Exercise already exists: {existing_doc_id}"
+                    jobs_created["add_exercise"].append(job_info)
+                    continue
             
             if not dry_run:
                 try:

@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-Queue Schema Cleanup Jobs - V1.1
+Queue Schema Cleanup Jobs - V1.2
 
 Scans for exercises with deprecated fields and queues SCHEMA_CLEANUP
 jobs to remove them.
 
 Deprecated fields:
-- _debug_project_id (debug artifact)
-- delete_candidate (old review system)
-- delete_candidate_justification (old review system)
-- enriched_description (replaced by description)
-- enriched_common_mistakes (replaced by common_mistakes)
-- enriched_programming_use_cases (replaced by stimulus_tags)
+- _debug_project_id, created_by, created_at, id, version (debug/internal)
+- delete_candidate, delete_candidate_justification, status (old review system)
+- images (unused)
+- primary_muscles, secondary_muscles (replaced by muscles.*)
+- instructions (replaced by execution_notes)
+- enriched_* prefix fields (old enrichment pattern)
+
+NOTE: The SCHEMA_CLEANUP handler has safety checks - it will NOT delete
+legacy fields (primary_muscles, secondary_muscles, instructions) unless
+the replacement field exists. Run migrate_exercise_schema.py first.
 
 Usage:
     python scripts/queue_schema_cleanup.py --dry-run
@@ -38,14 +42,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Deprecated fields to remove
+# Deprecated fields to remove (complete list - matches handlers.py)
 DEPRECATED_FIELDS = [
+    # Debug/internal artifacts
     "_debug_project_id",
+    "created_by",
+    "created_at",
+    "id",
+    "version",
+    # Old review system
     "delete_candidate",
     "delete_candidate_justification",
+    "status",
+    # Unused/empty
+    "images",
+    # Legacy muscle fields (replaced by muscles.*)
+    "primary_muscles",
+    "secondary_muscles",
+    # Legacy instructions (replaced by execution_notes)
+    "instructions",
+    # Old enrichment pattern (enriched_ prefix)
     "enriched_description",
     "enriched_common_mistakes",
     "enriched_programming_use_cases",
+    "enriched_instructions",
+    "enriched_tips",
+    "enriched_cues",
+    "enriched_at",
+    "enriched_by",
 ]
 
 # Batch size for SCHEMA_CLEANUP jobs

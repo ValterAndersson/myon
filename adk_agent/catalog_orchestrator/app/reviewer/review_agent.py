@@ -546,18 +546,32 @@ Respond with ONLY the JSON object, no markdown code blocks."""
         # Clean response
         clean = response.strip()
         
-        # Remove markdown code blocks - handle multiline
-        # Pattern: ```json ... ``` or ``` ... ```
-        code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        # First, try to extract JSON from markdown code blocks using regex
+        # This handles both ```json\n{...}\n``` and ```\n{...}\n``` patterns
+        code_block_pattern = r'```(?:json)?\s*\n?([\s\S]*?)\n?\s*```'
         code_match = re.search(code_block_pattern, clean)
         if code_match:
             clean = code_match.group(1).strip()
+            logger.debug("Extracted JSON from markdown code block: %d chars", len(clean))
+        elif clean.startswith('```'):
+            # Fallback: Manual extraction if regex didn't match
+            # Find the end of the opening line (```json or ```)
+            first_newline = clean.find('\n')
+            if first_newline != -1:
+                # Find closing ``` - search from the end
+                closing_idx = clean.rfind('```')
+                if closing_idx > first_newline:
+                    clean = clean[first_newline + 1:closing_idx].strip()
+                    logger.debug("Manual code block extraction: %d chars", len(clean))
+                else:
+                    # No closing ``` found, just strip the opening line
+                    clean = clean[first_newline + 1:].strip()
         
         # Try parsing as-is first
         try:
             return json.loads(clean)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.debug("First JSON parse attempt failed at pos %d: %s", e.pos if hasattr(e, 'pos') else -1, e.msg if hasattr(e, 'msg') else str(e))
         
         # Try to find JSON object in response (handles any prefix/suffix text)
         # Use a more robust approach: find matching braces
@@ -566,7 +580,22 @@ Respond with ONLY the JSON object, no markdown code blocks."""
             # Count braces to find the matching closing brace
             brace_count = 0
             end_idx = start_idx
+            in_string = False
+            escape_next = False
+            
             for i, char in enumerate(clean[start_idx:], start=start_idx):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\' and in_string:
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                    
                 if char == '{':
                     brace_count += 1
                 elif char == '}':
@@ -581,9 +610,67 @@ Respond with ONLY the JSON object, no markdown code blocks."""
                     return json.loads(json_str)
                 except json.JSONDecodeError as e:
                     logger.warning("JSON parse error at position %d: %s", e.pos, e.msg)
+                    # Try to repair truncated JSON
+                    repaired = self._repair_truncated_json(json_str)
+                    if repaired:
+                        try:
+                            return json.loads(repaired)
+                        except json.JSONDecodeError:
+                            pass
         
-        logger.warning("Failed to parse LLM response: %s...", response[:500])
+        # Log more context for debugging parse failures
+        logger.warning(
+            "Failed to parse LLM response (len=%d). First 500 chars: %s",
+            len(response),
+            response[:500]
+        )
+        if len(response) > 500:
+            logger.warning("Last 200 chars of response: ...%s", response[-200:])
         return {"exercises": [], "duplicates": [], "gaps": []}
+    
+    def _repair_truncated_json(self, json_str: str) -> Optional[str]:
+        """Attempt to repair truncated JSON by closing open structures."""
+        # Count open braces/brackets
+        brace_count = 0
+        bracket_count = 0
+        in_string = False
+        escape_next = False
+        
+        for char in json_str:
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+            elif char == '[':
+                bracket_count += 1
+            elif char == ']':
+                bracket_count -= 1
+        
+        # If we're inside a string, close it
+        if in_string:
+            json_str += '"'
+        
+        # Remove trailing comma if present
+        json_str = json_str.rstrip()
+        if json_str.endswith(','):
+            json_str = json_str[:-1]
+        
+        # Close open brackets and braces
+        json_str += ']' * bracket_count
+        json_str += '}' * brace_count
+        
+        return json_str
     
     async def review_batch_async(
         self,

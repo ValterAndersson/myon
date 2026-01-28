@@ -202,11 +202,11 @@ class ReviewJobCreator:
                     exercise_ids=[result.exercise_id],
                     enrichment_spec=enrichment_spec,
                 )
-                job_info["job_id"] = job.job_id
+                job_info["job_id"] = job.id
                 self._jobs_created += 1
                 logger.info(
                     "Created job %s for exercise %s",
-                    job.job_id, result.exercise_id
+                    job.id, result.exercise_id
                 )
             except Exception as e:
                 logger.exception("Failed to create job for %s: %s", result.exercise_id, e)
@@ -299,11 +299,11 @@ class ReviewJobCreator:
                         "llm_issue_count": len(llm_issues),
                     },
                 )
-                job_info["job_id"] = job.job_id
+                job_info["job_id"] = job.id
                 self._jobs_created += 1
                 logger.info(
                     "Created HUMAN_REVIEW job %s for exercise %s (LLM low confidence)",
-                    job.job_id, result.exercise_id
+                    job.id, result.exercise_id
                 )
             except Exception as e:
                 logger.exception("Failed to create human review job for %s: %s", result.exercise_id, e)

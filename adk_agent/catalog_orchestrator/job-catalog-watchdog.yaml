@@ -1,0 +1,25 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-watchdog
+spec:
+  template:
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+          - command:
+            - python
+            - workers/catalog_worker.py
+            - watchdog
+            env:
+            - name: WATCHDOG_DRY_RUN
+              value: 'false'
+            image: gcr.io/myon-53d85/catalog-worker:latest
+            resources:
+              limits:
+                cpu: '0.5'
+                memory: 512Mi
+          timeoutSeconds: 1800

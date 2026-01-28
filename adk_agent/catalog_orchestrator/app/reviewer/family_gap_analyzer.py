@@ -375,6 +375,8 @@ Respond with ONLY the JSON object."""
         """
         Create EXERCISE_ADD jobs from gap analysis.
         
+        Now checks if exercise with expected slug already exists BEFORE creating job.
+        
         Args:
             gap_result: Result from analyze_catalog
             dry_run: If True, don't actually create jobs
@@ -384,8 +386,14 @@ Respond with ONLY the JSON object."""
             Summary of jobs created
         """
         from app.jobs.queue import create_job
+        from app.family.taxonomy import derive_name_slug, derive_canonical_name
+        from google.cloud import firestore
         
         jobs_created = []
+        jobs_skipped_existing = []
+        
+        # Get Firestore client for duplicate check
+        db = firestore.Client() if not dry_run else None
         
         for suggestion in gap_result.suggestions[:max_jobs]:
             job_info = {
@@ -394,6 +402,27 @@ Respond with ONLY the JSON object."""
                 "equipment": suggestion["equipment"],
                 "reason": suggestion["reason"],
             }
+            
+            # Compute expected slug (same logic as executor)
+            equipment = suggestion["equipment"][0] if suggestion.get("equipment") else None
+            exercise_name = derive_canonical_name(suggestion["suggested_name"], equipment) if equipment else suggestion["suggested_name"]
+            expected_slug = derive_name_slug(exercise_name)
+            
+            # Check if exercise with this slug already exists
+            if not dry_run and db:
+                existing_doc_id = self._find_exercise_by_slug(db, expected_slug)
+                if existing_doc_id:
+                    logger.info(
+                        "Skipping EXERCISE_ADD for '%s' (slug: %s) - already exists: %s",
+                        suggestion["suggested_name"], expected_slug, existing_doc_id
+                    )
+                    jobs_skipped_existing.append({
+                        "suggested_name": suggestion["suggested_name"],
+                        "expected_slug": expected_slug,
+                        "existing_doc_id": existing_doc_id,
+                        "reason": "Exercise with this slug already exists",
+                    })
+                    continue
             
             if not dry_run:
                 try:
@@ -410,7 +439,7 @@ Respond with ONLY the JSON object."""
                             "source": "llm_family_gap_analysis",
                         },
                     )
-                    job_info["job_id"] = job.job_id
+                    job_info["job_id"] = job.id
                 except Exception as e:
                     logger.exception("Failed to create job for %s: %s", suggestion["suggested_name"], e)
                     job_info["error"] = str(e)
@@ -421,11 +450,26 @@ Respond with ONLY the JSON object."""
         
         return {
             "jobs_created": len(jobs_created),
+            "jobs_skipped_existing": len(jobs_skipped_existing),
             "dry_run": dry_run,
             "jobs": jobs_created,
+            "skipped_existing": jobs_skipped_existing,
             "total_suggestions": len(gap_result.suggestions),
             "families_with_gaps": gap_result.families_with_gaps,
         }
+    
+    def _find_exercise_by_slug(self, db, name_slug: str) -> Optional[str]:
+        """
+        Check if any exercise with this name_slug exists.
+        
+        Returns the doc_id if found, None otherwise.
+        """
+        from google.cloud.firestore_v1 import FieldFilter
+        query = db.collection('exercises').where(
+            filter=FieldFilter('name_slug', '==', name_slug)
+        ).limit(1)
+        docs = list(query.stream())
+        return docs[0].id if docs else None
 
 
 # =============================================================================

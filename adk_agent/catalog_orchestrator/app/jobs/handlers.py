@@ -288,10 +288,16 @@ def execute_targeted_fix(
     Execute TARGETED_FIX job.
     
     Applies specific fixes to targeted exercises.
+    
+    Supports both legacy format (fix_type, fix_data in payload root)
+    and new format (enrichment_spec.type, enrichment_spec.fix_details).
     """
     exercise_doc_ids = payload.get("exercise_doc_ids", [])
-    fix_type = payload.get("fix_type", "patch")
-    fix_data = payload.get("fix_data", {})
+    
+    # Support both legacy and new field locations
+    enrichment_spec = payload.get("enrichment_spec", {})
+    fix_type = enrichment_spec.get("type", payload.get("fix_type", "patch"))
+    fix_data = enrichment_spec.get("fix_details", payload.get("fix_data", {}))
     
     if not exercise_doc_ids:
         return {
@@ -300,6 +306,7 @@ def execute_targeted_fix(
         }
     
     operations = []
+    reason = enrichment_spec.get("reason", "")
     
     for doc_id in exercise_doc_ids:
         if fix_type == "rename":
@@ -307,19 +314,52 @@ def execute_targeted_fix(
                 op_type=OperationType.RENAME_EXERCISE,
                 targets=[doc_id],
                 after=fix_data,
-                rationale=f"Targeted rename for {doc_id}",
+                rationale=f"Targeted rename for {doc_id}: {reason}",
                 risk_level=RiskLevel.LOW,
                 idempotency_key_seed=f"fix_{doc_id}",
             ))
-        else:
+        elif fix_type == "archive":
+            # Archive -> set status to deprecated
+            operations.append(Operation(
+                op_type=OperationType.DEPRECATE_EXERCISE,
+                targets=[doc_id],
+                rationale=f"Archive exercise {doc_id}: {reason}",
+                risk_level=RiskLevel.MEDIUM,
+                idempotency_key_seed=f"archive_{doc_id}",
+            ))
+        elif fix_type == "merge_candidate":
+            # Merge candidate -> set status to merged
+            merge_into = enrichment_spec.get("merge_into", "")
+            operations.append(Operation(
+                op_type=OperationType.PATCH_FIELDS,
+                targets=[doc_id],
+                patch={"status": "merged", "merged_into": merge_into},
+                rationale=f"Mark as merged into {merge_into}: {reason}",
+                risk_level=RiskLevel.MEDIUM,
+                idempotency_key_seed=f"merge_{doc_id}",
+            ))
+        elif fix_type == "fix_identity" and fix_data:
+            # Fix identity -> patch the specified fields (name, family_slug, equipment, etc.)
             operations.append(Operation(
                 op_type=OperationType.PATCH_FIELDS,
                 targets=[doc_id],
                 patch=fix_data,
-                rationale=f"Targeted patch for {doc_id}",
+                rationale=f"Fix identity for {doc_id}: {reason}",
                 risk_level=RiskLevel.LOW,
                 idempotency_key_seed=f"fix_{doc_id}",
             ))
+        elif fix_data:
+            # Generic patch with provided data
+            operations.append(Operation(
+                op_type=OperationType.PATCH_FIELDS,
+                targets=[doc_id],
+                patch=fix_data,
+                rationale=f"Targeted patch for {doc_id}: {reason}",
+                risk_level=RiskLevel.LOW,
+                idempotency_key_seed=f"fix_{doc_id}",
+            ))
+        else:
+            logger.warning("TARGETED_FIX for %s has no fix_data, skipping", doc_id)
     
     plan = ChangePlan(
         job_id=job_id,
@@ -411,35 +451,88 @@ def execute_schema_cleanup(
     from google.cloud import firestore
     from app.apply.engine import apply_change_plan
     
-    # Deprecated fields to remove
+    # Deprecated fields to remove (complete list)
     DEPRECATED_FIELDS = [
+        # Debug/internal artifacts
         "_debug_project_id",
+        "created_by",
+        "created_at",
+        "id",
+        "version",
+        # Old review system
         "delete_candidate",
         "delete_candidate_justification",
+        "status",
+        # Unused/empty
+        "images",
+        # Legacy muscle fields (replaced by muscles.*)
+        "primary_muscles",
+        "secondary_muscles",
+        # Legacy instructions (replaced by execution_notes)
+        "instructions",
+        # Old enrichment pattern (enriched_ prefix)
         "enriched_description",
         "enriched_common_mistakes",
         "enriched_programming_use_cases",
+        "enriched_instructions",
+        "enriched_tips",
+        "enriched_cues",
+        "enriched_at",
+        "enriched_by",
     ]
-    
+
+    # Conditional fields: only delete if replacement exists
+    CONDITIONAL_DEPRECATED = {
+        "primary_muscles": ("muscles", "primary"),  # Only delete if muscles.primary exists
+        "secondary_muscles": ("muscles", "secondary"),
+        "instructions": ("execution_notes", None),  # Only delete if execution_notes exists
+    }
+
     exercise_doc_ids = payload.get("exercise_doc_ids", [])
     fields_to_remove = payload.get("fields_to_remove", DEPRECATED_FIELDS)
-    
+
     if not exercise_doc_ids:
         return {
             "success": False,
             "error": {"code": "MISSING_TARGETS", "message": "SCHEMA_CLEANUP requires exercise_doc_ids"},
             "is_transient": False,
         }
-    
+
     # Fetch exercises to check which have deprecated fields
     db = firestore.Client()
     exercises_with_fields = []
-    
+
     for doc_id in exercise_doc_ids:
         doc = db.collection("exercises").document(doc_id).get()
         if doc.exists:
             data = doc.to_dict()
-            deprecated_present = [f for f in fields_to_remove if f in data]
+            deprecated_present = []
+
+            for field in fields_to_remove:
+                if field not in data:
+                    continue
+
+                # Check conditional fields - don't delete if replacement doesn't exist
+                if field in CONDITIONAL_DEPRECATED:
+                    parent_key, child_key = CONDITIONAL_DEPRECATED[field]
+                    if child_key:
+                        # Nested: check data[parent_key][child_key]
+                        parent = data.get(parent_key, {}) or {}
+                        has_replacement = bool(parent.get(child_key))
+                    else:
+                        # Top-level: check data[parent_key]
+                        has_replacement = bool(data.get(parent_key))
+
+                    if not has_replacement:
+                        # Skip - replacement doesn't exist, keep legacy
+                        logger.debug(
+                            "Skipping %s for %s: replacement %s.%s doesn't exist",
+                            field, doc_id, parent_key, child_key or ""
+                        )
+                        continue
+
+                deprecated_present.append(field)
+
             if deprecated_present:
                 exercises_with_fields.append({
                     "doc_id": doc_id,

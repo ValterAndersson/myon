@@ -539,7 +539,7 @@ Respond with a JSON array, e.g., ["hamstrings", "erector spinae"]""",
         Muscle group(s) based on PRIMARY training intent.
         For compounds like Deadlift, use the primary target (legs) even though
         back is heavily worked. Usually a single value.
-        
+
         Mapping examples:
         - Deadlift, Squat, Leg Press → ["legs"]
         - Bench Press, Push-up → ["chest"]
@@ -554,6 +554,115 @@ Respond with a JSON array, e.g., ["hamstrings", "erector spinae"]""",
 Choose based on the PRIMARY training intent.
 Deadlift = legs (even though back works hard).
 Respond with a JSON array, usually single value: ["legs"] or ["chest"]""",
+    ),
+
+    "muscles.contribution": FieldSpec(
+        name="muscle_contribution",
+        field_path="muscles.contribution",
+        field_type="map[string, number]",
+        required=False,
+        enrichable=True,
+        description="""
+        Percentage contribution of each muscle to the movement.
+        Keys are muscle names (lowercase), values are decimals 0.0-1.0.
+        All values should sum to approximately 1.0.
+        Include all primary and secondary muscles.
+
+        Example for lateral raise:
+        {
+            "medial deltoid": 0.75,
+            "anterior deltoid": 0.15,
+            "trapezius": 0.10
+        }
+        """,
+        good_example={"quadriceps": 0.50, "glutes": 0.35, "hamstrings": 0.15},
+        bad_example={"quads": 50, "glutes": 35},  # Wrong: use full names, decimals not %
+        enrichment_prompt="""What is the percentage contribution of each muscle?
+Use decimal values (0.0-1.0) that sum to approximately 1.0.
+Include primary and secondary muscles.
+Respond with a JSON object: {"muscle name": 0.XX, ...}""",
+    ),
+
+    # -------------------------------------------------------------------------
+    # Enrichment Array Fields
+    # -------------------------------------------------------------------------
+
+    "stimulus_tags": FieldSpec(
+        name="stimulus_tags",
+        field_path="stimulus_tags",
+        field_type="array[string]",
+        required=False,
+        enrichable=True,
+        max_length=8,
+        description="""
+        Tags describing the training stimulus and characteristics.
+        Use title case, focus on training benefits.
+
+        Common tags:
+        - Hypertrophy, Strength, Power, Endurance
+        - Muscle Isolation, Compound Movement
+        - Beginner Friendly, Advanced
+        - Time Under Tension, Controlled Movement
+        - Joint Stability, Core Engagement
+        """,
+        good_example=["Hypertrophy", "Muscle Isolation", "Beginner Friendly"],
+        bad_example=["good exercise", "arms", "gym"],
+        enrichment_prompt="""What training stimulus tags apply to this exercise?
+Use title case. Focus on benefits like Hypertrophy, Strength, Muscle Isolation, etc.
+Respond with a JSON array of 4-6 tags.""",
+    ),
+
+    "programming_use_cases": FieldSpec(
+        name="programming_use_cases",
+        field_path="programming_use_cases",
+        field_type="array[string]",
+        required=False,
+        enrichable=True,
+        max_length=5,
+        description="""
+        Specific scenarios where this exercise is valuable in program design.
+        Each item is a complete sentence describing a use case.
+
+        Examples:
+        - "Excellent for beginners to safely learn the movement pattern"
+        - "Ideal as an accessory exercise in hypertrophy-focused programs"
+        - "Effective as a finisher at the end of a workout"
+        """,
+        good_example=[
+            "Excellent for beginners to safely learn proper squat form.",
+            "Ideal as a primary compound movement in leg-focused programs.",
+        ],
+        bad_example=["good for legs", "use it"],
+        enrichment_prompt="""What are the programming use cases for this exercise?
+Describe 3-5 specific scenarios where this exercise adds value.
+Each should be a complete sentence.
+Respond with a JSON array of strings.""",
+    ),
+
+    "suitability_notes": FieldSpec(
+        name="suitability_notes",
+        field_path="suitability_notes",
+        field_type="array[string]",
+        required=False,
+        enrichable=True,
+        max_length=5,
+        description="""
+        Notes about who this exercise is suitable for and any considerations.
+        Include positive suitability and any cautions.
+
+        Examples:
+        - "Highly effective for isolating the target muscle"
+        - "The machine's stability makes it safe for beginners"
+        - "Requires good shoulder mobility"
+        """,
+        good_example=[
+            "Highly effective for isolating the medial deltoid.",
+            "Safe and easy for beginners to learn proper form.",
+        ],
+        bad_example=["good", "safe"],
+        enrichment_prompt="""Who is this exercise suitable for? Any considerations?
+Include positive notes and any cautions or prerequisites.
+Respond with a JSON array of 2-4 complete sentences.""",
     ),
 }
 
@@ -603,15 +712,14 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "primary": ["quadriceps", "glutes"],
             "secondary": ["hamstrings", "erector spinae", "rectus abdominis"],
             "category": ["legs"],
+            "contribution": {
+                "quadriceps": 0.45,
+                "glutes": 0.30,
+                "hamstrings": 0.15,
+                "erector spinae": 0.07,
+                "rectus abdominis": 0.03,
+            },
         },
-        "instructions": """1. Set up a barbell on a squat rack at shoulder height.
-2. Step under the bar and position it across your upper back (not on your neck).
-3. Grip the bar slightly wider than shoulder width and unrack it.
-4. Step back and position your feet shoulder-width apart, toes slightly out.
-5. Brace your core, keep your chest up, and look forward.
-6. Initiate the squat by pushing your hips back and bending your knees.
-7. Lower until your thighs are parallel to the ground (or below if mobility allows).
-8. Drive through your heels to stand back up, squeezing your glutes at the top.""",
         "execution_notes": [
             "Keep your knees tracking over your toes throughout the movement",
             "Maintain a neutral spine - don't round your lower back",
@@ -626,6 +734,18 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "suitability_notes": [
             "Requires good hip and ankle mobility",
             "Start with lighter weight to master form",
+        ],
+        "programming_use_cases": [
+            "Primary compound movement for leg-focused strength programs.",
+            "Essential exercise for building lower body power and muscle mass.",
+            "Foundation movement for athletic performance training.",
+        ],
+        "stimulus_tags": [
+            "Compound Movement",
+            "Strength",
+            "Hypertrophy",
+            "Core Engagement",
+            "Athletic Performance",
         ],
     },
     
@@ -651,13 +771,12 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "primary": ["pectoralis major", "triceps"],
             "secondary": ["anterior deltoid"],
             "category": ["chest"],
+            "contribution": {
+                "pectoralis major": 0.55,
+                "triceps": 0.30,
+                "anterior deltoid": 0.15,
+            },
         },
-        "instructions": """1. Lie flat on a bench with a dumbbell in each hand.
-2. Start with dumbbells at chest level, palms facing forward.
-3. Feet flat on the floor, back slightly arched, shoulder blades squeezed together.
-4. Press the dumbbells up and slightly together until arms are extended.
-5. Lower the dumbbells with control back to chest level.
-6. Keep your elbows at roughly 45 degrees to your body throughout.""",
         "execution_notes": [
             "Don't bounce the weights off your chest",
             "Keep your wrists straight, not bent back",
@@ -672,8 +791,19 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "Good alternative to barbell for those with shoulder issues",
             "Requires more stabilization than barbell version",
         ],
+        "programming_use_cases": [
+            "Primary pressing movement for chest hypertrophy programs.",
+            "Alternative to barbell for lifters with shoulder limitations.",
+            "Accessory exercise to improve pressing strength balance.",
+        ],
+        "stimulus_tags": [
+            "Compound Movement",
+            "Hypertrophy",
+            "Strength",
+            "Stabilization",
+        ],
     },
-    
+
     # -------------------------------------------------------------------------
     # Example 3: Isolation (Cable)
     # -------------------------------------------------------------------------
@@ -696,13 +826,10 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "primary": ["triceps"],
             "secondary": [],
             "category": ["arms"],
+            "contribution": {
+                "triceps": 1.0,
+            },
         },
-        "instructions": """1. Set the cable pulley to the highest position with a straight bar attachment.
-2. Stand facing the machine, feet shoulder-width apart.
-3. Grip the bar with palms facing down, hands shoulder-width apart.
-4. Keep your elbows pinned to your sides throughout the movement.
-5. Push the bar down by extending your elbows until arms are straight.
-6. Squeeze your triceps at the bottom, then slowly return to start.""",
         "execution_notes": [
             "Keep your upper arms stationary - only your forearms should move",
             "Don't lean forward to use body weight",
@@ -716,6 +843,17 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "suitability_notes": [
             "Great exercise for beginners learning tricep isolation",
             "Low injury risk when performed correctly",
+        ],
+        "programming_use_cases": [
+            "Accessory exercise to build tricep strength for pressing movements.",
+            "Finisher at the end of an arm or push workout.",
+            "Beginner exercise to learn proper tricep activation.",
+        ],
+        "stimulus_tags": [
+            "Muscle Isolation",
+            "Beginner Friendly",
+            "Controlled Movement",
+            "Time Under Tension",
         ],
     },
     
@@ -741,13 +879,14 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "primary": ["latissimus dorsi", "biceps"],
             "secondary": ["rhomboids", "posterior deltoid", "forearms"],
             "category": ["back"],
+            "contribution": {
+                "latissimus dorsi": 0.45,
+                "biceps": 0.25,
+                "rhomboids": 0.12,
+                "posterior deltoid": 0.10,
+                "forearms": 0.08,
+            },
         },
-        "instructions": """1. Grip a pull-up bar with palms facing away, slightly wider than shoulder width.
-2. Hang with arms fully extended, shoulders engaged (not shrugging up).
-3. Pull yourself up by driving your elbows down toward your hips.
-4. Continue until your chin clears the bar.
-5. Lower yourself with control back to the starting position.
-6. Avoid swinging or using momentum.""",
         "execution_notes": [
             "Initiate the pull by depressing your shoulder blades",
             "Think about pulling your elbows to your back pockets",
@@ -761,6 +900,18 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "suitability_notes": [
             "Requires baseline upper body strength",
             "Use assisted machine or bands if unable to complete reps",
+        ],
+        "programming_use_cases": [
+            "Primary vertical pulling movement for back development.",
+            "Bodyweight strength benchmark and progression exercise.",
+            "Foundation for advanced calisthenics training.",
+        ],
+        "stimulus_tags": [
+            "Compound Movement",
+            "Bodyweight",
+            "Strength",
+            "Back Development",
+            "Core Engagement",
         ],
     },
     
@@ -786,13 +937,13 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
             "primary": ["hamstrings", "glutes"],
             "secondary": ["erector spinae", "latissimus dorsi"],
             "category": ["legs"],
+            "contribution": {
+                "hamstrings": 0.45,
+                "glutes": 0.30,
+                "erector spinae": 0.15,
+                "latissimus dorsi": 0.10,
+            },
         },
-        "instructions": """1. Stand with feet hip-width apart, holding a barbell at thigh level.
-2. Keep a slight bend in your knees - this stays constant throughout.
-3. Push your hips back while keeping your back flat and chest up.
-4. Lower the bar along your legs, feeling a stretch in your hamstrings.
-5. Go as low as your flexibility allows while maintaining a flat back.
-6. Drive your hips forward to return to standing, squeezing your glutes.""",
         "execution_notes": [
             "This is a hip hinge, not a squat - knees stay slightly bent",
             "The bar should stay close to your body throughout",
@@ -806,6 +957,18 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "suitability_notes": [
             "Excellent for hamstring development and hip hinge learning",
             "Requires good hamstring flexibility",
+        ],
+        "programming_use_cases": [
+            "Primary hip hinge movement for posterior chain development.",
+            "Accessory exercise to complement conventional deadlifts.",
+            "Hamstring strengthening for injury prevention in athletes.",
+        ],
+        "stimulus_tags": [
+            "Compound Movement",
+            "Hinge Pattern",
+            "Hypertrophy",
+            "Hamstring Focus",
+            "Posterior Chain",
         ],
     },
 }

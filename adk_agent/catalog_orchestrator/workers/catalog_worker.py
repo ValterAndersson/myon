@@ -381,7 +381,14 @@ class CatalogWorker:
                 else:
                     final_status = JobStatus.SUCCEEDED
                 
-                complete_job(job_id, self.worker_id, final_status, result)
+                # Minimal summary - full result in GCP logs
+                minimal_summary = {
+                    "success": True,
+                    "mode": mode,
+                    "applied": result.get("apply_result", {}).get("applied_count", 0) if isinstance(result.get("apply_result"), dict) else 0,
+                }
+                
+                complete_job(job_id, self.worker_id, final_status, minimal_summary)
                 
                 # Write run history
                 self._write_run_history(
