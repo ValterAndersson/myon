@@ -291,6 +291,173 @@ async function getExercisesByFamily(familySlug) {
   }
 }
 
+// =============================================================================
+// CREATE NEW EXERCISE
+// =============================================================================
+
+function generateSlug(name) {
+  return name
+    .toLowerCase()
+    .replace(/[()]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function generateFamilySlug(baseName) {
+  return baseName
+    .toLowerCase()
+    .replace(/[()]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function deriveCategory(name, equipment) {
+  const lower = name.toLowerCase();
+  // Compound movements
+  if (/deadlift|squat|bench\s*press|overhead\s*press|row|pull.?up|chin.?up|dip|lunge/.test(lower)) {
+    return 'compound';
+  }
+  // Isolation movements
+  if (/curl|extension|raise|fly|flye|kickback|pushdown|pullover/.test(lower)) {
+    return 'isolation';
+  }
+  return 'compound'; // Default to compound
+}
+
+function deriveMovement(name) {
+  const lower = name.toLowerCase();
+
+  // Movement type
+  let type = 'other';
+  if (/press|push/.test(lower)) type = 'press';
+  else if (/pull|row|curl/.test(lower)) type = 'pull';
+  else if (/squat|lunge|leg\s*press/.test(lower)) type = 'squat';
+  else if (/deadlift|hip\s*hinge|rdl|romanian/.test(lower)) type = 'hinge';
+  else if (/raise|fly|flye|lateral/.test(lower)) type = 'raise';
+  else if (/extension|curl/.test(lower)) type = 'isolation';
+
+  // Split
+  let split = 'full_body';
+  if (/bench|chest|fly|flye|push.?up|dip|tricep|shoulder|press|raise|pull.?up|chin.?up|row|lat|bicep|curl/.test(lower)) {
+    split = 'upper';
+  } else if (/squat|leg|lunge|calf|hamstring|quad|glute|deadlift|hip/.test(lower)) {
+    split = 'lower';
+  } else if (/ab|core|crunch|plank/.test(lower)) {
+    split = 'core';
+  }
+
+  return { type, split };
+}
+
+async function createNewExercise(strongName, equipment) {
+  const db = getFirestore();
+
+  // Parse the name
+  const { base } = parseExerciseName(strongName);
+
+  // Build canonical name with equipment
+  const canonicalName = equipment.length > 0
+    ? `${base} (${equipment.map(e => e.charAt(0).toUpperCase() + e.slice(1).toLowerCase()).join(', ')})`
+    : base;
+
+  // Generate identifiers
+  const nameSlug = generateSlug(canonicalName);
+  const familySlug = generateFamilySlug(base);
+  const docId = `${familySlug}__${nameSlug}`;
+
+  // Build the exercise document with proper schema
+  const now = new Date();
+  const exerciseDoc = {
+    name: canonicalName,
+    name_slug: nameSlug,
+    family_slug: familySlug,
+    variant_key: equipment.length > 0 ? `equipment:${equipment[0].toLowerCase()}` : null,
+    category: deriveCategory(canonicalName, equipment),
+    equipment: equipment.map(e => e.toLowerCase()),
+    metadata: {
+      level: 'intermediate',
+      plane_of_motion: null,
+      unilateral: false,
+    },
+    movement: deriveMovement(canonicalName),
+    muscles: {
+      primary: [],
+      secondary: [],
+      category: [],
+      contribution: {},
+    },
+    description: '',
+    execution_notes: [],
+    common_mistakes: [],
+    programming_use_cases: [],
+    stimulus_tags: [],
+    suitability_notes: [],
+    coaching_cues: [],
+    tips: [],
+    // Mark as needing enrichment
+    _import_source: 'strong_csv_import',
+    _needs_enrichment: true,
+    created_at: now,
+    updated_at: now,
+  };
+
+  // Check if already exists
+  const existingDoc = await db.collection('exercises').doc(docId).get();
+  if (existingDoc.exists) {
+    console.log(`  [=] Exercise already exists: ${docId}`);
+    return docId;
+  }
+
+  // Create the exercise
+  if (!FLAGS.dryRun) {
+    await db.collection('exercises').doc(docId).set(exerciseDoc);
+    console.log(`  [+] Created new exercise: ${canonicalName} (${docId})`);
+
+    // Queue enrichment job
+    await queueEnrichmentJob(docId, canonicalName);
+  } else {
+    console.log(`  [+] Would create exercise: ${canonicalName} (${docId})`);
+  }
+
+  return docId;
+}
+
+async function queueEnrichmentJob(exerciseId, exerciseName) {
+  const db = getFirestore();
+
+  const jobId = `import-enrich-${exerciseId}-${Date.now()}`;
+  const now = new Date();
+
+  const job = {
+    id: jobId,
+    type: 'CATALOG_ENRICH_FIELD',
+    queue: 'priority',  // High priority for imported exercises
+    status: 'queued',
+    priority: 200,  // Higher than normal (100)
+    mode: 'apply',  // Actually apply the enrichment
+    created_at: now,
+    updated_at: now,
+    run_after: now,
+    attempts: 0,
+    max_attempts: 3,
+    exercise_doc_ids: [exerciseId],
+    enrichment_spec: {
+      source: 'strong_csv_import',
+      exercise_name: exerciseName,
+      enrich_all: true,  // Enrich all missing fields
+    },
+    result_summary: null,
+    error: null,
+  };
+
+  if (!FLAGS.dryRun) {
+    await db.collection('catalog_jobs').doc(jobId).set(job);
+    console.log(`  [>] Queued enrichment job: ${jobId}`);
+  } else {
+    console.log(`  [>] Would queue enrichment job for: ${exerciseName}`);
+  }
+}
+
 function normalizeForMatching(str) {
   return str.toLowerCase()
     .replace(/[^a-z0-9]/g, '')
@@ -343,19 +510,23 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
   }
 
   // Search for candidates
-  const { base } = parseExerciseName(strongName);
+  const { base, equipment: parsedEquip } = parseExerciseName(strongName);
+  const effectiveEquip = strongEquip.length > 0 ? strongEquip : parsedEquip;
   const candidates = await searchExercises(base, 10);
 
+  // No matches found - create new exercise
   if (candidates.length === 0) {
-    console.log(`  [!] No matches found for "${strongName}" - skipping`);
-    cache.set(cacheKey, null);
-    return null;
+    console.log(`  [!] No matches found for "${strongName}" - creating new exercise`);
+    const newExId = await createNewExercise(strongName, effectiveEquip);
+    cache.set(cacheKey, newExId);
+    sessionMappings.set(strongName, newExId);
+    return newExId;
   }
 
   // Score and sort candidates
   const scored = candidates.map(c => ({
     ...c,
-    score: scoreMatch(base, strongEquip, c),
+    score: scoreMatch(base, effectiveEquip, c),
   })).sort((a, b) => b.score - a.score);
 
   // If best match has high confidence (>70) and is significantly better than second, auto-select
@@ -371,12 +542,20 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
       label: `${c.name} [${(c.equipment || []).join(', ')}] (score: ${c.score})`,
       value: c.id,
     }));
-    options.push({ label: 'Skip this exercise', value: null });
+    options.push({ label: 'Create new exercise in catalog', value: 'CREATE_NEW' });
 
     const choice = await promptChoice(
       `Multiple matches for "${strongName}":`,
       options
     );
+
+    // Handle "Create new" option
+    if (choice.value === 'CREATE_NEW') {
+      const newExId = await createNewExercise(strongName, effectiveEquip);
+      sessionMappings.set(strongName, newExId);
+      cache.set(cacheKey, newExId);
+      return newExId;
+    }
 
     // Remember for this session (same Strong name -> same choice)
     sessionMappings.set(strongName, choice.value);
@@ -391,9 +570,12 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
     return scored[0].id;
   }
 
-  console.log(`  [!] Low confidence match for "${strongName}" - skipping (use --interactive to choose)`);
-  cache.set(cacheKey, null);
-  return null;
+  // Low confidence - create new exercise instead of skipping
+  console.log(`  [!] Low confidence for "${strongName}" - creating new exercise`);
+  const newExId = await createNewExercise(strongName, effectiveEquip);
+  cache.set(cacheKey, newExId);
+  sessionMappings.set(strongName, newExId);
+  return newExId;
 }
 
 // =============================================================================
@@ -516,7 +698,7 @@ async function main() {
 
   const exerciseCache = new Map();
   const sessionMappings = new Map(); // Remember user choices for this session
-  const unresolved = new Set();
+  const createdExercises = new Set(); // Track newly created exercises
   let imported = 0;
   let skipped = 0;
 
@@ -573,8 +755,14 @@ async function main() {
       );
 
       if (!exId) {
-        unresolved.add(exName);
+        // This shouldn't happen anymore since we create new exercises
+        console.log(`  [!] Failed to resolve or create: ${exName}`);
         continue;
+      }
+
+      // Track if this was a newly created exercise
+      if (exId.includes('__')) {
+        createdExercises.add(exId);
       }
 
       // Sort sets by Set Order
@@ -653,16 +841,20 @@ async function main() {
   console.log(`Total workouts:  ${groups.size}`);
   console.log(`Imported:        ${imported}`);
   console.log(`Skipped:         ${skipped}`);
+  console.log(`New exercises:   ${createdExercises.size}`);
 
-  if (unresolved.size) {
-    console.log(`\nUnresolved exercises (${unresolved.size}):`);
-    for (const n of unresolved) console.log(`  - ${n}`);
+  if (createdExercises.size > 0) {
+    console.log(`\nNewly created exercises (queued for enrichment):`);
+    for (const exId of createdExercises) {
+      console.log(`  + ${exId}`);
+    }
   }
 
   if (sessionMappings.size > 0) {
-    console.log(`\nExercise mappings used this session:`);
+    console.log(`\nExercise mappings used:`);
     for (const [strong, exId] of sessionMappings.entries()) {
-      console.log(`  "${strong}" -> ${exId || '(skipped)'}`);
+      const isNew = createdExercises.has(exId);
+      console.log(`  "${strong}" -> ${exId}${isNew ? ' (NEW)' : ''}`);
     }
   }
 
