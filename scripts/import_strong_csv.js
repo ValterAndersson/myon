@@ -269,12 +269,141 @@ async function promptChoice(message, options) {
 // =============================================================================
 
 async function searchExercises(query, limit = 10) {
+  // Try API first
   try {
     const url = `${API_BASE_URL}/searchExercises?query=${encodeURIComponent(query)}&limit=${limit}`;
     const res = await fetch(url, { headers: { 'X-API-Key': API_KEY } });
     const json = await res.json();
-    return json?.data?.items || [];
+    const apiResults = json?.data?.items || [];
+    if (apiResults.length > 0) {
+      console.log(`    [API] Found ${apiResults.length} results for: "${query}"`);
+      return apiResults;
+    }
+    console.log(`    [API] No results for: "${query}" - trying Firestore`);
   } catch (e) {
+    console.log(`    [API] Error searching: ${e.message} - trying Firestore`);
+  }
+
+  // Fallback: Search Firestore directly
+  return searchExercisesFirestore(query, limit);
+}
+
+async function searchExercisesFirestore(query, limit = 10) {
+  try {
+    const db = getFirestore();
+    const normalizedQuery = query.toLowerCase().trim();
+
+    // Parse out equipment from query if present (e.g., "Preacher Curl (Barbell)" -> "preacher curl")
+    const baseQuery = normalizedQuery.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+    // Try multiple slug formats
+    const slugVariants = [
+      baseQuery.replace(/[^a-z0-9]+/g, '_'),      // preacher_curl
+      baseQuery.replace(/[^a-z0-9]+/g, '-'),      // preacher-curl
+      baseQuery.replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''), // preacher_curl (preserving underscores)
+    ];
+
+    // Strategy 1: Search by family_slug with multiple formats
+    for (const slug of slugVariants) {
+      const familySnap = await db.collection('exercises')
+        .where('family_slug', '==', slug)
+        .limit(limit)
+        .get();
+
+      if (!familySnap.empty) {
+        console.log(`    [Firestore] Found ${familySnap.size} results by family_slug: ${slug}`);
+        return familySnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+    }
+
+    // Strategy 2: Try partial family_slug match (first two words)
+    const words = baseQuery.split(/\s+/);
+    if (words.length > 1) {
+      const partialSlugs = [
+        words.slice(0, 2).join('_'),
+        words.slice(0, 2).join('-'),
+        words[0] + '_' + words[1],
+      ];
+
+      for (const slug of partialSlugs) {
+        const partialSnap = await db.collection('exercises')
+          .where('family_slug', '==', slug)
+          .limit(limit)
+          .get();
+
+        if (!partialSnap.empty) {
+          console.log(`    [Firestore] Found ${partialSnap.size} results by partial slug: ${slug}`);
+          return partialSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      }
+    }
+
+    // Strategy 3: Search by name_slug
+    for (const slug of slugVariants) {
+      const nameSnap = await db.collection('exercises')
+        .where('name_slug', '==', slug)
+        .limit(limit)
+        .get();
+
+      if (!nameSnap.empty) {
+        console.log(`    [Firestore] Found ${nameSnap.size} results by name_slug: ${slug}`);
+        return nameSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+    }
+
+    // Strategy 4: Client-side search through all exercises (last resort)
+    if (baseQuery.length >= 3) {
+      console.log(`    [Firestore] Falling back to client-side search for: "${baseQuery}"`);
+      const allSnap = await db.collection('exercises').get();
+      const results = [];
+      const queryWords = baseQuery.split(/\s+/);
+
+      for (const doc of allSnap.docs) {
+        const data = doc.data();
+        const name = (data.name || '').toLowerCase();
+        const nameBase = name.replace(/\s*\([^)]*\)\s*$/, '').trim(); // Strip equipment
+        const familySlugDoc = (data.family_slug || '').toLowerCase();
+        const nameSlugDoc = (data.name_slug || '').toLowerCase();
+
+        // Check various matching strategies
+        let matched = false;
+
+        // Exact base name match
+        if (nameBase === baseQuery) {
+          matched = true;
+        }
+        // Name contains query
+        else if (name.includes(baseQuery)) {
+          matched = true;
+        }
+        // Query contains base name
+        else if (baseQuery.includes(nameBase) && nameBase.length >= 5) {
+          matched = true;
+        }
+        // All query words present in name
+        else if (queryWords.length >= 2 && queryWords.every(w => name.includes(w))) {
+          matched = true;
+        }
+        // Slug matching
+        else if (slugVariants.some(s => familySlugDoc === s || nameSlugDoc.includes(s))) {
+          matched = true;
+        }
+
+        if (matched) {
+          results.push({ id: doc.id, ...data });
+          if (results.length >= limit) break;
+        }
+      }
+
+      if (results.length > 0) {
+        console.log(`    [Firestore] Client-side search found ${results.length} results`);
+      }
+      return results;
+    }
+
+    return [];
+  } catch (e) {
+    console.warn('Firestore search failed:', e.message);
     return [];
   }
 }
