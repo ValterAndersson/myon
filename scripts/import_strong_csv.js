@@ -534,7 +534,7 @@ async function createNewExercise(strongName, equipment) {
   const existingDoc = await db.collection('exercises').doc(docId).get();
   if (existingDoc.exists) {
     console.log(`  [=] Exercise already exists: ${docId}`);
-    return docId;
+    return { id: docId, created: false };
   }
 
   // Create the exercise
@@ -548,7 +548,7 @@ async function createNewExercise(strongName, equipment) {
     console.log(`  [+] Would create exercise: ${canonicalName} (${docId})`);
   }
 
-  return docId;
+  return { id: docId, created: true };
 }
 
 async function queueEnrichmentJob(exerciseId, exerciseName) {
@@ -627,7 +627,7 @@ function scoreMatch(strongName, strongEquip, exercise) {
   return score;
 }
 
-async function resolveExerciseInteractive(cache, strongName, strongEquip, userId, sessionMappings) {
+async function resolveExerciseInteractive(cache, strongName, strongEquip, userId, sessionMappings, createdExercises) {
   const cacheKey = `${strongName}|${strongEquip.join(',')}`;
 
   // Check session cache first
@@ -646,10 +646,11 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
   // No matches found - create new exercise
   if (candidates.length === 0) {
     console.log(`  [!] No matches found for "${strongName}" - creating new exercise`);
-    const newExId = await createNewExercise(strongName, effectiveEquip);
-    cache.set(cacheKey, newExId);
-    sessionMappings.set(strongName, newExId);
-    return newExId;
+    const result = await createNewExercise(strongName, effectiveEquip);
+    if (result.created) createdExercises.add(result.id);
+    cache.set(cacheKey, result.id);
+    sessionMappings.set(strongName, result.id);
+    return result.id;
   }
 
   // Score and sort candidates
@@ -680,10 +681,11 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
 
     // Handle "Create new" option
     if (choice.value === 'CREATE_NEW') {
-      const newExId = await createNewExercise(strongName, effectiveEquip);
-      sessionMappings.set(strongName, newExId);
-      cache.set(cacheKey, newExId);
-      return newExId;
+      const result = await createNewExercise(strongName, effectiveEquip);
+      if (result.created) createdExercises.add(result.id);
+      sessionMappings.set(strongName, result.id);
+      cache.set(cacheKey, result.id);
+      return result.id;
     }
 
     // Remember for this session (same Strong name -> same choice)
@@ -701,10 +703,11 @@ async function resolveExerciseInteractive(cache, strongName, strongEquip, userId
 
   // Low confidence - create new exercise instead of skipping
   console.log(`  [!] Low confidence for "${strongName}" - creating new exercise`);
-  const newExId = await createNewExercise(strongName, effectiveEquip);
-  cache.set(cacheKey, newExId);
-  sessionMappings.set(strongName, newExId);
-  return newExId;
+  const result = await createNewExercise(strongName, effectiveEquip);
+  if (result.created) createdExercises.add(result.id);
+  cache.set(cacheKey, result.id);
+  sessionMappings.set(strongName, result.id);
+  return result.id;
 }
 
 // =============================================================================
@@ -880,18 +883,13 @@ async function main() {
       const { base, equipment } = parseExerciseName(exName);
 
       const exId = await resolveExerciseInteractive(
-        exerciseCache, exName, equipment, userId, sessionMappings
+        exerciseCache, exName, equipment, userId, sessionMappings, createdExercises
       );
 
       if (!exId) {
         // This shouldn't happen anymore since we create new exercises
         console.log(`  [!] Failed to resolve or create: ${exName}`);
         continue;
-      }
-
-      // Track if this was a newly created exercise
-      if (exId.includes('__')) {
-        createdExercises.add(exId);
       }
 
       // Sort sets by Set Order
