@@ -463,8 +463,14 @@ def execute_schema_cleanup(
         "delete_candidate",
         "delete_candidate_justification",
         "status",
+        "deprecated_at",
         # Unused/empty
         "images",
+        # Deprecated content fields (redundant with execution_notes)
+        "coaching_cues",
+        "tips",  # Redundant with suitability_notes
+        # Deprecated variant tracking (family_slug + equipment in name is sufficient)
+        "variant_key",
         # Legacy muscle fields (replaced by muscles.*)
         "primary_muscles",
         "secondary_muscles",

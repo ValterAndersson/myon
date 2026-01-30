@@ -47,10 +47,22 @@ REQUIRED_EXERCISE_FIELDS = {
 
 # Known fields that should not be rejected (warn-only for unknown)
 KNOWN_EXERCISE_FIELDS = {
-    "name", "name_slug", "family_slug", "status",
-    "equipment", "primary_muscles", "secondary_muscles",
-    "force", "mechanic", "level", "category",
-    "instructions", "tips", "images", "created_at", "updated_at",
+    # Core identity fields
+    "name", "name_slug", "family_slug", "equipment",
+    # New schema fields (V1.2)
+    "muscles", "metadata", "movement", "category",
+    "execution_notes", "common_mistakes", "suitability_notes",
+    "programming_use_cases", "stimulus_tags",
+    "description",
+    # Review tracking (V1.3)
+    "review_metadata",
+    # Timestamps
+    "updated_at",
+    # Legacy fields (being phased out via SCHEMA_CLEANUP)
+    "primary_muscles", "secondary_muscles", "instructions",
+    "status", "created_at", "images",
+    "force", "mechanic", "level",
+    "tips", "variant_key",  # Deprecated V1.4
     # Enriched fields (warn-only until schema reconciled)
     "enriched_instructions", "enriched_tips", "enriched_cues",
     "enriched_at", "enriched_by",

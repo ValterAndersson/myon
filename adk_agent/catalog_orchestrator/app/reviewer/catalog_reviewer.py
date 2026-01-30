@@ -644,7 +644,7 @@ Respond with ONLY the JSON object."""
             response = llm_client.complete(
                 prompt=prompt,
                 output_schema={"type": "object"},
-                require_reasoning=True,  # Use gemini-2.5-pro
+                require_reasoning=False,  # V1.4: Flash-first for cost efficiency
             )
             
             # Parse response - handle markdown code blocks

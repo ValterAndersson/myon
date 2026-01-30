@@ -1,7 +1,7 @@
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
-  name: catalog-review
+  name: catalog-quality
 spec:
   template:
     metadata:
@@ -18,17 +18,17 @@ spec:
             - --max-exercises
             - '1000'
             - --max-jobs
-            - '500'
+            - '200'
             command:
             - python
             - -m
-            - app.reviewer.scheduled_review
+            - app.reviewer.scheduled_quality_scan
             env:
             - name: GOOGLE_CLOUD_PROJECT
               value: myon-53d85
             image: gcr.io/myon-53d85/catalog-worker:latest
             resources:
               limits:
-                cpu: '2'
-                memory: 4Gi
-          timeoutSeconds: 14400
+                cpu: '1'
+                memory: 1Gi
+          timeoutSeconds: 3600

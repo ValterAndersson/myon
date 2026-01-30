@@ -570,8 +570,10 @@ class JobExecutor:
         
         base_name = intent.get("base_name")
         equipment = intent.get("equipment", [])
-        primary_muscles = intent.get("muscles_primary", [])
-        secondary_muscles = intent.get("muscles_secondary", [])
+        # Support both new schema (muscles.primary) and legacy (muscles_primary)
+        muscles = intent.get("muscles", {})
+        primary_muscles = muscles.get("primary", intent.get("muscles_primary", []))
+        secondary_muscles = muscles.get("secondary", intent.get("muscles_secondary", []))
         
         if not base_name:
             return {
@@ -614,15 +616,36 @@ class JobExecutor:
                     "is_transient": False,
                 }
         
-        # Create exercise data
+        # Create exercise data with NEW SCHEMA
+        # V1.2: Use muscles.primary/secondary instead of primary_muscles/secondary_muscles
         exercise_data = {
             "name": exercise_name,
             "name_slug": name_slug,
             "family_slug": family_slug,
-            "status": "approved",
             "equipment": equipment,
-            "primary_muscles": primary_muscles,
-            "secondary_muscles": secondary_muscles,
+            "category": "compound",  # Default, enrichment job will refine
+            "muscles": {
+                "primary": primary_muscles,
+                "secondary": secondary_muscles,
+                "category": [],
+                "contribution": {},
+            },
+            "metadata": {
+                "level": "intermediate",
+                "plane_of_motion": None,
+                "unilateral": False,
+            },
+            "movement": {
+                "type": None,
+                "split": None,
+            },
+            "execution_notes": [],
+            "common_mistakes": [],
+            "suitability_notes": [],
+            "programming_use_cases": [],
+            "stimulus_tags": [],
+            # coaching_cues deprecated - redundant with execution_notes
+            "tips": [],
         }
         
         # Create operation
@@ -903,7 +926,10 @@ class JobExecutor:
         # Extract reviewer hint from instructions/fields_to_enrich
         fields_to_enrich = enrichment_spec_data.get("fields_to_enrich", [])
         instructions = enrichment_spec_data.get("instructions", "")
-        
+
+        # Model selection: default to Flash, use Pro if explicitly requested
+        use_pro_model = enrichment_spec_data.get("use_pro_model", False)
+
         reviewer_hint = instructions
         if fields_to_enrich and not reviewer_hint:
             reviewer_hint = f"Fields flagged for review: {', '.join(fields_to_enrich)}"
@@ -924,6 +950,7 @@ class JobExecutor:
                 exercise=exercise,
                 reviewer_hint=reviewer_hint,
                 llm_client=llm_client,
+                use_pro_model=use_pro_model,
             )
             
             if not result["success"]:
@@ -1433,7 +1460,7 @@ Respond with ONLY the JSON object."""
         response = llm_client.complete(
             prompt=prompt,
             output_schema={"type": "object"},
-            require_reasoning=True,
+            require_reasoning=False,  # V1.4: Flash-first for cost efficiency
         )
         
         # Parse response

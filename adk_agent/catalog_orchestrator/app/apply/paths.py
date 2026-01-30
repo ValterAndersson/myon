@@ -25,11 +25,9 @@ ALLOWED_FLAT_PATHS: Set[str] = {
     "name",
     "name_slug",
     "family_slug",
-    "status",
     "category",
     "description",
-    "instructions",
-    "tips",
+    # "tips",  # Deprecated - redundant with suitability_notes
     "common_mistakes",
     # Alias document fields (also validated via this path)
     "exercise_id",
@@ -39,16 +37,16 @@ ALLOWED_FLAT_PATHS: Set[str] = {
     "movement",
     "execution_notes",
     "suitability_notes",
-    "coaching_cues",
-    "variant_key",
-    "created_by",
-    "version",
-    # --- V1.2: Holistic enrichment fields ---
+    # "coaching_cues",  # Deprecated - redundant with execution_notes
+    # "variant_key",  # Deprecated - family_slug + equipment in name is sufficient
+    # --- V1.2: Holistic enrichment fields (new schema) ---
     "muscles.primary",
     "muscles.secondary",
     "muscles.category",
+    "muscles.contribution",
     "movement.type",
     "movement.split",
+    "metadata",
     "metadata.level",
     "metadata.plane_of_motion",
     "metadata.unilateral",
@@ -59,6 +57,11 @@ ALLOWED_FLAT_PATHS: Set[str] = {
     "plane_of_motion",
     "force_type",
     "bilateral",
+    # --- Legacy fields (being phased out, but still allowed for cleanup) ---
+    "status",
+    "instructions",
+    "created_by",
+    "version",
 }
 
 # Array fields - whole-array replace only (not element-wise)
@@ -79,6 +82,9 @@ ALLOWED_ARRAY_PATHS: Set[str] = {
 # Deep map paths - allowed nested updates via dotted path
 ALLOWED_DEEP_PATHS_PREFIX: Set[str] = {
     "metadata.",
+    "muscles.",
+    "movement.",
+    "review_metadata.",  # V1.3: Quality tracking for cost-efficient reviews
     "enriched_",
     "stimulus_tags.",
     "muscle_contributions.",

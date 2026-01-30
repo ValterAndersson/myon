@@ -20,6 +20,6 @@ spec:
             image: gcr.io/myon-53d85/catalog-worker:latest
             resources:
               limits:
-                cpu: '0.5'
+                cpu: '1'
                 memory: 512Mi
           timeoutSeconds: 1800

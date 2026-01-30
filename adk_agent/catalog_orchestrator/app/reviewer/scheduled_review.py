@@ -1,19 +1,29 @@
 """
-Scheduled Review - Cloud Run Job entrypoint for periodic catalog reviews.
+Scheduled Review - Production catalog review pipeline.
 
-This module provides the scheduled review runner that uses the unified
-CatalogReviewAgent to:
-1. Page through the catalog in batches
-2. Review exercises for health (KEEP, ENRICH, FIX, ARCHIVE, MERGE)
-3. Detect duplicates
-4. Analyze equipment gaps
-5. Create jobs for all decisions
-6. Report summary metrics
+V1.4: Flash-first architecture for cost-efficient production use.
+Uses gemini-2.5-flash for all operations:
+- FIX_IDENTITY: Naming taxonomy violations
+- MERGE: Duplicate detection and merging
+- ARCHIVE: Unsalvageable exercises
+- ENRICH: Holistic enrichment (description, muscles, etc.)
+- GAP ANALYSIS: Equipment family expansion suggestions
+
+Production workflow:
+1. Review all exercises for quality issues
+2. Queue enrichment jobs for missing fields (description, etc.)
+3. Detect and suggest equipment variants for families
+4. Handle user-added exercises automatically
 
 Architecture:
+- Uses gemini-2.5-flash for cost efficiency (~10x cheaper than Pro)
 - Single LLM call per batch (not fragmented)
 - Concurrent batch processing
 - All decisions in one response
+
+See also:
+- scheduled_quality_scan.py: Tier 1 quality scanning (Flash)
+- quality_scanner.py: Heuristic + Flash quality scoring
 """
 
 from __future__ import annotations
@@ -46,6 +56,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_BATCH_SIZE = 20  # Stable batch size - larger values cause LLM truncation issues
 DEFAULT_MAX_EXERCISES = 1000  # Review full catalog
 DEFAULT_MAX_JOBS = 500  # Create more jobs per run
+
+# V1.3: Cost-efficient review - skip recently reviewed high-quality exercises
+QUALITY_THRESHOLD = 0.9  # Exercises with quality_score >= this are skipped
+REVIEW_VERSION = "1.3"  # Bump when review logic changes significantly
 
 
 def _get_firestore_client():
@@ -111,6 +125,176 @@ def fetch_all_exercises(
     
     logger.info("Fetched %d exercises from Firestore", len(exercises))
     return exercises
+
+
+def filter_exercises_for_review(
+    exercises: List[Dict[str, Any]],
+    quality_threshold: float = QUALITY_THRESHOLD,
+    force_review: bool = False,
+) -> List[Dict[str, Any]]:
+    """
+    Filter exercises to only include those flagged for full review.
+
+    Multi-tier pipeline:
+    - Tier 1 (quality_scanner) sets needs_full_review=true for complex issues
+    - Tier 2 (this module) only processes flagged exercises
+
+    Args:
+        exercises: All fetched exercises
+        quality_threshold: Fallback threshold if not scanned by Tier 1
+        force_review: If True, review all exercises regardless of flags
+
+    Returns:
+        List of exercises that need full review
+    """
+    if force_review:
+        logger.info("Force review enabled - including all %d exercises", len(exercises))
+        return exercises
+
+    needs_review = []
+    skipped_not_flagged = 0
+    skipped_high_quality = 0
+    not_scanned = 0
+
+    for ex in exercises:
+        review_meta = ex.get("review_metadata", {})
+
+        # Check if scanned by Tier 1 quality scanner
+        scanner_version = review_meta.get("scanner_version")
+
+        if scanner_version:
+            # Tier 1 has scanned this exercise - check the flag
+            needs_full_review = review_meta.get("needs_full_review", False)
+            if needs_full_review:
+                needs_review.append(ex)
+            else:
+                skipped_not_flagged += 1
+        else:
+            # Not scanned by Tier 1 yet - use legacy quality threshold
+            quality_score = review_meta.get("quality_score", 0)
+            review_version = review_meta.get("review_version", "")
+
+            # Skip if already reviewed with current version and high quality
+            if review_version == REVIEW_VERSION and quality_score >= quality_threshold:
+                skipped_high_quality += 1
+                continue
+
+            # Include unscanned exercises for review (legacy mode)
+            needs_review.append(ex)
+            not_scanned += 1
+
+    logger.info(
+        "Filtered for full review: %d need review (%d not scanned by Tier 1), "
+        "%d skipped (not flagged), %d skipped (high quality), %d total",
+        len(needs_review),
+        not_scanned,
+        skipped_not_flagged,
+        skipped_high_quality,
+        len(exercises),
+    )
+
+    return needs_review
+
+
+def save_review_metadata(
+    db,
+    decisions: List[ExerciseDecision],
+    dry_run: bool = True,
+) -> Dict[str, int]:
+    """
+    Save review metadata back to Firestore using batched writes.
+
+    Updates each exercise with:
+    - review_metadata.last_reviewed_at: timestamp
+    - review_metadata.review_version: current version
+    - review_metadata.quality_score: from LLM decision
+    - review_metadata.needs_review: False (reviewed) or True (needs action)
+    - review_metadata.needs_full_review: False (reviewed by Pro)
+
+    Args:
+        db: Firestore client
+        decisions: List of ExerciseDecision from review
+        dry_run: If True, don't actually update Firestore
+
+    Returns:
+        Summary of updates made
+    """
+    if not db:
+        logger.warning("No Firestore client - cannot save review metadata")
+        return {"updated": 0, "errors": 0}
+
+    updated = 0
+    errors = 0
+    now = datetime.now(timezone.utc)
+
+    # Firestore batch limit is 500 operations
+    BATCH_SIZE = 400
+
+    if dry_run:
+        for decision in decisions:
+            if not decision.exercise_id:
+                continue
+            logger.debug(
+                "Would update %s with review_metadata: quality_score=%.2f",
+                decision.exercise_id,
+                decision.quality_score,
+            )
+            updated += 1
+    else:
+        # Process in batches for efficiency
+        batch = db.batch()
+        batch_count = 0
+
+        for decision in decisions:
+            if not decision.exercise_id:
+                continue
+
+            # Build review_metadata update
+            review_metadata = {
+                "review_metadata.last_reviewed_at": now,
+                "review_metadata.review_version": REVIEW_VERSION,
+                "review_metadata.quality_score": decision.quality_score,
+                # needs_review = True if action needed (not KEEP), False if good
+                "review_metadata.needs_review": decision.decision != "KEEP",
+                # Clear the needs_full_review flag since Pro has reviewed it
+                "review_metadata.needs_full_review": False,
+            }
+
+            doc_ref = db.collection("exercises").document(decision.exercise_id)
+            batch.update(doc_ref, review_metadata)
+            batch_count += 1
+            updated += 1
+
+            # Commit batch when it reaches the limit
+            if batch_count >= BATCH_SIZE:
+                try:
+                    batch.commit()
+                    logger.debug("Committed batch of %d updates", batch_count)
+                except Exception as e:
+                    logger.warning("Batch commit failed: %s", e)
+                    errors += batch_count
+                    updated -= batch_count
+                batch = db.batch()
+                batch_count = 0
+
+        # Commit remaining
+        if batch_count > 0:
+            try:
+                batch.commit()
+                logger.debug("Committed final batch of %d updates", batch_count)
+            except Exception as e:
+                logger.warning("Final batch commit failed: %s", e)
+                errors += batch_count
+                updated -= batch_count
+
+    logger.info(
+        "Review metadata: updated=%d, errors=%d, dry_run=%s",
+        updated,
+        errors,
+        dry_run,
+    )
+
+    return {"updated": updated, "errors": errors}
 
 
 def create_jobs_from_decisions(
@@ -255,72 +439,24 @@ def create_jobs_from_decisions(
                 jobs_created[decision.decision.lower().replace("_", "")].append(job_info)
                 total_jobs += 1
         
-        # Process gaps (suggested new exercises)
-        # First, get Firestore client and import helpers for duplicate check
-        from app.family.taxonomy import derive_name_slug, derive_canonical_name
-        from google.cloud import firestore as fs
-        from google.cloud.firestore_v1 import FieldFilter
-        
-        gap_db = fs.Client() if not dry_run else None
-        
+        # V1.3: Gaps are informational only - NO auto-creation of exercises
+        # Just log and track gaps for the summary, but don't create EXERCISE_ADD jobs
         for gap in batch.gaps:
-            if total_jobs >= max_jobs:
-                break
-            
-            job_info = {
+            gap_info = {
                 "family_slug": gap.family_slug,
                 "suggested_name": gap.suggested_name,
                 "missing_equipment": gap.missing_equipment,
                 "confidence": gap.confidence,
                 "reasoning": gap.reasoning,
+                "status": "informational_only",
             }
-            
-            # Compute expected slug and check for duplicates
-            if not dry_run and gap_db:
-                exercise_name = derive_canonical_name(gap.suggested_name, gap.missing_equipment)
-                expected_slug = derive_name_slug(exercise_name)
-                
-                # Check if exercise with this slug already exists
-                query = gap_db.collection('exercises').where(
-                    filter=FieldFilter('name_slug', '==', expected_slug)
-                ).limit(1)
-                existing_docs = list(query.stream())
-                
-                if existing_docs:
-                    existing_doc_id = existing_docs[0].id
-                    logger.info(
-                        "Skipping EXERCISE_ADD gap for '%s' (slug: %s) - already exists: %s",
-                        gap.suggested_name, expected_slug, existing_doc_id
-                    )
-                    job_info["skipped"] = True
-                    job_info["skip_reason"] = f"Exercise already exists: {existing_doc_id}"
-                    jobs_created["add_exercise"].append(job_info)
-                    continue
-            
-            if not dry_run:
-                try:
-                    job = create_job(
-                        job_type=JobType.EXERCISE_ADD,
-                        queue=JobQueue.MAINTENANCE,
-                        priority=30,
-                        mode=job_mode,
-                        family_slug=gap.family_slug,
-                        intent={
-                            "base_name": gap.suggested_name,
-                            "equipment": [gap.missing_equipment],
-                            "source": "unified_review_agent",
-                        },
-                    )
-                    job_info["job_id"] = job.id
-                    total_jobs += 1
-                except Exception as e:
-                    logger.exception("Failed to create gap job: %s", e)
-                    job_info["error"] = str(e)
-            else:
-                job_info["job_id"] = f"dry-run-gap-{gap.family_slug}-{gap.missing_equipment}"
-                total_jobs += 1
-            
-            jobs_created["add_exercise"].append(job_info)
+            jobs_created["add_exercise"].append(gap_info)
+
+        if batch.gaps:
+            logger.info(
+                "Detected %d equipment gaps (informational only, no auto-creation)",
+                len(batch.gaps),
+            )
     
     return {
         "total_jobs": total_jobs,
@@ -343,10 +479,11 @@ def run_scheduled_review(
     dry_run: bool = True,
     run_gap_analysis: bool = True,
     enable_llm_review: bool = True,  # Now True by default since we're LLM-first
+    force_review: bool = False,  # V1.3: Force review all, ignoring quality filter
 ) -> Dict[str, Any]:
     """
     Run a scheduled catalog review using the unified LLM review agent.
-    
+
     Args:
         max_exercises: Maximum exercises to review
         batch_size: Exercises per LLM batch
@@ -354,20 +491,28 @@ def run_scheduled_review(
         dry_run: If True, don't create jobs
         run_gap_analysis: If True, include gap suggestions in review
         enable_llm_review: Must be True for unified agent
-        
+        force_review: If True, review all exercises (ignore quality filter)
+
     Returns:
         Summary of review and jobs created
     """
     start_time = datetime.now(timezone.utc)
     logger.info(
-        "Starting scheduled review: max_exercises=%d, batch_size=%d, dry_run=%s, gap_analysis=%s",
-        max_exercises, batch_size, dry_run, run_gap_analysis
+        "Starting scheduled review: max_exercises=%d, batch_size=%d, dry_run=%s, gap_analysis=%s, force=%s",
+        max_exercises, batch_size, dry_run, run_gap_analysis, force_review
     )
-    
+
     db = _get_firestore_client()
-    
+
     # Fetch all exercises
-    exercises = fetch_all_exercises(db, max_exercises)
+    all_exercises = fetch_all_exercises(db, max_exercises)
+
+    # V1.3: Filter to only exercises that need review (cost optimization)
+    exercises = filter_exercises_for_review(
+        all_exercises,
+        quality_threshold=QUALITY_THRESHOLD,
+        force_review=force_review,
+    )
     
     if not exercises:
         logger.warning("No exercises found to review")
@@ -409,17 +554,27 @@ def run_scheduled_review(
         dry_run=dry_run,
         max_jobs=max_jobs,
     )
-    
+
+    # V1.3: Save review metadata back to Firestore (quality scores, timestamps)
+    all_decisions = []
+    for batch in batch_results:
+        all_decisions.extend(batch.decisions)
+
+    metadata_result = save_review_metadata(db, all_decisions, dry_run=dry_run)
+
     end_time = datetime.now(timezone.utc)
     duration_secs = (end_time - start_time).total_seconds()
-    
+
     summary = {
         "started_at": start_time.isoformat(),
         "completed_at": end_time.isoformat(),
         "duration_seconds": duration_secs,
         "dry_run": dry_run,
+        "review_version": REVIEW_VERSION,
         "review": {
+            "total_fetched": len(all_exercises),
             "total_reviewed": total_reviewed,
+            "skipped_high_quality": len(all_exercises) - len(exercises),
             "decisions": {
                 "keep": total_keep,
                 "enrich": total_enrich,
@@ -427,13 +582,17 @@ def run_scheduled_review(
                 "archive": total_archive,
                 "merge": total_merge,
             },
-            "gaps_suggested": total_gaps,
+            "gaps_detected": total_gaps,
             "duplicates_found": total_duplicates,
         },
         "jobs": {
             "total_created": job_result["total_jobs"],
             "by_type": job_result["by_type"],
             "dry_run": dry_run,
+        },
+        "review_metadata": {
+            "updated": metadata_result["updated"],
+            "errors": metadata_result["errors"],
         },
     }
     
@@ -475,10 +634,14 @@ def main():
         help="Skip equipment gap analysis"
     )
     parser.add_argument(
+        "--force-review", action="store_true",
+        help="Force review all exercises (ignore quality-based filtering)"
+    )
+    parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Verbose logging"
     )
-    
+
     args = parser.parse_args()
     
     # Setup logging
@@ -496,6 +659,7 @@ def main():
         max_jobs=args.max_jobs,
         dry_run=dry_run,
         run_gap_analysis=not args.skip_gap_analysis,
+        force_review=args.force_review,
     )
     
     # Print summary

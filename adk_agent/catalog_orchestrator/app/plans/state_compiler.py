@@ -31,47 +31,90 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ExerciseDoc:
-    """Minimal exercise document for snapshot."""
+    """
+    Minimal exercise document for snapshot.
+
+    V1.2: Updated to use new schema with muscles object instead of
+    legacy primary_muscles/secondary_muscles fields.
+
+    Note: 'status' is kept for backwards compatibility with DEPRECATE_EXERCISE
+    operations but is being phased out via SCHEMA_CLEANUP jobs.
+    """
     doc_id: str
     name: str
     name_slug: str
     family_slug: str
     equipment: List[str] = field(default_factory=list)
-    primary_muscles: List[str] = field(default_factory=list)
-    secondary_muscles: List[str] = field(default_factory=list)
-    status: str = "approved"
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
+    category: str = "compound"
+    muscles: Dict[str, Any] = field(default_factory=lambda: {
+        "primary": [],
+        "secondary": [],
+        "category": [],
+        "contribution": {},
+    })
+    metadata: Dict[str, Any] = field(default_factory=lambda: {
+        "level": "intermediate",
+    })
+    movement: Dict[str, Any] = field(default_factory=dict)
+    # Legacy field - kept for DEPRECATE_EXERCISE simulation
+    status: Optional[str] = None
+
     @property
     def primary_equipment(self) -> Optional[str]:
         """Get primary equipment (first in array)."""
         return self.equipment[0] if self.equipment else None
-    
+
+    @property
+    def primary_muscles(self) -> List[str]:
+        """Backwards compatibility: get primary muscles from muscles object."""
+        return self.muscles.get("primary", [])
+
+    @property
+    def secondary_muscles(self) -> List[str]:
+        """Backwards compatibility: get secondary muscles from muscles object."""
+        return self.muscles.get("secondary", [])
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "doc_id": self.doc_id,
             "name": self.name,
             "name_slug": self.name_slug,
             "family_slug": self.family_slug,
             "equipment": self.equipment,
-            "primary_muscles": self.primary_muscles,
-            "secondary_muscles": self.secondary_muscles,
-            "status": self.status,
+            "category": self.category,
+            "muscles": self.muscles,
             "metadata": self.metadata,
+            "movement": self.movement,
         }
-    
+        # Only include status if set (for backwards compatibility)
+        if self.status is not None:
+            result["status"] = self.status
+        return result
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExerciseDoc":
+        # Handle both new schema (muscles.primary) and legacy (primary_muscles)
+        muscles = data.get("muscles")
+        if muscles is None:
+            # Legacy schema - convert to new format
+            muscles = {
+                "primary": data.get("primary_muscles", []),
+                "secondary": data.get("secondary_muscles", []),
+                "category": [],
+                "contribution": {},
+            }
+
         return cls(
             doc_id=data.get("doc_id") or data.get("id", ""),
             name=data.get("name", ""),
             name_slug=data.get("name_slug", ""),
             family_slug=data.get("family_slug", ""),
             equipment=data.get("equipment", []),
-            primary_muscles=data.get("primary_muscles", []),
-            secondary_muscles=data.get("secondary_muscles", []),
-            status=data.get("status", "approved"),
-            metadata=data.get("metadata", {}),
+            category=data.get("category", "compound"),
+            muscles=muscles,
+            metadata=data.get("metadata", {"level": "intermediate"}),
+            movement=data.get("movement", {}),
+            status=data.get("status"),
         )
 
 
@@ -384,13 +427,15 @@ class PlanCompiler:
                 changes[path] = {"before": before_val, "after": value}
                 exercise_dict = set_in(exercise_dict, path, value)
         
-        # Update exercise from dict
+        # Update exercise from dict (new schema)
         exercise.name = exercise_dict.get("name", exercise.name)
         exercise.name_slug = exercise_dict.get("name_slug", exercise.name_slug)
         exercise.family_slug = exercise_dict.get("family_slug", exercise.family_slug)
         exercise.equipment = exercise_dict.get("equipment", exercise.equipment)
-        exercise.status = exercise_dict.get("status", exercise.status)
+        exercise.category = exercise_dict.get("category", exercise.category)
+        exercise.muscles = exercise_dict.get("muscles", exercise.muscles)
         exercise.metadata = exercise_dict.get("metadata", exercise.metadata)
+        exercise.movement = exercise_dict.get("movement", exercise.movement)
         
         return OperationDiff(
             operation_index=idx,
@@ -498,16 +543,27 @@ class PlanCompiler:
         if doc_id in state.exercises:
             return None  # Idempotent
         
+        # Handle both new schema (muscles) and legacy (primary_muscles)
+        muscles = op.patch.get("muscles")
+        if muscles is None:
+            muscles = {
+                "primary": op.patch.get("primary_muscles", []),
+                "secondary": op.patch.get("secondary_muscles", []),
+                "category": [],
+                "contribution": {},
+            }
+
         exercise = ExerciseDoc(
             doc_id=doc_id,
             name=op.patch.get("name", ""),
             name_slug=name_slug,
             family_slug=family_slug,
             equipment=op.patch.get("equipment", []),
-            primary_muscles=op.patch.get("primary_muscles", []),
-            secondary_muscles=op.patch.get("secondary_muscles", []),
-            status=op.patch.get("status", "approved"),
-            metadata=op.patch.get("metadata", {}),
+            category=op.patch.get("category", "compound"),
+            muscles=muscles,
+            metadata=op.patch.get("metadata", {"level": "intermediate"}),
+            movement=op.patch.get("movement", {}),
+            status=op.patch.get("status"),
         )
         
         state.exercises[doc_id] = exercise

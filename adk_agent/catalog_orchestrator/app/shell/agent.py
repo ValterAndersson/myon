@@ -1,7 +1,7 @@
 """
 Catalog Shell Agent - Single unified agent for catalog curation.
 
-Model: gemini-2.5-pro
+Model: gemini-2.5-flash (V1.4: Flash-first for cost efficiency)
 
 This agent handles catalog curation jobs. It:
 1. Receives job context (family_slug, job_type, mode)
@@ -12,6 +12,9 @@ This agent handles catalog curation jobs. It:
 
 Unlike the Canvas Orchestrator, this agent is job-driven rather than
 conversational. It operates on family-scoped units of work.
+
+Environment variables:
+- CATALOG_SHELL_MODEL: Override model (default: gemini-2.5-flash)
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ def _before_model_callback(callback_context, llm_request):
 
 CatalogShellAgent = Agent(
     name="CatalogShellAgent",
-    model=os.getenv("CATALOG_SHELL_MODEL", "gemini-2.5-pro"),
+    model=os.getenv("CATALOG_SHELL_MODEL", "gemini-2.5-flash"),  # V1.4: Flash-first
     instruction=CATALOG_INSTRUCTION,
     tools=all_tools,
     before_tool_callback=_before_tool_callback,
@@ -178,12 +181,12 @@ Begin by fetching the required data.
 def create_catalog_agent() -> Agent:
     """
     Factory function to create a CatalogShellAgent instance.
-    
+
     Useful for testing or creating multiple instances.
     """
     return Agent(
         name="CatalogShellAgent",
-        model=os.getenv("CATALOG_SHELL_MODEL", "gemini-2.5-pro"),
+        model=os.getenv("CATALOG_SHELL_MODEL", "gemini-2.5-flash"),  # V1.4: Flash-first
         instruction=CATALOG_INSTRUCTION,
         tools=all_tools,
         before_tool_callback=_before_tool_callback,

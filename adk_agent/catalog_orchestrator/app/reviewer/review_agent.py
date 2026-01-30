@@ -39,17 +39,59 @@ SYSTEM_PROMPT = """You are the Povver Catalog Review Agent. Your role is to main
 
 ## Your Capabilities
 
-1. **Health Triage**: Evaluate each exercise and decide:
+1. **Quality Assessment**: Score each exercise 0-1 based on how well it meets quality standards
+2. **Health Triage**: Evaluate each exercise and decide:
    - KEEP: Exercise is good quality, no action needed
    - ENRICH: Exercise is salvageable but missing data
    - FIX_IDENTITY: Name or family_slug is malformed
    - ARCHIVE: Exercise is a mistake, test data, or unsalvageable
-
-2. **Duplicate Detection**: Identify exercises that are:
+3. **Duplicate Detection**: Identify exercises that are:
    - True duplicates (same exercise, different names) → merge
    - Valid variants (same movement, different equipment) → keep separate
+4. **Equipment Gap Detection**: Note missing equipment variants (informational only, no auto-creation)
 
-3. **Gap Analysis**: Identify missing equipment variants that would add value
+## Quality Score (0-1)
+
+Rate each exercise based on this golden standard:
+
+**Score 1.0 (Perfect):**
+- Clear, canonical name with equipment: "Deadlift (Barbell)"
+- Has description explaining what the exercise is and its purpose
+- 3+ specific execution notes that enable safe performance
+- 2+ common mistakes that prevent injury
+- Correct primary/secondary muscle mapping with contribution percentages
+- Appropriate category (compound/isolation)
+- Suitability notes for different populations
+
+**Score 0.8-0.9 (Good):**
+- Name is clear and follows convention
+- Has description (even if brief)
+- Has execution notes (even if not comprehensive)
+- Has muscle mapping (may be missing contribution percentages)
+- Minor improvements possible but usable as-is
+
+**Score 0.6-0.7 (Needs Enrichment):**
+- Name is acceptable
+- Missing description OR missing some key fields (execution_notes, common_mistakes, muscles.contribution)
+- Muscle mapping present but incomplete
+- Decision: ENRICH
+
+**Score 0.4-0.5 (Needs Fix):**
+- Name doesn't follow convention OR
+- Missing critical fields OR
+- Incorrect muscle mapping
+- Decision: FIX_IDENTITY or ENRICH
+
+**Score 0.0-0.3 (Poor/Archive):**
+- Gibberish name, test data, or unsalvageable
+- Decision: ARCHIVE
+
+**Key Fields to Check:**
+- description: Concise 1-2 sentence explanation of the exercise
+- execution_notes: Step-by-step guidance (3+ items)
+- common_mistakes: What to avoid (2+ items)
+- muscles.contribution: Percentage breakdown (must sum to ~1.0)
+- suitability_notes: Who is this for, any cautions
 
 ## Canonical Naming Taxonomy (IMPORTANT)
 
@@ -61,22 +103,14 @@ The correct naming format is: "Exercise Name (Equipment)" or "Modifier Exercise 
 - Squat (Barbell)
 - Underhand Lat Pulldown (Cable)
 - Wide-grip Lat Pulldown (Cable)
-- Neutral-grip Lat Pulldown (Cable)
 
 ### Examples of INCORRECT names that need FIX_IDENTITY:
 - "Conventional Deadlift" → should be "Deadlift (Barbell)"
 - "Barbell Deadlift" → should be "Deadlift (Barbell)"
-- "Lat Pulldown" (when grip variants exist) → should not exist, archive it
-
-### Single-variant exercises (no equipment qualifier needed):
-- Farmers Walk (just one version)
-- Plank (just one version)
-- Pull-up (bodyweight, no qualifier needed)
 
 ### Duplicate/Variant Rules:
 - If we have "Underhand Lat Pulldown", "Wide-grip Lat Pulldown", etc., then plain "Lat Pulldown" is redundant → ARCHIVE it
 - "Conventional Deadlift" and "Deadlift (Barbell)" are duplicates → MERGE into "Deadlift (Barbell)"
-- There should only be ONE Deadlift per equipment type
 
 ## Decision Framework
 
@@ -85,22 +119,13 @@ Before every decision, ask yourself:
 2. Is the current state causing confusion or safety issues?
 3. Am I changing this because it's wrong, or just because it's different from my preference?
 
-If the answer to #1 is "not really" → KEEP as-is.
+If the answer to #1 is "not really" → KEEP as-is with high quality_score.
 
-## What Makes an Exercise "Good Enough"
+## IMPORTANT: Do NOT Suggest New Exercises
 
-- Name clearly identifies the exercise
-- Instructions allow safe execution (even if not perfect)
-- Primary muscles are anatomically correct
-- Equipment is specified
-
-## What Requires Action
-
-- ARCHIVE: Gibberish name, empty data, test entries, OR a generic exercise when specific variants already exist
-- FIX_IDENTITY: Truncated family_slug, wrong naming format, equipment in wrong field
-- ENRICH: Missing instructions, missing muscles, missing category
-- MERGE: Same exercise with different names (e.g., "Conventional Deadlift" + "Deadlift (Barbell)")
-- KEEP: Everything else
+Your job is to review EXISTING exercises only. Do NOT suggest creating new exercises.
+If you notice a family is missing equipment variants, note it in equipment_gaps for informational purposes only.
+The catalog owner will decide when to add new exercises.
 
 ## Confidence Levels
 
@@ -123,6 +148,7 @@ OUTPUT_SCHEMA = {
                 "properties": {
                     "exercise_id": {"type": "string"},
                     "decision": {"type": "string", "enum": ["KEEP", "ENRICH", "FIX_IDENTITY", "ARCHIVE", "MERGE"]},
+                    "quality_score": {"type": "number", "minimum": 0, "maximum": 1},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "reasoning": {"type": "string"},
                     "fix_details": {"type": "object"},
@@ -142,16 +168,15 @@ OUTPUT_SCHEMA = {
                 }
             }
         },
-        "gaps": {
+        "equipment_gaps": {
             "type": "array",
+            "description": "Informational only - missing equipment variants detected. No auto-creation.",
             "items": {
                 "type": "object",
                 "properties": {
                     "family_slug": {"type": "string"},
                     "missing_equipment": {"type": "string"},
-                    "suggested_name": {"type": "string"},
-                    "reasoning": {"type": "string"},
-                    "confidence": {"type": "string"}
+                    "reasoning": {"type": "string"}
                 }
             }
         }
@@ -165,66 +190,71 @@ OUTPUT_SCHEMA = {
 FEW_SHOT_EXAMPLES = """
 ## Example Decisions
 
-### Example 1: Good Exercise - KEEP
+### Example 1: High Quality Exercise - KEEP (score: 0.95)
 ```json
 {
   "id": "squat_barbell",
   "name": "Back Squat (Barbell)",
   "equipment": ["barbell"],
-  "instructions": "1. Set barbell on squat rack at shoulder height...",
-  "muscles": {"primary": ["quadriceps", "glutes"]}
+  "execution_notes": ["Keep chest up and core braced", "Descend until thighs parallel", "Drive through heels"],
+  "common_mistakes": ["Knees caving inward", "Rounding lower back"],
+  "muscles": {"primary": ["quadriceps", "glutes"], "secondary": ["hamstrings", "core"]}
 }
 ```
 Decision: KEEP
-Reasoning: "Exercise has clear name, correct muscles, and usable instructions. No changes needed."
+quality_score: 0.95
+Reasoning: "Exercise has canonical name, detailed execution notes, common mistakes, and correct muscles. Excellent quality."
 
-### Example 2: Malformed Entry - ARCHIVE
+### Example 2: Good but Incomplete - KEEP (score: 0.85)
 ```json
 {
-  "id": "test123",
-  "name": "asdfasdf",
-  "equipment": [],
-  "instructions": "",
-  "muscles": {}
+  "id": "bench_press_barbell",
+  "name": "Bench Press (Barbell)",
+  "equipment": ["barbell"],
+  "execution_notes": ["Lower bar to chest", "Press up to lockout"],
+  "muscles": {"primary": ["chest"]}
 }
 ```
-Decision: ARCHIVE
-Reasoning: "This appears to be test data. Name is gibberish, no useful content. Archive it."
+Decision: KEEP
+quality_score: 0.85
+Reasoning: "Good exercise with correct name. Execution notes are brief but adequate. Could add secondary muscles but usable as-is."
 
-### Example 3: Truncated Family Slug - FIX_IDENTITY
-```json
-{
-  "id": "dead_bug_1",
-  "name": "Dead Bug",
-  "family_slug": "bug",  // Wrong! Should be "dead_bug"
-  "equipment": ["bodyweight"]
-}
-```
-Decision: FIX_IDENTITY
-Reasoning: "family_slug 'bug' is truncated. Should be 'dead_bug' to match the exercise name."
-fix_details: {"family_slug": "dead_bug"}
-
-### Example 4: Missing Data - ENRICH
+### Example 3: Needs Enrichment (score: 0.6)
 ```json
 {
   "id": "curl_001",
   "name": "Bicep Curl (Dumbbell)",
   "equipment": ["dumbbell"],
-  "instructions": "",
-  "muscles": {}
+  "execution_notes": [],
+  "muscles": {"primary": ["biceps"]}
 }
 ```
 Decision: ENRICH
-Reasoning: "Valid exercise but missing instructions and muscle mapping. Needs enrichment."
+quality_score: 0.6
+Reasoning: "Valid exercise but missing execution notes and common mistakes. Needs enrichment to be fully useful."
+
+### Example 4: Malformed Entry - ARCHIVE (score: 0.1)
+```json
+{
+  "id": "test123",
+  "name": "asdfasdf",
+  "equipment": [],
+  "muscles": {}
+}
+```
+Decision: ARCHIVE
+quality_score: 0.1
+Reasoning: "This appears to be test data. Name is gibberish, no useful content. Archive it."
 
 ### Example 5: True Duplicate - MERGE
 Two exercises in batch:
 - "Barbell Deadlift" (id: deadlift_barbell)
 - "Deadlift (Barbell)" (id: deadlift_001)
 
-Decision for deadlift_001: MERGE
-merge_into: "deadlift_barbell"
-Reasoning: "These are the same exercise with different naming. Keep the one with canonical naming format."
+Decision for deadlift_barbell: MERGE
+merge_into: "deadlift_001"
+quality_score: 0.5
+Reasoning: "These are the same exercise. Keep 'Deadlift (Barbell)' as it follows canonical naming."
 """
 
 # =============================================================================
@@ -239,6 +269,7 @@ class ExerciseDecision:
     decision: str  # KEEP, ENRICH, FIX_IDENTITY, ARCHIVE, MERGE
     confidence: str  # high, medium, low
     reasoning: str
+    quality_score: float = 1.0  # 0-1 quality assessment (1.0 = perfect)
     fix_details: Optional[Dict[str, Any]] = None
     merge_into: Optional[str] = None
 
@@ -287,6 +318,7 @@ class BatchReviewResult:
                     "decision": d.decision,
                     "confidence": d.confidence,
                     "reasoning": d.reasoning,
+                    "quality_score": d.quality_score,
                     "fix_details": d.fix_details,
                     "merge_into": d.merge_into,
                 }
@@ -435,12 +467,20 @@ Think through each exercise systematically:
 ## Response Format
 
 Respond with a JSON object containing:
-1. "exercises": array of decisions for each exercise
+1. "exercises": array of decisions for each exercise, including:
+   - exercise_id: the exercise ID
+   - decision: KEEP, ENRICH, FIX_IDENTITY, ARCHIVE, or MERGE
+   - quality_score: 0-1 score based on the rubric above (REQUIRED for every exercise)
+   - confidence: high, medium, or low
+   - reasoning: brief explanation
+   - fix_details: (if FIX_IDENTITY) what to fix
+   - merge_into: (if MERGE) the canonical exercise ID
 2. "duplicates": array of duplicate clusters (if any found)
-3. "gaps": array of gap suggestions (if obvious gaps found)
+3. "equipment_gaps": array of gap suggestions (informational only)
 
-Think carefully. If an exercise is fine, say KEEP. Don't over-engineer.
-Only suggest gaps for common equipment that would genuinely help users.
+IMPORTANT: Always include quality_score for every exercise!
+Think carefully. If an exercise is fine, say KEEP with high quality_score.
+Don't over-engineer. Gaps are informational only - no auto-creation.
 
 Respond with ONLY the JSON object, no markdown code blocks."""
 
@@ -509,7 +549,7 @@ Respond with ONLY the JSON object, no markdown code blocks."""
             response = llm_client.complete(
                 prompt=prompt,
                 output_schema=OUTPUT_SCHEMA,
-                require_reasoning=True,
+                require_reasoning=False,  # V1.4: Flash-first for cost efficiency
             )
             
             # Parse response
@@ -522,13 +562,19 @@ Respond with ONLY the JSON object, no markdown code blocks."""
             for ex_decision in parsed.get("exercises", []):
                 exercise_id = ex_decision.get("exercise_id", "")
                 decision_str = ex_decision.get("decision", "KEEP").upper()
-                
+
+                # Extract quality_score, default to 1.0 for KEEP, 0.5 for others
+                quality_score = ex_decision.get("quality_score")
+                if quality_score is None:
+                    quality_score = 1.0 if decision_str == "KEEP" else 0.5
+
                 decision = ExerciseDecision(
                     exercise_id=exercise_id,
                     exercise_name=id_to_name.get(exercise_id, ""),
                     decision=decision_str,
                     confidence=ex_decision.get("confidence", "medium"),
                     reasoning=ex_decision.get("reasoning", ""),
+                    quality_score=float(quality_score),
                     fix_details=ex_decision.get("fix_details"),
                     merge_into=ex_decision.get("merge_into"),
                 )
@@ -556,8 +602,9 @@ Respond with ONLY the JSON object, no markdown code blocks."""
                 )
                 result.duplicates.append(cluster)
             
-            # Process gaps
-            for gap in parsed.get("gaps", []):
+            # Process gaps (check both "equipment_gaps" and legacy "gaps" keys)
+            gaps_list = parsed.get("equipment_gaps", parsed.get("gaps", []))
+            for gap in gaps_list:
                 suggestion = GapSuggestion(
                     family_slug=gap.get("family_slug", ""),
                     missing_equipment=gap.get("missing_equipment", ""),

@@ -343,33 +343,25 @@ Respond with a JSON array, e.g., ["barbell"]""",
 Respond with exactly one of: compound, isolation, cardio, stretching, plyometric, isometric, core""",
     ),
     
-    "instructions": FieldSpec(
-        name="instructions",
-        field_path="instructions",
+    "description": FieldSpec(
+        name="description",
+        field_path="description",
         field_type="string",
         required=True,
         enrichable=True,
-        min_length=100,
-        max_length=1000,
+        min_length=50,
+        max_length=300,
         description="""
-        Step-by-step instructions for performing the exercise.
-        Use numbered steps (1. 2. 3. etc.)
-        Include: starting position, movement execution, key form cues.
-        Avoid: overly technical jargon, unnecessary detail.
+        A concise description of what the exercise is and its primary purpose.
+        Should explain the movement pattern and main benefits in 1-2 sentences.
+        Not step-by-step instructions - that's what execution_notes is for.
         """,
-        good_example="""1. Set up a barbell in a rack at mid-thigh height.
-2. Grip the bar slightly wider than shoulder width.
-3. Unrack and step back, feet shoulder-width apart.
-4. Brace your core and keep your back straight.
-5. Lower by pushing hips back and bending knees.
-6. Descend until thighs are parallel to the ground.
-7. Drive through your heels to stand back up.""",
-        bad_example="Do the squat movement with good form.",
-        enrichment_prompt="""Write clear instructions for this exercise.
-Use numbered steps (1. 2. 3. etc.)
-Include: starting position, movement, key safety cues.
-Keep it practical - a gym-goer should be able to follow this.
-4-7 steps is ideal. Respond with ONLY the numbered instructions.""",
+        good_example="A fundamental lower body compound exercise that builds strength and muscle in the quadriceps, glutes, and hamstrings while improving core stability and overall athletic performance.",
+        bad_example="This is a squat exercise.",
+        enrichment_prompt="""Write a concise description of this exercise.
+Explain what it is and its primary purpose/benefits in 1-2 sentences.
+Focus on the movement pattern and main muscles worked.
+Keep it informative but brief (50-200 words).""",
     ),
     
     # -------------------------------------------------------------------------
@@ -699,6 +691,7 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "family_slug": "squat",
         "equipment": ["barbell"],
         "category": "compound",
+        "description": "A fundamental lower body compound exercise that builds strength and muscle in the quadriceps, glutes, and hamstrings while improving core stability and overall athletic performance.",
         "metadata": {
             "level": "intermediate",
             "plane_of_motion": "sagittal",
@@ -758,6 +751,7 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "family_slug": "bench_press",
         "equipment": ["dumbbell"],
         "category": "compound",
+        "description": "A versatile upper body pressing exercise that develops the chest, shoulders, and triceps with increased range of motion and stabilizer engagement compared to barbell variations.",
         "metadata": {
             "level": "intermediate",
             "plane_of_motion": "sagittal",
@@ -813,6 +807,7 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "family_slug": "tricep_pushdown",
         "equipment": ["cable"],
         "category": "isolation",
+        "description": "An isolation exercise that targets the triceps through cable resistance, providing constant tension throughout the movement for effective arm development.",
         "metadata": {
             "level": "beginner",
             "plane_of_motion": "sagittal",
@@ -866,6 +861,7 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "family_slug": "pull_up",
         "equipment": ["bodyweight", "pull-up-bar"],
         "category": "compound",
+        "description": "A classic compound pulling exercise that builds back width, bicep strength, and grip endurance using only bodyweight as resistance.",
         "metadata": {
             "level": "intermediate",
             "plane_of_motion": "sagittal",
@@ -924,6 +920,7 @@ GOLDEN_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "family_slug": "deadlift",
         "equipment": ["barbell"],
         "category": "compound",
+        "description": "A hip hinge movement that emphasizes the hamstrings and glutes while teaching proper posterior chain engagement essential for athletic performance and injury prevention.",
         "metadata": {
             "level": "intermediate",
             "plane_of_motion": "sagittal",

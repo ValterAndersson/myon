@@ -64,7 +64,7 @@ ARRAY_FIELDS = {
     'programming_use_cases',
     'stimulus_tags',
     'suitability_notes',
-    'coaching_cues',
+    # 'coaching_cues',  # Deprecated - redundant with execution_notes
     'equipment',
 }
 
@@ -187,10 +187,8 @@ def transform_exercise(doc_id: str, data: Dict[str, Any]) -> Tuple[str, Dict[str
     if not isinstance(transformed['equipment'], list):
         transformed['equipment'] = [transformed['equipment']] if transformed['equipment'] else []
     
-    # Optional fields to preserve
-    if 'variant_key' in data:
-        transformed['variant_key'] = data['variant_key']
-    
+    # variant_key deprecated - family_slug + equipment in name is sufficient
+
     # Metadata
     if 'metadata' in data:
         transformed['metadata'] = data['metadata']

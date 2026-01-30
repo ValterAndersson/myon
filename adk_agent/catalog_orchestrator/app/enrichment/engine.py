@@ -129,9 +129,14 @@ def build_enrichment_prompt(
     # Extract relevant exercise fields
     name = exercise.get("name", "Unknown")
     equipment = exercise.get("equipment", [])
-    primary_muscles = exercise.get("primary_muscles", [])
-    secondary_muscles = exercise.get("secondary_muscles", [])
-    instructions = exercise.get("instructions", "")
+    # Support both new schema (muscles.primary) and legacy (primary_muscles)
+    muscles = exercise.get("muscles", {})
+    primary_muscles = muscles.get("primary", exercise.get("primary_muscles", []))
+    secondary_muscles = muscles.get("secondary", exercise.get("secondary_muscles", []))
+    # Support both new schema (execution_notes) and legacy (instructions)
+    instructions = exercise.get("execution_notes", exercise.get("instructions", ""))
+    if isinstance(instructions, list):
+        instructions = "\n".join(instructions)
     category = exercise.get("category", "")
     
     # Build exercise context
@@ -493,7 +498,7 @@ def enrich_field_with_guide(
         raw_response = client.complete(
             prompt=prompt,
             output_schema=output_schema,
-            require_reasoning=True,
+            require_reasoning=False,  # V1.4: Flash-first for cost efficiency
         )
         
         # Parse response based on field type
@@ -639,8 +644,8 @@ ENRICHABLE_FIELD_PATHS = {
     "suitability_notes",
     "programming_use_cases",
     "stimulus_tags",
-    "coaching_cues",
-    "tips",
+    # "coaching_cues",  # Deprecated - redundant with execution_notes
+    # "tips",  # Deprecated - redundant with suitability_notes
     "description",
 }
 
@@ -649,6 +654,7 @@ def enrich_exercise_holistic(
     exercise: Dict[str, Any],
     reviewer_hint: str = "",
     llm_client: Optional[LLMClient] = None,
+    use_pro_model: bool = False,
 ) -> Dict[str, Any]:
     """
     Holistically enrich an exercise document using LLM.
@@ -680,6 +686,7 @@ def enrich_exercise_holistic(
         exercise: Full exercise document
         reviewer_hint: Optional hint from the reviewer about issues found
         llm_client: LLM client (uses default if not provided)
+        use_pro_model: If True, use gemini-2.5-pro; if False (default), use gemini-2.5-flash
 
     Returns:
         Dict with:
@@ -703,10 +710,11 @@ def enrich_exercise_holistic(
         prompt = _build_holistic_enrichment_prompt(exercise, reviewer_hint)
         
         # Call LLM with structured output hint
+        # Default to Flash (cheaper), use Pro only when explicitly requested
         raw_response = client.complete(
             prompt=prompt,
             output_schema={"type": "object"},
-            require_reasoning=True,
+            require_reasoning=use_pro_model,
         )
         
         # Parse response
@@ -852,22 +860,25 @@ other issues or decide the flagged issue isn't actually a problem.
 
 Check these fields and ADD them if they're missing or empty:
 
-1. **muscles.contribution** - Map of muscle name to decimal contribution (0.0-1.0), must sum to ~1.0
+1. **description** - A concise 1-2 sentence description of what the exercise is and its primary purpose/benefits
+   Example: `"A fundamental lower body compound exercise that builds strength in the quadriceps and glutes while improving core stability."`
+
+2. **muscles.contribution** - Map of muscle name to decimal contribution (0.0-1.0), must sum to ~1.0
    Example: `{"quadriceps": 0.45, "glutes": 0.35, "hamstrings": 0.20}`
 
-2. **stimulus_tags** - 4-6 training stimulus tags in Title Case
+3. **stimulus_tags** - 4-6 training stimulus tags in Title Case
    Example: `["Hypertrophy", "Compound Movement", "Strength", "Core Engagement"]`
 
-3. **programming_use_cases** - 3-5 complete sentences about when to use this exercise
+4. **programming_use_cases** - 3-5 complete sentences about when to use this exercise
    Example: `["Primary compound movement for leg-focused strength programs.", ...]`
 
-4. **suitability_notes** - 2-4 notes about who this exercise is suitable for
+5. **suitability_notes** - 2-4 notes about who this exercise is suitable for
    Example: `["Excellent for building posterior chain strength.", "Requires good hip mobility."]`
 
-5. **category** - Must be one of: compound, isolation, cardio, mobility, core
+6. **category** - Must be one of: compound, isolation, cardio, mobility, core
    If currently "exercise", change it to "compound" or "isolation" as appropriate
 
-6. **muscles.primary** - If empty, add 1-3 primary muscles (use lowercase, spaces not underscores)
+7. **muscles.primary** - If empty, add 1-3 primary muscles (use lowercase, spaces not underscores)
    Example: `["quadriceps", "gluteus maximus"]` NOT `["Quadriceps", "gluteus_maximus"]`
 
 ### Response Format

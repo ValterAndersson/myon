@@ -567,10 +567,10 @@ class ApplyEngine:
         doc_ref = self.db.collection(EXERCISES_COLLECTION).document(doc_id)
         
         # Build exercise document
+        # V1.2: Don't add created_at or status - these are deprecated fields
+        # that should be removed via SCHEMA_CLEANUP jobs
         exercise_data = dict(op.patch)
-        exercise_data["created_at"] = datetime.utcnow()
         exercise_data["updated_at"] = datetime.utcnow()
-        exercise_data["status"] = exercise_data.get("status", "approved")
 
         # IDEMPOTENCY STRATEGY: Use Firestore create() which fails if doc exists.
         # This is simpler and more reliable than check-then-create (which has race).
