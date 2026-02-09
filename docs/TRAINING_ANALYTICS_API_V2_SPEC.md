@@ -1,8 +1,7 @@
-# Token-Safe Training Analytics API - Draft v2 Build Spec
+# Token-Safe Training Analytics API v2
 
-> **Version**: 2.0 Draft  
-> **Status**: Ready for Review  
-> **Branch**: `feature/token-safe-training-analytics`
+> **Version**: 2.0
+> **Status**: Current
 
 ---
 
@@ -1565,6 +1564,4 @@ const userId = requireAuth(request);   // ✅ CORRECT
 
 ---
 
-**End of Draft v2 Build Spec**
-
-Ready for review. Once approved, toggle to Act mode to begin implementation.
+**End of Training Analytics API v2 Spec**

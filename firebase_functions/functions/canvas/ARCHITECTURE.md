@@ -10,6 +10,23 @@ Deterministic, reducer-driven interface for agent/user collaboration. The iOS ap
   - `events/{eventId}`: `{ type: 'apply_action', payload: { action, card_id?, note_id? }, created_at }`
   - `idempotency/{key}`: `{ key, created_at }`
 
+## File Inventory
+
+| File | Endpoint(s) | Purpose |
+|------|-------------|---------|
+| `apply-action.js` | `applyAction` | Single writer for all canvas state mutations (transactions, version checks, idempotency) |
+| `propose-cards.js` | `proposeCards` | Agent card proposal endpoint — writes proposed cards and adds to up_next queue |
+| `propose-cards-core.js` | — (library) | Shared card writing logic used by `propose-cards.js` |
+| `bootstrap-canvas.js` | `bootstrapCanvas` | Find-or-create canvas for a `(userId, purpose)` pair |
+| `open-canvas.js` | `openCanvas`, `preWarmSession` | Combined bootstrap + session init in one call (optimized); pre-warm with min instances |
+| `initialize-session.js` | `initializeSession` | Create/reuse Vertex AI session at user level |
+| `emit-event.js` | `emitEvent` | Service-only endpoint to emit custom events to canvas event stream |
+| `purge-canvas.js` | `purgeCanvas` | Delete all canvas data (cards, events, up_next) for testing/cleanup |
+| `expire-proposals.js` | `expireProposals` | Sweep proposed cards by TTL |
+| `expire-proposals-scheduled.js` | `expireProposalsScheduled` | Scheduled TTL sweep (every 15 minutes) |
+| `reducer-utils.js` | — (library) | Shared reducer utilities for `apply-action.js` |
+| `validators.js` | — (library) | Canvas-specific validation helpers |
+
 ## Endpoints
 
 ### applyAction (HTTPS)
@@ -79,6 +96,29 @@ Supported actions (Phase 1):
 - Behavior: returns existing canvas id for `(userId,purpose)` or creates a new one with
   `state:{ phase:'planning', version:0, purpose, lanes:['workout','analysis','system'] }` and `meta:{ user_id }`.
 - Response: `{ success: true, data: { canvasId } }`
+
+### openCanvas (HTTPS)
+- Auth: flexible (Bearer or API key)
+- Request: `{ "userId": "uid", "purpose": "...", "canvasId"?: "..." }`
+- Response: `{ success: true, data: { canvasId, sessionId, resumeState } }`
+- Combines `bootstrapCanvas` + `initializeSession` in a single call. Preferred entry point.
+
+### initializeSession (HTTPS)
+- Auth: flexible (Bearer or API key)
+- Request: `{ "userId": "uid", "canvasId": "c1" }`
+- Response: `{ success: true, data: { sessionId, agent_id } }`
+- Creates or reuses a Vertex AI session at user level (not canvas level)
+
+### emitEvent (HTTPS)
+- Auth: service-only (API key)
+- Request: `{ "userId": "uid", "canvasId": "c1", "event": { "type": "...", ... } }`
+- Response: `{ success: true, data: { event_id } }`
+
+### purgeCanvas (HTTPS)
+- Auth: flexible (Bearer or API key)
+- Request: `{ "userId": "uid", "canvasId": "c1" }`
+- Response: `{ success: true, data: { deleted_cards, deleted_events, deleted_up_next } }`
+- Deletes all canvas data for testing/cleanup
 
 ### expireProposals (HTTPS) / expireProposalsScheduled (Scheduled)
 - Sweeps proposed cards by TTL; removes matching `up_next` entries

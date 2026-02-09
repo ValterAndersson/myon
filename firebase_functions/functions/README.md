@@ -1,6 +1,6 @@
-# Firebase Functions - Myon
+# Firebase Functions - Povver
 
-Agent-first backend for StrengthOS. This README reflects the current code and endpoints (authoritative). Use this as the tool contract for agents and for manual cURL testing.
+Agent-first backend for Povver. This README reflects the current code and endpoints (authoritative). Use this as the tool contract for agents and for manual cURL testing.
 
 ## Auth
 - API key header for agents: `X-API-Key: <key>`
@@ -41,11 +41,11 @@ Responses use a normalized shape via utils/response:
 ### Active Workout (agent tools)
 - `proposeSession` – plan stub
 - `startActiveWorkout`, `getActiveWorkout`
-- `prescribeSet` (idempotent), `logSet` (idempotent), `scoreSet`
-- `addExercise` (idempotent), `swapExercise` (idempotent)
-- `completeActiveWorkout`, `cancelActiveWorkout`, `noteActiveWorkout`
+- `logSet` (v2, idempotent), `patchActiveWorkout` (v2), `autofillExercise` (v2)
+- `addExercise` (v2, idempotent), `swapExercise` (v2, idempotent)
+- `completeActiveWorkout` (v2), `cancelActiveWorkout` (v2)
 
-See `active_workout/README.md` for detailed endpoints and shared cores (used by Canvas reducer).
+See `active_workout/ARCHITECTURE.md` for detailed endpoints and shared cores (used by Canvas reducer).
 
 ### Exercises (catalog + curation)
 - Read
@@ -80,7 +80,7 @@ Catalog model:
 - `proposeCards` – service-only; writes proposed cards (typed schemas validated via Ajv)
 - `expireProposals` – TTL cleanup; scheduled sweep also available
 
-See `canvas/README.md` for data model, schemas, and examples.
+See `canvas/ARCHITECTURE.md` for data model, schemas, and examples.
 
 ### Canvas – Current capability (MVP)
 - Single-writer via `applyAction` transaction; optimistic concurrency on `state.version`; per-canvas idempotency.

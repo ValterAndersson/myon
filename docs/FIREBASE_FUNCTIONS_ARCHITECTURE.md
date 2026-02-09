@@ -22,7 +22,7 @@
 
 ## Overview
 
-Firebase Functions serve as the backend API layer for the MYON fitness platform. Functions are deployed to Google Cloud and provide:
+Firebase Functions serve as the backend API layer for the Povver fitness platform. Functions are deployed to Google Cloud and provide:
 
 - RESTful HTTP endpoints for CRUD operations
 - Canvas system state management

@@ -32,11 +32,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              MYON ARCHITECTURE                                  │
+│                             POVVER ARCHITECTURE                                 │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │ iOS App (MYON2/)                                                        │   │
+│  │ iOS App (Povver/Povver/)                                                 │   │
 │  │  Views → ViewModels → Services/Repositories → Firebase SDK             │   │
 │  └───────────────────────────────────┬─────────────────────────────────────┘   │
 │                                      │                                          │
@@ -462,8 +462,8 @@ When adding a new field (e.g., `routine.goal`):
 
 | File | Reason | Replacement |
 |------|--------|-------------|
-| `MYON2/Archived/CloudFunctionProxy.swift` | Old HTTP wrapper | `CanvasService.swift` |
-| `MYON2/Archived/StrengthOSClient.swift` | Old API client | `CloudFunctionService.swift` |
+| `Povver/Povver/Archived/CloudFunctionProxy.swift` | Old HTTP wrapper | `CanvasService.swift` |
+| `Povver/Povver/Archived/StrengthOSClient.swift` | Old API client | `CloudFunctionService.swift` |
 | `routines/create-routine.js` | Manual routine creation | `create-routine-from-draft.js` |
 | `routines/update-routine.js` | Direct update | `patch-routine.js` |
 | `templates/update-template.js` | Direct update | `patch-template.js` |

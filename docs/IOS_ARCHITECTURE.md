@@ -1,6 +1,6 @@
-# iOS Application Architecture (MYON2)
+# iOS Application Architecture (Povver)
 
-> **Document Purpose**: Complete documentation of the MYON2 iOS application architecture. Written for LLM/agentic coding agents.
+> **Document Purpose**: Complete documentation of the Povver iOS application architecture. Written for LLM/agentic coding agents.
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## Application Overview
 
-MYON2 is a SwiftUI-based iOS fitness coaching application. The app provides:
+Povver is a SwiftUI-based iOS fitness coaching application. The app provides:
 - AI-powered workout planning via the Canvas system
 - Routine and template management
 - Active workout tracking
@@ -46,11 +46,11 @@ MYON2 is a SwiftUI-based iOS fitness coaching application. The app provides:
 
 ## App Entry and Navigation
 
-### Entry Point (`MYON2App.swift`)
+### Entry Point (`PovverApp.swift`)
 
 ```swift
 @main
-struct MYON2App: App {
+struct PovverApp: App {
     init() {
         FirebaseConfig.shared.configure()
     }
@@ -376,8 +376,8 @@ Centralized design tokens for consistency:
 ## Directory Structure
 
 ```
-MYON2/
-├── MYON2App.swift                  # App entry point
+Povver/Povver/
+├── PovverApp.swift                 # App entry point
 ├── GoogleService-Info.plist        # Firebase config
 ├── Config/
 │   ├── FirebaseConfig.swift        # Firebase initialization

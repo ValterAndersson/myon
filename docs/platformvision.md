@@ -1,30 +1,30 @@
-# MYON Platform: Agent-Driven Canvas System
+# Povver Platform: Agent-Driven Canvas System
 
-> **Document Purpose**: Single source of truth for the MYON platform architecture. Written for LLM/agentic coding agents with maximum context and verbosity. Describes implemented functionality, not aspirational features.
+> **Document Purpose**: Single source of truth for the Povver platform architecture. Written for LLM/agentic coding agents with maximum context and verbosity. Describes implemented functionality, not aspirational features.
 >
 > **Related Documentation**:
 > - `IOS_ARCHITECTURE.md` — Complete iOS application architecture and component catalog
 > - `FIREBASE_FUNCTIONS_ARCHITECTURE.md` — Firebase Functions backend layer documentation
 > - `FIRESTORE_SCHEMA.md` — Detailed Firestore data model and field specifications
-> - `MULTI_AGENT_ARCHITECTURE.md` — Agent system architecture (Coach/Planner/Copilot/Orchestrator)
+> - `SHELL_AGENT_ARCHITECTURE.md` — Shell Agent architecture (4-lane routing, skills, context)
 > - `THINKING_STREAM_ARCHITECTURE.md` — Tool display text architecture for agent thinking streams
 
 ---
 
 ## Executive Summary
 
-MYON is an agent-driven training canvas platform. The canvas is a live, ranked stream of cards where AI agents propose and users confirm. A single backend reducer applies all state changes after schema, science, and safety validation. The iOS app consumes the canvas via real-time Firestore subscriptions and performs only one type of mutating request: `applyAction`. Agent reasoning is strictly off the hot path (no LLM calls inside the reducer), guaranteeing deterministic outcomes, low latency, and full auditability.
+Povver is an agent-driven training canvas platform. The canvas is a live, ranked stream of cards where AI agents propose and users confirm. A single backend reducer applies all state changes after schema, science, and safety validation. The iOS app consumes the canvas via real-time Firestore subscriptions and performs only one type of mutating request: `applyAction`. Agent reasoning is strictly off the hot path (no LLM calls inside the reducer), guaranteeing deterministic outcomes, low latency, and full auditability.
 
 ---
 
 ## System Components
 
-### 1. iOS App (`MYON2/`)
+### 1. iOS App (`Povver/Povver/`)
 
 Native SwiftUI iOS application providing the user interface.
 
 **Key Entry Points**:
-- `MYON2App.swift` — App initialization
+- `PovverApp.swift` — App initialization
 - `Views/CanvasScreen.swift` — Main canvas interface
 - `Views/MainTabsView.swift` — Tab navigation (Canvas, Routines, Templates)
 - `ViewModels/CanvasViewModel.swift` — Canvas state management and action dispatch
@@ -117,7 +117,7 @@ Node.js backend providing HTTPS endpoints, Firestore triggers, and scheduled job
 
 Python-based multi-agent system using Google ADK (Agent Development Kit) deployed to Vertex AI.
 
-**Agent Architecture** (see `MULTI_AGENT_ARCHITECTURE.md` for full details):
+**Agent Architecture** (see `SHELL_AGENT_ARCHITECTURE.md` for current architecture):
 
 ```
                     Orchestrator
@@ -476,9 +476,8 @@ Firebase extracts `_display` and emits to iOS for rendering.
 ## Directory Structure
 
 ```
-myon/
-├── MYON2/                          # iOS app
-│   └── MYON2/
+Povver/
+├── Povver/Povver/                  # iOS app
 │       ├── Views/                  # Top-level views
 │       ├── ViewModels/             # State management
 │       ├── Services/               # API clients

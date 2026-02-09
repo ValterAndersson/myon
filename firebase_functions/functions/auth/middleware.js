@@ -1,3 +1,45 @@
+/**
+ * =============================================================================
+ * middleware.js - Authentication Middleware
+ * =============================================================================
+ *
+ * PURPOSE:
+ * Provides three auth middleware wrappers used by all Firebase Function endpoints.
+ * Every endpoint in index.js is wrapped with one of these.
+ *
+ * AUTH LANES:
+ *
+ *   withApiKey(handler)
+ *     - Service-to-service calls (agent system, scripts)
+ *     - Validates X-API-Key header against VALID_API_KEYS env var
+ *     - userId from req.body/query (trusted — caller is authenticated service)
+ *     - Sets req.auth = { type: 'api_key', uid: userId }
+ *
+ *   requireFlexibleAuth(handler)
+ *     - Endpoints called by BOTH iOS app and agent system
+ *     - Tries Bearer token first, falls back to API key
+ *     - SECURITY: When Bearer is used, userId comes from req.auth.uid (verified token)
+ *       NOT from request params. This prevents cross-user data access.
+ *     - Sets req.auth = decoded token (Bearer) or API key info (API key)
+ *
+ *   requireAuth(handler)
+ *     - iOS-only endpoints (strict Firebase Auth)
+ *     - userId ALWAYS from verified Firebase ID token
+ *     - Sets req.user = decoded token
+ *
+ * SECURITY INVARIANT:
+ * Bearer-lane endpoints NEVER trust client-provided userId in request body/query.
+ * If they did, any authenticated user could access another user's data by passing
+ * a different userId. The middleware enforces: Bearer → uid from token ONLY.
+ *
+ * CROSS-REFERENCES:
+ * - All endpoint wrappers: index.js
+ * - Auth patterns: docs/SYSTEM_ARCHITECTURE.md (Authentication Lanes)
+ * - ARCHITECTURE.md in this directory for full details
+ *
+ * =============================================================================
+ */
+
 const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
 const functions = require('firebase-functions');

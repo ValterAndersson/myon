@@ -6,7 +6,7 @@ NO imports from app/agents/ (coach_agent.py, planner_agent.py).
 
 Tool categories:
 - Read tools: From coach_skills.py (analytics, user data)
-- Write tools: From gated_planner.py (Safety Gate enforced)
+- Write tools: From planner_skills.py (direct execution, cards have accept/dismiss buttons)
 
 Security:
 - Tool signatures do NOT include user_id (prevents LLM hallucination)

@@ -1,6 +1,6 @@
 # Firestore Schema & API Reference
 
-> **Document Purpose**: Complete data model, API endpoint documentation, and event schemas for the MYON platform. Written for LLM/agentic coding agents.
+> **Document Purpose**: Complete data model, API endpoint documentation, and event schemas for the Povver platform. Written for LLM/agentic coding agents.
 >
 > This document describes the current Firestore structure, collections, subcollections, document shapes, security posture, indexes, AND comprehensive API endpoint documentation with request/response formats.
 
