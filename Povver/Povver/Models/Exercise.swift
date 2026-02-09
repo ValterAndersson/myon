@@ -17,6 +17,7 @@ struct Exercise: Identifiable, Codable {
     let suitabilityNotes: [String]
     let coachingCues: [String]
     let tips: [String]
+    let status: String
 
     // Custom init for decoding with defaults for missing optional fields
     init(from decoder: Decoder) throws {
@@ -39,6 +40,7 @@ struct Exercise: Identifiable, Codable {
         suitabilityNotes = try container.decodeIfPresent([String].self, forKey: .suitabilityNotes) ?? []
         coachingCues = try container.decodeIfPresent([String].self, forKey: .coachingCues) ?? []
         tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "approved"
     }
     
     // Computed properties for backward compatibility and capitalized text
@@ -109,6 +111,7 @@ struct Exercise: Identifiable, Codable {
         case suitabilityNotes = "suitability_notes"
         case coachingCues = "coaching_cues"
         case tips
+        case status
     }
 }
 

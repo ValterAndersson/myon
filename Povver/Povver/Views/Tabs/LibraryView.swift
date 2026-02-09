@@ -329,27 +329,21 @@ struct ExercisesListView: View {
             }
         }
         
-        // Apply equipment filter
+        // Apply equipment filter (exact case-insensitive — values derived from data)
         if !filters.equipment.isEmpty {
             result = result.filter { exercise in
                 let exerciseEquipSet = Set(exercise.equipment.map { $0.lowercased() })
-                return filters.equipment.contains { filterEquip in
-                    let lowerFilter = filterEquip.lowercased()
-                    return exerciseEquipSet.contains { equip in
-                        equip == lowerFilter || equip.contains(lowerFilter) || lowerFilter.contains(equip)
-                    }
-                }
+                return filters.equipment.contains { exerciseEquipSet.contains($0.lowercased()) }
             }
         }
-        
-        // Apply movement pattern filter
+
+        // Apply movement pattern filter (exact case-insensitive — values derived from data)
         if !filters.movementPatterns.isEmpty {
             result = result.filter { exercise in
-                let pattern = exercise.movementType.lowercased()
-                return filters.movementPatterns.contains { pattern.contains($0.lowercased()) }
+                filters.movementPatterns.contains { $0.lowercased() == exercise.movementType.lowercased() }
             }
         }
-        
+
         // Apply difficulty filter
         if !filters.difficulty.isEmpty {
             result = result.filter { exercise in
@@ -388,6 +382,8 @@ struct ExercisesListView: View {
         .sheet(isPresented: $showingFilterSheet) {
             ExerciseFilterSheet(
                 filters: $filters,
+                equipmentOptions: viewModel.equipment,
+                movementPatternOptions: viewModel.movementTypes,
                 onApply: { showingFilterSheet = false },
                 onClear: {
                     filters.clear()
@@ -500,14 +496,14 @@ struct ExercisesListView: View {
                 
                 // Equipment
                 ForEach(Array(filters.equipment), id: \.self) { equip in
-                    activeFilterPill(label: equip, color: Color.accent) {
+                    activeFilterPill(label: equip.capitalized, color: Color.accent) {
                         filters.equipment.remove(equip)
                     }
                 }
-                
+
                 // Movement patterns
                 ForEach(Array(filters.movementPatterns), id: \.self) { pattern in
-                    activeFilterPill(label: pattern, color: Color.warning) {
+                    activeFilterPill(label: pattern.capitalized, color: Color.warning) {
                         filters.movementPatterns.remove(pattern)
                     }
                 }
@@ -515,7 +511,7 @@ struct ExercisesListView: View {
             .padding(.horizontal, Space.md)
         }
     }
-    
+
     private func activeFilterPill(label: String, color: Color, onRemove: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text(label)

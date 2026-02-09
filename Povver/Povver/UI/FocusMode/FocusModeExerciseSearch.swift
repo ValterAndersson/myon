@@ -56,38 +56,14 @@ enum MuscleGroupMapping: String, CaseIterable {
     
     var muscles: [String] {
         switch self {
-        case .chest: return ["chest", "pectorals", "pectoralis_major", "pectoralis_minor"]
-        case .back: return ["back", "lats", "latissimus_dorsi", "rhomboids", "traps", "trapezius", "erector_spinae"]
-        case .shoulders: return ["shoulders", "deltoids", "anterior_deltoid", "lateral_deltoid", "posterior_deltoid", "delts"]
-        case .arms: return ["biceps", "triceps", "forearms", "brachialis"]
-        case .legs: return ["quads", "quadriceps", "hamstrings", "glutes", "calves", "adductors", "abductors"]
-        case .core: return ["abs", "abdominals", "obliques", "core", "lower_back"]
+        case .chest: return ["chest", "pectorals", "pectoralis major", "pectoralis minor"]
+        case .back: return ["back", "lats", "latissimus dorsi", "rhomboids", "traps", "trapezius", "erector spinae"]
+        case .shoulders: return ["shoulders", "deltoids", "anterior deltoid", "lateral deltoid", "posterior deltoid", "deltoid", "delts"]
+        case .arms: return ["biceps", "biceps brachii", "triceps", "triceps brachii", "forearms", "brachialis"]
+        case .legs: return ["quads", "quadriceps", "hamstrings", "glutes", "gluteus maximus", "gluteus medius", "calves", "gastrocnemius", "soleus", "adductors", "abductors"]
+        case .core: return ["abs", "abdominals", "obliques", "core", "lower back", "erector spinae", "rectus abdominis", "transverse abdominis"]
         }
     }
-}
-
-// MARK: - Equipment Options
-
-enum EquipmentOption: String, CaseIterable {
-    case barbell = "Barbell"
-    case dumbbell = "Dumbbell"
-    case machine = "Machine"
-    case cable = "Cable"
-    case bodyweight = "Bodyweight"
-    case kettlebell = "Kettlebell"
-    case bands = "Resistance Bands"
-}
-
-// MARK: - Movement Pattern Options
-
-enum MovementPatternOption: String, CaseIterable {
-    case push = "Push"
-    case pull = "Pull"
-    case hinge = "Hinge"
-    case squat = "Squat"
-    case lunge = "Lunge"
-    case carry = "Carry"
-    case rotation = "Rotation"
 }
 
 struct FocusModeExerciseSearch: View {
@@ -117,28 +93,21 @@ struct FocusModeExerciseSearch: View {
             }
         }
         
-        // Apply equipment filter
+        // Apply equipment filter (exact case-insensitive — values derived from data)
         if !filters.equipment.isEmpty {
             result = result.filter { exercise in
-                // exercise.equipment is [String], compare each item
                 let exerciseEquipSet = Set(exercise.equipment.map { $0.lowercased() })
-                return filters.equipment.contains { filterEquip in
-                    let lowerFilter = filterEquip.lowercased()
-                    return exerciseEquipSet.contains { equip in
-                        equip == lowerFilter || equip.contains(lowerFilter) || lowerFilter.contains(equip)
-                    }
-                }
+                return filters.equipment.contains { exerciseEquipSet.contains($0.lowercased()) }
             }
         }
-        
-        // Apply movement pattern filter
+
+        // Apply movement pattern filter (exact case-insensitive — values derived from data)
         if !filters.movementPatterns.isEmpty {
             result = result.filter { exercise in
-                let pattern = exercise.movementType.lowercased()
-                return filters.movementPatterns.contains { pattern.contains($0.lowercased()) }
+                filters.movementPatterns.contains { $0.lowercased() == exercise.movementType.lowercased() }
             }
         }
-        
+
         // Apply difficulty filter
         if !filters.difficulty.isEmpty {
             result = result.filter { exercise in
@@ -185,6 +154,8 @@ struct FocusModeExerciseSearch: View {
         .sheet(isPresented: $showingFilterSheet) {
             ExerciseFilterSheet(
                 filters: $filters,
+                equipmentOptions: viewModel.equipment,
+                movementPatternOptions: viewModel.movementTypes,
                 onApply: { showingFilterSheet = false },
                 onClear: {
                     filters.clear()
@@ -196,7 +167,7 @@ struct FocusModeExerciseSearch: View {
             FocusModeExerciseDetailSheet(exercise: exercise)
         }
     }
-    
+
     // MARK: - Search and Filter Bar
     
     private var searchAndFilterBar: some View {
@@ -297,14 +268,14 @@ struct FocusModeExerciseSearch: View {
                 
                 // Equipment
                 ForEach(Array(filters.equipment), id: \.self) { equip in
-                    activeFilterPill(label: equip, color: Color.accent) {
+                    activeFilterPill(label: equip.capitalized, color: Color.accent) {
                         filters.equipment.remove(equip)
                     }
                 }
-                
+
                 // Movement patterns
                 ForEach(Array(filters.movementPatterns), id: \.self) { pattern in
-                    activeFilterPill(label: pattern, color: Color.warning) {
+                    activeFilterPill(label: pattern.capitalized, color: Color.warning) {
                         filters.movementPatterns.remove(pattern)
                     }
                 }
@@ -312,7 +283,7 @@ struct FocusModeExerciseSearch: View {
             .padding(.horizontal, Space.md)
         }
     }
-    
+
     private func activeFilterPill(label: String, color: Color, onRemove: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Text(label)
@@ -420,6 +391,8 @@ struct FocusModeExerciseSearch: View {
 
 struct ExerciseFilterSheet: View {
     @Binding var filters: ExerciseFilters
+    let equipmentOptions: [String]
+    let movementPatternOptions: [String]
     let onApply: () -> Void
     let onClear: () -> Void
     
@@ -444,31 +417,31 @@ struct ExerciseFilterSheet: View {
                         }
                     }
                     
-                    // Equipment
+                    // Equipment (dynamic — derived from loaded exercise data)
                     filterSection(title: "Equipment") {
                         FlowLayout(spacing: Space.sm) {
-                            ForEach(EquipmentOption.allCases, id: \.rawValue) { equip in
+                            ForEach(equipmentOptions, id: \.self) { equip in
                                 FilterToggleChip(
-                                    label: equip.rawValue,
-                                    isSelected: filters.equipment.contains(equip.rawValue),
+                                    label: equip.capitalized,
+                                    isSelected: filters.equipment.contains(equip),
                                     color: Color.accent
                                 ) {
-                                    toggleFilter(equip.rawValue, in: &filters.equipment)
+                                    toggleFilter(equip, in: &filters.equipment)
                                 }
                             }
                         }
                     }
-                    
-                    // Movement Patterns
+
+                    // Movement Patterns (dynamic — derived from loaded exercise data)
                     filterSection(title: "Movement Pattern") {
                         FlowLayout(spacing: Space.sm) {
-                            ForEach(MovementPatternOption.allCases, id: \.rawValue) { pattern in
+                            ForEach(movementPatternOptions, id: \.self) { pattern in
                                 FilterToggleChip(
-                                    label: pattern.rawValue,
-                                    isSelected: filters.movementPatterns.contains(pattern.rawValue),
+                                    label: pattern.capitalized,
+                                    isSelected: filters.movementPatterns.contains(pattern),
                                     color: Color.warning
                                 ) {
-                                    toggleFilter(pattern.rawValue, in: &filters.movementPatterns)
+                                    toggleFilter(pattern, in: &filters.movementPatterns)
                                 }
                             }
                         }

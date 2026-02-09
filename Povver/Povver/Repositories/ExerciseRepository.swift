@@ -6,7 +6,10 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
         super.init(collection: Firestore.firestore().collection("exercises"))
     }
 
-    /// Override list() to add error logging and manual ID injection
+    /// Override list() to add error logging, manual ID injection, and status filtering.
+    /// Status is filtered client-side after decoding because documents without a `status`
+    /// field would be excluded by a server-side whereField query. The decoder defaults
+    /// missing status to "approved", so client-side filtering handles both cases correctly.
     override func list() async throws -> [Exercise] {
         let snapshot = try await collection.getDocuments()
         print("[ExerciseRepository] Fetched \(snapshot.documents.count) documents from Firestore")
@@ -21,7 +24,10 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
                 if exercise.id == nil {
                     exercise.id = document.documentID
                 }
-                exercises.append(exercise)
+                // Filter out draft/deprecated exercises (missing status defaults to "approved")
+                if exercise.status == "approved" {
+                    exercises.append(exercise)
+                }
             } catch {
                 errorCount += 1
                 if errorCount <= 5 {
@@ -60,26 +66,29 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
             .whereField("category", isEqualTo: category)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-    
+
     func getExercisesByMovementType(_ type: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("movement.type", isEqualTo: type)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-    
+
     func getExercisesByLevel(_ level: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("metadata.level", isEqualTo: level)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-    
+
     func searchExercises(query: String) async throws -> [Exercise] {
         // Simple client-side search - get all exercises and filter
         let allExercises = try await list()
-        
+
         let searchTerm = query.lowercased()
         return allExercises.filter { exercise in
             let searchableText = [
@@ -91,29 +100,32 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
                 exercise.primaryMuscles.joined(separator: " "),
                 exercise.secondaryMuscles.joined(separator: " ")
             ].joined(separator: " ").lowercased()
-            
+
             return searchableText.contains(searchTerm)
         }
     }
-    
+
     func getExercisesByPrimaryMuscle(_ muscle: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("muscles.primary", arrayContains: muscle)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-    
+
     func getExercisesBySecondaryMuscle(_ muscle: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("muscles.secondary", arrayContains: muscle)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-    
+
     func getExercisesByEquipment(_ equipment: String) async throws -> [Exercise] {
         let snapshot = try await collection
             .whereField("equipment", arrayContains: equipment)
             .getDocuments()
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
+            .filter { $0.status == "approved" }
     }
-} 
+}
