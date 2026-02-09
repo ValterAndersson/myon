@@ -46,7 +46,7 @@ make deploy-cleanup
 make deploy-watchdog
 ```
 
-### 4. Create Cloud Scheduler Triggers
+### 3. Create Cloud Scheduler Triggers
 
 ```bash
 PROJECT_ID=myon-53d85
@@ -95,7 +95,7 @@ gcloud scheduler jobs create http trigger-catalog-watchdog \
     --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform"
 ```
 
-### 5. Verify Deployment
+### 4. Verify Deployment
 
 ```bash
 # List deployed jobs
@@ -113,42 +113,35 @@ gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=ca
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Cloud Scheduler                            │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │ daily-review │  │ process-jobs │  │ daily-cleanup        │  │
-│  │ 03:00 UTC    │  │ */15 min     │  │ 08:00 UTC            │  │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘  │
-│         │ 0 */6           │                      │              │
-│         │ watchdog        │                      │              │
-└─────────┼─────────────────┼──────────────────────┼──────────────┘
-          ▼                 ▼                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Cloud Run Jobs                               │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  │
-│  │ catalog-review │  │ catalog-worker │  │ catalog-cleanup  │  │
-│  │ 4h timeout     │  │ 3h timeout     │  │ 1h timeout       │  │
-│  │                │  │ APPLY=true     │  │                  │  │
-│  └────────────────┘  └────────────────┘  └──────────────────┘  │
-│                                                                 │
-│  ┌────────────────┐                                             │
-│  │ catalog-watchdog│                                            │
-│  │ 30m timeout    │                                             │
-│  └────────────────┘                                             │
-└─────────────────────────────────────────────────────────────────┘
-          │                 │                      │
-          ▼                 ▼                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Firestore                                  │
-├─────────────────────────────────────────────────────────────────┤
-│  catalog_jobs         │ Job queue                               │
-│  catalog_run_history  │ Audit log (permanent)                   │
-│  catalog_run_summary  │ Daily aggregates                        │
-│  catalog_changes      │ Mutation journal                        │
-│  exercises            │ Exercise catalog                        │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Cloud Scheduler                               │
+├──────────────────────────────────────────────────────────────────────┤
+│  ┌────────────────┐ ┌────────────────┐ ┌───────────┐ ┌───────────┐  │
+│  │ catalog-review │ │ catalog-worker │ │  cleanup  │ │ watchdog  │  │
+│  │  */3 hours     │ │  */15 min      │ │ 08:00 UTC │ │ */6 hours │  │
+│  └───────┬────────┘ └───────┬────────┘ └─────┬─────┘ └─────┬─────┘  │
+└──────────┼──────────────────┼────────────────┼─────────────┼─────────┘
+           ▼                  ▼                ▼             ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Cloud Run Jobs                                │
+├──────────────────────────────────────────────────────────────────────┤
+│  ┌────────────────┐ ┌────────────────┐ ┌───────────┐ ┌───────────┐  │
+│  │ catalog-review │ │ catalog-worker │ │  cleanup  │ │ watchdog  │  │
+│  │ 4h timeout     │ │ 3h timeout     │ │ 1h timeout│ │ 30m tmout │  │
+│  │ 4Gi / 2 CPU    │ │ 2Gi / 1 CPU    │ │ 512Mi/1CPU│ │ 512Mi/1CPU│  │
+│  └────────────────┘ └────────────────┘ └───────────┘ └───────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+           │                  │                │             │
+           ▼                  ▼                ▼             ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                          Firestore                                   │
+├──────────────────────────────────────────────────────────────────────┤
+│  catalog_jobs         │ Job queue                                    │
+│  catalog_run_history  │ Audit log (permanent)                        │
+│  catalog_run_summary  │ Daily aggregates                             │
+│  catalog_changes      │ Mutation journal                             │
+│  exercises            │ Exercise catalog                             │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Scheduled Jobs Summary
