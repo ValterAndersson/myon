@@ -81,9 +81,7 @@ CATEGORIES: List[str] = [
     "compound",      # Multi-joint movements (squat, deadlift, bench)
     "isolation",     # Single-joint movements (curl, extension)
     "cardio",        # Cardiovascular exercises
-    "stretching",    # Flexibility/mobility work
-    "plyometric",    # Explosive/jumping movements
-    "isometric",     # Static hold exercises
+    "mobility",      # Flexibility/mobility/stretching/isometric work
     "core",          # Dedicated core/ab work
 ]
 
@@ -207,6 +205,9 @@ PRIMARY_MUSCLES: List[str] = [
     "glutes",
     "gluteus maximus",
     "gluteus medius",
+
+    # Generic (when specific head isn't known)
+    "deltoid",
     
     # Legs - Other
     "calves",
@@ -332,15 +333,13 @@ Respond with a JSON array, e.g., ["barbell"]""",
         - compound: Multi-joint (squat, deadlift, bench press)
         - isolation: Single-joint (curl, extension, raise)
         - cardio: Cardiovascular
-        - stretching: Flexibility/mobility
-        - plyometric: Explosive/jumping
-        - isometric: Static holds
+        - mobility: Flexibility/mobility/stretching/isometric work
         - core: Dedicated core work
         """,
         good_example="compound",
         bad_example="strength",
         enrichment_prompt="""Is this exercise compound (multi-joint) or isolation (single-joint)?
-Respond with exactly one of: compound, isolation, cardio, stretching, plyometric, isometric, core""",
+Respond with exactly one of: compound, isolation, cardio, mobility, core""",
     ),
     
     "description": FieldSpec(
@@ -672,6 +671,42 @@ def get_enrichable_fields() -> List[FieldSpec]:
 def get_required_fields() -> List[FieldSpec]:
     """Get all required fields."""
     return [spec for spec in FIELD_SPECS.values() if spec.required]
+
+
+# =============================================================================
+# CANONICAL ENUM VALUES (for inclusion in LLM prompts)
+# =============================================================================
+
+CANONICAL_ENUM_VALUES = """
+## Valid Enum Values (STRICT — use ONLY these values)
+
+### category (pick exactly one):
+compound, isolation, cardio, mobility, core
+
+### movement.type (pick exactly one):
+push, pull, hinge, squat, carry, rotation, flexion, extension, abduction, adduction, other
+- push: pressing away from body (bench press, overhead press, push-up)
+- pull: pulling toward body (row, pulldown, chin-up)
+- hinge: hip hinge pattern (deadlift, RDL, good morning)
+- squat: knee-dominant (squat, leg press, lunge)
+- flexion: curling motion (bicep curl, leg curl, crunch)
+- extension: extending motion (tricep extension, leg extension)
+- abduction: away from midline (lateral raise, hip abduction)
+- adduction: toward midline (cable crossover, hip adduction)
+
+### movement.split (pick exactly one):
+upper, lower, full_body, core
+
+### equipment (array, pick from):
+barbell, dumbbell, kettlebell, ez-bar, trap-bar, machine, cable, smith-machine,
+bodyweight, pull-up-bar, dip-station, suspension-trainer, resistance-band,
+medicine-ball, stability-ball, treadmill, rowing-machine, bike, elliptical
+
+### muscles (use lowercase, spaces not underscores):
+pectoralis major, latissimus dorsi, trapezius, anterior deltoid, lateral deltoid,
+posterior deltoid, biceps, triceps, quadriceps, hamstrings, glutes, calves,
+rectus abdominis, obliques, erector spinae, forearms, rhomboids, hip flexors
+"""
 
 
 # =============================================================================
@@ -1160,7 +1195,8 @@ __all__ = [
     "MUSCLE_GROUP_EXAMPLES",
     "PRIMARY_MUSCLES",
     "MUSCLE_ALIASES",
-    
+    "CANONICAL_ENUM_VALUES",
+
     # Field Specifications
     "FieldSpec",
     "FIELD_SPECS",

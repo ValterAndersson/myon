@@ -37,16 +37,19 @@ class LLMClient(ABC):
         self,
         prompt: str,
         output_schema: Optional[Dict[str, Any]] = None,
+        response_schema: Optional[Dict[str, Any]] = None,
         require_reasoning: bool = False,
     ) -> str:
         """
         Generate completion for prompt.
-        
+
         Args:
             prompt: Input prompt
-            output_schema: Expected output schema for structured output
+            output_schema: Expected output schema (appended as text to prompt)
+            response_schema: Native Gemini structured output schema (preferred
+                over output_schema when supported)
             require_reasoning: If True, use reasoning model (gemini-2.5-pro)
-            
+
         Returns:
             Generated text response
         """
@@ -104,36 +107,44 @@ class VertexLLMClient(LLMClient):
         self,
         prompt: str,
         output_schema: Optional[Dict[str, Any]] = None,
+        response_schema: Optional[Dict[str, Any]] = None,
         require_reasoning: bool = False,
     ) -> str:
         """
         Generate completion using Vertex AI.
-        
+
         Args:
             prompt: Input prompt
-            output_schema: Expected output schema (used for response mode)
+            output_schema: Expected output schema (appended as text to prompt)
+            response_schema: Native Gemini structured output schema (preferred)
             require_reasoning: If True, use gemini-2.5-pro
-            
+
         Returns:
             Generated text
         """
         self._ensure_initialized()
-        
+
         from vertexai.generative_models import GenerativeModel, GenerationConfig
-        
+
         model_name = self.get_model_name(require_reasoning)
         logger.debug("Using model: %s (reasoning=%s)", model_name, require_reasoning)
-        
+
         model = GenerativeModel(model_name)
-        
+
         # Configure generation - higher token limit for structured JSON responses
-        config = GenerationConfig(
-            temperature=0.1 if require_reasoning else 0.0,
-            max_output_tokens=16384,  # Large limit for batch JSON responses
-        )
-        
-        # If output schema provided, add JSON mode instructions
-        if output_schema:
+        config_kwargs = {
+            "temperature": 0.1 if require_reasoning else 0.0,
+            "max_output_tokens": 16384,
+        }
+
+        if response_schema:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = response_schema
+
+        config = GenerationConfig(**config_kwargs)
+
+        # Text-append fallback only when no native response_schema
+        if output_schema and not response_schema:
             schema_json = json.dumps(output_schema, indent=2)
             prompt = f"{prompt}\n\nRespond with valid JSON matching this schema:\n{schema_json}"
         
@@ -212,11 +223,12 @@ class MockLLMClient(LLMClient):
         self,
         prompt: str,
         output_schema: Optional[Dict[str, Any]] = None,
+        response_schema: Optional[Dict[str, Any]] = None,
         require_reasoning: bool = False,
     ) -> str:
         """
         Return mock response.
-        
+
         Infers output type from schema if provided.
         """
         self.call_count += 1

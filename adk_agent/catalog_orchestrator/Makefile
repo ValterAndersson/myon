@@ -4,11 +4,11 @@
 
 .PHONY: help install dev test lint format clean run deploy \
         worker worker-local watchdog-local \
-        docker-build docker-push deploy-worker deploy-watchdog \
-        trigger-worker trigger-watchdog
+        docker-build docker-push deploy-worker deploy-review deploy-cleanup deploy-watchdog \
+        deploy-jobs trigger-worker trigger-watchdog
 
 # Configuration (override with: make deploy-worker PROJECT_ID=my-project REGION=us-central1)
-PROJECT_ID ?= your-project-id
+PROJECT_ID ?= myon-53d85
 REGION ?= europe-west1
 IMAGE_TAG ?= latest
 
@@ -40,14 +40,13 @@ help:
 	@echo "  make docker-push   - Push to GCR (requires gcloud auth)"
 	@echo ""
 	@echo "Cloud Run Jobs:"
+	@echo "  make deploy          - Build, push, deploy all jobs"
 	@echo "  make deploy-worker   - Deploy worker job to Cloud Run"
+	@echo "  make deploy-review   - Deploy review job to Cloud Run"
+	@echo "  make deploy-cleanup  - Deploy cleanup job to Cloud Run"
 	@echo "  make deploy-watchdog - Deploy watchdog job to Cloud Run"
 	@echo "  make trigger-worker  - Trigger worker execution"
 	@echo "  make trigger-watchdog - Trigger watchdog execution"
-	@echo ""
-	@echo "Agent Engine:"
-	@echo "  make deploy        - Deploy to Agent Engine"
-	@echo "  make deploy-dry    - Dry-run deploy"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make clean         - Clean build artifacts"
@@ -93,13 +92,8 @@ check:
 	python -m py_compile app/skills/catalog_write_skills.py
 	@echo "All files compile OK"
 
-# Deploy to Agent Engine
-deploy:
-	adk deploy app --project=$(PROJECT_ID)
-
-# Dry-run deploy
-deploy-dry:
-	adk deploy app --project=$(PROJECT_ID) --dry-run
+# Deploy all (build, push, deploy all Cloud Run Jobs)
+deploy: deploy-jobs
 
 # Clean build artifacts
 clean:
@@ -185,16 +179,22 @@ docker-push: docker-build
 # Deploy worker job (requires gcloud auth)
 deploy-worker:
 	@echo "Deploying catalog-worker to Cloud Run Jobs..."
-	@echo "Project: $(PROJECT_ID), Region: $(REGION)"
-	sed 's/PROJECT_ID/$(PROJECT_ID)/g' cloud-run-job.yaml | \
-		gcloud run jobs replace - --region=$(REGION)
+	gcloud run jobs replace cloud-run-worker.yaml --region=$(REGION)
 
-# Deploy watchdog job (uses same image, different command)
+# Deploy review job
+deploy-review:
+	@echo "Deploying catalog-review to Cloud Run Jobs..."
+	gcloud run jobs replace cloud-run-review.yaml --region=$(REGION)
+
+# Deploy cleanup job
+deploy-cleanup:
+	@echo "Deploying catalog-cleanup to Cloud Run Jobs..."
+	gcloud run jobs replace cloud-run-cleanup.yaml --region=$(REGION)
+
+# Deploy watchdog job
 deploy-watchdog:
 	@echo "Deploying catalog-watchdog to Cloud Run Jobs..."
-	@echo "Project: $(PROJECT_ID), Region: $(REGION)"
-	sed 's/PROJECT_ID/$(PROJECT_ID)/g' cloud-run-job.yaml | \
-		gcloud run jobs replace - --region=$(REGION)
+	gcloud run jobs replace cloud-run-watchdog.yaml --region=$(REGION)
 
 # Trigger worker execution (on-demand)
 trigger-worker:
@@ -204,8 +204,8 @@ trigger-worker:
 trigger-watchdog:
 	gcloud run jobs execute catalog-watchdog --region=$(REGION) --wait
 
-# Deploy both worker and watchdog
-deploy-jobs: docker-push deploy-worker deploy-watchdog
+# Deploy all Cloud Run Jobs
+deploy-jobs: docker-push deploy-worker deploy-review deploy-cleanup deploy-watchdog
 	@echo "All Cloud Run Jobs deployed"
 
 # =============================================================================

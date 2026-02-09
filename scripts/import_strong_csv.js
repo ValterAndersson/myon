@@ -458,12 +458,14 @@ function deriveMovement(name) {
 
   // Movement type
   let type = 'other';
-  if (/press|push/.test(lower)) type = 'press';
-  else if (/pull|row|curl/.test(lower)) type = 'pull';
-  else if (/squat|lunge|leg\s*press/.test(lower)) type = 'squat';
+  if (/squat|lunge|leg\s*press/.test(lower)) type = 'squat';
   else if (/deadlift|hip\s*hinge|rdl|romanian/.test(lower)) type = 'hinge';
-  else if (/raise|fly|flye|lateral/.test(lower)) type = 'raise';
-  else if (/extension|curl/.test(lower)) type = 'isolation';
+  else if (/press|push/.test(lower)) type = 'push';
+  else if (/row|pull/.test(lower)) type = 'pull';
+  else if (/curl/.test(lower)) type = 'flexion';
+  else if (/extension|kickback|pushdown/.test(lower)) type = 'extension';
+  else if (/raise|lateral/.test(lower)) type = 'abduction';
+  else if (/fly|flye|crossover/.test(lower)) type = 'adduction';
 
   // Split
   let split = 'full_body';
@@ -563,17 +565,19 @@ async function queueEnrichmentJob(exerciseId, exerciseName) {
     queue: 'priority',  // High priority for imported exercises
     status: 'queued',
     priority: 200,  // Higher than normal (100)
-    mode: 'apply',  // Actually apply the enrichment
     created_at: now,
     updated_at: now,
     run_after: now,
     attempts: 0,
     max_attempts: 3,
-    exercise_doc_ids: [exerciseId],
-    enrichment_spec: {
-      source: 'strong_csv_import',
-      exercise_name: exerciseName,
-      enrich_all: true,  // Enrich all missing fields
+    payload: {
+      mode: 'apply',  // Actually apply the enrichment
+      exercise_doc_ids: [exerciseId],
+      enrichment_spec: {
+        source: 'strong_csv_import',
+        exercise_name: exerciseName,
+        enrich_all: true,  // Enrich all missing fields
+      },
     },
     result_summary: null,
     error: null,

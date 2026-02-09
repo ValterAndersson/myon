@@ -33,7 +33,7 @@ OUTPUT NORMALIZATION (applied to all LLM output)
   muscles.primary/secondary: underscores -> spaces, lowercase, dedupe
   muscles.contribution: keys normalized, values clamped to 0.0-1.0
   stimulus_tags: title case, dedupe by lowercase
-  category: validated against VALID_CATEGORIES, fallback to "compound"
+  category: validated against CATEGORIES (from field guide), fallback to "compound"
 
   Why: LLM output is inconsistent. Normalization ensures data quality.
 
@@ -61,8 +61,12 @@ from app.enrichment.models import EnrichmentSpec, EnrichmentResult
 from app.enrichment.llm_client import LLMClient, get_llm_client
 from app.enrichment.validators import validate_enrichment_output, parse_llm_response
 from app.enrichment.exercise_field_guide import (
+    CANONICAL_ENUM_VALUES,
+    CATEGORIES,
     FIELD_SPECS,
     GOLDEN_EXAMPLES,
+    MOVEMENT_SPLITS,
+    MOVEMENT_TYPES,
     NAMING_TAXONOMY,
     get_field_spec,
     get_enrichable_fields,
@@ -650,6 +654,71 @@ ENRICHABLE_FIELD_PATHS = {
 }
 
 
+# Native Gemini structured output schema for holistic enrichment.
+# Passed as response_schema to get deterministic JSON structure from the LLM.
+HOLISTIC_ENRICHMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "changes": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": ["compound", "isolation", "cardio", "mobility", "core"],
+                },
+                "movement.type": {
+                    "type": "string",
+                    "enum": [
+                        "push", "pull", "hinge", "squat", "carry",
+                        "rotation", "flexion", "extension",
+                        "abduction", "adduction", "other",
+                    ],
+                },
+                "movement.split": {
+                    "type": "string",
+                    "enum": ["upper", "lower", "full_body", "core"],
+                },
+                "description": {"type": "string"},
+                "equipment": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "muscles.primary": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "muscles.secondary": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "muscles.contribution": {
+                    "type": "object",
+                    "additionalProperties": {"type": "number"},
+                },
+                "execution_notes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "common_mistakes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "stimulus_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        },
+        "reasoning": {"type": "string"},
+        "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+        },
+    },
+    "required": ["changes", "reasoning", "confidence"],
+}
+
+
 def enrich_exercise_holistic(
     exercise: Dict[str, Any],
     reviewer_hint: str = "",
@@ -680,7 +749,8 @@ def enrich_exercise_holistic(
     NORMALIZATION (applied after LLM response):
         - Muscle names: underscores -> spaces, lowercase
         - stimulus_tags: title case, dedupe
-        - category: validated against VALID_CATEGORIES
+        - category: validated against CATEGORIES (from field guide)
+        - movement.type / movement.split: mapped to canonical values
 
     Args:
         exercise: Full exercise document
@@ -714,6 +784,7 @@ def enrich_exercise_holistic(
         raw_response = client.complete(
             prompt=prompt,
             output_schema={"type": "object"},
+            response_schema=HOLISTIC_ENRICHMENT_SCHEMA,
             require_reasoning=use_pro_model,
         )
         
@@ -758,6 +829,7 @@ def enrich_exercise_holistic(
         
         # Normalize the changes for consistency
         normalized_changes = normalize_enrichment_output(valid_changes)
+        normalized_changes = validate_normalized_output(normalized_changes)
 
         logger.info(
             "Holistic enrichment for %s: %d changes (confidence: %s)",
@@ -807,6 +879,8 @@ def _build_holistic_enrichment_prompt(
 {INSTRUCTIONS_GUIDANCE}
 
 {MUSCLE_MAPPING_GUIDANCE}
+
+{CANONICAL_ENUM_VALUES}
 
 ---
 
@@ -956,10 +1030,6 @@ def _parse_holistic_response(raw_response: str) -> Dict[str, Any]:
 # OUTPUT NORMALIZATION
 # =============================================================================
 
-# Valid category values
-VALID_CATEGORIES = {"compound", "isolation", "cardio", "mobility", "core"}
-
-
 def normalize_enrichment_output(changes: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize enrichment output to ensure consistent formatting.
@@ -991,6 +1061,19 @@ def normalize_enrichment_output(changes: Dict[str, Any]) -> Dict[str, Any]:
         # Validate category
         elif field_path == "category":
             normalized[field_path] = _normalize_category(value)
+
+        # Normalize movement type
+        elif field_path == "movement.type":
+            result = _normalize_movement_type(value)
+            if result:
+                normalized[field_path] = result
+            # else: silently dropped — validation will also catch it
+
+        # Normalize movement split
+        elif field_path == "movement.split":
+            result = _normalize_movement_split(value)
+            if result:
+                normalized[field_path] = result
 
         # Pass through other fields
         else:
@@ -1069,9 +1152,22 @@ def _normalize_category(category: str) -> str:
 
     clean = category.lower().strip()
 
-    # Fix common invalid values
-    if clean in VALID_CATEGORIES:
+    # Map dropped categories to their replacements
+    _category_fallbacks = {
+        "stretching": "mobility",
+        "plyometric": "compound",
+        "isometric": "mobility",
+        "flexibility": "mobility",
+        "explosive": "compound",
+        "static": "mobility",
+    }
+
+    # Fix common invalid values — CATEGORIES is the single source of truth
+    valid_categories = set(CATEGORIES)
+    if clean in valid_categories:
         return clean
+    if clean in _category_fallbacks:
+        return _category_fallbacks[clean]
     if clean == "exercise":
         return "compound"  # Default fallback
     if "isol" in clean:
@@ -1080,6 +1176,168 @@ def _normalize_category(category: str) -> str:
         return "compound"
 
     return "compound"  # Default
+
+
+def _normalize_movement_type(movement_type: str) -> Optional[str]:
+    """Normalize movement.type, returning None if unmappable."""
+    if not isinstance(movement_type, str):
+        return None
+    clean = movement_type.lower().strip()
+
+    valid = set(MOVEMENT_TYPES)
+    if clean in valid:
+        return clean
+
+    _fallbacks = {
+        "press": "push", "pressing": "push", "bench press": "push",
+        "row": "pull", "rowing": "pull", "pulldown": "pull",
+        "curl": "flexion", "crunch": "flexion",
+        "kickback": "extension", "pushdown": "extension",
+        "raise": "abduction", "lateral": "abduction",
+        "fly": "adduction", "flye": "adduction", "crossover": "adduction",
+        "deadlift": "hinge", "rdl": "hinge",
+        "lunge": "squat", "leg press": "squat",
+        "dip": "push", "push-up": "push",
+        "twist": "rotation", "woodchop": "rotation",
+        "farmer's walk": "carry",
+        "isolation": "flexion",
+    }
+    return _fallbacks.get(clean)  # Returns None if unmappable
+
+
+def _normalize_movement_split(split) -> Optional[str]:
+    """Normalize movement.split, returning None if unmappable."""
+    if isinstance(split, list):
+        # Take first mappable value from list
+        for s in split:
+            result = _normalize_movement_split(s)
+            if result:
+                return result
+        return None
+    if not isinstance(split, str):
+        return None
+    clean = split.lower().strip()
+
+    valid = set(MOVEMENT_SPLITS)
+    if clean in valid:
+        return clean
+
+    _fallbacks = {
+        "full body": "full_body", "full": "full_body",
+        "upper body": "upper", "lower body": "lower",
+        "arms": "upper", "back": "upper", "chest": "upper",
+        "shoulders": "upper", "legs": "lower", "abs": "core",
+    }
+    return _fallbacks.get(clean)
+
+
+def validate_normalized_output(changes: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate normalized enrichment output against canonical enums.
+
+    Drops invalid fields with a warning log (partial success model).
+    Called after normalize_enrichment_output() in enrich_exercise_holistic().
+    """
+    from app.enrichment.exercise_field_guide import (
+        MOVEMENT_TYPES, MOVEMENT_SPLITS, CATEGORIES,
+        EQUIPMENT_TYPES, PRIMARY_MUSCLES, MUSCLE_ALIASES,
+    )
+
+    valid_categories = set(CATEGORIES)
+    valid_movement_types = set(MOVEMENT_TYPES)
+    valid_movement_splits = set(MOVEMENT_SPLITS)
+    valid_equipment = set(EQUIPMENT_TYPES)
+    # Build full muscle set: canonical names + alias keys
+    valid_muscles = set(m.lower() for m in PRIMARY_MUSCLES)
+    valid_muscles.update(k.lower() for k in MUSCLE_ALIASES.keys())
+
+    validated = {}
+
+    for field_path, value in changes.items():
+        if field_path == "category":
+            if value in valid_categories:
+                validated[field_path] = value
+            else:
+                logger.warning(
+                    "Dropping invalid category '%s' (valid: %s)",
+                    value, valid_categories,
+                )
+
+        elif field_path == "movement.type":
+            if value in valid_movement_types:
+                validated[field_path] = value
+            else:
+                logger.warning(
+                    "Dropping invalid movement.type '%s' (valid: %s)",
+                    value, valid_movement_types,
+                )
+
+        elif field_path == "movement.split":
+            if value in valid_movement_splits:
+                validated[field_path] = value
+            else:
+                logger.warning(
+                    "Dropping invalid movement.split '%s' (valid: %s)",
+                    value, valid_movement_splits,
+                )
+
+        elif field_path == "equipment":
+            if isinstance(value, list):
+                valid_items = [e for e in value if e in valid_equipment]
+                invalid_items = [e for e in value if e not in valid_equipment]
+                if invalid_items:
+                    logger.warning(
+                        "Dropping invalid equipment values: %s", invalid_items
+                    )
+                if valid_items:
+                    validated[field_path] = valid_items
+            else:
+                validated[field_path] = value
+
+        elif field_path in ("muscles.primary", "muscles.secondary"):
+            if isinstance(value, list):
+                invalid = [m for m in value if m.lower() not in valid_muscles]
+                if invalid:
+                    logger.warning(
+                        "Muscle names not in canonical set (keeping anyway): %s",
+                        invalid,
+                    )
+                # Keep all muscle names — just warn, don't drop
+                validated[field_path] = value
+            else:
+                validated[field_path] = value
+
+        elif field_path == "muscles.contribution":
+            if isinstance(value, dict):
+                total = sum(v for v in value.values() if isinstance(v, (int, float)))
+                if total > 1.15 or total < 0.85:
+                    logger.warning(
+                        "Contribution sum %.2f out of range [0.85, 1.15], "
+                        "re-normalizing", total,
+                    )
+                    if total > 0:
+                        value = {k: round(v / total, 3) for k, v in value.items()
+                                 if isinstance(v, (int, float))}
+                validated[field_path] = value
+            else:
+                validated[field_path] = value
+
+        elif field_path == "description":
+            # Threshold aligned with quality_scanner.py (50 chars) to avoid
+            # enrichment loops: scanner flags <50, so validation must also reject <50.
+            if isinstance(value, str) and len(value) >= 50:
+                validated[field_path] = value
+            else:
+                logger.warning(
+                    "Dropping too-short description (%d chars, min 50)",
+                    len(value) if isinstance(value, str) else 0,
+                )
+
+        else:
+            # Pass through other fields unchanged
+            validated[field_path] = value
+
+    return validated
 
 
 __all__ = [
@@ -1094,6 +1352,7 @@ __all__ = [
     # Holistic enrichment
     "enrich_exercise_holistic",
     "normalize_enrichment_output",
+    "validate_normalized_output",
     "LOCKED_FIELDS",
     "ENRICHABLE_FIELD_PATHS",
 ]

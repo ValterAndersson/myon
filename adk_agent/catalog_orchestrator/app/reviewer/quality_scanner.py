@@ -161,6 +161,34 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     if len(execution_notes) < MIN_EXECUTION_NOTES:
         return None  # Needs LLM - missing content
 
+    # Check 6: Category must be in canonical set
+    from app.enrichment.exercise_field_guide import (
+        CATEGORIES, MOVEMENT_TYPES, MOVEMENT_SPLITS,
+    )
+    if category not in CATEGORIES:
+        return None  # Needs LLM — invalid category
+
+    # Check 7: Movement type must be present and canonical
+    movement = exercise.get("movement") or {}
+    movement_type = movement.get("type")
+    if not movement_type or movement_type not in MOVEMENT_TYPES:
+        return None  # Needs LLM — missing or invalid movement type
+
+    # Check 8: Movement split must be present and canonical
+    movement_split = movement.get("split")
+    if not movement_split or movement_split not in MOVEMENT_SPLITS:
+        return None  # Needs LLM — missing or invalid movement split
+
+    # Check 9: Description must be present and substantial
+    description = exercise.get("description") or ""
+    if len(description) < 50:
+        return None  # Needs LLM — missing or too-short description
+
+    # Check 10: Muscle names must be lowercase without underscores
+    for m in primary_muscles:
+        if isinstance(m, str) and ("_" in m or m != m.lower()):
+            return None  # Needs LLM — non-normalized muscle names
+
     # All checks passed - this is a good exercise
     return QualityScanResult(
         exercise_id=exercise_id,

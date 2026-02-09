@@ -4121,3 +4121,261 @@ Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,
 2026-01-05 19:33:36,"Workout C",1h 9m,"Triceps Extension (Cable)",1,10.0,12.0,0,0.0,"",,6
 2026-01-05 19:33:36,"Workout C",1h 9m,"Triceps Extension (Cable)",2,10.0,12.0,0,0.0,,,6
 2026-01-05 19:33:36,"Workout C",1h 9m,"Triceps Extension (Cable)",3,10.0,12.0,0,0.0,,,6
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",W,24.0,5.0,0,0.0,"","",
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",W,32.0,5.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",W,40.0,3.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",1,52.0,12.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",2,52.0,12.0,0,0.0,,,9
+2026-01-07 19:50:13,"Workout A",1h,"Incline Bench Press (Dumbbell)",3,52.0,12.0,0,0.0,,,10
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",W,35.0,8.0,0,0.0,"",,
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",W,60.0,3.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",1,70.0,14.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",2,70.0,13.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Seated Row (Cable)",3,70.0,12.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Preacher Curl (Barbell)",1,27.0,10.0,0,0.0,"",,8
+2026-01-07 19:50:13,"Workout A",1h,"Preacher Curl (Barbell)",2,27.0,9.0,0,0.0,,,9
+2026-01-07 19:50:13,"Workout A",1h,"Preacher Curl (Barbell)",F,27.0,9.0,0,0.0,,,10
+2026-01-07 19:50:13,"Workout A",1h,"Lateral Raise (Cable)",1,5.0,14.0,0,0.0,"",,8
+2026-01-07 19:50:13,"Workout A",1h,"Lateral Raise (Cable)",2,5.0,12.0,0,0.0,,,9
+2026-01-07 19:50:13,"Workout A",1h,"Lateral Raise (Cable)",3,5.0,12.0,0,0.0,,,9
+2026-01-07 19:50:13,"Workout A",1h,"Triceps Extension (Cable)",1,12.5,15.0,0,0.0,"",,6
+2026-01-07 19:50:13,"Workout A",1h,"Triceps Extension (Cable)",2,12.5,15.0,0,0.0,,,7
+2026-01-07 19:50:13,"Workout A",1h,"Triceps Extension (Cable)",3,12.5,12.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",W,40.0,5.0,0,0.0,"",,
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",W,50.0,5.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",W,60.0,3.0,0,0.0,,,
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",1,70.0,12.0,0,0.0,,,8
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",2,70.0,12.0,0,0.0,,,9
+2026-01-07 19:50:13,"Workout A",1h,"Leg Extension (Machine)",3,70.0,12.0,0,0.0,,,10
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",W,35.0,8.0,0,0.0,"","",
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",W,60.0,3.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",1,70.0,12.0,0,0.0,,,8
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",2,70.0,12.0,0,0.0,,,9
+2026-01-09 19:38:04,"Workout B",57m,"Lat Pulldown (Cable)",F,70.0,10.0,0,0.0,,,10
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",W,20.0,8.0,0,0.0,"",,
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",W,40.0,5.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",W,60.0,5.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",1,70.0,8.0,0,0.0,,,8
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",2,70.0,8.0,0,0.0,,,9
+2026-01-09 19:38:04,"Workout B",57m,"Bench Press (Barbell)",3,60.0,12.0,0,0.0,,,9
+2026-01-09 19:38:04,"Workout B",57m,"Face Pull (Cable)",W,10.0,10.0,0,0.0,"",,
+2026-01-09 19:38:04,"Workout B",57m,"Face Pull (Cable)",W,15.0,5.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Face Pull (Cable)",1,21.25,15.0,0,0.0,,,7
+2026-01-09 19:38:04,"Workout B",57m,"Face Pull (Cable)",2,21.25,15.0,0,0.0,,,8
+2026-01-09 19:38:04,"Workout B",57m,"Face Pull (Cable)",3,21.25,12.0,0,0.0,,,9
+2026-01-09 19:38:04,"Workout B",57m,"Triceps Extension (Cable)",1,12.5,15.0,0,0.0,"",,6
+2026-01-09 19:38:04,"Workout B",57m,"Triceps Extension (Cable)",2,12.5,15.0,0,0.0,,,7
+2026-01-09 19:38:04,"Workout B",57m,"Triceps Extension (Cable)",3,12.5,13.0,0,0.0,,,8
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",W,30.0,8.0,0,0.0,"",,
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",W,40.0,5.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",W,50.0,3.0,0,0.0,,,
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",1,55.0,12.0,0,0.0,,,8
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",2,55.0,12.0,0,0.0,,,9
+2026-01-09 19:38:04,"Workout B",57m,"Lying Leg Curl (Machine)",3,55.0,12.0,0,0.0,,,10
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",W,20.0,8.0,0,0.0,"","",
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",W,60.0,5.0,0,0.0,,,
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",W,100.0,3.0,0,0.0,,,
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",1,110.0,10.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",2,110.0,10.0,0,0.0,,,9
+2026-01-13 20:25:47,"Workout C",51m,"Romanian Deadlift (Barbell)",3,110.0,8.0,0,0.0,,,9
+2026-01-13 20:25:47,"Workout C",51m,"Chest Press (Machine)",W,45.0,8.0,0,0.0,"",,
+2026-01-13 20:25:47,"Workout C",51m,"Chest Press (Machine)",W,85.0,5.0,0,0.0,,,
+2026-01-13 20:25:47,"Workout C",51m,"Chest Press (Machine)",1,95.0,10.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Chest Press (Machine)",2,95.0,9.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Chest Press (Machine)",3,95.0,9.0,0,0.0,,,9
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",W,35.0,8.0,0,0.0,"",,
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",W,60.0,3.0,0,0.0,,,
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",1,70.0,13.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",2,70.0,12.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Seated Row (Cable)",3,70.0,12.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Hammer Curl (Dumbbell)",1,24.0,15.0,0,0.0,"",,8
+2026-01-13 20:25:47,"Workout C",51m,"Hammer Curl (Dumbbell)",2,24.0,14.0,0,0.0,,,9
+2026-01-13 20:25:47,"Workout C",51m,"Hammer Curl (Dumbbell)",F,24.0,14.0,0,0.0,,,10
+2026-01-13 20:25:47,"Workout C",51m,"Skullcrusher (Dumbbell)",1,20.0,14.0,0,0.0,"",,8
+2026-01-13 20:25:47,"Workout C",51m,"Skullcrusher (Dumbbell)",2,20.0,13.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Skullcrusher (Dumbbell)",3,20.0,12.0,0,0.0,,,9
+2026-01-13 20:25:47,"Workout C",51m,"Lateral Raise (Dumbbell)",1,14.0,15.0,0,0.0,"",,7
+2026-01-13 20:25:47,"Workout C",51m,"Lateral Raise (Dumbbell)",2,14.0,15.0,0,0.0,,,8
+2026-01-13 20:25:47,"Workout C",51m,"Lateral Raise (Dumbbell)",3,14.0,15.0,0,0.0,,,8
+2026-01-15 17:04:30,"Workout A",1h 6m,"Chest Press (Machine)",W,45.0,8.0,0,0.0,"","",
+2026-01-15 17:04:30,"Workout A",1h 6m,"Chest Press (Machine)",W,85.0,5.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Chest Press (Machine)",1,100.0,10.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Chest Press (Machine)",2,100.0,9.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Chest Press (Machine)",F,100.0,7.0,0,0.0,,,10
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",W,35.0,8.0,0,0.0,"",,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",W,50.0,3.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",1,70.0,11.0,0,0.0,,,8
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",2,70.0,10.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown (Cable)",3,70.0,9.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",W,20.0,10.0,0,0.0,"",,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",W,35.0,8.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",1,35.0,12.0,0,0.0,,,6
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",2,35.0,15.0,0,0.0,,,6
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",3,42.5,15.0,0,0.0,,,7
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lat Pulldown - Underhand (Cable)",4,42.5,15.0,0,0.0,,,7
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lateral Raise (Cable)",1,5.0,15.0,0,0.0,"",,8
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lateral Raise (Cable)",2,5.0,12.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Lateral Raise (Cable)",3,5.0,12.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Triceps Extension (Cable)",1,15.0,15.0,0,0.0,"",,7
+2026-01-15 17:04:30,"Workout A",1h 6m,"Triceps Extension (Cable)",2,15.0,12.0,0,0.0,,,8
+2026-01-15 17:04:30,"Workout A",1h 6m,"Triceps Extension (Cable)",3,15.0,10.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",W,40.0,5.0,0,0.0,"",,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",W,50.0,5.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",W,60.0,3.0,0,0.0,,,
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",1,70.0,12.0,0,0.0,,,8
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",2,70.0,12.0,0,0.0,,,9
+2026-01-15 17:04:30,"Workout A",1h 6m,"Leg Extension (Machine)",3,70.0,12.0,0,0.0,,,10
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",W,20.0,10.0,0,0.0,"","",
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",W,30.0,8.0,0,0.0,,,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",W,40.0,10.0,0,0.0,,,6
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",1,50.0,10.0,0,0.0,,,7
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",2,50.0,12.0,0,0.0,,,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bent Over Row (Barbell)",3,50.0,12.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Incline Bench Press (Dumbbell)",W,24.0,10.0,0,0.0,"",,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Incline Bench Press (Dumbbell)",W,44.0,5.0,0,0.0,,,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Incline Bench Press (Dumbbell)",1,56.0,10.0,0,0.0,,,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Incline Bench Press (Dumbbell)",2,56.0,10.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Incline Bench Press (Dumbbell)",3,56.0,9.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Face Pull (Cable)",W,10.0,10.0,0,0.0,"",,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Face Pull (Cable)",W,15.0,8.0,0,0.0,,,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Face Pull (Cable)",1,21.25,15.0,0,0.0,,,6
+2026-01-17 12:37:57,"Workout B",1h 1m,"Face Pull (Cable)",2,21.25,15.0,0,0.0,,,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Face Pull (Cable)",3,21.25,12.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Triceps Extension (Cable)",1,15.0,15.0,0,0.0,"",,7
+2026-01-17 12:37:57,"Workout B",1h 1m,"Triceps Extension (Cable)",2,15.0,12.0,0,0.0,,,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Triceps Extension (Cable)",3,15.0,10.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bayesian Curl",1,7.5,12.0,0,0.0,"",,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bayesian Curl",2,7.5,10.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Bayesian Curl",3,7.5,8.0,0,0.0,,,9
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",W,30.0,8.0,0,0.0,"",,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",W,40.0,5.0,0,0.0,,,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",W,50.0,3.0,0,0.0,,,
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",1,55.0,12.0,0,0.0,,,7
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",2,55.0,12.0,0,0.0,,,8
+2026-01-17 12:37:57,"Workout B",1h 1m,"Lying Leg Curl (Machine)",3,55.0,12.0,0,0.0,,,9
+2026-01-19 20:14:50,"Compound Workout",59m,"Bent Over Row (Barbell)",W,20.0,10.0,0,0.0,"","",
+2026-01-19 20:14:50,"Compound Workout",59m,"Bent Over Row (Barbell)",W,40.0,5.0,0,0.0,,,
+2026-01-19 20:14:50,"Compound Workout",59m,"Bent Over Row (Barbell)",1,50.0,12.0,0,0.0,,,6
+2026-01-19 20:14:50,"Compound Workout",59m,"Bent Over Row (Barbell)",2,50.0,12.0,0,0.0,,,7
+2026-01-19 20:14:50,"Compound Workout",59m,"Bent Over Row (Barbell)",3,50.0,12.0,0,0.0,,,8
+2026-01-19 20:14:50,"Compound Workout",59m,"Overhead Press (Barbell)",W,20.0,10.0,0,0.0,"",,
+2026-01-19 20:14:50,"Compound Workout",59m,"Overhead Press (Barbell)",1,30.0,8.0,0,0.0,,,7
+2026-01-19 20:14:50,"Compound Workout",59m,"Overhead Press (Barbell)",2,30.0,8.0,0,0.0,,,7
+2026-01-19 20:14:50,"Compound Workout",59m,"Overhead Press (Barbell)",3,30.0,8.0,0,0.0,,,7
+2026-01-19 20:14:50,"Compound Workout",59m,"Incline Bench Press (Dumbbell)",W,24.0,8.0,0,0.0,"",,
+2026-01-19 20:14:50,"Compound Workout",59m,"Incline Bench Press (Dumbbell)",W,44.0,5.0,0,0.0,,,
+2026-01-19 20:14:50,"Compound Workout",59m,"Incline Bench Press (Dumbbell)",1,56.0,10.0,0,0.0,,,9
+2026-01-19 20:14:50,"Compound Workout",59m,"Incline Bench Press (Dumbbell)",F,56.0,8.0,0,0.0,,,10
+2026-01-19 20:14:50,"Compound Workout",59m,"Incline Bench Press (Dumbbell)",3,52.0,10.0,0,0.0,,,10
+2026-01-19 20:14:50,"Compound Workout",59m,"Bicep Curl (Barbell)",1,15.0,15.0,0,0.0,"",,6
+2026-01-19 20:14:50,"Compound Workout",59m,"Bicep Curl (Barbell)",2,17.5,15.0,0,0.0,,,8
+2026-01-19 20:14:50,"Compound Workout",59m,"Bicep Curl (Barbell)",3,17.5,15.0,0,0.0,,,8
+2026-01-19 20:14:50,"Compound Workout",59m,"Bicep Curl (Barbell)",4,17.5,15.0,0,0.0,,,9
+2026-01-19 20:14:50,"Compound Workout",59m,"Triceps Extension (Cable)",1,15.0,15.0,0,0.0,"",,6
+2026-01-19 20:14:50,"Compound Workout",59m,"Triceps Extension (Cable)",2,15.0,15.0,0,0.0,,,8
+2026-01-19 20:14:50,"Compound Workout",59m,"Triceps Extension (Cable)",3,15.0,13.0,0,0.0,,,9
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",W,20.0,5.0,0,0.0,"","",
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",W,60.0,5.0,0,0.0,,,
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",W,100.0,3.0,0,0.0,,,
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",1,120.0,5.0,0,0.0,,,7
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",2,140.0,3.0,0,0.0,,,8
+2026-01-24 20:14:52,"Evening Workout",1h,"Deadlift (Barbell)",3,160.0,1.0,0,0.0,,,10
+2026-01-24 20:14:52,"Evening Workout",1h,"Incline Bench Press (Dumbbell)",W,28.0,10.0,0,0.0,"",,
+2026-01-24 20:14:52,"Evening Workout",1h,"Incline Bench Press (Dumbbell)",W,44.0,5.0,0,0.0,,,
+2026-01-24 20:14:52,"Evening Workout",1h,"Incline Bench Press (Dumbbell)",1,56.0,10.0,0,0.0,,,8
+2026-01-24 20:14:52,"Evening Workout",1h,"Incline Bench Press (Dumbbell)",2,56.0,10.0,0,0.0,,,9
+2026-01-24 20:14:52,"Evening Workout",1h,"Incline Bench Press (Dumbbell)",F,56.0,9.0,0,0.0,,,10
+2026-01-24 20:14:52,"Evening Workout",1h,"Bicep Curl (Barbell)",1,17.5,15.0,0,0.0,"",,6
+2026-01-24 20:14:52,"Evening Workout",1h,"Bicep Curl (Barbell)",2,17.5,15.0,0,0.0,,,7
+2026-01-24 20:14:52,"Evening Workout",1h,"Bicep Curl (Barbell)",3,17.5,20.0,0,0.0,,,8
+2026-01-24 20:14:52,"Evening Workout",1h,"Bicep Curl (Barbell)",4,20.0,15.0,0,0.0,,,9
+2026-01-24 20:14:52,"Evening Workout",1h,"Skullcrusher (Dumbbell)",1,20.0,14.0,0,0.0,"",,8
+2026-01-24 20:14:52,"Evening Workout",1h,"Skullcrusher (Dumbbell)",2,20.0,12.0,0,0.0,,,9
+2026-01-24 20:14:52,"Evening Workout",1h,"Skullcrusher (Dumbbell)",3,20.0,13.0,0,0.0,,,9
+2026-01-24 20:14:52,"Evening Workout",1h,"Lateral Raise (Dumbbell)",1,14.0,15.0,0,0.0,"",,7
+2026-01-24 20:14:52,"Evening Workout",1h,"Lateral Raise (Dumbbell)",2,14.0,15.0,0,0.0,,,7
+2026-01-24 20:14:52,"Evening Workout",1h,"Lateral Raise (Dumbbell)",3,14.0,18.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Overhead Press (Barbell)",W,20.0,10.0,0,0.0,"","",
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Overhead Press (Barbell)",1,30.0,9.0,0,0.0,,,7
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Overhead Press (Barbell)",2,30.0,11.0,0,0.0,,,8
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Overhead Press (Barbell)",3,30.0,9.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",W,30.0,5.0,0,0.0,"",,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",W,40.0,5.0,0,0.0,,,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",1,60.0,10.0,0,0.0,,,8
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",2,60.0,10.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",F,60.0,9.0,0,0.0,,,10
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bent Over Row (Barbell)",D,40.0,12.0,0,0.0,,,10
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Squat (Barbell)",W,40.0,5.0,0,0.0,"",,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Squat (Barbell)",1,60.0,10.0,0,0.0,,,7
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Squat (Barbell)",2,60.0,10.0,0,0.0,,,8
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Squat (Barbell)",3,60.0,10.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bayesian Curl",1,7.5,12.0,0,0.0,"",,8
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bayesian Curl",2,7.5,10.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Bayesian Curl",3,7.5,9.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Triceps Extension (Cable)",W,10.0,10.0,0,0.0,"",,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Triceps Extension (Cable)",1,15.0,10.0,0,0.0,,,7
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Triceps Extension (Cable)",2,15.0,14.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Triceps Extension (Cable)",3,15.0,10.0,0,0.0,,,9
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Face Pull (Cable)",W,10.0,10.0,0,0.0,"",,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Face Pull (Cable)",W,15.0,5.0,0,0.0,,,
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Face Pull (Cable)",1,21.25,15.0,0,0.0,,,6
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Face Pull (Cable)",2,21.25,15.0,0,0.0,,,7
+2026-01-26 19:39:10,"Compound Workout",1h 6m,"Face Pull (Cable)",3,21.25,14.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Chest Press (Machine)",W,45.0,10.0,0,0.0,"","",
+2026-01-27 20:32:15,"Evening Workout",1h,"Chest Press (Machine)",W,85.0,5.0,0,0.0,,,
+2026-01-27 20:32:15,"Evening Workout",1h,"Chest Press (Machine)",1,100.0,10.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Chest Press (Machine)",2,100.0,9.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Chest Press (Machine)",F,100.0,8.0,0,0.0,,,10
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",W,35.0,8.0,0,0.0,"",,
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",W,50.0,3.0,0,0.0,,,
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",1,70.0,11.0,0,0.0,,,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",2,70.0,10.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Lat Pulldown (Cable)",F,70.0,10.0,0,0.0,,,10
+2026-01-27 20:32:15,"Evening Workout",1h,"Hammer Curl (Dumbbell)",1,24.0,15.0,0,0.0,"",,7
+2026-01-27 20:32:15,"Evening Workout",1h,"Hammer Curl (Dumbbell)",2,24.0,15.0,0,0.0,,,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Hammer Curl (Dumbbell)",3,24.0,15.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Skullcrusher (Dumbbell)",1,20.0,15.0,0,0.0,"",,7
+2026-01-27 20:32:15,"Evening Workout",1h,"Skullcrusher (Dumbbell)",2,20.0,15.0,0,0.0,,,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Skullcrusher (Dumbbell)",3,20.0,15.0,0,0.0,,,10
+2026-01-27 20:32:15,"Evening Workout",1h,"Lateral Raise (Dumbbell)",1,16.0,15.0,0,0.0,"",,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Lateral Raise (Dumbbell)",2,16.0,15.0,0,0.0,,,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Lateral Raise (Dumbbell)",3,16.0,15.0,0,0.0,,,9
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",W,40.0,8.0,0,0.0,"",,
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",W,50.0,5.0,0,0.0,,,
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",W,60.0,3.0,0,0.0,,,
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",1,70.0,12.0,0,0.0,,,7
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",2,70.0,12.0,0,0.0,,,8
+2026-01-27 20:32:15,"Evening Workout",1h,"Leg Extension (Machine)",3,70.0,12.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",W,35.0,8.0,0,0.0,"","",
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",W,42.5,5.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",W,60.0,3.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",1,80.0,10.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",2,80.0,10.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Seated Row (Cable)",3,80.0,10.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Incline Bench Press (Dumbbell)",W,24.0,10.0,0,0.0,"",,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Incline Bench Press (Dumbbell)",W,44.0,5.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Incline Bench Press (Dumbbell)",1,60.0,8.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Incline Bench Press (Dumbbell)",2,60.0,8.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Incline Bench Press (Dumbbell)",3,60.0,8.0,0,0.0,,,10
+2026-01-29 20:38:25,"Workout B",1h 8m,"Bicep Curl (Barbell)",1,20.0,15.0,0,0.0,"",,7
+2026-01-29 20:38:25,"Workout B",1h 8m,"Bicep Curl (Barbell)",2,20.0,15.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Bicep Curl (Barbell)",3,20.0,15.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Face Pull (Cable)",W,10.0,10.0,0,0.0,"",,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Face Pull (Cable)",W,15.0,5.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Face Pull (Cable)",1,21.25,15.0,0,0.0,,,6
+2026-01-29 20:38:25,"Workout B",1h 8m,"Face Pull (Cable)",2,21.25,15.0,0,0.0,,,7
+2026-01-29 20:38:25,"Workout B",1h 8m,"Face Pull (Cable)",3,21.25,20.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Triceps Extension (Cable)",1,17.5,15.0,0,0.0,"",,7
+2026-01-29 20:38:25,"Workout B",1h 8m,"Triceps Extension (Cable)",2,17.5,12.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Triceps Extension (Cable)",3,17.5,10.0,0,0.0,,,9
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",W,30.0,8.0,0,0.0,"",,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",W,40.0,5.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",W,50.0,3.0,0,0.0,,,
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",1,60.0,10.0,0,0.0,,,7
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",2,60.0,12.0,0,0.0,,,8
+2026-01-29 20:38:25,"Workout B",1h 8m,"Lying Leg Curl (Machine)",3,60.0,12.0,0,0.0,,,9

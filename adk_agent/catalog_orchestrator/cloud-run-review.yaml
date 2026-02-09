@@ -1,0 +1,33 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: catalog-review
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      taskCount: 1
+      parallelism: 1
+
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/catalog-worker:latest
+
+              # Run the scheduled review with apply mode
+              command: ["python", "-m", "app.reviewer.scheduled_review"]
+              args: ["--apply", "--max-exercises", "1000"]
+
+              resources:
+                limits:
+                  memory: "4Gi"  # More memory for LLM processing
+                  cpu: "2"
+
+              env:
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "myon-53d85"
+
+          # 4 hour timeout for full catalog review
+          timeoutSeconds: 14400

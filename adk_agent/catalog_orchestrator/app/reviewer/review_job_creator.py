@@ -199,7 +199,7 @@ class ReviewJobCreator:
                     queue=queue,
                     priority=priority,
                     family_slug=result.family_slug,
-                    exercise_ids=[result.exercise_id],
+                    exercise_doc_ids=[result.exercise_id],
                     enrichment_spec=enrichment_spec,
                 )
                 job_info["job_id"] = job.id
@@ -290,7 +290,7 @@ class ReviewJobCreator:
                     queue=JobQueue.PRIORITY,
                     priority=90,
                     family_slug=result.family_slug,
-                    exercise_ids=[result.exercise_id],
+                    exercise_doc_ids=[result.exercise_id],
                     enrichment_spec={
                         "type": "human_review",
                         "exercise_id": result.exercise_id,

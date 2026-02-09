@@ -65,9 +65,13 @@ Rate each exercise based on this golden standard:
 
 **Score 0.8-0.9 (Good):**
 - Name is clear and follows convention
-- Has description (even if brief)
+- Has description of at least 50 characters explaining the exercise
 - Has execution notes (even if not comprehensive)
 - Has muscle mapping (may be missing contribution percentages)
+- category is one of: compound, isolation, cardio, mobility, core
+- movement.type is one of: push, pull, hinge, squat, carry, rotation, flexion, extension, abduction, adduction, other
+- movement.split is one of: upper, lower, full_body, core
+- Muscle names are lowercase with spaces (not underscores)
 - Minor improvements possible but usable as-is
 
 **Score 0.6-0.7 (Needs Enrichment):**
