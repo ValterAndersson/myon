@@ -23,28 +23,28 @@ curl -X POST "https://us-central1-myon-53d85.cloudfunctions.net/duplicateCatalog
   -d '{"target": "exercises-v2-backup"}'
 ```
 
-### 2. Build and Push Docker Image
+### 2. Build, Push, and Deploy
 
 ```bash
 cd adk_agent/catalog_orchestrator
 
-# Build and push
-docker build -t gcr.io/myon-53d85/catalog-worker:latest .
-docker push gcr.io/myon-53d85/catalog-worker:latest
+# Build, push to GCR, deploy all 4 Cloud Run Jobs
+make deploy
 ```
 
-### 3. Deploy Cloud Run Jobs
+This runs `docker-build` → `docker-push` → deploys all 4 jobs:
+- `catalog-worker` - Processes job queue (`cloud-run-worker.yaml`)
+- `catalog-review` - LLM reviews catalog (`cloud-run-review.yaml`)
+- `catalog-cleanup` - Archives old jobs (`cloud-run-cleanup.yaml`)
+- `catalog-watchdog` - Cleans up leases/locks (`cloud-run-watchdog.yaml`)
 
+To deploy individual jobs:
 ```bash
-# Deploy all 4 jobs from the YAML
-gcloud run jobs replace cloud-run-job.yaml --region=europe-west1
+make deploy-worker
+make deploy-review
+make deploy-cleanup
+make deploy-watchdog
 ```
-
-This deploys:
-- `catalog-worker` - Processes job queue
-- `catalog-review` - LLM reviews catalog
-- `catalog-cleanup` - Archives old jobs
-- `catalog-watchdog` - Cleans up leases/locks
 
 ### 4. Create Cloud Scheduler Triggers
 
@@ -232,13 +232,13 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 This is expected - worker exits immediately when queue is empty. No cost.
 
 ### Review job timeout
-Increase `--max-exercises` limit or increase timeout in `cloud-run-job.yaml`.
+Increase `--max-exercises` limit or increase timeout in `cloud-run-review.yaml`.
 
 ### Apply gate blocked
 Check that `CATALOG_APPLY_ENABLED=true` in Cloud Run Job config.
 
 ### LLM rate limits
-The review job uses Gemini 2.5 Pro for reasoning. If hitting rate limits, reduce batch size in `scheduled_review.py`.
+The review and enrichment jobs use `gemini-2.5-flash` by default (Pro only for high-stakes operations). If hitting rate limits, reduce batch size in `scheduled_review.py`.
 
 ---
 

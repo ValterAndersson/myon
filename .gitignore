@@ -310,6 +310,14 @@ coverage.xml
 *.lcov
 
 # ====================
+# CATALOG ORCHESTRATOR
+# ====================
+logs_catalog_*.json
+duplicates_report.json
+exercises_dump_*.json
+**/exercises_export.json
+
+# ====================
 # MISC
 # ====================
 *.bak
@@ -318,4 +326,4 @@ coverage.xml
 *.rej
 .cache/
 .temp/
-.tmp/ 
+.tmp/

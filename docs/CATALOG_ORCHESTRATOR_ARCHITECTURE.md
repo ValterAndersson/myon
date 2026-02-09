@@ -321,7 +321,7 @@ flowchart LR
 
     subgraph LLM["🤖 LLM Processing"]
         PROMPT[Build Prompt]
-        GEMINI[Gemini 2.5 Pro]
+        GEMINI[Gemini 2.5 Flash]
         PARSE[Parse Response]
     end
 
@@ -438,9 +438,12 @@ After LLM response, changes are normalized:
 | `muscles.primary/secondary` | Underscores → spaces, lowercase, dedupe |
 | `muscles.contribution` | Keys normalized, values clamped to 0.0-1.0 |
 | `stimulus_tags` | Title case, dedupe by lowercase |
-| `category` | Validated against allowed values, fallback to "compound" |
+| `category` | Mapped to canonical values via `CATEGORIES` (field guide), fallback "compound" |
+| `movement.type` | Mapped to canonical values (e.g. "press" → "push"), dropped if unmappable |
+| `movement.split` | Mapped to canonical values (e.g. "full body" → "full_body"), dropped if unmappable |
+| `description` | Dropped if < 50 chars (aligned with quality scanner threshold) |
 
-Reference: `adk_agent/catalog_orchestrator/app/enrichment/engine.py:710-1004`
+Reference: `adk_agent/catalog_orchestrator/app/enrichment/engine.py`
 
 ---
 
@@ -1061,18 +1064,24 @@ Executes `ChangePlan` operations:
 
 ### Cloud Run Jobs
 
-| Job | Schedule | Purpose |
-|-----|----------|---------|
-| `catalog-reviewer` | Daily 2 AM | Run scheduled_review.py |
-| `catalog-worker` | On-demand | Process job queue |
-| `catalog-watchdog` | Every 15 min | Recover stuck jobs |
+Each job has its own YAML file in the `adk_agent/catalog_orchestrator/` directory.
+Deploy all jobs with `make deploy` (or individually via `make deploy-worker`, etc.).
+
+| Job | YAML | Schedule | Timeout | Purpose |
+|-----|------|----------|---------|---------|
+| `catalog-worker` | `cloud-run-worker.yaml` | Every 15 min | 3h | Processes job queue (unlimited jobs per run) |
+| `catalog-review` | `cloud-run-review.yaml` | Every 3 hours | 4h | LLM reviews 1000 exercises, creates fix/enrich/add jobs |
+| `catalog-cleanup` | `cloud-run-cleanup.yaml` | Daily 08:00 UTC | 1h | Archives jobs >7 days |
+| `catalog-watchdog` | `cloud-run-watchdog.yaml` | Every 6 hours | 30m | Cleans up expired leases, dead locks |
 
 ### Environment Variables
 ```
-FIRESTORE_PROJECT=myon-53d85
-CATALOG_SHELL_MODEL=gemini-2.5-pro
-CATALOG_APPLY_ENABLED=true
-USE_MOCK_LLM=false
+CATALOG_APPLY_ENABLED=true   # Hard gate for mutations (Cloud Run worker.yaml sets this)
+MAX_JOBS_PER_RUN=0           # 0 = unlimited
+MAX_SECONDS_PER_RUN=0        # 0 = no internal deadline
+WATCHDOG_DRY_RUN=false       # Set true for dry-run watchdog
+USE_MOCK_LLM=false           # Use mock LLM for testing
+FIRESTORE_EMULATOR_HOST=     # Set for local emulator testing
 ```
 
 ---
@@ -1101,9 +1110,9 @@ The watchdog job:
 
 ### External Dependencies
 - **Firestore**: All persistent state
-- **Vertex AI**: Gemini 2.5 Pro for enrichment and review
-- **Cloud Scheduler**: Triggers scheduled_review
-- **Cloud Run**: Execution environment
+- **Vertex AI**: Gemini 2.5 Flash (default) for enrichment and review; Pro for high-stakes reasoning
+- **Cloud Scheduler**: Triggers all 4 Cloud Run Jobs on schedule
+- **Cloud Run**: Execution environment (gen2, `europe-west1`)
 
 ### Internal Connections
 - **exercises collection**: Source data for review
@@ -1126,11 +1135,13 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Interactive | `interactive_chat.py` | Chat-based interaction |
 | **Review Phase** | | |
 | Scheduled Review | `app/reviewer/scheduled_review.py` | Cloud Run Job entry point |
+| Scheduled Scan | `app/reviewer/scheduled_quality_scan.py` | Deterministic quality scan entry point |
 | Review Agent | `app/reviewer/review_agent.py` | Unified LLM review agent |
+| Quality Scanner | `app/reviewer/quality_scanner.py` | Deterministic rule-based quality checks (no LLM) |
 | Gap Analyzer | `app/reviewer/family_gap_analyzer.py` | Equipment gap detection |
 | Job Creator | `app/reviewer/review_job_creator.py` | Creates jobs from decisions |
 | Philosophy | `app/reviewer/what_good_looks_like.py` | LLM reasoning guidelines |
-| Legacy Reviewer | `app/reviewer/catalog_reviewer.py` | Rule-based reviewer |
+| Legacy Reviewer | `app/reviewer/catalog_reviewer.py` | Rule-based reviewer (superseded by quality_scanner) |
 | **Enrichment** | | |
 | Engine | `app/enrichment/engine.py` | Core enrichment logic |
 | LLM Client | `app/enrichment/llm_client.py` | Gemini API wrapper |
@@ -1167,9 +1178,13 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Planner | `app/shell/planner.py` | Plan generation |
 | **Scripts** | | |
 | Export Exercises | `scripts/export_exercises.py` | Export catalog to JSON |
+| Analyze Catalog | `scripts/analyze_catalog.py` | Catalog statistics and analysis |
 | Queue Enrichment | `scripts/queue_enrichment_jobs.py` | Batch queue jobs |
 | Schema Cleanup | `scripts/queue_schema_cleanup.py` | Remove deprecated fields |
 | Reset Jobs | `scripts/reset_stuck_jobs.py` | Reset stuck jobs |
+| Init Review Meta | `scripts/init_review_metadata.py` | Initialize review metadata |
+| **Tests** | | |
+| Enrichment Tests | `tests/test_enrichment_validation.py` | Normalization and validation pipeline (74 tests) |
 
 ---
 
@@ -1220,22 +1235,47 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 ```
 enrichment/engine.py
 ├── enrichment/models.py ──────── EnrichmentSpec, EnrichmentResult
-├── enrichment/llm_client.py ──── LLMClient, get_llm_client
+├── enrichment/llm_client.py ──── LLMClient, get_llm_client (supports response_schema)
 ├── enrichment/validators.py ──── validate_enrichment_output, parse_llm_response
 └── enrichment/exercise_field_guide.py
+    ├── CATEGORIES ──────────── Canonical category values (single source of truth)
+    ├── MOVEMENT_TYPES ──────── Canonical movement type values
+    ├── MOVEMENT_SPLITS ─────── Canonical movement split values
+    ├── PRIMARY_MUSCLES ─────── Canonical muscle names
+    ├── MUSCLE_ALIASES ──────── Muscle name → canonical mappings
+    ├── EQUIPMENT_TYPES ─────── Canonical equipment values
     ├── FIELD_SPECS ─────────── Field definitions and constraints
-    ├── GOLDEN_EXAMPLES ─────── Reference exercises
-    └── MUSCLE_NORMALIZATION ── Muscle name mappings
+    └── GOLDEN_EXAMPLES ─────── Reference exercises
+
+Key constants in engine.py:
+├── HOLISTIC_ENRICHMENT_SCHEMA ── Gemini response_schema for structured output
+├── _normalize_category() ─────── Category normalization with fallback map
+├── _normalize_movement_type() ── Movement type normalization (e.g. "press" → "push")
+└── _normalize_movement_split() ─ Movement split normalization (e.g. "full body" → "full_body")
 ```
 
 ### Review Module Dependencies
 
 ```
 reviewer/scheduled_review.py
-├── reviewer/review_agent.py
+├── reviewer/review_agent.py ──── LLM-based review (batched)
 │   └── enrichment/llm_client.py
 ├── jobs/models.py (JobType, JobQueue)
 └── jobs/queue.py (create_job)
+
+reviewer/scheduled_quality_scan.py
+├── reviewer/quality_scanner.py ── Deterministic rule-based checks (no LLM)
+│   └── enrichment/exercise_field_guide.py (CATEGORIES, MOVEMENT_TYPES, etc.)
+├── reviewer/review_job_creator.py
+└── jobs/models.py
+
+reviewer/quality_scanner.py
+├── 9 deterministic checks per exercise:
+│   1. Name present  2. Category canonical  3. Equipment canonical
+│   4. Primary muscles present  5. Equipment non-empty  6. Description >= 50 chars
+│   7. Movement type present+canonical  8. Movement split present+canonical
+│   9. All muscles have canonical names
+└── Returns quality score (0-100) or None (needs LLM review)
 
 reviewer/review_agent.py
 ├── enrichment/llm_client.py ──── get_llm_client, LLMClient
@@ -1252,9 +1292,11 @@ reviewer/family_gap_analyzer.py
 |--------|--------------|
 | `executor.py` | jobs, family, plans |
 | `apply/engine.py` | plans, apply/* |
-| `enrichment/engine.py` | enrichment/* |
+| `enrichment/engine.py` | enrichment/*, exercise_field_guide (CATEGORIES, MOVEMENT_TYPES, MOVEMENT_SPLITS) |
+| `quality_scanner.py` | exercise_field_guide (CATEGORIES, EQUIPMENT_TYPES, MOVEMENT_TYPES, MOVEMENT_SPLITS, PRIMARY_MUSCLES) |
 | `review_agent.py` | enrichment |
 | `scheduled_review.py` | reviewer, jobs |
+| `scheduled_quality_scan.py` | quality_scanner, review_job_creator, jobs |
 | `handlers.py` | family, plans |
 
 ---
@@ -1698,6 +1740,22 @@ print(result)
 | Code | Meaning | Fix |
 |------|---------|-----|
 | `JOURNAL_NOT_FOUND` | Change journal entry doesn't exist | Verify change_id is correct |
+
+---
+
+## Data Normalization Scripts
+
+One-off scripts for normalizing existing catalog data (in `scripts/` at repo root).
+All support `--apply` dry-run safety (default: dry-run).
+
+| Script | Purpose |
+|--------|---------|
+| `normalize_muscle_names.py` | Aliases → canonical names (e.g. "delts" → "deltoid") |
+| `normalize_equipment.py` | Plurals/underscores → canonical (e.g. "dumbbells" → "dumbbell") |
+| `normalize_movement_types.py` | Invalid → canonical types and splits (e.g. "press" → "push") |
+| `fix_contribution_sums.py` | Re-normalize contribution maps that don't sum to ~1.0 |
+| `identify_duplicates.py` | Report potential duplicate exercises (read-only by default) |
+| `requeue_failed_import_jobs.py` | Re-queue failed import enrichment jobs with fixed payload |
 
 ---
 
