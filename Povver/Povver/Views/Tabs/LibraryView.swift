@@ -998,12 +998,15 @@ struct TemplateDetailView: View {
         if exercisesChanged() {
             let templateExercises: [[String: Any]] = planExercises.enumerated().map { index, planEx in
                 let sets: [[String: Any]] = planEx.sets.map { set in
-                    [
+                    let rir: Int = set.rir ?? 2
+                    let type: String = set.type?.rawValue ?? "working"
+                    let weight: Double = set.weight ?? 0
+                    return [
                         "id": set.id,
                         "reps": set.reps,
-                        "rir": set.rir ?? 2,
-                        "type": set.type?.rawValue ?? "working",
-                        "weight": set.weight ?? 0
+                        "rir": rir,
+                        "type": type,
+                        "weight": weight
                     ]
                 }
                 return [
@@ -1176,6 +1179,66 @@ struct RoutineDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
+    private func templateRow(index: Int, template: TemplateItem) -> some View {
+        if isEditing {
+            HStack(spacing: Space.sm) {
+                VStack(spacing: 2) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            moveTemplate(from: index, direction: .up)
+                        }
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(index > 0 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+                    }
+                    .disabled(index == 0)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            moveTemplate(from: index, direction: .down)
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(index < templates.count - 1 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+                    }
+                    .disabled(index >= templates.count - 1)
+                }
+                .buttonStyle(PlainButtonStyle())
+
+                WorkoutRow.routineDay(
+                    day: index + 1,
+                    title: template.name,
+                    exerciseCount: template.exerciseCount,
+                    setCount: template.setCount
+                )
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        _ = templates.remove(at: index)
+                    }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(Color.destructive)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        } else {
+            NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
+                WorkoutRow.routineDay(
+                    day: index + 1,
+                    title: template.name,
+                    exerciseCount: template.exerciseCount,
+                    setCount: template.setCount
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
     private var routineContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
@@ -1187,63 +1250,7 @@ struct RoutineDetailView: View {
                 // Templates list
                 VStack(spacing: Space.sm) {
                     ForEach(Array(templates.enumerated()), id: \.element.id) { index, template in
-                        if isEditing {
-                            HStack(spacing: Space.sm) {
-                                // Move up/down buttons
-                                VStack(spacing: 2) {
-                                    Button {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            moveTemplate(from: index, direction: .up)
-                                        }
-                                    } label: {
-                                        Image(systemName: "chevron.up")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(index > 0 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
-                                    }
-                                    .disabled(index == 0)
-
-                                    Button {
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            moveTemplate(from: index, direction: .down)
-                                        }
-                                    } label: {
-                                        Image(systemName: "chevron.down")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundColor(index < templates.count - 1 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
-                                    }
-                                    .disabled(index >= templates.count - 1)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-
-                                WorkoutRow.routineDay(
-                                    day: index + 1,
-                                    title: template.name,
-                                    exerciseCount: template.exerciseCount,
-                                    setCount: template.setCount
-                                )
-
-                                Button {
-                                    withAnimation(.easeOut(duration: 0.2)) {
-                                        templates.remove(at: index)
-                                    }
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundColor(Color.destructive)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        } else {
-                            NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                                WorkoutRow.routineDay(
-                                    day: index + 1,
-                                    title: template.name,
-                                    exerciseCount: template.exerciseCount,
-                                    setCount: template.setCount
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
+                        templateRow(index: index, template: template)
                     }
 
                     if isEditing {
