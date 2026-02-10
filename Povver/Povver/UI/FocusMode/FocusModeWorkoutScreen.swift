@@ -63,6 +63,9 @@ struct FocusModeWorkoutScreen: View {
     
     // Prevents duplicate starts
     @State private var isStartingWorkout = false
+
+    // Post-workout summary
+    @State private var completedWorkout: CompletedWorkoutRef? = nil
     
     // Template and routine data for start view
     @State private var templates: [FocusModeWorkoutService.TemplateInfo] = []
@@ -189,6 +192,13 @@ struct FocusModeWorkoutScreen: View {
         }
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
+        }
+        .fullScreenCover(item: $completedWorkout, onDismiss: {
+            dismiss()
+        }) { completed in
+            WorkoutCompletionSummary(workoutId: completed.id) {
+                completedWorkout = nil
+            }
         }
         .alert("Active Workout Found", isPresented: $showingResumeGate) {
             Button("Resume Workout") {
@@ -960,13 +970,11 @@ struct FocusModeWorkoutScreen: View {
             do {
                 let archivedId = try await service.completeWorkout()
                 print("✅ Workout completed and archived with ID: \(archivedId)")
-                // TODO: Show summary screen with archivedId
                 await MainActor.run {
-                    dismiss()
+                    completedWorkout = CompletedWorkoutRef(id: archivedId)
                 }
             } catch {
                 print("❌ Failed to complete workout: \(error)")
-                // Still dismiss on error
                 await MainActor.run {
                     dismiss()
                 }
@@ -1587,11 +1595,82 @@ enum FocusModeGridCell: Equatable, Hashable {
     }
 }
 
+// MARK: - Workout Completion Summary
+
+/// Identifiable wrapper for the archived workout ID, used by `.fullScreenCover(item:)`.
+private struct CompletedWorkoutRef: Identifiable {
+    let id: String
+}
+
+/// Wrapper that fetches the archived workout from Firestore and presents WorkoutSummaryContent.
+/// The doc is locally cached (just written by completeActiveWorkout), so fetch is near-instant.
+private struct WorkoutCompletionSummary: View {
+    let workoutId: String
+    let onDismiss: () -> Void
+
+    @State private var workout: Workout?
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack(spacing: Space.lg) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Loading summary...")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let workout = workout {
+                    WorkoutSummaryContent(workout: workout)
+                } else {
+                    VStack(spacing: Space.md) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 48))
+                            .foregroundColor(Color.accent)
+                        Text("Workout Complete")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(Color.bg)
+            .navigationTitle("Summary")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        onDismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .task {
+            await loadWorkout()
+        }
+    }
+
+    private func loadWorkout() async {
+        guard let userId = AuthService.shared.currentUser?.uid else {
+            isLoading = false
+            return
+        }
+        do {
+            workout = try await WorkoutRepository().getWorkout(id: workoutId, userId: userId)
+        } catch {
+            print("[WorkoutCompletionSummary] Failed to load workout: \(error)")
+        }
+        isLoading = false
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
     FocusModeWorkoutScreen()
 }
-
-// MARK: - Preview
 

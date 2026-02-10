@@ -282,16 +282,16 @@ private struct DateHeaderView: View {
 
 struct WorkoutDetailView: View {
     let workoutId: String
-    
+
     @State private var workout: Workout?
     @State private var isLoading = true
-    
+
     var body: some View {
         Group {
             if isLoading {
                 loadingView
             } else if let workout = workout {
-                workoutContent(workout)
+                WorkoutSummaryContent(workout: workout)
             } else {
                 errorView
             }
@@ -303,7 +303,7 @@ struct WorkoutDetailView: View {
             await loadWorkout()
         }
     }
-    
+
     private var loadingView: some View {
         VStack {
             ProgressView()
@@ -311,120 +311,32 @@ struct WorkoutDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private var errorView: some View {
         VStack(spacing: Space.md) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
                 .foregroundColor(Color.warning)
-            
+
             Text("Workout not found")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(Color.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
-    private func workoutContent(_ workout: Workout) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.lg) {
-                // Header
-                workoutHeader(workout)
-                
-                // Exercises
-                if !workout.exercises.isEmpty {
-                    ForEach(workout.exercises.indices, id: \.self) { index in
-                        exerciseCard(workout.exercises[index], index: index + 1)
-                    }
-                } else {
-                    Text("No exercises recorded")
-                        .font(.system(size: 14))
-                        .foregroundColor(Color.textSecondary)
-                        .padding(.horizontal, Space.lg)
-                }
-                
-                Spacer(minLength: Space.xxl)
-            }
-        }
-    }
-    
-    private func workoutHeader(_ workout: Workout) -> some View {
-        let dateString: String = {
-            let fmt = DateFormatter()
-            fmt.dateFormat = "EEEE, MMM d 'at' h:mm a"
-            return fmt.string(from: workout.endTime)
-        }()
-        let duration = Int(workout.endTime.timeIntervalSince(workout.startTime) / 60)
-        
-        return VStack(alignment: .leading, spacing: Space.sm) {
-            Text(workout.displayName)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Color.textPrimary)
-            
-            Text(dateString)
-                .font(.system(size: 14))
-                .foregroundColor(Color.textSecondary)
-            
-            // Stats row
-            HStack(spacing: Space.lg) {
-                statItem(
-                    value: "\(workout.exercises.count)",
-                    label: "exercises"
-                )
-                statItem(
-                    value: "\(workout.exercises.flatMap { $0.sets }.count)",
-                    label: "sets"
-                )
-                statItem(value: "\(duration)", label: "min")
-            }
-            .padding(.top, Space.sm)
-        }
-        .padding(.horizontal, Space.lg)
-        .padding(.top, Space.md)
-    }
-    
-    private func statItem(value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(Color.textPrimary)
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundColor(Color.textSecondary)
-        }
-    }
-    
-    private func exerciseCard(_ exercise: WorkoutExercise, index: Int) -> some View {
-        ExerciseSection(
-            model: .readOnly(
-                id: exercise.id,
-                title: exercise.name,
-                indexLabel: "\(index)"
-            )
-        ) {
-            // Sets - Read-only grid with full details
-            if !exercise.sets.isEmpty {
-                SetTable(
-                    sets: exercise.sets.toSetCellModels(),
-                    mode: .readOnly
-                )
-            }
-        }
-        .padding(.horizontal, Space.lg)
-    }
-    
+
     private func loadWorkout() async {
         guard let userId = AuthService.shared.currentUser?.uid else {
             isLoading = false
             return
         }
-        
+
         do {
             workout = try await WorkoutRepository().getWorkout(id: workoutId, userId: userId)
         } catch {
             print("[WorkoutDetailView] Failed to load workout: \(error)")
         }
-        
+
         isLoading = false
     }
 }

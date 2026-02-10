@@ -40,4 +40,8 @@ User finishes
     → POST /completeActiveWorkout
     → Firestore: workouts/{id} created, active_workouts/{id} archived
     → Trigger: workout-routine-cursor.js advances routine cursor
+    → completedWorkoutId set → fullScreenCover presents WorkoutCompletionSummary
+    → Fetches archived workout from Firestore (locally cached, near-instant)
+    → Renders WorkoutSummaryContent (shared with history detail)
+    → User taps "Done" → dismiss
 ```

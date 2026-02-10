@@ -1,0 +1,21 @@
+# Domain Components — Module Architecture
+
+Reusable UI components specific to the fitness domain. These render workout data but contain no data-fetching logic.
+
+## File Inventory
+
+| File | Purpose |
+|------|---------|
+| `ExerciseSection.swift` | Unified exercise block container with mode-specific density (readOnly/planning/execution) |
+| `ExerciseSectionModel.swift` | Model and factory methods for ExerciseSection |
+| `SetTable.swift` | Set grid for displaying workout sets across all modes |
+| `SetCellModel.swift` | Render model for individual set cells, plus `toSetCellModels()` extensions |
+| `WorkoutRow.swift` | Canonical workout row for listing across all surfaces (history, routines, templates) |
+| `WorkoutSummaryContent.swift` | Workout analytics summary: stats, muscle group distribution, intensity, exercise list |
+
+## Key Patterns
+
+- **Mode-based density**: Components scale padding/font based on context (readOnly < planning < execution)
+- **Render models**: `SetCellModel`, `ExerciseSectionModel` separate presentation from domain models
+- **No data fetching**: All components are pure renderers — data is passed in via props
+- **WorkoutSummaryContent**: All analytics are server-computed by `analytics-calculator.js`. No client-side calculation. Used by both post-workout completion flow and history detail screen.

@@ -169,6 +169,72 @@ struct WorkoutExerciseSet: Codable, Identifiable {
     }
 }
 
+/// Intensity metrics computed by analytics-calculator.js — stimulus sets, effort distribution, estimated 1RM.
+/// All fields optional with nil defaults for backward compatibility with older workout docs.
+struct IntensityAnalytics: Codable {
+    let hardSets: Int
+    let lowRirSets: Int
+    let avgRelativeIntensity: Double
+    let loadPerMuscle: [String: Double]
+    let hardSetsPerMuscle: [String: Double]
+    let lowRirSetsPerMuscle: [String: Double]
+    let topSetE1rmPerMuscle: [String: Double]
+    let loadPerMuscleGroup: [String: Double]
+    let hardSetsPerMuscleGroup: [String: Double]
+    let lowRirSetsPerMuscleGroup: [String: Double]
+
+    static let empty = IntensityAnalytics(
+        hardSets: 0, lowRirSets: 0, avgRelativeIntensity: 0,
+        loadPerMuscle: [:], hardSetsPerMuscle: [:], lowRirSetsPerMuscle: [:],
+        topSetE1rmPerMuscle: [:],
+        loadPerMuscleGroup: [:], hardSetsPerMuscleGroup: [:], lowRirSetsPerMuscleGroup: [:]
+    )
+
+    enum CodingKeys: String, CodingKey {
+        case hardSets = "hard_sets"
+        case lowRirSets = "low_rir_sets"
+        case avgRelativeIntensity = "avg_relative_intensity"
+        case loadPerMuscle = "load_per_muscle"
+        case hardSetsPerMuscle = "hard_sets_per_muscle"
+        case lowRirSetsPerMuscle = "low_rir_sets_per_muscle"
+        case topSetE1rmPerMuscle = "top_set_e1rm_per_muscle"
+        case loadPerMuscleGroup = "load_per_muscle_group"
+        case hardSetsPerMuscleGroup = "hard_sets_per_muscle_group"
+        case lowRirSetsPerMuscleGroup = "low_rir_sets_per_muscle_group"
+    }
+
+    init(hardSets: Int, lowRirSets: Int, avgRelativeIntensity: Double,
+         loadPerMuscle: [String: Double], hardSetsPerMuscle: [String: Double],
+         lowRirSetsPerMuscle: [String: Double], topSetE1rmPerMuscle: [String: Double],
+         loadPerMuscleGroup: [String: Double], hardSetsPerMuscleGroup: [String: Double],
+         lowRirSetsPerMuscleGroup: [String: Double]) {
+        self.hardSets = hardSets
+        self.lowRirSets = lowRirSets
+        self.avgRelativeIntensity = avgRelativeIntensity
+        self.loadPerMuscle = loadPerMuscle
+        self.hardSetsPerMuscle = hardSetsPerMuscle
+        self.lowRirSetsPerMuscle = lowRirSetsPerMuscle
+        self.topSetE1rmPerMuscle = topSetE1rmPerMuscle
+        self.loadPerMuscleGroup = loadPerMuscleGroup
+        self.hardSetsPerMuscleGroup = hardSetsPerMuscleGroup
+        self.lowRirSetsPerMuscleGroup = lowRirSetsPerMuscleGroup
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hardSets = try container.decodeIfPresent(Int.self, forKey: .hardSets) ?? 0
+        self.lowRirSets = try container.decodeIfPresent(Int.self, forKey: .lowRirSets) ?? 0
+        self.avgRelativeIntensity = try container.decodeIfPresent(Double.self, forKey: .avgRelativeIntensity) ?? 0
+        self.loadPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .loadPerMuscle) ?? [:]
+        self.hardSetsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .hardSetsPerMuscle) ?? [:]
+        self.lowRirSetsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .lowRirSetsPerMuscle) ?? [:]
+        self.topSetE1rmPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .topSetE1rmPerMuscle) ?? [:]
+        self.loadPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .loadPerMuscleGroup) ?? [:]
+        self.hardSetsPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .hardSetsPerMuscleGroup) ?? [:]
+        self.lowRirSetsPerMuscleGroup = try container.decodeIfPresent([String: Double].self, forKey: .lowRirSetsPerMuscleGroup) ?? [:]
+    }
+}
+
 struct ExerciseAnalytics: Codable {
     let totalSets: Int
     let totalReps: Int
@@ -183,15 +249,17 @@ struct ExerciseAnalytics: Codable {
     let repsPerMuscle: [String: Double]
     let setsPerMuscleGroup: [String: Int]
     let setsPerMuscle: [String: Int]
-    
+    let intensity: IntensityAnalytics?
+
     static let empty = ExerciseAnalytics(
         totalSets: 0, totalReps: 0, totalWeight: 0, weightFormat: "kg",
         avgRepsPerSet: 0, avgWeightPerSet: 0, avgWeightPerRep: 0,
         weightPerMuscleGroup: [:], weightPerMuscle: [:],
         repsPerMuscleGroup: [:], repsPerMuscle: [:],
-        setsPerMuscleGroup: [:], setsPerMuscle: [:]
+        setsPerMuscleGroup: [:], setsPerMuscle: [:],
+        intensity: nil
     )
-    
+
     enum CodingKeys: String, CodingKey {
         case totalSets = "total_sets"
         case totalReps = "total_reps"
@@ -206,13 +274,15 @@ struct ExerciseAnalytics: Codable {
         case repsPerMuscle = "reps_per_muscle"
         case setsPerMuscleGroup = "sets_per_muscle_group"
         case setsPerMuscle = "sets_per_muscle"
+        case intensity
     }
-    
+
     init(totalSets: Int, totalReps: Int, totalWeight: Double, weightFormat: String,
          avgRepsPerSet: Double, avgWeightPerSet: Double, avgWeightPerRep: Double,
          weightPerMuscleGroup: [String: Double], weightPerMuscle: [String: Double],
          repsPerMuscleGroup: [String: Double], repsPerMuscle: [String: Double],
-         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int]) {
+         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int],
+         intensity: IntensityAnalytics? = nil) {
         self.totalSets = totalSets
         self.totalReps = totalReps
         self.totalWeight = totalWeight
@@ -226,8 +296,9 @@ struct ExerciseAnalytics: Codable {
         self.repsPerMuscle = repsPerMuscle
         self.setsPerMuscleGroup = setsPerMuscleGroup
         self.setsPerMuscle = setsPerMuscle
+        self.intensity = intensity
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.totalSets = try container.decodeIfPresent(Int.self, forKey: .totalSets) ?? 0
@@ -243,6 +314,7 @@ struct ExerciseAnalytics: Codable {
         self.repsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscle) ?? [:]
         self.setsPerMuscleGroup = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscleGroup) ?? [:]
         self.setsPerMuscle = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscle) ?? [:]
+        self.intensity = try container.decodeIfPresent(IntensityAnalytics.self, forKey: .intensity)
     }
 }
 
@@ -260,15 +332,17 @@ struct WorkoutAnalytics: Codable {
     let repsPerMuscle: [String: Double]
     let setsPerMuscleGroup: [String: Int]
     let setsPerMuscle: [String: Int]
-    
+    let intensity: IntensityAnalytics?
+
     static let empty = WorkoutAnalytics(
         totalSets: 0, totalReps: 0, totalWeight: 0, weightFormat: "kg",
         avgRepsPerSet: 0, avgWeightPerSet: 0, avgWeightPerRep: 0,
         weightPerMuscleGroup: [:], weightPerMuscle: [:],
         repsPerMuscleGroup: [:], repsPerMuscle: [:],
-        setsPerMuscleGroup: [:], setsPerMuscle: [:]
+        setsPerMuscleGroup: [:], setsPerMuscle: [:],
+        intensity: nil
     )
-    
+
     enum CodingKeys: String, CodingKey {
         case totalSets = "total_sets"
         case totalReps = "total_reps"
@@ -283,13 +357,15 @@ struct WorkoutAnalytics: Codable {
         case repsPerMuscle = "reps_per_muscle"
         case setsPerMuscleGroup = "sets_per_muscle_group"
         case setsPerMuscle = "sets_per_muscle"
+        case intensity
     }
-    
+
     init(totalSets: Int, totalReps: Int, totalWeight: Double, weightFormat: String,
          avgRepsPerSet: Double, avgWeightPerSet: Double, avgWeightPerRep: Double,
          weightPerMuscleGroup: [String: Double], weightPerMuscle: [String: Double],
          repsPerMuscleGroup: [String: Double], repsPerMuscle: [String: Double],
-         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int]) {
+         setsPerMuscleGroup: [String: Int], setsPerMuscle: [String: Int],
+         intensity: IntensityAnalytics? = nil) {
         self.totalSets = totalSets
         self.totalReps = totalReps
         self.totalWeight = totalWeight
@@ -303,8 +379,9 @@ struct WorkoutAnalytics: Codable {
         self.repsPerMuscle = repsPerMuscle
         self.setsPerMuscleGroup = setsPerMuscleGroup
         self.setsPerMuscle = setsPerMuscle
+        self.intensity = intensity
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.totalSets = try container.decodeIfPresent(Int.self, forKey: .totalSets) ?? 0
@@ -320,5 +397,6 @@ struct WorkoutAnalytics: Codable {
         self.repsPerMuscle = try container.decodeIfPresent([String: Double].self, forKey: .repsPerMuscle) ?? [:]
         self.setsPerMuscleGroup = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscleGroup) ?? [:]
         self.setsPerMuscle = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscle) ?? [:]
+        self.intensity = try container.decodeIfPresent(IntensityAnalytics.self, forKey: .intensity)
     }
 }
