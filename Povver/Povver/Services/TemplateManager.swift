@@ -36,46 +36,52 @@ class TemplateManager: ObservableObject {
     }
     
     func saveTemplate() async throws -> String? {
-        guard var template = currentTemplate else { return nil }
-        
-        // Ensure updated timestamp
-        template.updatedAt = Date()
-        
-        // Include computed analytics in the saved template (safely)
-        if let analytics = currentAnalytics {
-            // Verify analytics data is valid before saving
-            if analytics.totalSets > 0 && !analytics.projectedVolumePerMuscleGroup.isEmpty {
-                template.analytics = analytics
-            }
-        }
-        
-        // Use CloudFunctionService for template operations
-        let service = CloudFunctionService()
-        
+        guard let template = currentTemplate else { return nil }
+
         // Check if this is an edit (existing template with userId set) or create new
-        let isEditing = !template.userId.isEmpty && template.createdAt < template.updatedAt
-        
-        do {
-            if isEditing {
-                // Update existing template
-                try await service.updateTemplate(id: template.id, template: template)
-                return template.id
-            } else {
-                // Create new template
-                let templateId = try await service.createTemplate(template: template)
-                return templateId
+        let isUpdate = !template.userId.isEmpty && template.createdAt < template.updatedAt
+
+        if isUpdate {
+            // Build patch with current state — server recomputes analytics via Firestore trigger
+            let exercises: [[String: Any]] = template.exercises.map { ex in
+                let sets: [[String: Any]] = ex.sets.map { set in
+                    [
+                        "id": set.id,
+                        "reps": set.reps,
+                        "rir": set.rir,
+                        "type": set.type,
+                        "weight": set.weight
+                    ]
+                }
+                var exDict: [String: Any] = [
+                    "id": ex.id,
+                    "exercise_id": ex.exerciseId,
+                    "position": ex.position,
+                    "sets": sets
+                ]
+                if let name = ex.name { exDict["name"] = name }
+                if let rest = ex.restBetweenSets { exDict["rest_between_sets"] = rest }
+                return exDict
             }
-        } catch {
-            // If save fails with analytics, try saving without analytics
-            template.analytics = nil
-            
-            if isEditing {
-                try await service.updateTemplate(id: template.id, template: template)
-                return template.id
-            } else {
-                let templateId = try await service.createTemplate(template: template)
-                return templateId
+
+            var patch: [String: Any] = [
+                "name": template.name,
+                "exercises": exercises
+            ]
+            if let desc = template.description {
+                patch["description"] = desc
             }
+
+            try await FocusModeWorkoutService.shared.patchTemplate(
+                templateId: template.id,
+                patch: patch
+            )
+            return template.id
+        } else {
+            // Create new template via existing CloudFunctionService
+            let service = CloudFunctionService()
+            let templateId = try await service.createTemplate(template: template)
+            return templateId
         }
     }
     
@@ -148,7 +154,7 @@ class TemplateManager: ObservableObject {
     }
     
     // MARK: - Set Management
-    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int = 2, type: String = "Working Set") {
+    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int = 2, type: String = "working") {
         guard var template = currentTemplate else { return }
         guard let idx = template.exercises.firstIndex(where: { $0.id == toExerciseId }) else { return }
         

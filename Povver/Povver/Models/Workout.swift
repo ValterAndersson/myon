@@ -318,6 +318,72 @@ struct ExerciseAnalytics: Codable {
     }
 }
 
+// MARK: - Upsert Workout Request (for editing completed workouts)
+
+/// Request model for the upsertWorkout endpoint.
+/// Backend recomputes all analytics, set_facts, and series inline.
+struct UpsertWorkoutRequest: Encodable {
+    let id: String
+    let startTime: Date
+    let endTime: Date
+    let exercises: [UpsertExercise]
+    let sourceTemplateId: String?
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case exercises
+        case sourceTemplateId = "source_template_id"
+        case notes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+
+        // Encode dates as ISO8601 strings (backend expects string format)
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        try container.encode(isoFormatter.string(from: startTime), forKey: .startTime)
+        try container.encode(isoFormatter.string(from: endTime), forKey: .endTime)
+
+        try container.encode(exercises, forKey: .exercises)
+        try container.encodeIfPresent(sourceTemplateId, forKey: .sourceTemplateId)
+        try container.encodeIfPresent(notes, forKey: .notes)
+    }
+}
+
+struct UpsertExercise: Encodable {
+    let exerciseId: String
+    let name: String
+    let position: Int
+    let sets: [UpsertSet]
+
+    enum CodingKeys: String, CodingKey {
+        case exerciseId = "exercise_id"
+        case name, position, sets
+    }
+}
+
+struct UpsertSet: Encodable {
+    let id: String
+    let reps: Int
+    let rir: Int
+    let type: String
+    let weightKg: Double
+    let isCompleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, reps, rir, type
+        case weightKg = "weight_kg"
+        case isCompleted = "is_completed"
+    }
+}
+
+// MARK: - Workout Analytics
+
 struct WorkoutAnalytics: Codable {
     let totalSets: Int
     let totalReps: Int

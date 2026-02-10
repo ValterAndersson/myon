@@ -1186,6 +1186,53 @@ class FocusModeWorkoutService: ObservableObject {
         )
     }
     
+    // MARK: - Library Editing Methods
+
+    /// Patch an existing template (name, description, exercises)
+    /// Server recomputes analytics via Firestore trigger when exercises change
+    func patchTemplate(templateId: String, patch: [String: Any]) async throws {
+        let request = PatchTemplateRequest(templateId: templateId, patch: patch)
+        let response: PatchTemplateResponse = try await apiClient.postJSON("patchTemplate", body: request)
+
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to patch template")
+        }
+    }
+
+    /// Fetch a single routine by ID with full details
+    func getRoutine(id: String) async throws -> Routine {
+        let request = GetRoutineRequest(routineId: id)
+        let response: GetRoutineResponse = try await apiClient.postJSON("getRoutine", body: request)
+
+        guard response.success, let routine = response.routine else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to get routine")
+        }
+
+        return routine
+    }
+
+    /// Patch an existing routine (name, description, frequency, template_ids)
+    func patchRoutine(routineId: String, patch: [String: Any]) async throws {
+        let request = PatchRoutineRequest(routineId: routineId, patch: patch)
+        let response: PatchRoutineResponse = try await apiClient.postJSON("patchRoutine", body: request)
+
+        guard response.success else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to patch routine")
+        }
+    }
+
+    /// Upsert a completed workout (create or update)
+    /// Backend recomputes all analytics, set_facts, and series inline
+    func upsertWorkout(_ request: UpsertWorkoutRequest) async throws -> String {
+        let response: UpsertWorkoutResponse = try await apiClient.postJSON("upsertWorkout", body: request)
+
+        guard response.success, let workoutId = response.workoutId else {
+            throw FocusModeError.syncFailed(response.error ?? "Failed to upsert workout")
+        }
+
+        return workoutId
+    }
+
     /// Fetch all user routines for Library
     func getUserRoutines() async throws -> [RoutineInfo] {
         let request = EmptyRequest()
@@ -1319,6 +1366,121 @@ private struct GetUserRoutinesResponse: Decodable {
             self.items = itemsData.map { $0.dict }
         } else {
             self.items = []
+        }
+    }
+}
+
+// MARK: - Library Editing DTOs
+
+private struct PatchTemplateRequest: Encodable {
+    let templateId: String
+    let patch: [String: Any]
+
+    enum CodingKeys: String, CodingKey {
+        case templateId
+        case patch
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(templateId, forKey: .templateId)
+        try container.encode(AnyCodable(patch), forKey: .patch)
+    }
+}
+
+private struct PatchTemplateResponse: Decodable {
+    let success: Bool
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, data, error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+private struct GetRoutineRequest: Encodable {
+    let routineId: String
+}
+
+private struct GetRoutineResponse: Decodable {
+    let success: Bool
+    let routine: Routine?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, data, error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        // API returns { success: true, data: { ...routine fields... } }
+        self.routine = try container.decodeIfPresent(Routine.self, forKey: .data)
+    }
+}
+
+private struct PatchRoutineRequest: Encodable {
+    let routineId: String
+    let patch: [String: Any]
+
+    enum CodingKeys: String, CodingKey {
+        case routineId
+        case patch
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(routineId, forKey: .routineId)
+        try container.encode(AnyCodable(patch), forKey: .patch)
+    }
+}
+
+private struct PatchRoutineResponse: Decodable {
+    let success: Bool
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, data, error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+private struct UpsertWorkoutResponse: Decodable {
+    let success: Bool
+    let workoutId: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, data, error
+    }
+
+    private struct DataWrapper: Decodable {
+        let workoutId: String?
+
+        enum CodingKeys: String, CodingKey {
+            case workoutId = "workout_id"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
+        self.error = try container.decodeIfPresent(String.self, forKey: .error)
+        if let data = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
+            self.workoutId = data.workoutId
+        } else {
+            self.workoutId = nil
         }
     }
 }

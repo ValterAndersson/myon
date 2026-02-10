@@ -8,8 +8,9 @@ Codable structs that mirror Firestore document schemas. All models use `decodeIf
 |------|---------------------|---------|
 | `User.swift` | `users/{uid}` | User profile (`id`, `email`, `displayName`) |
 | `UserAttributes.swift` | `users/{uid}/user_attributes/{uid}` | Preferences (`weightFormat`, `heightFormat`, `timezone`) |
-| `Workout.swift` | `users/{uid}/workouts/{id}` | Completed workout with exercises and analytics |
+| `Workout.swift` | `users/{uid}/workouts/{id}` | Completed workout with exercises and analytics. Also contains `UpsertWorkoutRequest`, `UpsertExercise`, `UpsertSet` encodable structs for the `upsertWorkout` endpoint |
 | `WorkoutTemplate.swift` | `users/{uid}/templates/{id}` | Reusable workout plan with exercises and sets |
+| `Routine.swift` | `users/{uid}/routines/{id}` | Routine model for `getRoutine` API response — weekly program with ordered `template_ids`, frequency, cursor tracking |
 | `Exercise.swift` | `exercises/{id}` | Global exercise catalog entry (`name`, `primaryMuscles`, `equipment`) |
 | `MuscleGroup.swift` | — | Muscle group enumeration used by `Exercise` |
 | `ActiveWorkout.swift` | — | In-memory active workout state (exercises, sets, duration) |

@@ -285,6 +285,7 @@ struct WorkoutDetailView: View {
 
     @State private var workout: Workout?
     @State private var isLoading = true
+    @State private var showEditSheet = false
 
     var body: some View {
         Group {
@@ -299,6 +300,22 @@ struct WorkoutDetailView: View {
         .background(Color.bg)
         .navigationTitle("Workout")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if workout != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Edit") {
+                        showEditSheet = true
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let workout = workout {
+                WorkoutEditView(workout: workout) {
+                    Task { await reloadWorkout() }
+                }
+            }
+        }
         .task {
             await loadWorkout()
         }
@@ -338,6 +355,15 @@ struct WorkoutDetailView: View {
         }
 
         isLoading = false
+    }
+
+    private func reloadWorkout() async {
+        guard let userId = AuthService.shared.currentUser?.uid else { return }
+        do {
+            workout = try await WorkoutRepository().getWorkout(id: workoutId, userId: userId)
+        } catch {
+            print("[WorkoutDetailView] Failed to reload workout: \(error)")
+        }
     }
 }
 

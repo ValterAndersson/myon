@@ -679,6 +679,15 @@ struct TemplateDetailView: View {
     @State private var warmupCollapsed: [String: Bool] = [:]
     @State private var selectedExerciseForInfo: PlanExercise? = nil
     @State private var exerciseForSwap: PlanExercise? = nil
+
+    // State for editing
+    @State private var isEditing = false
+    @State private var editingName: String = ""
+    @State private var editingDescription: String = ""
+    @State private var isSaving = false
+    @State private var saveError: String?
+    @State private var showAddExercise = false
+    @State private var originalPlanExercises: [PlanExercise] = []
     
     var body: some View {
         Group {
@@ -696,6 +705,28 @@ struct TemplateDetailView: View {
         .task {
             await loadTemplate()
         }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isEditing {
+                    Button("Done") {
+                        Task { await saveChanges() }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(isSaving || editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else {
+                    Button("Edit") {
+                        startEditing()
+                    }
+                }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if isEditing {
+                    Button("Cancel") {
+                        cancelEditing()
+                    }
+                }
+            }
+        }
         .sheet(item: $selectedExerciseForInfo) { exercise in
             ExerciseDetailSheet(
                 exerciseId: exercise.exerciseId,
@@ -712,6 +743,20 @@ struct TemplateDetailView: View {
                 },
                 onDismiss: { exerciseForSwap = nil }
             )
+        }
+        .alert("Save Failed", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK") { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
+        .sheet(isPresented: $showAddExercise) {
+            FocusModeExerciseSearch { exercise in
+                addExerciseToTemplate(exercise)
+                showAddExercise = false
+            }
         }
     }
     
@@ -755,12 +800,42 @@ struct TemplateDetailView: View {
     }
     
     private var headerStats: some View {
-        HStack(spacing: Space.lg) {
-            templateStat(value: "\(planExercises.count)", label: "Exercises")
-            templateStat(value: "\(planExercises.reduce(0) { $0 + $1.sets.count })", label: "Sets")
-            
-            if let duration = template?.analytics?.estimatedDuration, duration > 0 {
-                templateStat(value: "~\(duration)", label: "min")
+        VStack(alignment: .leading, spacing: Space.md) {
+            if isEditing {
+                // Editable name
+                TextField("Template name", text: $editingName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Color.textPrimary)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
+                    .background(Color.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+
+                // Editable description
+                TextField("Description (optional)", text: $editingDescription)
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.textSecondary)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
+                    .background(Color.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+            } else {
+                HStack(spacing: Space.lg) {
+                    templateStat(value: "\(planExercises.count)", label: "Exercises")
+                    templateStat(value: "\(planExercises.reduce(0) { $0 + $1.sets.count })", label: "Sets")
+
+                    if let duration = template?.analytics?.estimatedDuration, duration > 0 {
+                        templateStat(value: "~\(duration)", label: "min")
+                    }
+                }
+
+                if let description = template?.description, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.textSecondary)
+                }
             }
         }
     }
@@ -781,7 +856,7 @@ struct TemplateDetailView: View {
             ForEach(Array(planExercises.indices), id: \.self) { index in
                 let exercise = planExercises[index]
                 let isExpanded = expandedExerciseId == exercise.id
-                
+
                 ExerciseRowView(
                     exerciseIndex: index,
                     exercises: $planExercises,
@@ -813,6 +888,24 @@ struct TemplateDetailView: View {
                         set: { warmupCollapsed[exercise.id] = $0 }
                     )
                 )
+            }
+
+            // Add exercise button (only in edit mode)
+            if isEditing {
+                Button {
+                    showAddExercise = true
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 18))
+                        Text("Add Exercise")
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .foregroundColor(Color.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Space.lg)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
     }
@@ -855,7 +948,7 @@ struct TemplateDetailView: View {
                     isLinkedToBase: true
                 )
             }
-            
+
             return PlanExercise(
                 id: templateEx.id,
                 exerciseId: templateEx.exerciseId,
@@ -869,6 +962,117 @@ struct TemplateDetailView: View {
             )
         }
     }
+
+    private func startEditing() {
+        originalPlanExercises = planExercises
+        editingName = template?.name ?? templateName
+        editingDescription = template?.description ?? ""
+        isEditing = true
+    }
+
+    private func cancelEditing() {
+        planExercises = originalPlanExercises
+        isEditing = false
+    }
+
+    private func saveChanges() async {
+        isSaving = true
+        defer { isSaving = false }
+
+        var patch: [String: Any] = [:]
+
+        let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName != template?.name {
+            patch["name"] = trimmedName
+        }
+        let trimmedDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedDesc != (template?.description ?? "") {
+            if trimmedDesc.isEmpty {
+                patch["description"] = ""
+            } else {
+                patch["description"] = trimmedDesc
+            }
+        }
+
+        // Only include exercises if they actually changed (avoids unnecessary analytics recomputation)
+        if exercisesChanged() {
+            let templateExercises: [[String: Any]] = planExercises.enumerated().map { index, planEx in
+                let sets: [[String: Any]] = planEx.sets.map { set in
+                    [
+                        "id": set.id,
+                        "reps": set.reps,
+                        "rir": set.rir ?? 2,
+                        "type": set.type?.rawValue ?? "working",
+                        "weight": set.weight ?? 0
+                    ]
+                }
+                return [
+                    "id": planEx.id,
+                    "exercise_id": planEx.exerciseId ?? "",
+                    "name": planEx.name,
+                    "position": index,
+                    "sets": sets
+                ] as [String: Any]
+            }
+            patch["exercises"] = templateExercises
+        }
+
+        guard !patch.isEmpty else {
+            isEditing = false
+            return
+        }
+
+        do {
+            try await FocusModeWorkoutService.shared.patchTemplate(
+                templateId: templateId,
+                patch: patch
+            )
+            isEditing = false
+            // Reload to get server-recomputed analytics
+            await loadTemplate()
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    /// Compare current exercises against the snapshot taken when editing started.
+    private func exercisesChanged() -> Bool {
+        guard planExercises.count == originalPlanExercises.count else { return true }
+        for (current, original) in zip(planExercises, originalPlanExercises) {
+            if current.id != original.id { return true }
+            if current.exerciseId != original.exerciseId { return true }
+            if current.name != original.name { return true }
+            if current.sets.count != original.sets.count { return true }
+            for (cs, os) in zip(current.sets, original.sets) {
+                if cs.id != os.id { return true }
+                if cs.reps != os.reps { return true }
+                if cs.weight != os.weight { return true }
+                if cs.rir != os.rir { return true }
+                if cs.type != os.type { return true }
+            }
+        }
+        return false
+    }
+
+    private func addExerciseToTemplate(_ exercise: Exercise) {
+        let newSets = [
+            PlanSet(
+                id: UUID().uuidString,
+                type: .working,
+                reps: 10,
+                weight: nil,
+                rir: 2
+            )
+        ]
+        let newExercise = PlanExercise(
+            exerciseId: exercise.id,
+            name: exercise.name,
+            sets: newSets,
+            primaryMuscles: exercise.primaryMuscles,
+            equipment: exercise.equipment.first
+        )
+        planExercises.append(newExercise)
+    }
 }
 
 // MARK: - Routine Detail View
@@ -876,30 +1080,81 @@ struct TemplateDetailView: View {
 struct RoutineDetailView: View {
     let routineId: String
     let routineName: String
-    
+
     @State private var templates: [TemplateItem] = []
     @State private var isLoading = true
     @State private var routineDescription: String?
     @State private var frequency: Int = 0
-    
+    @State private var routine: Routine?
+
+    // Editing state
+    @State private var isEditing = false
+    @State private var editingName: String = ""
+    @State private var editingDescription: String = ""
+    @State private var editingFrequency: Int = 3
+    @State private var isSaving = false
+    @State private var saveError: String?
+    @State private var showTemplatePicker = false
+    @State private var originalTemplates: [TemplateItem] = []
+
     var body: some View {
         Group {
             if isLoading {
                 loadingView
-            } else if templates.isEmpty {
+            } else if templates.isEmpty && !isEditing {
                 emptyView
             } else {
                 routineContent
             }
         }
         .background(Color.bg)
-        .navigationTitle(routineName)
+        .navigationTitle(isEditing ? "" : routineName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isEditing {
+                    Button("Done") {
+                        Task { await saveChanges() }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(isSaving || editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else if !isLoading {
+                    Button("Edit") {
+                        startEditing()
+                    }
+                }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if isEditing {
+                    Button("Cancel") {
+                        cancelEditing()
+                    }
+                }
+            }
+        }
         .task {
             await loadRoutineTemplates()
         }
+        .alert("Save Failed", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK") { saveError = nil }
+        } message: {
+            Text(saveError ?? "")
+        }
+        .sheet(isPresented: $showTemplatePicker) {
+            TemplatePickerSheet(
+                existingTemplateIds: Set(templates.map { $0.id }),
+                onSelect: { item in
+                    templates.append(item)
+                    showTemplatePicker = false
+                },
+                onDismiss: { showTemplatePicker = false }
+            )
+        }
     }
-    
+
     private var loadingView: some View {
         VStack {
             ProgressView()
@@ -907,60 +1162,163 @@ struct RoutineDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private var emptyView: some View {
         VStack(spacing: Space.md) {
             Image(systemName: "doc.on.doc")
                 .font(.system(size: 48))
                 .foregroundColor(Color.textTertiary)
-            
+
             Text("No workouts in this routine")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(Color.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private var routineContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
                 // Header with routine info
-                VStack(alignment: .leading, spacing: Space.sm) {
-                    HStack(spacing: Space.lg) {
-                        routineStat(value: "\(templates.count)", label: "Workouts")
-                        routineStat(value: "\(frequency)x", label: "Per Week")
-                    }
-                    
-                    if let description = routineDescription, !description.isEmpty {
-                        Text(description)
-                            .font(.system(size: 14))
-                            .foregroundColor(Color.textSecondary)
-                    }
-                }
-                .padding(.horizontal, Space.lg)
-                .padding(.top, Space.md)
-                
+                routineHeader
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.md)
+
                 // Templates list
                 VStack(spacing: Space.sm) {
                     ForEach(Array(templates.enumerated()), id: \.element.id) { index, template in
-                        NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
-                            WorkoutRow.routineDay(
-                                day: index + 1,
-                                title: template.name,
-                                exerciseCount: template.exerciseCount,
-                                setCount: template.setCount
-                            )
+                        if isEditing {
+                            HStack(spacing: Space.sm) {
+                                // Move up/down buttons
+                                VStack(spacing: 2) {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            moveTemplate(from: index, direction: .up)
+                                        }
+                                    } label: {
+                                        Image(systemName: "chevron.up")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(index > 0 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+                                    }
+                                    .disabled(index == 0)
+
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            moveTemplate(from: index, direction: .down)
+                                        }
+                                    } label: {
+                                        Image(systemName: "chevron.down")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(index < templates.count - 1 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+                                    }
+                                    .disabled(index >= templates.count - 1)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+
+                                WorkoutRow.routineDay(
+                                    day: index + 1,
+                                    title: template.name,
+                                    exerciseCount: template.exerciseCount,
+                                    setCount: template.setCount
+                                )
+
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        templates.remove(at: index)
+                                    }
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(Color.destructive)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        } else {
+                            NavigationLink(destination: TemplateDetailView(templateId: template.id, templateName: template.name)) {
+                                WorkoutRow.routineDay(
+                                    day: index + 1,
+                                    title: template.name,
+                                    exerciseCount: template.exerciseCount,
+                                    setCount: template.setCount
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+
+                    if isEditing {
+                        Button {
+                            showTemplatePicker = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 18))
+                                Text("Add Template")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(Color.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Space.md)
                         }
                         .buttonStyle(PlainButtonStyle())
                     }
                 }
                 .padding(.horizontal, Space.lg)
-                
+
                 Spacer(minLength: Space.xxl)
             }
         }
     }
-    
+
+    @ViewBuilder
+    private var routineHeader: some View {
+        if isEditing {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                TextField("Routine name", text: $editingName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Color.textPrimary)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
+                    .background(Color.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+
+                TextField("Description (optional)", text: $editingDescription)
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.textSecondary)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.vertical, Space.xs)
+                    .background(Color.surfaceElevated)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+
+                HStack {
+                    Text("Frequency")
+                        .font(.system(size: 15))
+                        .foregroundColor(Color.textPrimary)
+                    Spacer()
+                    Stepper("\(editingFrequency)x per week", value: $editingFrequency, in: 1...7)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.textSecondary)
+                }
+                .padding(.top, Space.xs)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack(spacing: Space.lg) {
+                    routineStat(value: "\(templates.count)", label: "Workouts")
+                    routineStat(value: "\(frequency)x", label: "Per Week")
+                }
+
+                if let description = routineDescription, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.textSecondary)
+                }
+            }
+        }
+    }
+
     private func routineStat(value: String, label: String) -> some View {
         VStack(spacing: 2) {
             Text(value)
@@ -971,13 +1329,180 @@ struct RoutineDetailView: View {
                 .foregroundColor(Color.textSecondary)
         }
     }
-    
-    private func loadRoutineTemplates() async {
-        // For now, load all templates - in a future version we'd have a getRoutine API
-        // that returns the routine with its template_ids which we'd then fetch
+
+    // MARK: - Editing
+
+    private func startEditing() {
+        originalTemplates = templates
+        editingName = routine?.name ?? routineName
+        editingDescription = routine?.description ?? ""
+        editingFrequency = routine?.frequency ?? max(frequency, 1)
+        isEditing = true
+    }
+
+    private func cancelEditing() {
+        templates = originalTemplates
+        isEditing = false
+    }
+
+    private enum MoveDirection { case up, down }
+
+    private func moveTemplate(from index: Int, direction: MoveDirection) {
+        let target = direction == .up ? index - 1 : index + 1
+        guard target >= 0, target < templates.count else { return }
+        templates.swapAt(index, target)
+    }
+
+    private func saveChanges() async {
+        isSaving = true
+        defer { isSaving = false }
+
+        var patch: [String: Any] = [:]
+
+        let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName != (routine?.name ?? routineName) {
+            patch["name"] = trimmedName
+        }
+        let trimmedDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedDesc != (routine?.description ?? "") {
+            if trimmedDesc.isEmpty {
+                patch["description"] = ""
+            } else {
+                patch["description"] = trimmedDesc
+            }
+        }
+        if editingFrequency != (routine?.frequency ?? frequency) {
+            patch["frequency"] = editingFrequency
+        }
+
+        let currentIds = templates.map { $0.id }
+        if currentIds != (routine?.templateIds ?? []) {
+            patch["template_ids"] = currentIds
+        }
+
+        guard !patch.isEmpty else {
+            isEditing = false
+            return
+        }
+
         do {
-            let fetchedTemplates = try await FocusModeWorkoutService.shared.getUserTemplates()
-            templates = fetchedTemplates.map { info in
+            try await FocusModeWorkoutService.shared.patchRoutine(
+                routineId: routineId,
+                patch: patch
+            )
+            isEditing = false
+            isLoading = true
+            await loadRoutineTemplates()
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Data Loading
+
+    private func loadRoutineTemplates() async {
+        do {
+            // Fetch the actual routine to get template_ids
+            let fetchedRoutine = try await FocusModeWorkoutService.shared.getRoutine(id: routineId)
+            routine = fetchedRoutine
+            frequency = fetchedRoutine.frequency ?? 0
+            routineDescription = fetchedRoutine.description
+
+            // Fetch only the routine's templates by ID (in parallel)
+            let templateResults = await withTaskGroup(of: (String, WorkoutTemplate?).self) { group in
+                for templateId in fetchedRoutine.templateIds {
+                    group.addTask {
+                        let template = try? await FocusModeWorkoutService.shared.getTemplate(id: templateId)
+                        return (templateId, template)
+                    }
+                }
+                var results: [(String, WorkoutTemplate?)] = []
+                for await result in group {
+                    results.append(result)
+                }
+                return results
+            }
+
+            // Build template items preserving template_ids order
+            templates = fetchedRoutine.templateIds.compactMap { tid in
+                guard let (_, tmpl) = templateResults.first(where: { $0.0 == tid }),
+                      let template = tmpl else { return nil }
+                return TemplateItem(
+                    id: template.id,
+                    name: template.name,
+                    exerciseCount: template.exercises.count,
+                    setCount: template.exercises.reduce(0) { $0 + $1.sets.count }
+                )
+            }
+        } catch {
+            print("[RoutineDetailView] Failed to load routine: \(error)")
+        }
+        isLoading = false
+    }
+}
+
+// MARK: - Template Picker Sheet (for adding templates to routines)
+
+private struct TemplatePickerSheet: View {
+    let existingTemplateIds: Set<String>
+    let onSelect: (TemplateItem) -> Void
+    let onDismiss: () -> Void
+
+    @State private var allTemplates: [TemplateItem] = []
+    @State private var isLoading = true
+
+    private var availableTemplates: [TemplateItem] {
+        allTemplates.filter { !existingTemplateIds.contains($0.id) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if availableTemplates.isEmpty {
+                    VStack(spacing: Space.md) {
+                        Text("No more templates to add")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(availableTemplates) { template in
+                        Button {
+                            onSelect(template)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(template.name)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(Color.textPrimary)
+                                Text("\(template.exerciseCount) exercises, \(template.setCount) sets")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color.textSecondary)
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Add Template")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { onDismiss() }
+                }
+            }
+        }
+        .task {
+            await loadTemplates()
+        }
+    }
+
+    private func loadTemplates() async {
+        do {
+            let fetched = try await FocusModeWorkoutService.shared.getUserTemplates()
+            allTemplates = fetched.map { info in
                 TemplateItem(
                     id: info.id,
                     name: info.name,
@@ -985,11 +1510,8 @@ struct RoutineDetailView: View {
                     setCount: info.setCount
                 )
             }
-            
-            // Use the template count as a proxy for frequency (usually matches)
-            frequency = min(templates.count, 6)  // Cap at 6x per week
         } catch {
-            print("[RoutineDetailView] Failed to load templates: \(error)")
+            print("[TemplatePickerSheet] Failed to load templates: \(error)")
         }
         isLoading = false
     }

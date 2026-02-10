@@ -15,9 +15,9 @@ Services are singleton managers and API clients that provide cross-cutting conce
 | `CanvasDTOs.swift` | Canvas request/response DTOs (`ApplyActionRequestDTO`, `ApplyActionResponseDTO`, `CanvasMapper`) |
 | `DirectStreamingService.swift` | SSE streaming to Vertex AI via `streamAgentNormalized`. Parses `StreamEvent` objects |
 | `ChatService.swift` | Chat session management and message streaming |
-| `FocusModeWorkoutService.swift` | Workout API calls: `startWorkout`, `finishWorkout`, `logSet`, `swapExercise` |
+| `FocusModeWorkoutService.swift` | Workout API calls: `startWorkout`, `finishWorkout`, `logSet`, `swapExercise`, `patchTemplate`, `getRoutine`, `patchRoutine`, `upsertWorkout` |
 | `ActiveWorkoutManager.swift` | Live workout state: exercise tracking, set logging, analytics calculation |
-| `TemplateManager.swift` | Template editing state management |
+| `TemplateManager.swift` | Template editing state management. Uses `patchTemplate` for updates (not deprecated `CloudFunctionService.updateTemplate`) |
 | `CacheManager.swift` | Memory + disk caching (Actor-based) |
 | `DeviceManager.swift` | Device registration for push notifications |
 | `TimezoneManager.swift` | User timezone detection and sync |
@@ -44,5 +44,5 @@ Services are singleton managers and API clients that provide cross-cutting conce
 
 - Services are consumed by ViewModels (`Povver/Povver/ViewModels/`)
 - `CanvasService` calls Firebase Functions defined in `firebase_functions/functions/canvas/`
-- `FocusModeWorkoutService` calls endpoints in `firebase_functions/functions/active_workout/`
+- `FocusModeWorkoutService` calls endpoints in `firebase_functions/functions/active_workout/`, `templates/`, `routines/`, and `workouts/`
 - `DirectStreamingService` calls `firebase_functions/functions/strengthos/stream-agent-normalized.js`
