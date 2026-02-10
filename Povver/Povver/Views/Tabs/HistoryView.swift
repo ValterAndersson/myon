@@ -3,6 +3,7 @@ import SwiftUI
 /// History Tab - Review what happened
 /// Chronological list of completed sessions with infinite scroll
 struct HistoryView: View {
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var workouts: [HistoryWorkoutItem] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -96,7 +97,8 @@ struct HistoryView: View {
                                     name: workout.name,
                                     time: formatTime(workout.date),
                                     duration: formatDuration(workout.duration),
-                                    exerciseCount: workout.exerciseCount
+                                    exerciseCount: workout.exerciseCount,
+                                    isSyncing: saveService.isSaving(workout.id)
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -283,9 +285,14 @@ private struct DateHeaderView: View {
 struct WorkoutDetailView: View {
     let workoutId: String
 
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var workout: Workout?
     @State private var isLoading = true
     @State private var showEditSheet = false
+
+    private var syncState: FocusModeSyncState? {
+        saveService.state(for: workoutId)
+    }
 
     var body: some View {
         Group {
@@ -303,8 +310,26 @@ struct WorkoutDetailView: View {
         .toolbar {
             if workout != nil {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Edit") {
-                        showEditSheet = true
+                    if let state = syncState {
+                        if state.isPending {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .scaleEffect(0.7)
+                                Text("Syncing")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.textSecondary)
+                            }
+                        } else if state.isFailed {
+                            Button("Retry") {
+                                saveService.retry(entityId: workoutId)
+                            }
+                            .foregroundColor(.warning)
+                        }
+                    } else {
+                        Button("Edit") {
+                            showEditSheet = true
+                        }
                     }
                 }
             }
@@ -312,12 +337,18 @@ struct WorkoutDetailView: View {
         .sheet(isPresented: $showEditSheet) {
             if let workout = workout {
                 WorkoutEditView(workout: workout) {
-                    Task { await reloadWorkout() }
+                    // Will auto-reload when background save completes
                 }
             }
         }
         .task {
             await loadWorkout()
+        }
+        .onChange(of: syncState) { oldState, newState in
+            // Save completed (entry removed) — reload fresh data
+            if oldState != nil && newState == nil {
+                Task { await reloadWorkout() }
+            }
         }
     }
 

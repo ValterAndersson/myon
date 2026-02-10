@@ -110,6 +110,7 @@ private struct LibraryRow: View {
 // MARK: - Routines List View (Scaffold)
 
 struct RoutinesListView: View {
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var routines: [RoutineItem] = []
     @State private var isLoading = true
     
@@ -166,7 +167,8 @@ struct RoutinesListView: View {
                         WorkoutRow.routine(
                             name: routine.name,
                             workoutCount: routine.workoutCount,
-                            isActive: routine.isActive
+                            isActive: routine.isActive,
+                            isSyncing: saveService.isSaving(routine.id)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -208,6 +210,7 @@ struct RoutineItem: Identifiable {
 // MARK: - Templates List View (Scaffold)
 
 struct TemplatesListView: View {
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var templates: [TemplateItem] = []
     @State private var isLoading = true
     
@@ -264,7 +267,8 @@ struct TemplatesListView: View {
                         WorkoutRow.template(
                             name: template.name,
                             exerciseCount: template.exerciseCount,
-                            setCount: template.setCount
+                            setCount: template.setCount,
+                            isSyncing: saveService.isSaving(template.id)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -668,11 +672,12 @@ private struct LibraryExerciseRow: View {
 struct TemplateDetailView: View {
     let templateId: String
     let templateName: String
-    
+
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var template: WorkoutTemplate?
     @State private var planExercises: [PlanExercise] = []
     @State private var isLoading = true
-    
+
     // State for ExerciseRowView
     @State private var expandedExerciseId: String? = nil
     @State private var selectedCell: GridCellField? = nil
@@ -684,11 +689,13 @@ struct TemplateDetailView: View {
     @State private var isEditing = false
     @State private var editingName: String = ""
     @State private var editingDescription: String = ""
-    @State private var isSaving = false
-    @State private var saveError: String?
     @State private var showAddExercise = false
     @State private var originalPlanExercises: [PlanExercise] = []
-    
+
+    private var syncState: FocusModeSyncState? {
+        saveService.state(for: templateId)
+    }
+
     var body: some View {
         Group {
             if isLoading {
@@ -709,10 +716,26 @@ struct TemplateDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditing {
                     Button("Done") {
-                        Task { await saveChanges() }
+                        saveChanges()
                     }
                     .fontWeight(.semibold)
-                    .disabled(isSaving || editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else if let state = syncState {
+                    if state.isPending {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .scaleEffect(0.7)
+                            Text("Syncing")
+                                .font(.system(size: 15))
+                                .foregroundColor(.textSecondary)
+                        }
+                    } else if state.isFailed {
+                        Button("Retry") {
+                            saveService.retry(entityId: templateId)
+                        }
+                        .foregroundColor(.warning)
+                    }
                 } else {
                     Button("Edit") {
                         startEditing()
@@ -725,6 +748,11 @@ struct TemplateDetailView: View {
                         cancelEditing()
                     }
                 }
+            }
+        }
+        .onChange(of: syncState) { oldState, newState in
+            if oldState != nil && newState == nil {
+                Task { await loadTemplate() }
             }
         }
         .sheet(item: $selectedExerciseForInfo) { exercise in
@@ -743,14 +771,6 @@ struct TemplateDetailView: View {
                 },
                 onDismiss: { exerciseForSwap = nil }
             )
-        }
-        .alert("Save Failed", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("OK") { saveError = nil }
-        } message: {
-            Text(saveError ?? "")
         }
         .sheet(isPresented: $showAddExercise) {
             FocusModeExerciseSearch { exercise in
@@ -975,10 +995,7 @@ struct TemplateDetailView: View {
         isEditing = false
     }
 
-    private func saveChanges() async {
-        isSaving = true
-        defer { isSaving = false }
-
+    private func saveChanges() {
         var patch: [String: Any] = [:]
 
         let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1020,21 +1037,16 @@ struct TemplateDetailView: View {
             patch["exercises"] = templateExercises
         }
 
-        guard !patch.isEmpty else {
-            isEditing = false
-            return
-        }
+        isEditing = false
 
-        do {
+        guard !patch.isEmpty else { return }
+
+        let id = templateId
+        BackgroundSaveService.shared.save(entityId: id) {
             try await FocusModeWorkoutService.shared.patchTemplate(
-                templateId: templateId,
+                templateId: id,
                 patch: patch
             )
-            isEditing = false
-            // Reload to get server-recomputed analytics
-            await loadTemplate()
-        } catch {
-            saveError = error.localizedDescription
         }
     }
 
@@ -1084,6 +1096,7 @@ struct RoutineDetailView: View {
     let routineId: String
     let routineName: String
 
+    @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var templates: [TemplateItem] = []
     @State private var isLoading = true
     @State private var routineDescription: String?
@@ -1095,10 +1108,12 @@ struct RoutineDetailView: View {
     @State private var editingName: String = ""
     @State private var editingDescription: String = ""
     @State private var editingFrequency: Int = 3
-    @State private var isSaving = false
-    @State private var saveError: String?
     @State private var showTemplatePicker = false
     @State private var originalTemplates: [TemplateItem] = []
+
+    private var syncState: FocusModeSyncState? {
+        saveService.state(for: routineId)
+    }
 
     var body: some View {
         Group {
@@ -1117,10 +1132,26 @@ struct RoutineDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditing {
                     Button("Done") {
-                        Task { await saveChanges() }
+                        saveChanges()
                     }
                     .fontWeight(.semibold)
-                    .disabled(isSaving || editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(editingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else if let state = syncState {
+                    if state.isPending {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .scaleEffect(0.7)
+                            Text("Syncing")
+                                .font(.system(size: 15))
+                                .foregroundColor(.textSecondary)
+                        }
+                    } else if state.isFailed {
+                        Button("Retry") {
+                            saveService.retry(entityId: routineId)
+                        }
+                        .foregroundColor(.warning)
+                    }
                 } else if !isLoading {
                     Button("Edit") {
                         startEditing()
@@ -1138,13 +1169,11 @@ struct RoutineDetailView: View {
         .task {
             await loadRoutineTemplates()
         }
-        .alert("Save Failed", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("OK") { saveError = nil }
-        } message: {
-            Text(saveError ?? "")
+        .onChange(of: syncState) { oldState, newState in
+            if oldState != nil && newState == nil {
+                isLoading = true
+                Task { await loadRoutineTemplates() }
+            }
         }
         .sheet(isPresented: $showTemplatePicker) {
             TemplatePickerSheet(
@@ -1360,10 +1389,7 @@ struct RoutineDetailView: View {
         templates.swapAt(index, target)
     }
 
-    private func saveChanges() async {
-        isSaving = true
-        defer { isSaving = false }
-
+    private func saveChanges() {
         var patch: [String: Any] = [:]
 
         let trimmedName = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1387,21 +1413,16 @@ struct RoutineDetailView: View {
             patch["template_ids"] = currentIds
         }
 
-        guard !patch.isEmpty else {
-            isEditing = false
-            return
-        }
+        isEditing = false
 
-        do {
+        guard !patch.isEmpty else { return }
+
+        let id = routineId
+        BackgroundSaveService.shared.save(entityId: id) {
             try await FocusModeWorkoutService.shared.patchRoutine(
-                routineId: routineId,
+                routineId: id,
                 patch: patch
             )
-            isEditing = false
-            isLoading = true
-            await loadRoutineTemplates()
-        } catch {
-            saveError = error.localizedDescription
         }
     }
 

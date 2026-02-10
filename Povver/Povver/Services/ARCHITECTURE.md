@@ -25,6 +25,7 @@ Services are singleton managers and API clients that provide cross-cutting conce
 | `AgentsApi.swift` | Agent invocation helpers |
 | `AgentPipelineLogger.swift` | Structured logging for agent streaming pipeline |
 | `ThinkingProcessState.swift` | Agent thinking/tool execution progress tracking |
+| `BackgroundSaveService.swift` | Singleton managing fire-and-forget background saves for library editing (workouts, templates, routines). Views dismiss immediately; the service runs the operation async and publishes sync state per entity ID for UI indicators |
 | `MutationCoordinator.swift` | Serial queue for Focus Mode workout operations to prevent race conditions and TARGET_NOT_FOUND errors |
 | `PendingAgentInvoke.swift` | Queue for pending agent messages during session initialization |
 | `Idempotency.swift` | Client-side idempotency key generation |
@@ -39,6 +40,7 @@ Services are singleton managers and API clients that provide cross-cutting conce
 - **Cloud Function calls**: Go through `CloudFunctionService` → `ApiClient` with auth token from `AuthService`
 - **Streaming**: `DirectStreamingService` opens SSE via `streamAgentNormalized` Cloud Function, returns `AsyncThrowingStream<StreamEvent, Error>`
 - **Canvas mutations**: All writes go through `CanvasService.applyAction()` with `idempotency_key` and `expected_version`
+- **Background saves**: `BackgroundSaveService` decouples UI from slow backend calls. Edit views submit operations and dismiss immediately. List rows and detail views observe `pendingSaves` to show syncing spinners and retry buttons on failure
 
 ## Cross-References
 

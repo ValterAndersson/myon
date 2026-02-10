@@ -8,8 +8,6 @@ struct WorkoutEditView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var planExercises: [PlanExercise] = []
-    @State private var isSaving = false
-    @State private var saveError: String?
     @State private var expandedExerciseId: String? = nil
     @State private var selectedCell: GridCellField? = nil
     @State private var warmupCollapsed: [String: Bool] = [:]
@@ -19,47 +17,26 @@ struct WorkoutEditView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        exercisesList
-                            .padding(.top, Space.sm)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    exercisesList
+                        .padding(.top, Space.sm)
 
-                        // Add exercise button
-                        Button {
-                            showAddExercise = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 18))
-                                Text("Add Exercise")
-                                    .font(.system(size: 15, weight: .medium))
-                            }
-                            .foregroundColor(Color.accent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, Space.lg)
+                    // Add exercise button
+                    Button {
+                        showAddExercise = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 18))
+                            Text("Add Exercise")
+                                .font(.system(size: 15, weight: .medium))
                         }
-                        .buttonStyle(PlainButtonStyle())
+                        .foregroundColor(Color.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Space.lg)
                     }
-                }
-                .allowsHitTesting(!isSaving)
-
-                // Saving overlay
-                if isSaving {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    VStack(spacing: Space.md) {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(.white)
-                            .scaleEffect(1.2)
-                        Text("Saving changes...")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.white)
-                    }
-                    .padding(Space.xl)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+                    .buttonStyle(PlainButtonStyle())
                 }
             }
             .background(Color.bg)
@@ -68,20 +45,13 @@ struct WorkoutEditView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if isSaving {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .scaleEffect(0.8)
-                    } else {
-                        Button("Save") {
-                            Task { await save() }
-                        }
-                        .fontWeight(.semibold)
-                        .disabled(planExercises.isEmpty)
+                    Button("Save") {
+                        submitSave()
                     }
+                    .fontWeight(.semibold)
+                    .disabled(planExercises.isEmpty)
                 }
             }
             .sheet(isPresented: $showAddExercise) {
@@ -106,14 +76,6 @@ struct WorkoutEditView: View {
                     exerciseName: exercise.name,
                     onDismiss: { selectedExerciseForInfo = nil }
                 )
-            }
-            .alert("Save Failed", isPresented: Binding(
-                get: { saveError != nil },
-                set: { if !$0 { saveError = nil } }
-            )) {
-                Button("OK") { saveError = nil }
-            } message: {
-                Text(saveError ?? "")
             }
         }
         .onAppear { convertWorkoutToPlans() }
@@ -187,10 +149,7 @@ struct WorkoutEditView: View {
 
     // MARK: - Save
 
-    private func save() async {
-        isSaving = true
-        defer { isSaving = false }
-
+    private func submitSave() {
         let exercises = planExercises.enumerated().map { index, planEx in
             UpsertExercise(
                 exerciseId: planEx.exerciseId ?? "",
@@ -218,13 +177,13 @@ struct WorkoutEditView: View {
             notes: workout.notes
         )
 
-        do {
+        let workoutId = workout.id
+        BackgroundSaveService.shared.save(entityId: workoutId) {
             _ = try await FocusModeWorkoutService.shared.upsertWorkout(request)
-            onSave()
-            dismiss()
-        } catch {
-            saveError = error.localizedDescription
         }
+
+        onSave()
+        dismiss()
     }
 
     // MARK: - Exercise Mutations

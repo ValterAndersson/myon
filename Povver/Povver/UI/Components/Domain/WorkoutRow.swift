@@ -20,6 +20,7 @@ public struct WorkoutRow: View {
     private let badge: Badge?
     private let variant: WorkoutRowVariant
     private let isExpanded: Bool
+    private let isSyncing: Bool
     private let action: (() -> Void)?
     
     public struct Badge {
@@ -50,6 +51,7 @@ public struct WorkoutRow: View {
         badge: Badge? = nil,
         variant: WorkoutRowVariant = .list,
         isExpanded: Bool = false,
+        isSyncing: Bool = false,
         action: (() -> Void)? = nil
     ) {
         self.title = title
@@ -58,6 +60,7 @@ public struct WorkoutRow: View {
         self.badge = badge
         self.variant = variant
         self.isExpanded = isExpanded
+        self.isSyncing = isSyncing
         self.action = action
     }
     
@@ -142,19 +145,25 @@ public struct WorkoutRow: View {
     
     @ViewBuilder
     private var trailingView: some View {
-        switch variant {
-        case .compact:
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.textTertiary)
-        case .list:
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.textTertiary)
-        case .editable:
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.textTertiary)
+        if isSyncing {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .scaleEffect(0.7)
+        } else {
+            switch variant {
+            case .compact:
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.textTertiary)
+            case .list:
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.textTertiary)
+            case .editable:
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.textTertiary)
+            }
         }
     }
     
@@ -220,12 +229,14 @@ extension WorkoutRow {
         name: String,
         exerciseCount: Int,
         setCount: Int,
+        isSyncing: Bool = false,
         action: (() -> Void)? = nil
     ) -> WorkoutRow {
         WorkoutRow(
             title: name,
             subtitle: "\(exerciseCount) exercises • \(setCount) sets",
             variant: .list,
+            isSyncing: isSyncing,
             action: action
         )
     }
@@ -235,6 +246,7 @@ extension WorkoutRow {
         name: String,
         workoutCount: Int,
         isActive: Bool = false,
+        isSyncing: Bool = false,
         action: (() -> Void)? = nil
     ) -> WorkoutRow {
         WorkoutRow(
@@ -242,6 +254,7 @@ extension WorkoutRow {
             subtitle: "\(workoutCount) workouts",
             badge: isActive ? .active : nil,
             variant: .list,
+            isSyncing: isSyncing,
             action: action
         )
     }
@@ -252,12 +265,14 @@ extension WorkoutRow {
         time: String,
         duration: String,
         exerciseCount: Int,
+        isSyncing: Bool = false,
         action: (() -> Void)? = nil
     ) -> WorkoutRow {
         WorkoutRow(
             title: name,
             subtitle: "\(time) • \(duration) • \(exerciseCount) exercises",
             variant: .list,
+            isSyncing: isSyncing,
             action: action
         )
     }
@@ -268,6 +283,7 @@ extension WorkoutRow {
         title: String,
         exerciseCount: Int,
         setCount: Int,
+        isSyncing: Bool = false,
         action: (() -> Void)? = nil
     ) -> WorkoutRow {
         WorkoutRow(
@@ -275,6 +291,7 @@ extension WorkoutRow {
             subtitle: "\(exerciseCount) exercises • \(setCount) sets",
             dayLabel: "Day \(day)",
             variant: .list,
+            isSyncing: isSyncing,
             action: action
         )
     }

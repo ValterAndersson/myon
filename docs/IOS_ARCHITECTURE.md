@@ -134,6 +134,7 @@ struct PovverApp: App {
 | Manager | Type | Purpose |
 |---------|------|---------|
 | `ActiveWorkoutManager` | Singleton | Live workout state management |
+| `BackgroundSaveService` | Singleton | Fire-and-forget background saves with observable sync state |
 | `TemplateManager` | Singleton | Template editing state |
 | `CacheManager` | Actor | Memory + disk caching |
 | `DeviceManager` | Singleton | Device registration |
@@ -164,6 +165,16 @@ struct PovverApp: App {
 - Tracks workout duration, exercises, sets
 - Converts `ActiveWorkout` to Firestore `Workout` on completion
 - Calculates per-exercise and per-muscle analytics
+
+#### `BackgroundSaveService`
+- `@MainActor ObservableObject` singleton decoupling UI from slow backend saves
+- Edit views submit an operation via `save(entityId:operation:)` and dismiss immediately
+- Publishes `pendingSaves: [String: PendingSave]` — keyed by entity ID, value contains `FocusModeSyncState` (`.pending` / `.failed(message)`)
+- List rows observe `isSaving(entityId)` to show a spinner instead of a chevron
+- Detail view toolbars switch between Edit / Syncing spinner / Retry based on sync state
+- Detail views use `.onChange(of: syncState)` to auto-reload fresh data when the save completes
+- Guards against duplicate saves for the same entity — second call is ignored while one is in flight
+- Used by: `WorkoutEditView`, `TemplateDetailView`, `RoutineDetailView`, `HistoryView`, `TemplatesListView`, `RoutinesListView`
 
 ---
 
