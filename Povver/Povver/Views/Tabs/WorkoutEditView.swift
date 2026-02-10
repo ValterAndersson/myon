@@ -19,25 +19,47 @@ struct WorkoutEditView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    exercisesList
+            ZStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        exercisesList
+                            .padding(.top, Space.sm)
 
-                    // Add exercise button
-                    Button {
-                        showAddExercise = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 18))
-                            Text("Add Exercise")
-                                .font(.system(size: 15, weight: .medium))
+                        // Add exercise button
+                        Button {
+                            showAddExercise = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 18))
+                                Text("Add Exercise")
+                                    .font(.system(size: 15, weight: .medium))
+                            }
+                            .foregroundColor(Color.accent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, Space.lg)
                         }
-                        .foregroundColor(Color.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Space.lg)
+                        .buttonStyle(PlainButtonStyle())
                     }
-                    .buttonStyle(PlainButtonStyle())
+                }
+                .allowsHitTesting(!isSaving)
+
+                // Saving overlay
+                if isSaving {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    VStack(spacing: Space.md) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                            .scaleEffect(1.2)
+                        Text("Saving changes...")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .padding(Space.xl)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
                 }
             }
             .background(Color.bg)
@@ -46,13 +68,20 @@ struct WorkoutEditView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
-                        Task { await save() }
+                    if isSaving {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(0.8)
+                    } else {
+                        Button("Save") {
+                            Task { await save() }
+                        }
+                        .fontWeight(.semibold)
+                        .disabled(planExercises.isEmpty)
                     }
-                    .fontWeight(.semibold)
-                    .disabled(isSaving || planExercises.isEmpty)
                 }
             }
             .sheet(isPresented: $showAddExercise) {
