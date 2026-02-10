@@ -59,18 +59,14 @@ async function getTemplateHandler(req, res) {
  */
 async function resolveExerciseNames(exerciseIds) {
   const names = {};
-  
-  // Batch fetch (Firestore supports up to 10 in an 'in' query)
-  const batchSize = 10;
-  for (let i = 0; i < exerciseIds.length; i += batchSize) {
-    const batch = exerciseIds.slice(i, i + batchSize);
-    const exercises = await db.query('exercises', [['__name__', 'in', batch]]);
-    
-    for (const exercise of exercises) {
-      names[exercise.id] = exercise.name || exercise.id;
+
+  await Promise.all(exerciseIds.map(async (exerciseId) => {
+    const exercise = await db.getDocument('exercises', exerciseId);
+    if (exercise) {
+      names[exerciseId] = exercise.name || exerciseId;
     }
-  }
-  
+  }));
+
   return names;
 }
 
