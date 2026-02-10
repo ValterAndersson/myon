@@ -275,7 +275,7 @@ struct FocusModeExerciseSearch: View {
 
                 // Movement patterns
                 ForEach(Array(filters.movementPatterns), id: \.self) { pattern in
-                    activeFilterPill(label: pattern.capitalized, color: Color.warning) {
+                    activeFilterPill(label: pattern.replacingOccurrences(of: "_", with: " ").capitalized, color: Color.warning) {
                         filters.movementPatterns.remove(pattern)
                     }
                 }
@@ -437,7 +437,7 @@ struct ExerciseFilterSheet: View {
                         FlowLayout(spacing: Space.sm) {
                             ForEach(movementPatternOptions, id: \.self) { pattern in
                                 FilterToggleChip(
-                                    label: pattern.capitalized,
+                                    label: pattern.replacingOccurrences(of: "_", with: " ").capitalized,
                                     isSelected: filters.movementPatterns.contains(pattern),
                                     color: Color.warning
                                 ) {

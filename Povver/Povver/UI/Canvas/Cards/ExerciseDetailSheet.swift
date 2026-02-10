@@ -182,10 +182,23 @@ public struct ExerciseDetailSheet: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(Color.accent)
                             .frame(width: 20, alignment: .leading)
-                        PovverText(items[index], style: .body)
-                            .foregroundColor(Color.textPrimary)
+                        markdownText(items[index])
                     }
                 }
+            }
+        }
+    }
+
+    /// Render a string as markdown, falling back to plain text if parsing fails.
+    private func markdownText(_ string: String) -> some View {
+        Group {
+            if let attributed = try? AttributedString(markdown: string) {
+                Text(attributed)
+                    .font(TypographyToken.body)
+                    .foregroundColor(Color.textPrimary)
+            } else {
+                PovverText(string, style: .body)
+                    .foregroundColor(Color.textPrimary)
             }
         }
     }
@@ -198,8 +211,7 @@ public struct ExerciseDetailSheet: View {
                         Image(systemName: bulletIcon)
                             .font(.system(size: 14))
                             .foregroundColor(bulletColor)
-                        PovverText(item, style: .body)
-                            .foregroundColor(Color.textPrimary)
+                        markdownText(item)
                     }
                 }
             }

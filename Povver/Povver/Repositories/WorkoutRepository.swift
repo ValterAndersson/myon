@@ -19,6 +19,7 @@ class WorkoutRepository {
     func getWorkout(id: String, userId: String) async throws -> Workout? {
         do {
             let doc = try await db.collection("users").document(userId).collection("workouts").document(id).getDocument()
+            guard doc.exists else { return nil }
             return try doc.data(as: Workout.self)
         } catch {
             print("[WorkoutRepository] getWorkout error for id \(id), userId \(userId): \(error)")

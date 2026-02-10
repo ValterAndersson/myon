@@ -36,15 +36,23 @@ class ExercisesViewModel: ObservableObject {
     func loadExercises() async {
         isLoading = true
         error = nil
-        
+
         do {
-            allExercises = try await repository.list()
+            let fetched = try await repository.list()
+            // Deduplicate by name — keep the first occurrence of each unique name
+            var seen = Set<String>()
+            allExercises = fetched.filter { exercise in
+                let key = exercise.name.lowercased()
+                guard !seen.contains(key) else { return false }
+                seen.insert(key)
+                return true
+            }
             await loadFilterOptions()
             await applyFiltersAndSearch()
         } catch {
             self.error = error
         }
-        
+
         isLoading = false
     }
     

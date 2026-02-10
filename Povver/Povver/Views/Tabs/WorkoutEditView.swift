@@ -170,6 +170,7 @@ struct WorkoutEditView: View {
 
         let request = UpsertWorkoutRequest(
             id: workout.id,
+            name: workout.name,
             startTime: workout.startTime,
             endTime: workout.endTime,
             exercises: exercises,

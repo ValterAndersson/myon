@@ -236,6 +236,7 @@ async function upsertWorkoutHandler(req, res) {
     const payload = {
       id: docId,
       user_id: String(uid),
+      name: input.name || (isUpdate ? (existing.data()?.name || null) : null),
       source_template_id: input.source_template_id || input.template_id || null,
       created_at: isUpdate ? existing.data()?.created_at : (startTs || admin.firestore.FieldValue.serverTimestamp()),
       start_time: startTs || admin.firestore.FieldValue.serverTimestamp(),

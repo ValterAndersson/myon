@@ -143,7 +143,7 @@ struct WorkoutExerciseSet: Codable, Identifiable {
         case id
         case reps
         case rir
-        case type = "set_type"  // Backend uses set_type
+        case type
         case weight = "weight_kg"
         case isCompleted = "is_completed"
     }
@@ -324,6 +324,7 @@ struct ExerciseAnalytics: Codable {
 /// Backend recomputes all analytics, set_facts, and series inline.
 struct UpsertWorkoutRequest: Encodable {
     let id: String
+    let name: String?
     let startTime: Date
     let endTime: Date
     let exercises: [UpsertExercise]
@@ -331,7 +332,7 @@ struct UpsertWorkoutRequest: Encodable {
     let notes: String?
 
     enum CodingKeys: String, CodingKey {
-        case id
+        case id, name
         case startTime = "start_time"
         case endTime = "end_time"
         case exercises
@@ -342,6 +343,7 @@ struct UpsertWorkoutRequest: Encodable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(name, forKey: .name)
 
         // Encode dates as ISO8601 strings (backend expects string format)
         let isoFormatter = ISO8601DateFormatter()
