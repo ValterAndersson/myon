@@ -8,6 +8,11 @@
 - Docker installed
 - Project: `myon-53d85`
 - Region: `europe-west1`
+- GCP service account key for local development and CLI commands:
+  ```bash
+  export GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY
+  ```
+  See [CLAUDE.md — Service Account Keys](../../CLAUDE.md#service-account-keys) for key file setup.
 
 ### 1. Create Catalog Backup (REQUIRED)
 
@@ -223,6 +228,16 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 ### Worker exits with "no_jobs_available"
 This is expected - worker exits immediately when queue is empty. No cost.
+
+### Container fails to start / "Application failed to start"
+The Docker image uses `worker_requirements.txt` which does NOT include `google-adk`.
+Cloud Run workers must NEVER import from `app.shell.tools` or `app.shell.agent` — those
+depend on `google.adk` which is only available in the Agent Engine runtime.
+
+If this error reappears:
+1. Check `app/__init__.py` — it must NOT import `app.shell`
+2. Check `workers/catalog_worker.py` — imports should use `app.jobs.context`, NOT `app.shell.context`
+3. Rebuild: `make docker-build docker-push deploy-jobs`
 
 ### Review job timeout
 Increase `--max-exercises` limit or increase timeout in `cloud-run-review.yaml`.

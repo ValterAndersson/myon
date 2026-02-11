@@ -287,8 +287,8 @@ class CatalogWorker:
             LockLostError,
         )
         from app.jobs.models import JobStatus
-        from app.shell.agent import execute_job
-        from app.shell.context import JobContext, set_current_job_context, clear_current_job_context
+        from app.jobs.executor import execute_job
+        from app.jobs.context import JobContext, set_current_job_context, clear_current_job_context
         
         job_id = job.id
         job_type = job.type.value

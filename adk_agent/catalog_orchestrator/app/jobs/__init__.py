@@ -1,11 +1,21 @@
 """
-Jobs Package - Job queue, models, and operations.
+Jobs Package - Job queue, models, context, and operations.
 
 This package provides:
+- context: JobContext and contextvars for job-scoped state
 - models: Job and attempt data models
 - queue: Job queue operations (create, lease, complete)
+- executor: Job execution dispatcher
 - watchdog: Self-healing for stuck jobs and locks
 """
+
+from app.jobs.context import (
+    JobContext,
+    JobMode,
+    set_current_job_context,
+    get_current_job_context,
+    clear_current_job_context,
+)
 
 from app.jobs.models import (
     Job,
@@ -33,6 +43,12 @@ from app.jobs.watchdog import (
 
 
 __all__ = [
+    # Context
+    "JobContext",
+    "JobMode",
+    "set_current_job_context",
+    "get_current_job_context",
+    "clear_current_job_context",
     # Models
     "Job",
     "JobType",

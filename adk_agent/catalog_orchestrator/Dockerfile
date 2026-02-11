@@ -25,23 +25,18 @@ ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-# Install dependencies first (layer caching)
-COPY agent_engine_requirements.txt .
-
-# Install with explicit google-cloud packages needed by worker
-RUN pip install --no-cache-dir -r agent_engine_requirements.txt \
-    google-cloud-firestore \
-    google-cloud-logging \
-    google-auth
+# Install worker-specific dependencies (NO google-adk)
+COPY worker_requirements.txt .
+RUN pip install --no-cache-dir -r worker_requirements.txt
 
 # Copy application code (order: least → most frequently changed)
 COPY app/ app/
 COPY workers/ workers/
 COPY cli.py .
 
-# Healthcheck (for local testing)
+# Healthcheck - verify worker module loads (not app.__init__ which is just a docstring)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import app; print('ok')" || exit 1
+    CMD python -c "from workers.catalog_worker import CatalogWorker; print('ok')" || exit 1
 
 # Default: run worker
 # Override with: CMD ["python", "workers/catalog_worker.py", "watchdog"]

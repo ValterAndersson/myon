@@ -1,0 +1,17 @@
+# Cloud Run Worker dependencies
+# =============================
+# This file lists ONLY what the Cloud Run worker needs.
+# google-adk is NOT included — it's only for Agent Engine.
+#
+# For Agent Engine deployment, use agent_engine_requirements.txt instead.
+
+google-cloud-firestore>=2.16.0
+google-cloud-aiplatform>=1.97.0
+google-cloud-logging>=3.11.0
+google-cloud-storage>=2.19.0
+google-auth>=2.0.0
+google-genai>=1.20.0
+pydantic>=2.11.0
+requests>=2.32.0
+python-dotenv>=1.1.0
+click>=8.0.0
