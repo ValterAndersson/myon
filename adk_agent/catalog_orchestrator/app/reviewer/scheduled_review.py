@@ -333,20 +333,27 @@ def save_review_metadata(
 
 
 def _find_active_exercise_by_name(db, name: str, exclude_id: str):
-    """Query exercises for an active exercise with the given name, excluding exclude_id."""
+    """Query exercises for an active exercise with the given name, excluding exclude_id.
+
+    Note: most exercises lack an explicit 'status' field (implicitly approved).
+    We query by name only and filter out merged/deprecated in Python.
+    """
     if not db or not name:
         return None
     try:
         docs = list(
             db.collection("exercises")
             .where("name", "==", name)
-            .where("status", "==", "approved")
-            .limit(2)
+            .limit(5)
             .stream()
         )
         for doc in docs:
-            if doc.id != exclude_id:
-                return doc
+            if doc.id == exclude_id:
+                continue
+            status = doc.to_dict().get("status", "approved")
+            if status in ("merged", "deprecated"):
+                continue
+            return doc
     except Exception as e:
         logger.debug("Name collision check failed: %s", e)
     return None
