@@ -441,6 +441,8 @@ After LLM response, changes are normalized:
 | `category` | Mapped to canonical values via `CATEGORIES` (field guide), fallback "compound" |
 | `movement.type` | Mapped to canonical values (e.g. "press" → "push"), dropped if unmappable |
 | `movement.split` | Mapped to canonical values (e.g. "full body" → "full_body"), dropped if unmappable |
+| `equipment` | Resolves `EQUIPMENT_ALIASES` (e.g. "dip_belt" → "dip-belt", "plates" → "plate"), strips underscores/spaces, dedupes |
+| `execution_notes`, `common_mistakes` | Coerces string → list (sentence split), strips markdown/step/bullet prefixes |
 | `description` | Dropped if < 50 chars (aligned with quality scanner threshold) |
 
 Reference: `adk_agent/catalog_orchestrator/app/enrichment/engine.py`
@@ -994,9 +996,10 @@ sequenceDiagram
 
 #### scheduled_review.py
 Entry point triggered by Cloud Scheduler. Orchestrates:
-1. Fetches all exercises from catalog
+1. Fetches all exercises from catalog (includes `needs_retry = True` exercises)
 2. Runs `CatalogReviewAgent.review_batch()` for unified decisions
-3. Creates jobs via `create_jobs_from_decisions()`
+3. **Name-collision detection:** Before creating a FIX_IDENTITY job that renames an exercise, queries Firestore for an active exercise with that name. If found, converts to a MERGE job instead (preventing duplicates). Query filters merged/deprecated exercises in Python (not Firestore) because most exercises lack an explicit `status` field.
+4. Creates jobs via `create_jobs_from_decisions()`
 
 #### CatalogReviewAgent
 Unified LLM agent that performs:
@@ -1004,7 +1007,7 @@ Unified LLM agent that performs:
 - Duplicate detection and clustering
 - Equipment gap suggestions
 
-Uses single LLM call per batch (default: 20 exercises).
+Uses single LLM call per batch (default: 20 exercises). **Batch retry:** If a batch returns 0 decisions (LLM parse failure), the agent retries once. If the retry also returns 0, exercise IDs are collected in `BatchReviewResult.retry_failed_ids` and marked with `review_metadata.needs_retry = True` for the next scheduled run.
 
 #### FamilyGapAnalyzer
 Detects missing equipment variants using affinity maps:
@@ -1137,7 +1140,7 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Scheduled Review | `app/reviewer/scheduled_review.py` | Cloud Run Job entry point |
 | Scheduled Scan | `app/reviewer/scheduled_quality_scan.py` | Deterministic quality scan entry point |
 | Review Agent | `app/reviewer/review_agent.py` | Unified LLM review agent |
-| Quality Scanner | `app/reviewer/quality_scanner.py` | Deterministic rule-based quality checks (no LLM) |
+| Quality Scanner | `app/reviewer/quality_scanner.py` | Deterministic rule-based quality checks (12 checks, no LLM) |
 | Gap Analyzer | `app/reviewer/family_gap_analyzer.py` | Equipment gap detection |
 | Job Creator | `app/reviewer/review_job_creator.py` | Creates jobs from decisions |
 | Philosophy | `app/reviewer/what_good_looks_like.py` | LLM reasoning guidelines |
@@ -1174,7 +1177,7 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Agent | `app/shell/agent.py` | ADK agent definition |
 | Tools | `app/shell/tools.py` | Agent tool definitions |
 | Instruction | `app/shell/instruction.py` | System prompt |
-| Context | `app/jobs/context.py` | Job context management (canonical location; `app/shell/context.py` re-exports for ADK agent) |
+| Context | `app/jobs/context.py` | Job context management (canonical location; `app/shell/context.py` re-exports for ADK agent). See `app/jobs/ARCHITECTURE.md`. |
 | Planner | `app/shell/planner.py` | Plan generation |
 | **Scripts** | | |
 | Export Exercises | `scripts/export_exercises.py` | Export catalog to JSON |
@@ -1184,7 +1187,7 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Reset Jobs | `scripts/reset_stuck_jobs.py` | Reset stuck jobs |
 | Init Review Meta | `scripts/init_review_metadata.py` | Initialize review metadata |
 | **Tests** | | |
-| Enrichment Tests | `tests/test_enrichment_validation.py` | Normalization and validation pipeline (74 tests) |
+| Enrichment Tests | `tests/test_enrichment_validation.py` | Normalization and validation pipeline (109 tests) |
 
 ---
 
@@ -1244,6 +1247,7 @@ enrichment/engine.py
     ├── PRIMARY_MUSCLES ─────── Canonical muscle names
     ├── MUSCLE_ALIASES ──────── Muscle name → canonical mappings
     ├── EQUIPMENT_TYPES ─────── Canonical equipment values
+    ├── EQUIPMENT_ALIASES ────── Non-canonical → canonical equipment mappings
     ├── FIELD_SPECS ─────────── Field definitions and constraints
     └── GOLDEN_EXAMPLES ─────── Reference exercises
 
@@ -1251,7 +1255,9 @@ Key constants in engine.py:
 ├── HOLISTIC_ENRICHMENT_SCHEMA ── Gemini response_schema for structured output
 ├── _normalize_category() ─────── Category normalization with fallback map
 ├── _normalize_movement_type() ── Movement type normalization (e.g. "press" → "push")
-└── _normalize_movement_split() ─ Movement split normalization (e.g. "full body" → "full_body")
+├── _normalize_movement_split() ─ Movement split normalization (e.g. "full body" → "full_body")
+├── _normalize_equipment() ─────── Equipment normalization (aliases, underscores → hyphens, dedupe)
+└── _normalize_content_array() ── String→list coercion, strip markdown/bullet/step prefixes
 ```
 
 ### Review Module Dependencies
@@ -1270,11 +1276,14 @@ reviewer/scheduled_quality_scan.py
 └── jobs/models.py
 
 reviewer/quality_scanner.py
-├── 9 deterministic checks per exercise:
+├── 12 deterministic checks per exercise:
 │   1. Name present  2. Category canonical  3. Equipment canonical
 │   4. Primary muscles present  5. Equipment non-empty  6. Description >= 50 chars
 │   7. Movement type present+canonical  8. Movement split present+canonical
 │   9. All muscles have canonical names
+│   10. Muscle names lowercase without underscores
+│   11. execution_notes + common_mistakes format (no markdown/step prefixes)
+│   12. muscles.category present
 └── Returns quality score (0-100) or None (needs LLM review)
 
 reviewer/review_agent.py
@@ -1743,10 +1752,27 @@ print(result)
 
 ---
 
-## Data Normalization Scripts
+## CLI Maintenance Commands
+
+Built-in CLI commands for deterministic catalog maintenance (no LLM calls). All default to dry-run.
+
+| Command | Purpose |
+|---------|---------|
+| `normalize-catalog` | Deterministic normalization: content arrays (strip markdown/bullets, string→list coercion), muscles (aliases, formatting), equipment (EQUIPMENT_ALIASES, underscore→hyphen), movement types, category |
+| `dedup-catalog` | Merge duplicate exercises with identical names. Picks richest as canonical. Safeguards: skips mixed-family groups, penalizes "unknown" doc IDs |
+
+```bash
+python cli.py normalize-catalog --dry-run -v          # Preview all normalization
+python cli.py normalize-catalog --field equipment -v   # Preview equipment only
+python cli.py normalize-catalog --apply                # Apply to Firestore
+python cli.py dedup-catalog --dry-run -v               # Preview duplicate groups
+python cli.py dedup-catalog --apply                    # Execute merges
+```
+
+## Data Normalization Scripts (Legacy)
 
 One-off scripts for normalizing existing catalog data (in `scripts/` at repo root).
-All support `--apply` dry-run safety (default: dry-run).
+All support `--apply` dry-run safety (default: dry-run). **Prefer `normalize-catalog` CLI command** for new normalization work.
 
 | Script | Purpose |
 |--------|---------|

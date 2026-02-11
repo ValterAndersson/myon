@@ -76,20 +76,25 @@ lint:
 format:
 	python -m black app/ --line-length=100
 
-# Check Python syntax
+# Check Python syntax (core modules + Cloud Run worker path)
 check:
 	python -m py_compile app/__init__.py
-	python -m py_compile app/agent_engine_app.py
-	python -m py_compile app/shell/__init__.py
-	python -m py_compile app/shell/context.py
-	python -m py_compile app/shell/leasing.py
-	python -m py_compile app/shell/instruction.py
-	python -m py_compile app/shell/tools.py
-	python -m py_compile app/shell/planner.py
-	python -m py_compile app/shell/agent.py
-	python -m py_compile app/skills/__init__.py
-	python -m py_compile app/skills/catalog_read_skills.py
-	python -m py_compile app/skills/catalog_write_skills.py
+	python -m py_compile app/jobs/__init__.py
+	python -m py_compile app/jobs/context.py
+	python -m py_compile app/jobs/models.py
+	python -m py_compile app/jobs/queue.py
+	python -m py_compile app/jobs/executor.py
+	python -m py_compile app/jobs/handlers.py
+	python -m py_compile app/jobs/watchdog.py
+	python -m py_compile app/jobs/run_history.py
+	python -m py_compile app/enrichment/engine.py
+	python -m py_compile app/enrichment/exercise_field_guide.py
+	python -m py_compile app/enrichment/llm_client.py
+	python -m py_compile app/reviewer/quality_scanner.py
+	python -m py_compile app/reviewer/review_agent.py
+	python -m py_compile app/reviewer/scheduled_review.py
+	python -m py_compile workers/catalog_worker.py
+	python -m py_compile cli.py
 	@echo "All files compile OK"
 
 # Deploy all (build, push, deploy all Cloud Run Jobs)

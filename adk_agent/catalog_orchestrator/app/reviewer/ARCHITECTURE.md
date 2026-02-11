@@ -6,7 +6,7 @@ Multi-tier review pipeline that evaluates exercise catalog quality and creates e
 
 | File | Purpose |
 |------|---------|
-| `quality_scanner.py` | **Tier 1: Deterministic checks** (no LLM). 9 rule-based checks per exercise. Returns quality score or `None` (needs LLM). |
+| `quality_scanner.py` | **Tier 1: Deterministic checks** (no LLM). 12 rule-based checks per exercise. Returns quality score or `None` (needs LLM). |
 | `review_agent.py` | **Tier 2: LLM review** (`CatalogReviewAgent`). Batched LLM calls for complex decisions (KEEP/ENRICH/FIX/ARCHIVE/MERGE). |
 | `scheduled_review.py` | Cloud Run Job entry point for LLM review. Fetches exercises, runs batched review, creates jobs. |
 | `scheduled_quality_scan.py` | Cloud Run Job entry point for deterministic scan. Runs quality_scanner on all exercises. |
@@ -60,7 +60,9 @@ quality_scanner.py: heuristic_quality_check()
 
 **Canonical values imported from field guide.** Both `quality_scanner.py` and `review_agent.py` import canonical sets (`CATEGORIES`, `MOVEMENT_TYPES`, `MOVEMENT_SPLITS`, `EQUIPMENT_TYPES`, `PRIMARY_MUSCLES`) from `app/enrichment/exercise_field_guide.py`. This is the single source of truth.
 
-**Batched LLM review.** `CatalogReviewAgent` processes exercises in batches (default: 20) per LLM call for efficiency. Each batch produces decisions with confidence levels (high/medium/low).
+**Batched LLM review with retry.** `CatalogReviewAgent` processes exercises in batches (default: 20) per LLM call for efficiency. Each batch produces decisions with confidence levels (high/medium/low). If a batch returns 0 decisions (LLM parse failure), it retries once. If retry also returns 0, exercise IDs are collected in `BatchReviewResult.retry_failed_ids` and marked with `review_metadata.needs_retry = True` for the next scheduled run.
+
+**FIX_IDENTITY → MERGE conversion.** Before creating a FIX_IDENTITY job that renames an exercise, `scheduled_review.py` queries Firestore for name collisions using `_find_active_exercise_by_name()`. If a collision is found, the decision is converted to a MERGE job targeting the existing exercise. The query filters merged/deprecated exercises in Python (not Firestore) because most exercises lack an explicit `status` field.
 
 ## Scheduled Entry Points
 

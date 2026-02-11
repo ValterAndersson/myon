@@ -5,10 +5,15 @@ Catalog Orchestrator CLI.
 Command-line interface for catalog operations:
 - insert-exercise: Add new exercise to catalog
 - enrich-field: Batch enrich exercises with LLM-computed fields
+- normalize-catalog: Deterministic normalization (content arrays, muscles,
+  equipment, movement, category) — no LLM calls
+- dedup-catalog: Merge duplicate exercises with identical names
 
 Usage:
     python cli.py insert-exercise --base-name "Lateral Raise" --equipment cable
     python cli.py enrich-field --spec-id difficulty --field-path metadata.difficulty ...
+    python cli.py normalize-catalog --dry-run -v
+    python cli.py dedup-catalog --dry-run -v
 """
 
 from __future__ import annotations

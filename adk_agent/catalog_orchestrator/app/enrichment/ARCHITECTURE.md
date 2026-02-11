@@ -34,8 +34,9 @@ normalize_enrichment_output()
     ├── _normalize_muscle_names()   → underscores → spaces, lowercase, dedupe
     ├── _resolve_muscle_aliases()   → "lats" → "latissimus dorsi", etc.
     ├── _normalize_contribution_map() → key normalization + alias resolution, value clamping
+    ├── _normalize_equipment()      → resolves EQUIPMENT_ALIASES, strips underscores/spaces, dedupes
     ├── _normalize_stimulus_tags()  → title case, dedupe
-    └── _normalize_content_array()  → strips markdown/step/bullet prefixes from content arrays
+    └── _normalize_content_array()  → coerces string→list, strips markdown/step/bullet prefixes
     │
     ▼
 validate_normalized_output()
@@ -64,6 +65,7 @@ All canonical value sets live here. Never hardcode these elsewhere.
 | `PRIMARY_MUSCLES` | engine.py, quality_scanner.py | 20 canonical muscle names (lowercase, spaces not underscores) |
 | `MUSCLE_ALIASES` | engine.py (normalization + contribution map) | Short names → canonical (e.g. "lats" → "latissimus dorsi") |
 | `EQUIPMENT_TYPES` | engine.py (warn-only), quality_scanner.py | 18 canonical equipment values (lowercase, hyphens). Non-standard values are logged but kept. |
+| `EQUIPMENT_ALIASES` | engine.py (normalization) | Maps non-canonical variants → canonical (e.g. "dip_belt" → "dip-belt", "plates" → "plate", "parallel_bars" → "dip-station") |
 
 ## Key Design Decisions
 
@@ -88,4 +90,4 @@ All canonical value sets live here. Never hardcode these elsewhere.
 - Quality scanner (consumer of same canonical values): `app/reviewer/quality_scanner.py`
 - Job executor (calls enrichment): `app/jobs/executor.py`
 - Apply engine (writes enriched data): `app/apply/engine.py`
-- Tests: `tests/test_enrichment_validation.py` (74 tests)
+- Tests: `tests/test_enrichment_validation.py` (109 tests)

@@ -37,6 +37,15 @@ cd adk_agent/catalog_orchestrator
 make deploy
 ```
 
+> **Apple Silicon Macs:** The local `docker build` produces arm64 images, but Cloud Run requires amd64. Use Cloud Build instead:
+> ```bash
+> gcloud builds submit --tag gcr.io/myon-53d85/catalog-worker:latest .
+> ```
+> Then deploy the jobs separately:
+> ```bash
+> make deploy-worker deploy-review deploy-cleanup deploy-watchdog
+> ```
+
 This runs `docker-build` → `docker-push` → deploys all 4 jobs:
 - `catalog-worker` - Processes job queue (`cloud-run-worker.yaml`)
 - `catalog-review` - LLM reviews catalog (`cloud-run-review.yaml`)
@@ -237,7 +246,11 @@ depend on `google.adk` which is only available in the Agent Engine runtime.
 If this error reappears:
 1. Check `app/__init__.py` — it must NOT import `app.shell`
 2. Check `workers/catalog_worker.py` — imports should use `app.jobs.context`, NOT `app.shell.context`
-3. Rebuild: `make docker-build docker-push deploy-jobs`
+3. Rebuild: `gcloud builds submit --tag gcr.io/myon-53d85/catalog-worker:latest .` (or `make docker-build docker-push` on amd64)
+4. Redeploy: `make deploy-jobs`
+
+### Image architecture mismatch (exec format error)
+If the container starts but immediately crashes, it's likely an arm64 image running on amd64 Cloud Run. Always use Cloud Build from Apple Silicon Macs (see step 2 above).
 
 ### Review job timeout
 Increase `--max-exercises` limit or increase timeout in `cloud-run-review.yaml`.

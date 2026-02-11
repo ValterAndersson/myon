@@ -33,6 +33,10 @@ catalog_worker.py:
     5. Records run summary in catalog_run_summaries
 ```
 
+## Post-Enrichment Validation
+
+After holistic enrichment, `executor.py` runs `heuristic_score_exercise()` from the quality scanner on the updated exercise data. This is observability only — it logs a warning if the exercise still fails quality checks after enrichment, but does not block the write. The `scanner_fail` count is included in the job result summary.
+
 ## Import Boundary
 
 Cloud Run workers MUST NOT import from `app.shell.tools` or `app.shell.agent` — those
@@ -48,4 +52,5 @@ modules depend on `google.adk` which is only available in the Agent Engine runti
 - Job context: `app/jobs/context.py` (JobContext, contextvars)
 - Job executor: `app/jobs/executor.py` (central dispatcher)
 - Deploy: `make deploy` (builds Docker, pushes to GCR, deploys all 4 jobs)
+- Docker builds for Cloud Run must target `linux/amd64`; use Cloud Build (`gcloud builds submit`) from Apple Silicon Macs
 - Makefile targets: `make deploy`, `make test`, `make worker-local`
