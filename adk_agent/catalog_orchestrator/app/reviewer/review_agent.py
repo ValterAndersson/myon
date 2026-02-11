@@ -304,7 +304,8 @@ class BatchReviewResult:
     decisions: List[ExerciseDecision] = field(default_factory=list)
     duplicates: List[DuplicateCluster] = field(default_factory=list)
     gaps: List[GapSuggestion] = field(default_factory=list)
-    
+    retry_failed_ids: List[str] = field(default_factory=list)
+
     # Summary counts
     keep_count: int = 0
     enrich_count: int = 0
@@ -347,6 +348,7 @@ class BatchReviewResult:
                 }
                 for g in self.gaps
             ],
+            "retry_failed_ids": self.retry_failed_ids,
             "summary": {
                 "keep": self.keep_count,
                 "enrich": self.enrich_count,
@@ -558,7 +560,31 @@ Respond with ONLY the JSON object, no markdown code blocks."""
             
             # Parse response
             parsed = self._parse_response(response)
-            
+
+            # Retry once if 0 decisions returned for a non-empty batch
+            decisions_returned = len(parsed.get("exercises", []))
+            if decisions_returned == 0 and len(exercises) > 0:
+                logger.warning(
+                    "Batch returned 0/%d decisions — retrying once",
+                    len(exercises),
+                )
+                response = llm_client.complete(
+                    prompt=prompt,
+                    output_schema=OUTPUT_SCHEMA,
+                    require_reasoning=False,
+                )
+                parsed = self._parse_response(response)
+                decisions_returned = len(parsed.get("exercises", []))
+                if decisions_returned == 0:
+                    logger.error(
+                        "Retry also returned 0/%d decisions", len(exercises)
+                    )
+                    batch_ids = [
+                        ex.get("id", ex.get("doc_id", ""))
+                        for ex in exercises
+                    ]
+                    result.retry_failed_ids = batch_ids
+
             # Map exercise IDs to names for enrichment
             id_to_name = {ex.get("id", ex.get("doc_id", "")): ex.get("name", "") for ex in exercises}
             

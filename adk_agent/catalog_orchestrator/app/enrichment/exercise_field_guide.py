@@ -73,6 +73,25 @@ SPECIALTY_EQUIPMENT: Set[str] = {
     "resistance-band",
 }
 
+# Equipment aliases: maps non-canonical forms to canonical.
+# Canonical form uses lowercase-hyphenated (e.g., "dip-belt").
+EQUIPMENT_ALIASES: Dict[str, str] = {
+    "dip_belt": "dip-belt",
+    "dip belt": "dip-belt",
+    "weight_plate": "plate",
+    "weight plate": "plate",
+    "weighted_vest": "weighted-vest",
+    "weighted vest": "weighted-vest",
+    "assisted_machine": "assisted-machine",
+    "assisted machine": "assisted-machine",
+    "parallel_bars": "dip-station",
+    "parallel bars": "dip-station",
+    "hyperextension_bench": "hyperextension-bench",
+    "hyperextension bench": "hyperextension-bench",
+    "weighted_plate": "plate",
+    "plates": "plate",
+}
+
 # -----------------------------------------------------------------------------
 # Categories
 # -----------------------------------------------------------------------------
@@ -170,7 +189,7 @@ PRIMARY_MUSCLES: List[str] = [
     # Chest
     "pectoralis major",
     "pectoralis minor",
-    
+
     # Back
     "latissimus dorsi",
     "trapezius",
@@ -178,56 +197,124 @@ PRIMARY_MUSCLES: List[str] = [
     "erector spinae",
     "teres major",
     "teres minor",
-    
+
     # Shoulders
     "anterior deltoid",
     "lateral deltoid",
     "posterior deltoid",
     "rotator cuff",
-    
+    "serratus anterior",
+
     # Arms
     "biceps",
     "triceps",
+    "biceps brachii",
+    "triceps brachii",
     "brachialis",
+    "brachioradialis",
     "forearms",
-    
+    "forearm flexors",
+    "forearm extensors",
+
     # Core
     "rectus abdominis",
     "obliques",
+    "internal obliques",
+    "external obliques",
     "transverse abdominis",
-    
+    "iliopsoas",
+    "quadratus lumborum",
+
     # Legs - Anterior
     "quadriceps",
     "hip flexors",
-    
+
     # Legs - Posterior
     "hamstrings",
     "glutes",
     "gluteus maximus",
     "gluteus medius",
+    "gluteus minimus",
 
     # Generic (when specific head isn't known)
     "deltoid",
-    
-    # Legs - Other
+
+    # Legs - Lower
     "calves",
+    "gastrocnemius",
+    "soleus",
     "adductors",
+    "adductor magnus",
     "abductors",
 ]
 
 # Simplified muscle names (acceptable alternatives)
 MUSCLE_ALIASES: Dict[str, str] = {
+    # Back
     "lats": "latissimus dorsi",
+    "latissimus-dorsi": "latissimus dorsi",
     "traps": "trapezius",
+    "middle traps": "trapezius",
+    "middle trapezius": "trapezius",
+    "upper trapezius": "trapezius",
+    "trapezius middle": "trapezius",
+    "trapezius (middle)": "trapezius",
+    "trapezius (middle & lower)": "trapezius",
+    "trapezius (middle and lower)": "trapezius",
+    "trapezius middle and lower": "trapezius",
+    "trapezius (mid and lower)": "trapezius",
+    "trapezius (upper & middle)": "trapezius",
+    # Shoulders
     "delts": "deltoid",
     "front delt": "anterior deltoid",
     "side delt": "lateral deltoid",
     "rear delt": "posterior deltoid",
+    "anterior deltoids": "anterior deltoid",
+    "rear deltoids": "posterior deltoid",
+    "posterior deltoids": "posterior deltoid",
+    "medial deltoid": "lateral deltoid",
+    "deltoids (anterior)": "anterior deltoid",
+    "deltoid (anterior)": "anterior deltoid",
+    "deltoid anterior": "anterior deltoid",
+    "deltoids anterior": "anterior deltoid",
+    "deltoid, anterior": "anterior deltoid",
+    "deltoids posterior": "posterior deltoid",
+    "deltoid posterior": "posterior deltoid",
+    "rear delts": "posterior deltoid",
+    "deltoids (anterior & medial)": "deltoid",
+    # Core
     "abs": "rectus abdominis",
+    # Legs
     "quads": "quadriceps",
+    "quadriceps femoris": "quadriceps",
+    "rectus femoris": "quadriceps",
     "hams": "hamstrings",
     "glute": "glutes",
+    # Chest
     "pecs": "pectoralis major",
+    "pectorals": "pectoralis major",
+    "pectorals major": "pectoralis major",
+    "upper chest": "pectoralis major",
+    "upper pectorals": "pectoralis major",
+    "pectorals (upper)": "pectoralis major",
+    "chest (upper)": "pectoralis major",
+    "pectoralis major (upper)": "pectoralis major",
+    "pectoralis major upper": "pectoralis major",
+    "pectoralis major (clavicular head)": "pectoralis major",
+    "pectoralis major clavicular head": "pectoralis major",
+    "pectoralis major clavicular": "pectoralis major",
+    "clavicular head of pectoralis major": "pectoralis major",
+    "pectoralis major (sternal head)": "pectoralis major",
+    # Arms
+    "biceps-brachii": "biceps brachii",
+    "teres-major": "teres major",
+    "wrist extensors": "forearm extensors",
+    "wrist flexors": "forearm flexors",
+    "extensor carpi radialis longus": "forearm extensors",
+    "extensor carpi radialis brevis": "forearm extensors",
+    "extensor carpi ulnaris": "forearm extensors",
+    # Generic
+    "shoulders": "deltoid",
 }
 
 
@@ -578,6 +665,62 @@ Respond with a JSON object: {"muscle name": 0.XX, ...}""",
     # Enrichment Array Fields
     # -------------------------------------------------------------------------
 
+    "execution_notes": FieldSpec(
+        name="execution_notes",
+        field_path="execution_notes",
+        field_type="array[string]",
+        required=True,
+        enrichable=True,
+        min_length=3,
+        max_length=6,
+        description="""
+        Step-by-step execution cues for performing the exercise safely.
+        Each item is a standalone plain text instruction.
+        No markdown, no step prefixes, no bullet markers — the array IS the list.
+        Use second person ("Keep your back straight").
+        """,
+        good_example=[
+            "Keep your knees tracking over your toes throughout the movement",
+            "Maintain a neutral spine and avoid rounding your lower back",
+            "Breathe in at the top, hold during descent, exhale as you drive up",
+        ],
+        bad_example=[
+            "**Step 1:** Keep your knees tracking over your toes",
+            "1. Maintain a neutral spine",
+        ],
+        enrichment_prompt="""What are the key execution cues for this exercise?
+Provide 3-6 plain text instructions. No markdown, no step numbers, no bullet markers.
+Each item should be a complete, standalone instruction in second person.
+Respond with a JSON array of strings.""",
+    ),
+
+    "common_mistakes": FieldSpec(
+        name="common_mistakes",
+        field_path="common_mistakes",
+        field_type="array[string]",
+        required=True,
+        enrichable=True,
+        min_length=2,
+        max_length=5,
+        description="""
+        Common form mistakes or errors people make with this exercise.
+        Each item is a standalone plain text description of one mistake.
+        No markdown, no step prefixes, no bullet markers.
+        """,
+        good_example=[
+            "Knees caving inward during the lift",
+            "Rounding the lower back at the bottom",
+            "Rising onto toes instead of driving through heels",
+        ],
+        bad_example=[
+            "**1.** Knees caving inward",
+            "- Rounding the lower back",
+        ],
+        enrichment_prompt="""What are common mistakes people make with this exercise?
+Provide 2-5 plain text descriptions. No markdown, no numbers, no bullet markers.
+Respond with a JSON array of strings.""",
+    ),
+
     "stimulus_tags": FieldSpec(
         name="stimulus_tags",
         field_path="stimulus_tags",
@@ -697,10 +840,12 @@ push, pull, hinge, squat, carry, rotation, flexion, extension, abduction, adduct
 ### movement.split (pick exactly one):
 upper, lower, full_body, core
 
-### equipment (array, pick from):
+### equipment (array, common types include):
 barbell, dumbbell, kettlebell, ez-bar, trap-bar, machine, cable, smith-machine,
 bodyweight, pull-up-bar, dip-station, suspension-trainer, resistance-band,
 medicine-ball, stability-ball, treadmill, rowing-machine, bike, elliptical
+Use lowercase, hyphenated for multi-word. If the exercise uses equipment not in this list,
+use a descriptive name following the same format (e.g., "landmine", "sled", "foam-roller").
 
 ### muscles (use lowercase, spaces not underscores):
 pectoralis major, latissimus dorsi, trapezius, anterior deltoid, lateral deltoid,
@@ -1186,6 +1331,7 @@ __all__ = [
     "EQUIPMENT_TYPES",
     "COMMON_EQUIPMENT",
     "SPECIALTY_EQUIPMENT",
+    "EQUIPMENT_ALIASES",
     "CATEGORIES",
     "DIFFICULTY_LEVELS",
     "MOVEMENT_TYPES",

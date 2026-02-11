@@ -165,7 +165,8 @@ def filter_exercises_for_review(
         if scanner_version:
             # Tier 1 has scanned this exercise - check the flag
             needs_full_review = review_meta.get("needs_full_review", False)
-            if needs_full_review:
+            needs_retry = review_meta.get("needs_retry", False)
+            if needs_full_review or needs_retry:
                 needs_review.append(ex)
             else:
                 skipped_not_flagged += 1
@@ -200,6 +201,7 @@ def save_review_metadata(
     db,
     decisions: List[ExerciseDecision],
     dry_run: bool = True,
+    retry_failed_ids: Optional[List[str]] = None,
 ) -> Dict[str, int]:
     """
     Save review metadata back to Firestore using batched writes.
@@ -211,10 +213,14 @@ def save_review_metadata(
     - review_metadata.needs_review: False (reviewed) or True (needs action)
     - review_metadata.needs_full_review: False (reviewed by Pro)
 
+    For exercises in retry_failed_ids (batch returned 0 decisions twice),
+    sets review_metadata.needs_retry = True so the next run picks them up.
+
     Args:
         db: Firestore client
         decisions: List of ExerciseDecision from review
         dry_run: If True, don't actually update Firestore
+        retry_failed_ids: Exercise IDs that failed batch retry
 
     Returns:
         Summary of updates made
@@ -222,6 +228,8 @@ def save_review_metadata(
     if not db:
         logger.warning("No Firestore client - cannot save review metadata")
         return {"updated": 0, "errors": 0}
+
+    retry_set = set(retry_failed_ids) if retry_failed_ids else set()
 
     updated = 0
     errors = 0
@@ -287,6 +295,33 @@ def save_review_metadata(
                 errors += batch_count
                 updated -= batch_count
 
+        # Mark retry-failed exercises so the next review run picks them up
+        if retry_set:
+            retry_batch = db.batch()
+            retry_count = 0
+            for eid in retry_set:
+                doc_ref = db.collection("exercises").document(eid)
+                retry_batch.update(doc_ref, {
+                    "review_metadata.needs_retry": True,
+                    "review_metadata.needs_full_review": True,
+                })
+                retry_count += 1
+                if retry_count >= 400:
+                    try:
+                        retry_batch.commit()
+                    except Exception as e:
+                        logger.warning("Retry metadata batch commit failed: %s", e)
+                    retry_batch = db.batch()
+                    retry_count = 0
+            if retry_count > 0:
+                try:
+                    retry_batch.commit()
+                except Exception as e:
+                    logger.warning("Retry metadata final commit failed: %s", e)
+            logger.info(
+                "Marked %d exercises with needs_retry=True", len(retry_set)
+            )
+
     logger.info(
         "Review metadata: updated=%d, errors=%d, dry_run=%s",
         updated,
@@ -295,6 +330,26 @@ def save_review_metadata(
     )
 
     return {"updated": updated, "errors": errors}
+
+
+def _find_active_exercise_by_name(db, name: str, exclude_id: str):
+    """Query exercises for an active exercise with the given name, excluding exclude_id."""
+    if not db or not name:
+        return None
+    try:
+        docs = list(
+            db.collection("exercises")
+            .where("name", "==", name)
+            .where("status", "==", "approved")
+            .limit(2)
+            .stream()
+        )
+        for doc in docs:
+            if doc.id != exclude_id:
+                return doc
+    except Exception as e:
+        logger.debug("Name collision check failed: %s", e)
+    return None
 
 
 def create_jobs_from_decisions(
@@ -376,23 +431,55 @@ def create_jobs_from_decisions(
                         jobs_created["enrich"].append(job_info)
                         
                     elif decision.decision == "FIX_IDENTITY":
-                        # FIX_IDENTITY -> TARGETED_FIX (not FAMILY_NORMALIZE)
-                        # TARGETED_FIX handles individual exercise fixes
-                        job = create_job(
-                            job_type=JobType.TARGETED_FIX,
-                            queue=JobQueue.PRIORITY,
-                            priority=70,
-                            mode=job_mode,
-                            family_slug=family_slug or None,
-                            exercise_doc_ids=[decision.exercise_id],
-                            enrichment_spec={
-                                "type": "fix_identity",
-                                "fix_details": decision.fix_details,
-                                "reason": decision.reasoning,
-                            },
-                        )
-                        job_info["job_id"] = job.id
-                        jobs_created["fixidentity"].append(job_info)
+                        # Check if renaming would create a name collision
+                        fix_data = decision.fix_details or {}
+                        new_name = fix_data.get("name")
+                        collision = None
+                        if new_name and not dry_run:
+                            collision = _find_active_exercise_by_name(
+                                _get_firestore_client(), new_name, decision.exercise_id
+                            )
+
+                        if collision:
+                            # Convert to merge instead of rename
+                            logger.info(
+                                "FIX_IDENTITY -> MERGE: '%s' already exists as %s",
+                                new_name, collision.id,
+                            )
+                            job = create_job(
+                                job_type=JobType.TARGETED_FIX,
+                                queue=JobQueue.PRIORITY,
+                                priority=60,
+                                mode=job_mode,
+                                exercise_doc_ids=[decision.exercise_id],
+                                enrichment_spec={
+                                    "type": "merge_candidate",
+                                    "merge_into": collision.id,
+                                    "reason": (
+                                        f"Rename to '{new_name}' would duplicate "
+                                        f"{collision.id}"
+                                    ),
+                                },
+                            )
+                            job_info["job_id"] = job.id
+                            jobs_created["merge"].append(job_info)
+                        else:
+                            # Normal FIX_IDENTITY -> TARGETED_FIX
+                            job = create_job(
+                                job_type=JobType.TARGETED_FIX,
+                                queue=JobQueue.PRIORITY,
+                                priority=70,
+                                mode=job_mode,
+                                family_slug=family_slug or None,
+                                exercise_doc_ids=[decision.exercise_id],
+                                enrichment_spec={
+                                    "type": "fix_identity",
+                                    "fix_details": decision.fix_details,
+                                    "reason": decision.reasoning,
+                                },
+                            )
+                            job_info["job_id"] = job.id
+                            jobs_created["fixidentity"].append(job_info)
                         
                     elif decision.decision == "ARCHIVE":
                         job = create_job(
@@ -557,10 +644,15 @@ def run_scheduled_review(
 
     # V1.3: Save review metadata back to Firestore (quality scores, timestamps)
     all_decisions = []
+    retry_failed_ids = []
     for batch in batch_results:
         all_decisions.extend(batch.decisions)
+        retry_failed_ids.extend(batch.retry_failed_ids)
 
-    metadata_result = save_review_metadata(db, all_decisions, dry_run=dry_run)
+    metadata_result = save_review_metadata(
+        db, all_decisions, dry_run=dry_run,
+        retry_failed_ids=retry_failed_ids,
+    )
 
     end_time = datetime.now(timezone.utc)
     duration_secs = (end_time - start_time).total_seconds()

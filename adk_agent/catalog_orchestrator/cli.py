@@ -753,6 +753,7 @@ def change_details(change_id: str):
 @click.option("--max-jobs", default=100, type=int, help="Max jobs to create")
 @click.option("--dry-run/--apply", default=True, help="Dry-run mode (default: True)")
 @click.option("--skip-gap-analysis", is_flag=True, help="Skip equipment gap analysis")
+@click.option("--force-review", is_flag=True, help="Force review all exercises (ignore quality filter)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 def run_review_cmd(
     max_exercises: int,
@@ -760,6 +761,7 @@ def run_review_cmd(
     max_jobs: int,
     dry_run: bool,
     skip_gap_analysis: bool,
+    force_review: bool,
     verbose: bool,
 ):
     """
@@ -795,14 +797,16 @@ def run_review_cmd(
     click.echo(f"  Max jobs:        {max_jobs}")
     click.echo(f"  Dry-run:         {dry_run}")
     click.echo(f"  Gap analysis:    {not skip_gap_analysis}")
+    click.echo(f"  Force review:    {force_review}")
     click.echo()
-    
+
     summary = run_scheduled_review(
         max_exercises=max_exercises,
         batch_size=batch_size,
         max_jobs=max_jobs,
         dry_run=dry_run,
         run_gap_analysis=not skip_gap_analysis,
+        force_review=force_review,
     )
     
     click.echo("\n" + "=" * 60)
@@ -1126,6 +1130,346 @@ def daily_summary_cmd(date: Optional[str]):
         click.echo("\nBy Mode:")
         for mode, count in sorted(by_mode.items()):
             click.echo(f"  {mode}: {count}")
+
+
+# =============================================================================
+# NORMALIZE CATALOG (One-Time Deterministic Fix)
+# =============================================================================
+
+@cli.command("normalize-catalog")
+@click.option("--dry-run/--apply", default=True, help="Dry-run mode (default: True)")
+@click.option("--field", help="Normalize only this field type (e.g., execution_notes)")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+def normalize_catalog_cmd(dry_run: bool, field: Optional[str], verbose: bool):
+    """
+    Apply deterministic normalization across all exercises — no LLM calls.
+
+    Fixes:
+    - Content arrays: strips markdown prefixes, numbered prefixes, bullet markers
+    - Muscle names: resolves aliases (lats->latissimus dorsi, etc.)
+    - Muscle contribution keys: resolves aliases
+
+    Examples:
+        python cli.py normalize-catalog --dry-run -v    # Preview all changes
+        python cli.py normalize-catalog --apply          # Apply to Firestore
+        python cli.py normalize-catalog --field execution_notes --dry-run -v
+    """
+    import logging
+
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    from google.cloud import firestore
+    from app.enrichment.engine import (
+        _normalize_content_array,
+        _normalize_equipment,
+        _normalize_muscle_names,
+        _resolve_muscle_aliases,
+        _normalize_contribution_map,
+        _normalize_movement_type,
+        _normalize_movement_split,
+        _normalize_category,
+    )
+
+    db = firestore.Client()
+
+    click.echo(f"Fetching all exercises from Firestore...")
+    exercises = list(db.collection("exercises").stream())
+    click.echo(f"  Found {len(exercises)} exercises")
+
+    content_fields = ["execution_notes", "common_mistakes",
+                      "suitability_notes", "programming_use_cases"]
+    muscle_array_fields = ["primary", "secondary"]
+
+    normalize_movement = True
+    normalize_category = True
+    normalize_equip = True
+
+    # If --field is specified, restrict to that field
+    if field:
+        normalize_movement = False
+        normalize_category = False
+        normalize_equip = False
+        if field in content_fields:
+            content_fields = [field]
+            muscle_array_fields = []
+        elif field in ("muscles.primary", "muscles.secondary"):
+            content_fields = []
+            muscle_array_fields = [field.split(".")[-1]]
+        elif field == "muscles.contribution":
+            content_fields = []
+            muscle_array_fields = []
+        elif field == "movement.type":
+            content_fields = []
+            muscle_array_fields = []
+            normalize_movement = True
+        elif field == "category":
+            content_fields = []
+            muscle_array_fields = []
+            normalize_category = True
+        elif field == "equipment":
+            content_fields = []
+            muscle_array_fields = []
+            normalize_equip = True
+        else:
+            click.echo(click.style(
+                f"Unknown field: {field}. Valid: execution_notes, "
+                "common_mistakes, suitability_notes, "
+                "programming_use_cases, muscles.primary, "
+                "muscles.secondary, muscles.contribution, "
+                "movement.type, category, equipment", fg="red"
+            ), err=True)
+            sys.exit(1)
+
+    total_changed = 0
+    total_fields_changed = 0
+    batch = db.batch() if not dry_run else None
+    batch_count = 0
+
+    for doc in exercises:
+        data = doc.to_dict()
+        exercise_name = data.get("name", doc.id)
+        updates = {}
+
+        # Normalize content arrays (accept both list and string)
+        for cf in content_fields:
+            original = data.get(cf)
+            if original and isinstance(original, (list, str)):
+                normalized = _normalize_content_array(original)
+                if normalized != original:
+                    updates[cf] = normalized
+
+        # Normalize muscle arrays
+        muscles = data.get("muscles") or {}
+        for mf in muscle_array_fields:
+            original = muscles.get(mf)
+            if isinstance(original, list) and original:
+                normalized = _resolve_muscle_aliases(
+                    _normalize_muscle_names(original)
+                )
+                if normalized != original:
+                    updates[f"muscles.{mf}"] = normalized
+
+        # Normalize contribution map (always if not restricted to a different field)
+        if not field or field == "muscles.contribution":
+            contribution = muscles.get("contribution")
+            if isinstance(contribution, dict) and contribution:
+                normalized = _normalize_contribution_map(contribution)
+                if normalized != contribution:
+                    updates["muscles.contribution"] = normalized
+
+        # Normalize movement type and split
+        if normalize_movement:
+            movement = data.get("movement") or {}
+            mt = movement.get("type")
+            if mt:
+                normalized_mt = _normalize_movement_type(mt)
+                if normalized_mt and normalized_mt != mt:
+                    updates["movement.type"] = normalized_mt
+            ms = movement.get("split")
+            if ms:
+                normalized_ms = _normalize_movement_split(ms)
+                if normalized_ms and normalized_ms != ms:
+                    updates["movement.split"] = normalized_ms
+
+        # Normalize category
+        if normalize_category:
+            cat = data.get("category")
+            if cat:
+                normalized_cat = _normalize_category(cat)
+                if normalized_cat != cat:
+                    updates["category"] = normalized_cat
+
+        # Normalize equipment
+        if normalize_equip:
+            equip = data.get("equipment")
+            if isinstance(equip, list) and equip:
+                normalized_equip = _normalize_equipment(equip)
+                if normalized_equip != equip:
+                    updates["equipment"] = normalized_equip
+
+        if updates:
+            total_changed += 1
+            total_fields_changed += len(updates)
+
+            if verbose:
+                click.echo(f"\n  {exercise_name}:")
+                for fp, new_val in updates.items():
+                    old_val = data.get(fp) if "." not in fp else (
+                        (data.get(fp.split(".")[0]) or {}).get(fp.split(".")[1])
+                    )
+                    click.echo(f"    {fp}:")
+                    click.echo(f"      old: {old_val}")
+                    click.echo(f"      new: {new_val}")
+
+            if not dry_run:
+                doc_ref = db.collection("exercises").document(doc.id)
+                batch.update(doc_ref, updates)
+                batch_count += 1
+
+                # Commit every 400 operations
+                if batch_count >= 400:
+                    batch.commit()
+                    click.echo(f"  Committed batch of {batch_count} updates")
+                    batch = db.batch()
+                    batch_count = 0
+
+    # Final batch commit
+    if not dry_run and batch_count > 0:
+        batch.commit()
+        click.echo(f"  Committed final batch of {batch_count} updates")
+
+    click.echo(f"\n{'=' * 50}")
+    click.echo(f"NORMALIZATION SUMMARY")
+    click.echo(f"{'=' * 50}")
+    click.echo(f"  Total exercises:      {len(exercises)}")
+    click.echo(f"  Exercises changed:    {total_changed}")
+    click.echo(f"  Total field changes:  {total_fields_changed}")
+
+    if dry_run:
+        click.echo(click.style(
+            "\nDry-run mode: No changes applied", fg="yellow"
+        ))
+        click.echo("  Run with --apply to write changes to Firestore")
+    else:
+        click.echo(click.style(
+            f"\nApplied {total_fields_changed} changes to {total_changed} exercises",
+            fg="green",
+        ))
+
+
+# =============================================================================
+# DEDUP CATALOG (Deterministic Name-Matching Merge)
+# =============================================================================
+
+@cli.command("dedup-catalog")
+@click.option("--dry-run/--apply", default=True, help="Dry-run mode (default: True)")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+def dedup_catalog_cmd(dry_run: bool, verbose: bool):
+    """
+    Merge duplicate exercises with identical names.
+
+    Deterministic: groups exercises by normalized name, picks the richest
+    as canonical, marks the rest as merged. Safe because identical names
+    are true duplicates (the LLM already made semantic judgments).
+
+    Canonical selection: most execution_notes -> longest description
+    -> first alphabetically by doc ID.
+
+    Examples:
+        python cli.py dedup-catalog --dry-run -v   # Preview duplicate groups
+        python cli.py dedup-catalog --apply         # Execute merges
+    """
+    import logging
+    from collections import defaultdict
+
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+
+    from google.cloud import firestore
+
+    db = firestore.Client()
+
+    click.echo("Fetching exercises from Firestore...")
+    all_docs = list(db.collection("exercises").stream())
+    click.echo(f"  Found {len(all_docs)} exercises")
+
+    # Group by normalized name, excluding merged/deprecated
+    groups = defaultdict(list)
+    for doc in all_docs:
+        data = doc.to_dict()
+        status = data.get("status", "approved")
+        if status in ("merged", "deprecated"):
+            continue
+        name = (data.get("name") or "").strip().lower()
+        if name:
+            groups[name].append((doc.id, data))
+
+    # Filter to groups with 2+ exercises
+    dup_groups = {name: members for name, members in groups.items()
+                  if len(members) >= 2}
+
+    if not dup_groups:
+        click.echo("\nNo duplicate groups found.")
+        return
+
+    click.echo(f"\nFound {len(dup_groups)} duplicate groups "
+               f"({sum(len(m) for m in dup_groups.values())} total exercises)")
+
+    total_merged = 0
+    batch = db.batch() if not dry_run else None
+    batch_count = 0
+
+    for name, members in sorted(dup_groups.items()):
+        # Pick canonical: most execution_notes -> longest description -> first ID
+        def score(item):
+            doc_id, data = item
+            notes = data.get("execution_notes") or []
+            notes_count = len(notes) if isinstance(notes, list) else 0
+            desc_len = len(data.get("description") or "")
+            return (notes_count, desc_len, doc_id)
+
+        ranked = sorted(members, key=score, reverse=True)
+        canonical_id, canonical_data = ranked[0]
+        duplicates = ranked[1:]
+
+        if verbose:
+            click.echo(f"\n  Group: \"{canonical_data.get('name', name)}\"")
+            click.echo(f"    Canonical: {canonical_id} "
+                       f"(notes={len(canonical_data.get('execution_notes') or [])}, "
+                       f"desc={len(canonical_data.get('description') or '')} chars)")
+            for dup_id, dup_data in duplicates:
+                click.echo(f"    Duplicate: {dup_id} -> merge into {canonical_id}")
+
+        for dup_id, _dup_data in duplicates:
+            total_merged += 1
+            if not dry_run:
+                doc_ref = db.collection("exercises").document(dup_id)
+                batch.update(doc_ref, {
+                    "status": "merged",
+                    "merged_into": canonical_id,
+                })
+                batch_count += 1
+
+                if batch_count >= 400:
+                    batch.commit()
+                    click.echo(f"  Committed batch of {batch_count} merges")
+                    batch = db.batch()
+                    batch_count = 0
+
+    # Final commit
+    if not dry_run and batch_count > 0:
+        batch.commit()
+        click.echo(f"  Committed final batch of {batch_count} merges")
+
+    active_remaining = sum(
+        1 for doc in all_docs
+        if (doc.to_dict().get("status", "approved") not in ("merged", "deprecated"))
+    ) - total_merged
+
+    click.echo(f"\n{'=' * 50}")
+    click.echo("DEDUP SUMMARY")
+    click.echo(f"{'=' * 50}")
+    click.echo(f"  Duplicate groups:    {len(dup_groups)}")
+    click.echo(f"  Exercises merged:    {total_merged}")
+    click.echo(f"  Active remaining:    ~{active_remaining}")
+
+    if dry_run:
+        click.echo(click.style(
+            "\nDry-run mode: No changes applied", fg="yellow",
+        ))
+        click.echo("  Run with --apply to merge duplicates")
+    else:
+        click.echo(click.style(
+            f"\nMerged {total_merged} exercises across {len(dup_groups)} groups",
+            fg="green",
+        ))
 
 
 if __name__ == "__main__":

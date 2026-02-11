@@ -972,7 +972,33 @@ class JobExecutor:
                 continue
             
             results_summary["succeeded"] += 1
-            
+
+            # Post-enrichment scanner check (observability only)
+            try:
+                from app.reviewer.quality_scanner import heuristic_score_exercise
+                # Merge changes into exercise copy to simulate the updated doc
+                updated_exercise = dict(exercise)
+                for key, val in changes.items():
+                    if "." in key:
+                        parts = key.split(".", 1)
+                        if parts[0] not in updated_exercise or not isinstance(
+                            updated_exercise.get(parts[0]), dict
+                        ):
+                            updated_exercise[parts[0]] = {}
+                        updated_exercise[parts[0]][parts[1]] = val
+                    else:
+                        updated_exercise[key] = val
+                scanner_result = heuristic_score_exercise(updated_exercise)
+                if not scanner_result:
+                    logger.warning(
+                        "Exercise %s still fails scanner after enrichment",
+                        exercise_id,
+                    )
+                    results_summary.setdefault("scanner_fail", 0)
+                    results_summary["scanner_fail"] += 1
+            except Exception as scan_err:
+                logger.debug("Scanner check skipped for %s: %s", exercise_id, scan_err)
+
             # Build PATCH_FIELDS operation with FLAT dotted paths
             # The changes dict is already in flat format: {"muscles.primary": [...], ...}
             operations.append(Operation(
@@ -983,7 +1009,7 @@ class JobExecutor:
                 risk_level=RiskLevel.LOW,
                 idempotency_key_seed=f"holistic_{spec_id}_{spec_version}_{exercise_id}",
             ))
-            
+
             logger.info(
                 "Holistic enrichment for %s: %d field changes",
                 exercise_id, len(changes)

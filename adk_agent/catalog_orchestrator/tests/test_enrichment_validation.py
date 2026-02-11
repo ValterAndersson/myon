@@ -11,6 +11,9 @@ from app.enrichment.engine import (
     _normalize_category,
     _normalize_movement_type,
     _normalize_movement_split,
+    _normalize_content_array,
+    _resolve_muscle_aliases,
+    _normalize_contribution_map,
 )
 from app.enrichment.exercise_field_guide import (
     CATEGORIES,
@@ -156,17 +159,19 @@ class TestValidateNormalizedOutput:
         )
         assert result["equipment"] == ["barbell", "dumbbell"]
 
-    def test_drops_invalid_equipment_values(self):
+    def test_keeps_nonstandard_equipment_values(self):
+        """Non-standard equipment is kept (warn-only) — LLM-guided, not list-based."""
         result = validate_normalized_output(
             {"equipment": ["barbell", "magic-wand"]}
         )
-        assert result["equipment"] == ["barbell"]
+        assert result["equipment"] == ["barbell", "magic-wand"]
 
-    def test_drops_equipment_key_if_all_invalid(self):
+    def test_keeps_all_nonstandard_equipment(self):
+        """Even fully non-standard equipment is kept — validation is warn-only."""
         result = validate_normalized_output(
             {"equipment": ["magic-wand", "unicorn"]}
         )
-        assert "equipment" not in result
+        assert result["equipment"] == ["magic-wand", "unicorn"]
 
     def test_keeps_muscle_names_with_warning(self):
         """Muscle names warn but don't drop — LLM may produce valid names not in our list."""
@@ -467,3 +472,234 @@ class TestNormalizeMovementSplit:
     def test_case_insensitive(self):
         assert _normalize_movement_split("UPPER") == "upper"
         assert _normalize_movement_split("Full Body") == "full_body"
+
+
+# =============================================================================
+# _normalize_content_array tests
+# =============================================================================
+
+
+class TestNormalizeContentArray:
+    """Tests for content array normalization (strips formatting artifacts)."""
+
+    def test_strips_bold_step_prefix(self):
+        result = _normalize_content_array(
+            ["**Step 1:** Keep your knees straight"]
+        )
+        assert result == ["Keep your knees straight"]
+
+    def test_strips_bold_step_prefix_no_colon(self):
+        result = _normalize_content_array(
+            ["**Step 2** Maintain neutral spine"]
+        )
+        assert result == ["Maintain neutral spine"]
+
+    def test_strips_bold_label_prefix(self):
+        """Real production pattern: **Setup:** content, **Descent:** content."""
+        result = _normalize_content_array([
+            "**Setup:** Position yourself on the bench",
+            "**Descent:** Lower the bar to your chest",
+            "**Ascent:** Press the bar back up",
+        ])
+        assert result == [
+            "Position yourself on the bench",
+            "Lower the bar to your chest",
+            "Press the bar back up",
+        ]
+
+    def test_strips_bold_label_with_parens(self):
+        """Real pattern: **The Catch (Front Rack):** content."""
+        result = _normalize_content_array(
+            ["**The Catch (Front Rack):** Shrug and pull under the bar"]
+        )
+        assert result == ["Shrug and pull under the bar"]
+
+    def test_strips_numbered_dot_prefix(self):
+        result = _normalize_content_array(["1. Maintain a neutral spine"])
+        assert result == ["Maintain a neutral spine"]
+
+    def test_strips_numbered_paren_prefix(self):
+        result = _normalize_content_array(["2) Another instruction"])
+        assert result == ["Another instruction"]
+
+    def test_strips_dash_bullet(self):
+        result = _normalize_content_array(["- Breathe in at the top"])
+        assert result == ["Breathe in at the top"]
+
+    def test_strips_asterisk_bullet(self):
+        result = _normalize_content_array(["* Hold during descent"])
+        assert result == ["Hold during descent"]
+
+    def test_strips_bold_only_item(self):
+        """An item that is nothing but a bold label has no content — filtered out."""
+        result = _normalize_content_array(["**Bold wrapper only**"])
+        assert result == []
+
+    def test_keeps_clean_text(self):
+        items = [
+            "Keep your knees tracking over your toes",
+            "Maintain a neutral spine",
+        ]
+        result = _normalize_content_array(items)
+        assert result == items
+
+    def test_filters_empty_items(self):
+        result = _normalize_content_array(["Valid text", "", "  "])
+        assert result == ["Valid text"]
+
+    def test_deduplicates(self):
+        result = _normalize_content_array(["Same text", "Same text"])
+        assert result == ["Same text"]
+
+    def test_handles_non_list_input(self):
+        # Non-list, non-string input passes through unchanged
+        assert _normalize_content_array(42) == 42
+
+    def test_coerces_string_to_list(self):
+        # Strings are split into sentences (>10 chars kept)
+        result = _normalize_content_array(
+            "Keep your back straight. Drive through heels."
+        )
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert "Keep your back straight" in result[0]
+
+    def test_handles_non_string_items(self):
+        result = _normalize_content_array([123, "Valid text", None])
+        assert result == ["Valid text"]
+
+    def test_strips_unicode_bullet(self):
+        result = _normalize_content_array(["\u2022 Bullet point"])
+        assert result == ["Bullet point"]
+
+
+# =============================================================================
+# _resolve_muscle_aliases tests
+# =============================================================================
+
+
+class TestResolveMuscleAliases:
+    """Tests for muscle alias resolution."""
+
+    def test_resolves_lats(self):
+        assert _resolve_muscle_aliases(["lats"]) == ["latissimus dorsi"]
+
+    def test_resolves_traps(self):
+        assert _resolve_muscle_aliases(["traps"]) == ["trapezius"]
+
+    def test_resolves_quads(self):
+        assert _resolve_muscle_aliases(["quads"]) == ["quadriceps"]
+
+    def test_resolves_abs(self):
+        assert _resolve_muscle_aliases(["abs"]) == ["rectus abdominis"]
+
+    def test_resolves_pecs(self):
+        assert _resolve_muscle_aliases(["pecs"]) == ["pectoralis major"]
+
+    def test_resolves_front_delt(self):
+        assert _resolve_muscle_aliases(["front delt"]) == ["anterior deltoid"]
+
+    def test_resolves_rear_delt(self):
+        assert _resolve_muscle_aliases(["rear delt"]) == ["posterior deltoid"]
+
+    def test_resolves_hams(self):
+        assert _resolve_muscle_aliases(["hams"]) == ["hamstrings"]
+
+    def test_keeps_canonical_names(self):
+        canonical = ["quadriceps", "hamstrings", "glutes"]
+        assert _resolve_muscle_aliases(canonical) == canonical
+
+    def test_mixed_aliases_and_canonical(self):
+        result = _resolve_muscle_aliases(["lats", "biceps", "traps"])
+        assert result == ["latissimus dorsi", "biceps", "trapezius"]
+
+    def test_deduplicates_after_resolution(self):
+        result = _resolve_muscle_aliases(["lats", "latissimus dorsi"])
+        assert result == ["latissimus dorsi"]
+
+    def test_handles_non_list_input(self):
+        assert _resolve_muscle_aliases("not a list") == "not a list"
+
+
+# =============================================================================
+# _normalize_contribution_map alias resolution tests
+# =============================================================================
+
+
+class TestContributionMapAliasResolution:
+    """Tests for alias resolution in contribution maps."""
+
+    def test_resolves_aliases_in_keys(self):
+        result = _normalize_contribution_map(
+            {"lats": 0.45, "biceps": 0.25, "traps": 0.30}
+        )
+        assert "latissimus dorsi" in result
+        assert "trapezius" in result
+        assert result["latissimus dorsi"] == 0.45
+
+    def test_sums_duplicate_keys_after_alias(self):
+        """If alias resolution produces duplicate keys, values should sum."""
+        result = _normalize_contribution_map(
+            {"lats": 0.3, "latissimus dorsi": 0.2}
+        )
+        # 'lats' maps to 'latissimus dorsi', so 0.3 + 0.2 = 0.5
+        assert abs(result["latissimus dorsi"] - 0.5) < 0.001
+
+    def test_underscore_normalization_plus_alias(self):
+        result = _normalize_contribution_map(
+            {"gluteus_maximus": 0.5, "quads": 0.5}
+        )
+        assert "gluteus maximus" in result
+        assert "quadriceps" in result
+
+
+# =============================================================================
+# Pipeline tests for new normalization steps
+# =============================================================================
+
+
+class TestPipelineContentNormalization:
+    """Test that content arrays are normalized through the full pipeline."""
+
+    def test_pipeline_strips_markdown_from_execution_notes(self):
+        raw = {
+            "execution_notes": [
+                "**Step 1:** Keep back straight",
+                "2. Drive through heels",
+                "- Breathe steadily",
+            ],
+        }
+        result = normalize_enrichment_output(raw)
+        assert result["execution_notes"] == [
+            "Keep back straight",
+            "Drive through heels",
+            "Breathe steadily",
+        ]
+
+    def test_pipeline_strips_markdown_from_common_mistakes(self):
+        raw = {
+            "common_mistakes": [
+                "1. Rounding the back",
+                "**2.** Knees caving inward",
+            ],
+        }
+        result = normalize_enrichment_output(raw)
+        assert result["common_mistakes"] == [
+            "Rounding the back",
+            "Knees caving inward",
+        ]
+
+    def test_pipeline_resolves_muscle_aliases(self):
+        raw = {"muscles.primary": ["lats", "traps"]}
+        result = normalize_enrichment_output(raw)
+        assert result["muscles.primary"] == [
+            "latissimus dorsi", "trapezius"
+        ]
+
+    def test_pipeline_resolves_aliases_and_normalizes(self):
+        """Full pipeline: underscore removal + lowercase + alias resolution."""
+        raw = {"muscles.primary": ["Gluteus_Maximus", "QUADS"]}
+        result = normalize_enrichment_output(raw)
+        assert result["muscles.primary"] == [
+            "gluteus maximus", "quadriceps"
+        ]

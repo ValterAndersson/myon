@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -63,10 +64,12 @@ from app.enrichment.validators import validate_enrichment_output, parse_llm_resp
 from app.enrichment.exercise_field_guide import (
     CANONICAL_ENUM_VALUES,
     CATEGORIES,
+    EQUIPMENT_ALIASES,
     FIELD_SPECS,
     GOLDEN_EXAMPLES,
     MOVEMENT_SPLITS,
     MOVEMENT_TYPES,
+    MUSCLE_ALIASES,
     NAMING_TAXONOMY,
     get_field_spec,
     get_enrichable_fields,
@@ -863,22 +866,25 @@ def _build_holistic_enrichment_prompt(
         WHAT_GOOD_LOOKS_LIKE,
         INSTRUCTIONS_GUIDANCE,
         MUSCLE_MAPPING_GUIDANCE,
+        CONTENT_FORMAT_RULES,
     )
-    
+
     # Get a golden example for reference
     example = _get_relevant_golden_example(exercise, "instructions")
     example_json = json.dumps(example, indent=2) if example else "N/A"
-    
+
     # Format current exercise data (exclude timestamps and internal fields)
-    display_exercise = {k: v for k, v in exercise.items() 
+    display_exercise = {k: v for k, v in exercise.items()
                        if k not in {"created_at", "updated_at", "doc_id", "id", "_debug_project_id"}}
     exercise_json = json.dumps(display_exercise, indent=2, default=str)
-    
+
     prompt = f"""{WHAT_GOOD_LOOKS_LIKE}
 
 {INSTRUCTIONS_GUIDANCE}
 
 {MUSCLE_MAPPING_GUIDANCE}
+
+{CONTENT_FORMAT_RULES}
 
 {CANONICAL_ENUM_VALUES}
 
@@ -1006,7 +1012,6 @@ def _parse_holistic_response(raw_response: str) -> Dict[str, Any]:
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse holistic response: %s", e)
         # Try to extract JSON from the response
-        import re
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
             try:
@@ -1048,7 +1053,9 @@ def normalize_enrichment_output(changes: Dict[str, Any]) -> Dict[str, Any]:
 
         # Normalize muscle arrays
         if field_path in ("muscles.primary", "muscles.secondary"):
-            normalized[field_path] = _normalize_muscle_names(value)
+            normalized[field_path] = _resolve_muscle_aliases(
+                _normalize_muscle_names(value)
+            )
 
         # Normalize muscle contribution map
         elif field_path == "muscles.contribution":
@@ -1075,10 +1082,38 @@ def normalize_enrichment_output(changes: Dict[str, Any]) -> Dict[str, Any]:
             if result:
                 normalized[field_path] = result
 
+        # Normalize equipment
+        elif field_path == "equipment":
+            normalized[field_path] = _normalize_equipment(value)
+
+        # Normalize content arrays
+        elif field_path in (
+            "execution_notes", "common_mistakes",
+            "suitability_notes", "programming_use_cases",
+        ):
+            normalized[field_path] = _normalize_content_array(value)
+
         # Pass through other fields
         else:
             normalized[field_path] = value
 
+    return normalized
+
+
+def _normalize_equipment(equipment: List[str]) -> List[str]:
+    """Normalize equipment values: aliases, underscores → hyphens, lowercase, dedupe."""
+    if not isinstance(equipment, list):
+        return equipment
+
+    normalized, seen = [], set()
+    for item in equipment:
+        if not isinstance(item, str):
+            continue
+        clean = item.strip().lower().replace("_", "-").replace(" ", "-")
+        clean = EQUIPMENT_ALIASES.get(item.strip().lower(), clean)
+        if clean and clean not in seen:
+            normalized.append(clean)
+            seen.add(clean)
     return normalized
 
 
@@ -1102,8 +1137,79 @@ def _normalize_muscle_names(muscles: List[str]) -> List[str]:
     return normalized
 
 
+def _resolve_muscle_aliases(muscles: List[str]) -> List[str]:
+    """Resolve common muscle name aliases to canonical names."""
+    if not isinstance(muscles, list):
+        return muscles
+
+    resolved = []
+    seen = set()
+
+    for muscle in muscles:
+        if not isinstance(muscle, str):
+            continue
+        canonical = MUSCLE_ALIASES.get(muscle, muscle)
+        if canonical not in seen:
+            resolved.append(canonical)
+            seen.add(canonical)
+
+    return resolved
+
+
+# Regex patterns for stripping bad formatting from content array items
+_BOLD_LABEL_PREFIX_RE = re.compile(r'^\*\*[^*]+\*\*[:\s]*')
+_NUMBERED_PREFIX_RE = re.compile(r'^\d+[\.\)]\s*')
+_BULLET_PREFIX_RE = re.compile(r'^[-\u2022*]\s+')
+
+
+def _normalize_content_array(items) -> List[str]:
+    """
+    Strip formatting artifacts from content array items.
+
+    Removes markdown bold step prefixes, numbered prefixes, and bullet markers
+    that the LLM might produce despite prompt instructions. This is a safety net.
+
+    Also coerces string input to list (splits on sentence boundaries).
+    """
+    if isinstance(items, str):
+        sentences = [
+            s.strip()
+            for s in items.replace(". ", ".\n").split("\n")
+            if s.strip()
+        ]
+        items = [s for s in sentences if len(s) > 10]
+    if not isinstance(items, list):
+        return items
+
+    normalized = []
+    seen = set()
+
+    for item in items:
+        if not isinstance(item, str):
+            continue
+
+        clean = item.strip()
+
+        # Remove **Any Label:** bold prefixes (covers **Step 1:**, **Setup:**, etc.)
+        clean = _BOLD_LABEL_PREFIX_RE.sub('', clean)
+
+        # Remove numbered prefixes: "1. " / "1) "
+        clean = _NUMBERED_PREFIX_RE.sub('', clean)
+
+        # Remove bullet markers: "- " / "* "
+        clean = _BULLET_PREFIX_RE.sub('', clean)
+
+        clean = clean.strip()
+
+        if clean and clean not in seen:
+            normalized.append(clean)
+            seen.add(clean)
+
+    return normalized
+
+
 def _normalize_contribution_map(contribution: Dict[str, float]) -> Dict[str, float]:
-    """Normalize contribution map keys (muscle names)."""
+    """Normalize contribution map keys (muscle names) and resolve aliases."""
     if not isinstance(contribution, dict):
         return contribution
 
@@ -1111,12 +1217,16 @@ def _normalize_contribution_map(contribution: Dict[str, float]) -> Dict[str, flo
     for muscle, pct in contribution.items():
         if not isinstance(muscle, str):
             continue
-        # Normalize muscle name
+        # Normalize muscle name: underscores to spaces, lowercase
         clean_name = muscle.replace("_", " ").lower().strip()
+        # Resolve alias to canonical name
+        clean_name = MUSCLE_ALIASES.get(clean_name, clean_name)
         if clean_name:
             # Ensure percentage is float between 0 and 1
             if isinstance(pct, (int, float)):
-                normalized[clean_name] = min(1.0, max(0.0, float(pct)))
+                # If alias resolution caused a duplicate key, sum the values
+                existing = normalized.get(clean_name, 0.0)
+                normalized[clean_name] = min(1.0, max(0.0, existing + float(pct)))
 
     return normalized
 
@@ -1190,17 +1300,48 @@ def _normalize_movement_type(movement_type: str) -> Optional[str]:
 
     _fallbacks = {
         "press": "push", "pressing": "push", "bench press": "push",
+        "squat_press": "push",
         "row": "pull", "rowing": "pull", "pulldown": "pull",
+        "vertical_pull": "pull", "vertical pull": "pull",
+        "pullover": "pull",
         "curl": "flexion", "crunch": "flexion",
+        "core": "other", "core_flexion": "flexion",
+        "core flexion": "flexion", "trunk_flexion": "flexion",
+        "hip_flexion": "flexion", "hip flexion": "flexion",
+        "wrist flexion": "flexion", "wrist_flexion": "flexion",
         "kickback": "extension", "pushdown": "extension",
+        "back extension": "extension", "hip_extension": "extension",
+        "knee extension": "extension",
+        "wrist extension": "extension", "wrist_extension": "extension",
+        "anti-extension": "extension",
         "raise": "abduction", "lateral": "abduction",
+        "horizontal abduction": "abduction",
         "fly": "adduction", "flye": "adduction", "crossover": "adduction",
-        "deadlift": "hinge", "rdl": "hinge",
-        "lunge": "squat", "leg press": "squat",
+        "deadlift": "hinge", "rdl": "hinge", "hip_hinge": "hinge",
+        "bridge": "hinge",
+        "lunge": "squat", "leg press": "squat", "split_squat": "squat",
         "dip": "push", "push-up": "push",
+        "pull_push": "push", "pull & push": "push",
+        "muscle_up": "pull",
         "twist": "rotation", "woodchop": "rotation",
+        "anti-rotation": "rotation", "rotate": "rotation",
+        "anti-lateral flexion": "rotation",
         "farmer's walk": "carry",
         "isolation": "flexion",
+        "shrug": "pull",
+        "plantar_flexion": "extension", "plantarflexion": "extension",
+        "plantar flexion": "extension",
+        "calf_raise": "extension", "calf raise": "extension",
+        "plank": "other", "isometric": "other", "static": "other",
+        "stabilization": "other", "core_stabilization": "other",
+        "stability": "other",
+        "leg raise": "flexion", "leg_raise": "flexion",
+        "knee_raise": "flexion",
+        "slam": "other", "throw": "other", "jump": "other",
+        "olympic_lift": "other", "olympic": "other",
+        "clean and jerk": "other",
+        "power": "other",
+        "calisthenics_compound": "other",
     }
     return _fallbacks.get(clean)  # Returns None if unmappable
 
@@ -1227,6 +1368,7 @@ def _normalize_movement_split(split) -> Optional[str]:
         "upper body": "upper", "lower body": "lower",
         "arms": "upper", "back": "upper", "chest": "upper",
         "shoulders": "upper", "legs": "lower", "abs": "core",
+        "posterior chain": "lower",
     }
     return _fallbacks.get(clean)
 
@@ -1283,14 +1425,12 @@ def validate_normalized_output(changes: Dict[str, Any]) -> Dict[str, Any]:
 
         elif field_path == "equipment":
             if isinstance(value, list):
-                valid_items = [e for e in value if e in valid_equipment]
-                invalid_items = [e for e in value if e not in valid_equipment]
-                if invalid_items:
-                    logger.warning(
-                        "Dropping invalid equipment values: %s", invalid_items
+                unknown = [e for e in value if e not in valid_equipment]
+                if unknown:
+                    logger.info(
+                        "Non-standard equipment values (keeping): %s", unknown
                     )
-                if valid_items:
-                    validated[field_path] = valid_items
+                validated[field_path] = value  # Keep ALL equipment
             else:
                 validated[field_path] = value
 
