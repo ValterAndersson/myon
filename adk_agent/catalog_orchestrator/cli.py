@@ -1399,21 +1399,55 @@ def dedup_catalog_cmd(dry_run: bool, verbose: bool):
         click.echo("\nNo duplicate groups found.")
         return
 
-    click.echo(f"\nFound {len(dup_groups)} duplicate groups "
-               f"({sum(len(m) for m in dup_groups.values())} total exercises)")
+    # Safeguard: skip groups where members have different family_slugs.
+    # Different families with the same name = bad rename, not true duplicate.
+    safe_groups = {}
+    skipped_mixed_family = 0
+    for name, members in dup_groups.items():
+        slugs = {
+            d.get("family_slug", "")
+            for _, d in members
+            if d.get("family_slug")
+        }
+        if len(slugs) > 1:
+            skipped_mixed_family += 1
+            if verbose:
+                click.echo(click.style(
+                    f"\n  SKIP (mixed families): \"{members[0][1].get('name', name)}\"",
+                    fg="yellow",
+                ))
+                for doc_id, data in members:
+                    click.echo(
+                        f"    {doc_id}  family={data.get('family_slug')}"
+                    )
+        else:
+            safe_groups[name] = members
+
+    if skipped_mixed_family:
+        click.echo(click.style(
+            f"\nSkipped {skipped_mixed_family} groups with mixed family_slugs "
+            "(likely bad renames, not true duplicates)",
+            fg="yellow",
+        ))
+
+    click.echo(f"\nMergeable duplicate groups: {len(safe_groups)} "
+               f"({sum(len(m) for m in safe_groups.values())} total exercises)")
 
     total_merged = 0
     batch = db.batch() if not dry_run else None
     batch_count = 0
 
-    for name, members in sorted(dup_groups.items()):
-        # Pick canonical: most execution_notes -> longest description -> first ID
+    for name, members in sorted(safe_groups.items()):
+        # Pick canonical: penalize "unknown" doc IDs, then most
+        # execution_notes -> longest description -> first alphabetical ID
         def score(item):
             doc_id, data = item
             notes = data.get("execution_notes") or []
             notes_count = len(notes) if isinstance(notes, list) else 0
             desc_len = len(data.get("description") or "")
-            return (notes_count, desc_len, doc_id)
+            # Penalize doc_ids that contain "unknown"
+            id_penalty = 0 if "unknown" not in doc_id else -1000
+            return (id_penalty, notes_count, desc_len, doc_id)
 
         ranked = sorted(members, key=score, reverse=True)
         canonical_id, canonical_data = ranked[0]
@@ -1456,9 +1490,11 @@ def dedup_catalog_cmd(dry_run: bool, verbose: bool):
     click.echo(f"\n{'=' * 50}")
     click.echo("DEDUP SUMMARY")
     click.echo(f"{'=' * 50}")
-    click.echo(f"  Duplicate groups:    {len(dup_groups)}")
-    click.echo(f"  Exercises merged:    {total_merged}")
-    click.echo(f"  Active remaining:    ~{active_remaining}")
+    click.echo(f"  Total name collisions: {len(dup_groups)}")
+    click.echo(f"  Skipped (mixed family): {skipped_mixed_family}")
+    click.echo(f"  Safe duplicate groups:   {len(safe_groups)}")
+    click.echo(f"  Exercises merged:        {total_merged}")
+    click.echo(f"  Active remaining:        ~{active_remaining}")
 
     if dry_run:
         click.echo(click.style(
@@ -1467,7 +1503,7 @@ def dedup_catalog_cmd(dry_run: bool, verbose: bool):
         click.echo("  Run with --apply to merge duplicates")
     else:
         click.echo(click.style(
-            f"\nMerged {total_merged} exercises across {len(dup_groups)} groups",
+            f"\nMerged {total_merged} exercises across {len(safe_groups)} groups",
             fg="green",
         ))
 
