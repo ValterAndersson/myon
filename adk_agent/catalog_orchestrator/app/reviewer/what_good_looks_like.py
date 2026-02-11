@@ -170,6 +170,47 @@ Bad mappings (UPDATE NEEDED):
 - Muscles listed that aren't activated at all by this movement
 """
 
+CONTENT_FORMAT_RULES = """
+## Content Array Format Rules (STRICT)
+
+All array fields (execution_notes, common_mistakes, suitability_notes, programming_use_cases)
+MUST follow these formatting rules:
+
+### DO:
+- Plain text strings only
+- Each array item is one complete, standalone sentence or instruction
+- Use second person ("Keep your back straight") not third person
+- Start each item with an action verb or descriptive phrase
+
+### DO NOT:
+- No markdown formatting (no **bold**, no *italic*, no # headers)
+- No step prefixes (no "Step 1:", no "**step1:**", no "1.", no "1)")
+- No bullet markers (no "- ", no "* ")
+- No numbered lists inside array items — the array IS the list
+- No multi-paragraph items — one instruction per array item
+
+### Good:
+execution_notes: [
+    "Keep your knees tracking over your toes throughout the movement",
+    "Maintain a neutral spine and avoid rounding your lower back",
+    "Breathe in at the top, hold during descent, exhale as you drive up"
+]
+
+### Bad:
+execution_notes: [
+    "**Step 1:** Keep your knees tracking over your toes",
+    "1. Maintain a neutral spine",
+    "- Breathe in at the top"
+]
+
+### Muscle Names (STRICT)
+- Always lowercase with spaces: "latissimus dorsi", "anterior deltoid"
+- Never use underscores: NOT "latissimus_dorsi"
+- Use full anatomical names, not abbreviations: "latissimus dorsi" NOT "lats"
+- Common mappings: lats->latissimus dorsi, traps->trapezius, quads->quadriceps,
+  delts->deltoid, abs->rectus abdominis, hams->hamstrings, pecs->pectoralis major
+"""
+
 FAMILY_EXPANSION_GUIDANCE = """
 ## Family Expansion Assessment
 
@@ -263,8 +304,9 @@ Respond with JSON:
 
 __all__ = [
     "WHAT_GOOD_LOOKS_LIKE",
-    "INSTRUCTIONS_GUIDANCE", 
+    "INSTRUCTIONS_GUIDANCE",
     "MUSCLE_MAPPING_GUIDANCE",
+    "CONTENT_FORMAT_RULES",
     "FAMILY_EXPANSION_GUIDANCE",
     "build_reasoning_prompt",
 ]

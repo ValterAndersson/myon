@@ -87,6 +87,17 @@ class QualityScanBatchResult:
 # Pattern for canonical naming: "Exercise Name (Equipment)"
 CANONICAL_NAME_PATTERN = re.compile(r'^.+\s*\([^)]+\)$')
 
+# Pattern for detecting bad formatting in content array items
+_BAD_FORMAT_RE = re.compile(
+    r'^\*\*|^\d+[\.\)]\s|^[-\u2022*]\s'
+)
+
+
+def _has_bad_format(text: str) -> bool:
+    """Check if a content array item has markdown or prefix formatting."""
+    return bool(_BAD_FORMAT_RE.match(text))
+
+
 # Known equipment that should be in parentheses
 EQUIPMENT_PREFIXES = [
     "barbell", "dumbbell", "cable", "machine", "kettlebell",
@@ -156,10 +167,10 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     if len(primary_muscles) < MIN_PRIMARY_MUSCLES:
         return None  # Needs LLM
 
-    # Check 5: Has execution notes (handle None explicitly)
+    # Check 5: Has execution notes (handle None explicitly, must be a list)
     execution_notes = exercise.get("execution_notes") or []
-    if len(execution_notes) < MIN_EXECUTION_NOTES:
-        return None  # Needs LLM - missing content
+    if not isinstance(execution_notes, list) or len(execution_notes) < MIN_EXECUTION_NOTES:
+        return None  # Needs LLM - missing content or wrong type
 
     # Check 6: Category must be in canonical set
     from app.enrichment.exercise_field_guide import (
@@ -188,6 +199,19 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     for m in primary_muscles:
         if isinstance(m, str) and ("_" in m or m != m.lower()):
             return None  # Needs LLM — non-normalized muscle names
+
+    # Check 11: content array format — no markdown, no step prefixes
+    common_mistakes = exercise.get("common_mistakes") or []
+    if not isinstance(execution_notes, list) or not isinstance(common_mistakes, list):
+        return None  # Needs LLM — content fields must be arrays
+    for item in execution_notes + common_mistakes:
+        if isinstance(item, str) and _has_bad_format(item):
+            return None  # Needs LLM to regenerate clean content
+
+    # Check 12: muscles.category must be present
+    muscles_category = muscles.get("category") or []
+    if not muscles_category:
+        return None  # Needs LLM — missing muscle category
 
     # All checks passed - this is a good exercise
     return QualityScanResult(
