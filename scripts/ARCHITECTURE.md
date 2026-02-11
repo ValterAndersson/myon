@@ -40,8 +40,15 @@ Muscle names should be normalized before contribution sums (avoids duplicate key
 
 ## Prerequisites
 
-- **Node.js scripts**: Firebase Admin SDK configured (typically via `GOOGLE_APPLICATION_CREDENTIALS` or emulator)
-- **Python scripts**: `google-cloud-firestore` package, Application Default Credentials
+- **Node.js scripts**: Firebase Admin SDK credentials:
+  ```bash
+  export GOOGLE_APPLICATION_CREDENTIALS=$FIREBASE_SA_KEY
+  ```
+- **Python scripts**: `google-cloud-firestore` package with GCP credentials:
+  ```bash
+  export GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY
+  ```
+- See [CLAUDE.md — Service Account Keys](../CLAUDE.md#service-account-keys) for key file setup.
 - For `import_strong_csv.js`: Strong app CSV export file
 
 ## Cross-References

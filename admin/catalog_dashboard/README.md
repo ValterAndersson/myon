@@ -29,8 +29,9 @@ cd admin/catalog_dashboard
 # Install dependencies
 pip3 install -r requirements.txt
 
-# Authenticate with GCP
-gcloud auth application-default login
+# Authenticate with GCP (pick one)
+gcloud auth application-default login          # interactive
+export GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY  # service account key
 
 # Run locally
 DEBUG=true python3 app.py

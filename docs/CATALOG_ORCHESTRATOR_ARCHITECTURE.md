@@ -1174,7 +1174,7 @@ Quick reference for locating code. All paths relative to `adk_agent/catalog_orch
 | Agent | `app/shell/agent.py` | ADK agent definition |
 | Tools | `app/shell/tools.py` | Agent tool definitions |
 | Instruction | `app/shell/instruction.py` | System prompt |
-| Context | `app/shell/context.py` | Job context management |
+| Context | `app/jobs/context.py` | Job context management (canonical location; `app/shell/context.py` re-exports for ADK agent) |
 | Planner | `app/shell/planner.py` | Plan generation |
 | **Scripts** | | |
 | Export Exercises | `scripts/export_exercises.py` | Export catalog to JSON |

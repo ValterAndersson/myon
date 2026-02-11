@@ -33,9 +33,19 @@ catalog_worker.py:
     5. Records run summary in catalog_run_summaries
 ```
 
+## Import Boundary
+
+Cloud Run workers MUST NOT import from `app.shell.tools` or `app.shell.agent` — those
+modules depend on `google.adk` which is only available in the Agent Engine runtime.
+
+- Job context: import from `app.jobs.context` (NOT `app.shell.context`)
+- Job execution: import from `app.jobs.executor` (NOT `app.shell.agent`)
+- Docker image uses `worker_requirements.txt` (NOT `agent_engine_requirements.txt`)
+
 ## Cross-References
 
 - Orchestrator core: `adk_agent/catalog_orchestrator/app/`
+- Job context: `app/jobs/context.py` (JobContext, contextvars)
 - Job executor: `app/jobs/executor.py` (central dispatcher)
 - Deploy: `make deploy` (builds Docker, pushes to GCR, deploys all 4 jobs)
 - Makefile targets: `make deploy`, `make test`, `make worker-local`

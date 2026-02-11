@@ -201,6 +201,14 @@ curl -sS -H "X-API-Key: <KEY>" -H "Content-Type: application/json" \
 ---
 ## Testing & Deployment
 
+### Prerequisites
+
+Authenticate with the Firebase Admin SDK service account before running emulators or tests locally:
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=$FIREBASE_SA_KEY
+```
+See [CLAUDE.md — Service Account Keys](../../CLAUDE.md#service-account-keys) for key file setup.
+
 ### Emulator
 Run Functions + Firestore emulators and the test suite:
 ```

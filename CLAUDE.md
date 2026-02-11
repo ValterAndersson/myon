@@ -86,6 +86,35 @@ iOS App (SwiftUI) ──HTTP/SSE──> Firebase Functions (Node.js) ──HTTP�
 
 ---
 
+## Service Account Keys
+
+Keys live outside the repo at `~/.config/povver/`. Two named env vars point to each key file. Set `GOOGLE_APPLICATION_CREDENTIALS` to the correct one before running a command:
+
+| Env Var | Key File | Use |
+|---------|----------|-----|
+| `FIREBASE_SA_KEY` | `~/.config/povver/myon-53d85-firebase-adminsdk-fbsvc-ca7beb1435.json` | Firebase Admin SDK — scripts, emulators, local functions |
+| `GCP_SA_KEY` | `~/.config/povver/myon-53d85-80792c186dcb.json` | GCP service account — agent deploy, Cloud Run, Vertex AI |
+
+**How to use:** Google SDKs read `GOOGLE_APPLICATION_CREDENTIALS`. Set it to the appropriate named var:
+
+```bash
+# Firebase / Firestore work (scripts, functions, emulators)
+export GOOGLE_APPLICATION_CREDENTIALS=$FIREBASE_SA_KEY
+
+# GCP work (agent deploy, Cloud Run, Vertex AI)
+export GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY
+```
+
+Add both named vars to your shell profile (`~/.zshrc`):
+```bash
+export FIREBASE_SA_KEY=~/.config/povver/myon-53d85-firebase-adminsdk-fbsvc-ca7beb1435.json
+export GCP_SA_KEY=~/.config/povver/myon-53d85-80792c186dcb.json
+```
+
+**Never commit key files to the repo.** The `config/` directory is in `.gitignore` as a safeguard.
+
+---
+
 ## Build & Development Commands
 
 ### iOS

@@ -12,7 +12,7 @@ Multi-tier review pipeline that evaluates exercise catalog quality and creates e
 | `scheduled_quality_scan.py` | Cloud Run Job entry point for deterministic scan. Runs quality_scanner on all exercises. |
 | `review_job_creator.py` | Converts review decisions into `catalog_jobs` documents. Handles idempotency. |
 | `family_gap_analyzer.py` | Detects missing equipment variants using affinity maps. |
-| `what_good_looks_like.py` | Philosophy strings and guidance injected into LLM prompts. |
+| `what_good_looks_like.py` | Philosophy strings and guidance injected into LLM prompts. Includes `CONTENT_FORMAT_RULES` for content array formatting. |
 | `catalog_reviewer.py` | Legacy rule-based reviewer. Superseded by `quality_scanner.py`. |
 
 ## Two-Tier Review Pipeline
@@ -24,7 +24,7 @@ All Exercises
 quality_scanner.py: heuristic_quality_check()
     │
     ├── Score 0-100 → PASS (no LLM needed)
-    │   9 checks:
+    │   12 checks:
     │   1. Name present
     │   2. Category in CATEGORIES
     │   3. Equipment items in EQUIPMENT_TYPES
@@ -34,6 +34,9 @@ quality_scanner.py: heuristic_quality_check()
     │   7. Movement type present + in MOVEMENT_TYPES
     │   8. Movement split present + in MOVEMENT_SPLITS
     │   9. All muscles in PRIMARY_MUSCLES
+    │   10. Muscle names lowercase without underscores
+    │   11. execution_notes + common_mistakes format (no markdown/step prefixes)
+    │   12. muscles.category present
     │
     └── None → needs LLM review
             │
@@ -49,9 +52,11 @@ quality_scanner.py: heuristic_quality_check()
 
 ## Key Design Decisions
 
-**Quality scanner is the first gate.** Exercises that pass all 9 deterministic checks never touch the LLM, saving cost. Only exercises that fail a check (return `None`) are sent to the LLM review agent.
+**Quality scanner is the first gate.** Exercises that pass all 12 deterministic checks never touch the LLM, saving cost. Only exercises that fail a check (return `None`) are sent to the LLM review agent.
 
 **Missing movement data is now flagged.** Checks 7-8 flag exercises with missing `movement.type` or `movement.split` (not just invalid values). An exercise with no movement metadata needs enrichment.
+
+**Content format checks.** Check 11 detects markdown formatting (bold label prefixes, numbered lists, bullet markers) in `execution_notes` and `common_mistakes`. Badly formatted content gets sent to the LLM for re-enrichment with `CONTENT_FORMAT_RULES` guidance.
 
 **Canonical values imported from field guide.** Both `quality_scanner.py` and `review_agent.py` import canonical sets (`CATEGORIES`, `MOVEMENT_TYPES`, `MOVEMENT_SPLITS`, `EQUIPMENT_TYPES`, `PRIMARY_MUSCLES`) from `app/enrichment/exercise_field_guide.py`. This is the single source of truth.
 

@@ -31,9 +31,11 @@ normalize_enrichment_output()
     ├── _normalize_category()       → maps "stretching" → "mobility", etc.
     ├── _normalize_movement_type()  → maps "press" → "push", etc.
     ├── _normalize_movement_split() → maps "full body" → "full_body", etc.
-    ├── _normalize_muscle_list()    → underscores → spaces, lowercase, dedupe
-    ├── _normalize_contribution_map() → key normalization, value clamping
-    └── _normalize_stimulus_tags()  → title case, dedupe
+    ├── _normalize_muscle_names()   → underscores → spaces, lowercase, dedupe
+    ├── _resolve_muscle_aliases()   → "lats" → "latissimus dorsi", etc.
+    ├── _normalize_contribution_map() → key normalization + alias resolution, value clamping
+    ├── _normalize_stimulus_tags()  → title case, dedupe
+    └── _normalize_content_array()  → strips markdown/step/bullet prefixes from content arrays
     │
     ▼
 validate_normalized_output()
@@ -41,7 +43,7 @@ validate_normalized_output()
     ├── category: must be in CATEGORIES
     ├── movement.type: must be in MOVEMENT_TYPES
     ├── movement.split: must be in MOVEMENT_SPLITS
-    ├── equipment: each item must be in EQUIPMENT_TYPES
+    ├── equipment: warn on non-standard values but keep all (LLM-guided)
     ├── description: must be >= 50 chars (aligned with quality_scanner)
     ├── muscles.contribution: sum re-normalized if not ~1.0
     └── locked fields silently dropped
@@ -60,8 +62,8 @@ All canonical value sets live here. Never hardcode these elsewhere.
 | `MOVEMENT_TYPES` | engine.py, quality_scanner.py | push, pull, hinge, squat, carry, rotation, flexion, extension, abduction, adduction, other |
 | `MOVEMENT_SPLITS` | engine.py, quality_scanner.py | upper, lower, full_body, core |
 | `PRIMARY_MUSCLES` | engine.py, quality_scanner.py | 20 canonical muscle names (lowercase, spaces not underscores) |
-| `MUSCLE_ALIASES` | engine.py | Short names → canonical (e.g. "lats" → "latissimus dorsi") |
-| `EQUIPMENT_TYPES` | engine.py, quality_scanner.py | 18 canonical equipment values (lowercase, hyphens) |
+| `MUSCLE_ALIASES` | engine.py (normalization + contribution map) | Short names → canonical (e.g. "lats" → "latissimus dorsi") |
+| `EQUIPMENT_TYPES` | engine.py (warn-only), quality_scanner.py | 18 canonical equipment values (lowercase, hyphens). Non-standard values are logged but kept. |
 
 ## Key Design Decisions
 
