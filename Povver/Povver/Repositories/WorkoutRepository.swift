@@ -41,4 +41,9 @@ class WorkoutRepository {
             logger.debug("Workout updated for user: \(userId)")
         }
     }
+
+    func deleteWorkout(userId: String, id: String) async throws {
+        try await db.collection("users").document(userId).collection("workouts").document(id).delete()
+        logger.debug("Workout deleted: \(id) for user: \(userId)")
+    }
 }

@@ -285,10 +285,13 @@ private struct DateHeaderView: View {
 struct WorkoutDetailView: View {
     let workoutId: String
 
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var saveService = BackgroundSaveService.shared
     @State private var workout: Workout?
     @State private var isLoading = true
     @State private var showEditSheet = false
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
 
     private var syncState: FocusModeSyncState? {
         saveService.state(for: workoutId)
@@ -327,12 +330,28 @@ struct WorkoutDetailView: View {
                             .foregroundColor(.warning)
                         }
                     } else {
-                        Button("Edit") {
-                            showEditSheet = true
+                        Menu {
+                            Button("Edit") {
+                                showEditSheet = true
+                            }
+                            Button("Delete Workout", role: .destructive) {
+                                showDeleteConfirmation = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 17))
                         }
                     }
                 }
             }
+        }
+        .alert("Delete Workout", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task { await deleteWorkout() }
+            }
+        } message: {
+            Text("This workout will be permanently deleted. This action cannot be undone.")
         }
         .sheet(isPresented: $showEditSheet) {
             if let workout = workout {
@@ -394,6 +413,18 @@ struct WorkoutDetailView: View {
             workout = try await WorkoutRepository().getWorkout(id: workoutId, userId: userId)
         } catch {
             print("[WorkoutDetailView] Failed to reload workout: \(error)")
+        }
+    }
+
+    private func deleteWorkout() async {
+        guard let userId = AuthService.shared.currentUser?.uid else { return }
+        isDeleting = true
+        do {
+            try await WorkoutRepository().deleteWorkout(userId: userId, id: workoutId)
+            dismiss()
+        } catch {
+            print("[WorkoutDetailView] Failed to delete workout: \(error)")
+            isDeleting = false
         }
     }
 }

@@ -32,6 +32,7 @@ const { upsertUserAttributes } = require('./user/upsert-attributes');
 const { getUserWorkouts } = require('./workouts/get-user-workouts');
 const { getWorkout } = require('./workouts/get-workout');
 const { upsertWorkout } = require('./workouts/upsert-workout');
+const { deleteWorkout } = require('./workouts/delete-workout');
 
 // Template Operations
 const { getUserTemplates } = require('./templates/get-user-templates');
@@ -148,6 +149,8 @@ exports.getUserWorkouts = functions.https.onRequest((req, res) => withApiKey(get
 exports.getWorkout = functions.https.onRequest((req, res) => withApiKey(getWorkout)(req, res));
 // upsertWorkout is a v2 onRequest with requireFlexibleAuth - used by import scripts, not exposed to agents
 exports.upsertWorkout = upsertWorkout;
+// deleteWorkout is a v2 onRequest with requireFlexibleAuth - iOS app calls
+exports.deleteWorkout = deleteWorkout;
 
 // Template Operations
 // getUserTemplates is already a v2 onRequest function with requireFlexibleAuth from get-user-templates.js

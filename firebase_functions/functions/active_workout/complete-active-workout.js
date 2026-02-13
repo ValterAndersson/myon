@@ -93,12 +93,21 @@ async function completeActiveWorkoutHandler(req, res) {
 
     // Archive minimal workout (analytics TBD)
     const archiveParent = `users/${userId}/workouts`;
-    // Normalize sets: map weight -> weight_kg for archived representation
+    // Normalize active workout fields to archived workout format.
+    // Active workout uses: set_type, status, instance_id, weight
+    // Archived format uses: type, is_completed, id, weight_kg
     const normalizedExercises = (active.exercises || []).map(ex => ({
-      ...ex,
+      id: ex.instance_id || ex.id || null,
+      exercise_id: ex.exercise_id,
+      name: ex.name || null,
+      position: ex.position ?? 0,
       sets: (ex.sets || []).map(s => ({
-        ...s,
-        weight_kg: s.weight,
+        id: s.id || null,
+        reps: typeof s.reps === 'number' ? s.reps : 0,
+        rir: typeof s.rir === 'number' ? s.rir : 0,
+        type: s.set_type || s.type || 'working',
+        weight_kg: typeof s.weight === 'number' ? s.weight : (typeof s.weight_kg === 'number' ? s.weight_kg : 0),
+        is_completed: s.status === 'done',
       }))
     }));
 
@@ -130,18 +139,6 @@ async function completeActiveWorkoutHandler(req, res) {
     }
 
     const now = new Date();
-    const archived = {
-      user_id: userId,
-      name: active.name || null,  // Preserve workout name from active workout
-      source_template_id: active.source_template_id || null,
-      source_routine_id: active.source_routine_id || null,  // Added for routine cursor tracking
-      created_at: active.created_at || now,
-      start_time: active.start_time || now,
-      end_time: now,
-      exercises: normalizedExercises,
-      notes: active.notes || null,
-      analytics
-    };
 
     // ==========================================================================
     // ATOMIC BATCH: Archive + Update Status + Clear Lock
@@ -150,6 +147,21 @@ async function completeActiveWorkoutHandler(req, res) {
 
     // 1. Create archived workout in workouts collection
     const archiveRef = firestore.collection('users').doc(userId).collection('workouts').doc();
+
+    const archived = {
+      id: archiveRef.id,  // Needed for iOS Workout model decoding
+      user_id: userId,
+      name: active.name || null,
+      source_template_id: active.source_template_id || null,
+      source_routine_id: active.source_routine_id || null,
+      created_at: active.created_at || now,
+      start_time: active.start_time || now,
+      end_time: now,
+      exercises: normalizedExercises,
+      notes: active.notes || null,
+      analytics
+    };
+
     batch.set(archiveRef, archived);
 
     // 2. Update active workout status to completed
