@@ -138,20 +138,68 @@ struct FocusModeWorkoutScreen: View {
     }
     
     var body: some View {
+        mainContent
+            .navigationBarHidden(true)
+            .toolbar(service.workout != nil ? .hidden : .visible, for: .tabBar)
+            .interactiveDismissDisabled(service.workout != nil)
+            .onChange(of: screenMode) { _, newMode in
+                listEditMode = newMode.isReordering ? .active : .inactive
+            }
+            .sheet(item: $activeSheet) { sheet in
+                sheetContent(for: sheet)
+            }
+            .fullScreenCover(item: $completedWorkout, onDismiss: {
+                dismiss()
+            }) { completed in
+                WorkoutCompletionSummary(workoutId: completed.id) {
+                    completedWorkout = nil
+                }
+            }
+            .overlay(alignment: .top) {
+                if let msg = errorBanner {
+                    Banner(title: "Sync Issue", message: msg, kind: .warning)
+                        .padding(.horizontal, Space.md)
+                        .padding(.top, Space.sm)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .onTapGesture { withAnimation { errorBanner = nil } }
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: errorBanner)
+            .onChange(of: service.workout != nil) { _, isActive in
+                UIApplication.shared.isIdleTimerDisabled = isActive
+            }
+            .onDisappear {
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
+            .task {
+                await startWorkoutIfNeeded()
+            }
+            .modifier(WorkoutAlertsModifier(
+                showingCompleteConfirmation: $showingCompleteConfirmation,
+                showingNameEditor: $showingNameEditor,
+                editingName: $editingName,
+                showingCancelConfirmation: $showingCancelConfirmation,
+                showingResumeGate: $showingResumeGate,
+                onFinish: finishWorkout,
+                onUpdateName: updateWorkoutName,
+                onDiscard: discardWorkout,
+                onResume: startTimer,
+                onDiscardAndStartNew: discardAndStartNewWorkout
+            ))
+    }
+
+    private var mainContent: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Custom header bar (always visible)
                 customHeaderBar
-                
-                // Reorder mode banner
+
                 if screenMode.isReordering {
                     ReorderModeBanner(onDone: toggleReorderMode)
                 }
-                
-                // Main content
+
                 ZStack {
                     Color.bg.ignoresSafeArea()
-                    
+
                     if service.isLoading {
                         loadingView
                     } else if let workout = service.workout {
@@ -163,98 +211,29 @@ struct FocusModeWorkoutScreen: View {
             }
             .background(Color.bg)
         }
-        .navigationBarHidden(true)
-        // Only hide tab bar when a workout is in progress (prevents accidental navigation)
-        // Show tab bar on picker screen so users can navigate to other tabs
-        .toolbar(service.workout != nil ? .hidden : .visible, for: .tabBar)
-        .interactiveDismissDisabled(service.workout != nil)
-        .onChange(of: screenMode) { _, newMode in
-            // Sync List editMode with screenMode
-            listEditMode = newMode.isReordering ? .active : .inactive
-        }
-        .confirmationDialog("Finish Workout?", isPresented: $showingCompleteConfirmation) {
-            Button("Complete Workout") {
-                finishWorkout()
-            }
-            Button("Keep Logging", role: .cancel) { }
-        }
-        .alert("Workout Name", isPresented: $showingNameEditor) {
-            TextField("Name", text: $editingName)
-            Button("Save") {
-                updateWorkoutName(editingName)
-            }
-            Button("Cancel", role: .cancel) { }
-        }
-        .alert("Discard Workout?", isPresented: $showingCancelConfirmation) {
-            Button("Keep Logging", role: .cancel) { }
-            Button("Discard", role: .destructive) {
-                discardWorkout()
-            }
-        } message: {
-            Text("Your progress will not be saved.")
-        }
-        .sheet(item: $activeSheet) { sheet in
-            sheetContent(for: sheet)
-        }
-        .fullScreenCover(item: $completedWorkout, onDismiss: {
-            dismiss()
-        }) { completed in
-            WorkoutCompletionSummary(workoutId: completed.id) {
-                completedWorkout = nil
-            }
-        }
-        .alert("Active Workout Found", isPresented: $showingResumeGate) {
-            Button("Resume Workout") {
-                // Already loaded from getActiveWorkout - just start timer
-                startTimer()
-            }
-            Button("Discard and Start New", role: .destructive) {
-                Task {
-                    if existingWorkoutId != nil {
-                        do {
-                            // Cancel the existing workout
-                            try await service.cancelWorkout()
-                            // Now start from template/plan
-                            if let planBlocks = planBlocks {
-                                _ = try await service.startWorkoutFromPlan(plan: planBlocks)
-                            } else if sourceTemplateId != nil || sourceRoutineId != nil {
-                                _ = try await service.startWorkout(
-                                    name: workoutName,
-                                    sourceTemplateId: sourceTemplateId,
-                                    sourceRoutineId: sourceRoutineId
-                                )
-                            } else {
-                                _ = try await service.startWorkout(name: "Workout")
-                            }
-                            resetTimerForNewWorkout()
-                        } catch {
-                            print("Failed to discard and start new: \(error)")
-                        }
+    }
+
+    private func discardAndStartNewWorkout() {
+        Task {
+            if existingWorkoutId != nil {
+                do {
+                    try await service.cancelWorkout()
+                    if let planBlocks = planBlocks {
+                        _ = try await service.startWorkoutFromPlan(plan: planBlocks)
+                    } else if sourceTemplateId != nil || sourceRoutineId != nil {
+                        _ = try await service.startWorkout(
+                            name: workoutName,
+                            sourceTemplateId: sourceTemplateId,
+                            sourceRoutineId: sourceRoutineId
+                        )
+                    } else {
+                        _ = try await service.startWorkout(name: "Workout")
                     }
+                    resetTimerForNewWorkout()
+                } catch {
+                    print("Failed to discard and start new: \(error)")
                 }
             }
-        } message: {
-            Text("You have an active workout in progress. Would you like to resume or start fresh?")
-        }
-        .overlay(alignment: .top) {
-            if let msg = errorBanner {
-                Banner(title: "Sync Issue", message: msg, kind: .warning)
-                    .padding(.horizontal, Space.md)
-                    .padding(.top, Space.sm)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .onTapGesture { withAnimation { errorBanner = nil } }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: errorBanner)
-        .onChange(of: service.workout) { _, newWorkout in
-            // Keep screen awake while a workout is active
-            UIApplication.shared.isIdleTimerDisabled = newWorkout != nil
-        }
-        .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
-        .task {
-            await startWorkoutIfNeeded()
         }
     }
     
@@ -609,6 +588,7 @@ struct FocusModeWorkoutScreen: View {
         } else {
             // Normal mode: Hero + exercise sections with scroll tracking
             ScrollView {
+                ScrollViewReader { scrollProxy in
                 LazyVStack(spacing: 0, pinnedViews: []) {
                     // Constant 8pt top padding - always present, no jumpiness
                     Color.clear.frame(height: Space.sm)
@@ -731,6 +711,24 @@ struct FocusModeWorkoutScreen: View {
                     }
                 }
                 .padding(.horizontal, Space.md)
+                .onChange(of: screenMode) { _, newMode in
+                    // Scroll to editing dock when editing starts
+                    if case .editingSet(let exerciseId, let setId, let cellType) = newMode {
+                        let cell: FocusModeGridCell
+                        switch cellType {
+                        case .weight: cell = .weight(exerciseId: exerciseId, setId: setId)
+                        case .reps: cell = .reps(exerciseId: exerciseId, setId: setId)
+                        case .rir: cell = .rir(exerciseId: exerciseId, setId: setId)
+                        }
+                        // Delay to let keyboard animation start
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                scrollProxy.scrollTo(cell, anchor: .bottom)
+                            }
+                        }
+                    }
+                }
+                } // ScrollViewReader
             }
             .coordinateSpace(name: "workoutScroll")
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { scrollY in
@@ -1250,7 +1248,7 @@ struct FocusModeWorkoutScreen: View {
                     reps: reps,
                     rir: rir
                 )
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                // Haptic fires immediately in doneCell on tap — no duplicate here
             } catch {
                 print("Log set failed: \(error)")
                 showError("Set sync pending - you can continue")
@@ -1542,7 +1540,21 @@ struct FocusModeExerciseSectionNew: View {
                 onLogSet: onLogSet,
                 onPatchField: onPatchField,
                 onAddSet: onAddSet,
-                onRemoveSet: onRemoveSet
+                onRemoveSet: onRemoveSet,
+                onToggleAllDone: {
+                    let allDone = exercise.sets.filter({ !$0.isWarmup }).allSatisfy { $0.isDone }
+                    if allDone {
+                        // Undo all: patch each working set to planned
+                        for s in exercise.sets where !s.isWarmup {
+                            onPatchField(exercise.instanceId, s.id, "status", "planned")
+                        }
+                    } else {
+                        // Log all undone working sets
+                        for s in exercise.sets where !s.isWarmup && !s.isDone {
+                            onLogSet(exercise.instanceId, s.id, s.displayWeight, s.displayReps ?? 10, s.displayRir)
+                        }
+                    }
+                }
             )
         }
     }
@@ -1706,6 +1718,46 @@ private struct WorkoutCompletionSummary: View {
             print("[WorkoutCompletionSummary] Failed to load workout: \(error)")
         }
         isLoading = false
+    }
+}
+
+// MARK: - Alerts Modifier (extracted to help Swift type checker)
+
+private struct WorkoutAlertsModifier: ViewModifier {
+    @Binding var showingCompleteConfirmation: Bool
+    @Binding var showingNameEditor: Bool
+    @Binding var editingName: String
+    @Binding var showingCancelConfirmation: Bool
+    @Binding var showingResumeGate: Bool
+    var onFinish: () -> Void
+    var onUpdateName: (String) -> Void
+    var onDiscard: () -> Void
+    var onResume: () -> Void
+    var onDiscardAndStartNew: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Finish Workout?", isPresented: $showingCompleteConfirmation) {
+                Button("Complete Workout") { onFinish() }
+                Button("Keep Logging", role: .cancel) { }
+            }
+            .alert("Workout Name", isPresented: $showingNameEditor) {
+                TextField("Name", text: $editingName)
+                Button("Save") { onUpdateName(editingName) }
+                Button("Cancel", role: .cancel) { }
+            }
+            .alert("Discard Workout?", isPresented: $showingCancelConfirmation) {
+                Button("Keep Logging", role: .cancel) { }
+                Button("Discard", role: .destructive) { onDiscard() }
+            } message: {
+                Text("Your progress will not be saved.")
+            }
+            .alert("Active Workout Found", isPresented: $showingResumeGate) {
+                Button("Resume Workout") { onResume() }
+                Button("Discard and Start New", role: .destructive) { onDiscardAndStartNew() }
+            } message: {
+                Text("You have an active workout in progress. Would you like to resume or start fresh?")
+            }
     }
 }
 
