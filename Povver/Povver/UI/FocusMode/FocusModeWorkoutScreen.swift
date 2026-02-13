@@ -687,7 +687,13 @@ struct FocusModeWorkoutScreen: View {
                                     screenMode: $screenMode,
                                     onLogSet: logSet,
                                     onPatchField: patchField,
-                                    onAddSet: { addSet(to: exercise.instanceId) },
+                                    onAddSet: {
+                                        let lastWorkingSet = exercise.sets.last(where: { !$0.isWarmup }) ?? exercise.sets.last
+                                        addSet(to: exercise.instanceId,
+                                               weight: lastWorkingSet?.displayWeight,
+                                               reps: lastWorkingSet?.displayReps ?? 10,
+                                               rir: lastWorkingSet?.displayRir ?? 2)
+                                    },
                                     onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
                                     onRemoveExercise: { removeExercise(exerciseId: exercise.instanceId) },
                                     onAutofill: { autofillExercise(exercise.instanceId) }
@@ -1245,10 +1251,10 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    private func addSet(to exerciseId: String) {
+    private func addSet(to exerciseId: String, weight: Double? = nil, reps: Int = 10, rir: Int? = 2) {
         Task {
             do {
-                _ = try await service.addSet(exerciseInstanceId: exerciseId)
+                _ = try await service.addSet(exerciseInstanceId: exerciseId, weight: weight, reps: reps, rir: rir)
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } catch {
                 print("Add set failed: \(error)")

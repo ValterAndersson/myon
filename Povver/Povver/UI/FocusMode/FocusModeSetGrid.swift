@@ -152,8 +152,9 @@ struct FocusModeSetGrid: View {
                     }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .id(selected)
             }
-            
+
             Divider()
                 .padding(.leading, Space.md)
         }
@@ -529,6 +530,28 @@ struct FocusModeEditingDock: View {
                 editScope = smartDefaultScope
                 hasComputedDefaultScope = true
             }
+            // Auto-focus text field for weight/reps when dock opens
+            switch selectedCell {
+            case .weight:
+                let weight = set.displayWeight ?? 0
+                textInputValue = weight > 0 ? formatWeight(weight) : ""
+                isEditingText = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    textFieldFocused = true
+                }
+            case .reps:
+                textInputValue = "\(set.displayReps ?? 10)"
+                isEditingText = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    textFieldFocused = true
+                }
+            case .rir, .done:
+                break
+            }
+        }
+        .onDisappear {
+            // Auto-save: commit any pending text input when switching cells
+            if isEditingText { commitTextInput() }
         }
     }
     
@@ -579,10 +602,11 @@ struct FocusModeEditingDock: View {
     private var weightEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayWeight ?? 0) <= 0) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
                 let newValue = (set.displayWeight ?? 0) - 2.5
                 applyValueChange("weight", max(0, newValue))
             }
-            
+
             // Tappable value → TextField for direct keyboard input
             if isEditingText {
                 VStack(spacing: 0) {
@@ -627,8 +651,9 @@ struct FocusModeEditingDock: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
+
             stepButton(systemName: "plus", disabled: false) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
                 let newValue = (set.displayWeight ?? 0) + 2.5
                 applyValueChange("weight", newValue)
             }
@@ -638,10 +663,11 @@ struct FocusModeEditingDock: View {
     private var repsEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayReps ?? 1) <= 1) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
                 let newValue = (set.displayReps ?? 10) - 1
                 applyValueChange("reps", max(1, newValue))
             }
-            
+
             // Tappable value → TextField for direct keyboard input
             if isEditingText {
                 VStack(spacing: 0) {
@@ -685,8 +711,9 @@ struct FocusModeEditingDock: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
+
             stepButton(systemName: "plus", disabled: (set.displayReps ?? 0) >= 30) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
                 let newValue = (set.displayReps ?? 10) + 1
                 applyValueChange("reps", min(30, newValue))
             }

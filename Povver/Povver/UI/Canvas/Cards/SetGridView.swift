@@ -65,6 +65,7 @@ struct SetGridView: View {
                                         editScope: $editScope,
                                         onDismiss: { withAnimation(.easeOut(duration: 0.15)) { selectedCell = nil } }
                                     )
+                                    .id(selectedCell!)
                                 }
                             }
                             .listRowInsets(EdgeInsets())
@@ -397,6 +398,29 @@ private struct InlineEditingDock: View {
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.sm)
         .background(Color.surfaceElevated.opacity(0.8))
+        .onAppear {
+            // Auto-focus text field for weight/reps when dock opens
+            switch selectedCell {
+            case .weight:
+                textInputValue = currentValue > 0 ? formatWeight(currentValue) : ""
+                isEditingText = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    textFieldFocused = true
+                }
+            case .reps:
+                textInputValue = "\(Int(currentValue))"
+                isEditingText = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    textFieldFocused = true
+                }
+            case .rir:
+                break
+            }
+        }
+        .onDisappear {
+            // Auto-save: commit any pending text input when switching cells
+            if isEditingText { commitTextInput() }
+        }
     }
     
     private var currentSetIndex: Int? { sets.firstIndex { $0.id == selectedCell.setId } }
@@ -454,8 +478,11 @@ private struct InlineEditingDock: View {
     
     private var weightEditor: some View {
         HStack(spacing: Space.md) {
-            stepButton(systemName: "minus", disabled: currentValue <= 0) { applyChange(currentValue - 2.5) }
-            
+            stepButton(systemName: "minus", disabled: currentValue <= 0) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                applyChange(currentValue - 2.5)
+            }
+
             // Tappable value display / text field
             if isEditingText {
                 VStack(spacing: 0) {
@@ -495,15 +522,21 @@ private struct InlineEditingDock: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
-            stepButton(systemName: "plus", disabled: false) { applyChange(currentValue + 2.5) }
+
+            stepButton(systemName: "plus", disabled: false) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                applyChange(currentValue + 2.5)
+            }
         }
     }
     
     private var repsEditor: some View {
         HStack(spacing: Space.md) {
-            stepButton(systemName: "minus", disabled: currentValue <= 1) { applyChange(currentValue - 1) }
-            
+            stepButton(systemName: "minus", disabled: currentValue <= 1) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                applyChange(currentValue - 1)
+            }
+
             // Tappable value display / text field
             if isEditingText {
                 VStack(spacing: 0) {
@@ -543,8 +576,11 @@ private struct InlineEditingDock: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
-            stepButton(systemName: "plus", disabled: currentValue >= 30) { applyChange(currentValue + 1) }
+
+            stepButton(systemName: "plus", disabled: currentValue >= 30) {
+                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                applyChange(currentValue + 1)
+            }
         }
     }
     
