@@ -5,7 +5,7 @@
 > This document is optimized for LLM/AI consumption. It provides explicit file paths, 
 > complete data schemas, and decision tables to enable accurate code generation without ambiguity.
 >
-> **Last Updated**: 2026-01-03
+> **Last Updated**: 2026-02-13
 > **Branch**: main
 > **Repository Root**: /Users/valterandersson/Documents/Povver
 
@@ -20,6 +20,7 @@
 | **iOS Workout Screen** | `Povver/Povver/UI/FocusMode/FocusModeWorkoutScreen.swift` | Active workout UI |
 | **iOS Streaming Service** | `Povver/Povver/Services/DirectStreamingService.swift` | Agent communication |
 | **iOS Workout Service** | `Povver/Povver/Services/FocusModeWorkoutService.swift` | Workout API calls |
+| **iOS Session Logger** | `Povver/Povver/Services/WorkoutSessionLogger.swift` | On-device workout event log (JSON) |
 | **Agent Entry Point** | `adk_agent/canvas_orchestrator/app/agent_engine_app.py` | Vertex AI entry |
 | **Agent Router** | `adk_agent/canvas_orchestrator/app/shell/router.py` | 4-Lane routing |
 | **Agent Skills** | `adk_agent/canvas_orchestrator/app/skills/` | Pure logic modules |
@@ -178,6 +179,9 @@ iOS: Returns workout_id, iOS navigates to workout view
 ```
 User taps "Finish Workout"
         │
+        ▼
+iOS: FocusModeWorkoutService drains pending syncs
+        │ Awaits all in-flight logSet/patchField calls
         ▼
 iOS: FocusModeWorkoutService.finishWorkout()
         │ POST /completeActiveWorkout

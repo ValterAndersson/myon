@@ -40,6 +40,7 @@ Povver is a SwiftUI-based iOS fitness coaching application. The app provides:
 - Firebase Auth for authentication
 - Firebase Firestore for data persistence
 - Firebase Functions for backend API
+- Firebase Crashlytics for crash reporting (tagged with userId)
 - Vertex AI Agent Engine for AI agents (via streaming)
 
 ---
@@ -134,6 +135,8 @@ struct PovverApp: App {
 | Manager | Type | Purpose |
 |---------|------|---------|
 | `ActiveWorkoutManager` | Singleton | Live workout state management |
+| `FocusModeWorkoutService` | ObservableObject | Active workout API: start, logSet, patchField, complete, cancel. Drains pending syncs before completion. |
+| `WorkoutSessionLogger` | Singleton | Records every workout event to JSON on disk (`Documents/workout_logs/`). Auto-flushes on app background. Breadcrumbs to Crashlytics for crash correlation. |
 | `BackgroundSaveService` | Singleton | Fire-and-forget background saves with observable sync state |
 | `TemplateManager` | Singleton | Template editing state |
 | `CacheManager` | Actor | Memory + disk caching |
@@ -400,6 +403,7 @@ Povver/Povver/
 │   ├── ActiveWorkoutDoc.swift
 │   ├── ChatMessage.swift
 │   ├── Exercise.swift
+│   ├── FocusModeModels.swift
 │   ├── MuscleGroup.swift
 │   ├── Routine.swift
 │   ├── StreamEvent.swift
@@ -438,6 +442,8 @@ Povver/Povver/
 │   ├── Idempotency.swift           # Idempotency keys
 │   ├── PendingAgentInvoke.swift    # Pending message queue
 │   ├── SessionManager.swift        # Session state
+│   ├── FocusModeWorkoutService.swift # Active workout API
+│   ├── WorkoutSessionLogger.swift  # On-device event log
 │   ├── TemplateManager.swift       # Template editing
 │   └── TimezoneManager.swift       # Timezone handling
 ├── ViewModels/
@@ -484,6 +490,12 @@ Povver/Povver/
     │           ├── ExerciseRowView.swift
     │           ├── ExerciseSwapSheet.swift
     │           └── IterationActionsRow.swift
+    ├── FocusMode/
+    │   ├── ARCHITECTURE.md            # Module architecture
+    │   ├── FocusModeWorkoutScreen.swift # Main workout screen
+    │   ├── FocusModeSetGrid.swift      # Set grid + editing dock
+    │   ├── FocusModeComponents.swift   # Shared components
+    │   └── FocusModeExerciseSearch.swift # Exercise search
     ├── Components/
     │   ├── MyonButton.swift
     │   ├── MyonText.swift
