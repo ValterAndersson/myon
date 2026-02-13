@@ -111,9 +111,10 @@ class FocusModeWorkoutService: ObservableObject {
     private var inFlightSyncCount = 0
     
     // MARK: - Dependencies
-    
+
     private let apiClient = ApiClient.shared
     private let idempotencyHelper = IdempotencyKeyHelper.shared
+    private let sessionLog = WorkoutSessionLogger.shared
     
     // MARK: - Mutation Coordinator
     
@@ -157,11 +158,16 @@ class FocusModeWorkoutService: ObservableObject {
         switch change {
         case .syncSuccess(let mutation):
             print("[FocusModeWorkoutService] Mutation synced: \(mutation)")
+            sessionLog.log(.syncSuccess, details: ["mutation": String(describing: mutation)])
             // Update entity sync state on success
             updateEntitySyncState(mutation: mutation, state: .synced)
-            
+
         case .syncFailed(let mutation, let error):
             print("[FocusModeWorkoutService] Mutation failed: \(mutation), error: \(error)")
+            sessionLog.log(.syncFailed, details: [
+                "mutation": String(describing: mutation),
+                "error": error
+            ])
             self.error = error
             // Update entity sync state on failure
             updateEntitySyncState(mutation: mutation, state: .failed(error))
@@ -170,6 +176,7 @@ class FocusModeWorkoutService: ObservableObject {
             
         case .needsReconcile:
             print("[FocusModeWorkoutService] Reconciliation needed - fetching latest state")
+            sessionLog.log(.reconciliation, details: ["trigger": "TARGET_NOT_FOUND"])
             await performReconciliation()
         }
     }
@@ -296,11 +303,13 @@ class FocusModeWorkoutService: ObservableObject {
         // Parse workout from response
         let workout = FocusModeWorkout(from: workoutData)
         self.workout = workout
-        
+
+        sessionLog.begin(workoutId: workout.id, name: workout.name, resumed: true)
+
         // Reset coordinator for this session
         await mutationCoordinator.reset()
         currentSessionId = await mutationCoordinator.getSessionId()
-        
+
         return workout
     }
     
@@ -350,9 +359,16 @@ class FocusModeWorkoutService: ObservableObject {
         // Parse workout from response
         let parsedWorkout = FocusModeWorkout(fromNewResponse: response)
         self.workout = parsedWorkout
+
+        sessionLog.begin(
+            workoutId: parsedWorkout.id,
+            name: parsedWorkout.name,
+            resumed: response.resumed
+        )
+
         return parsedWorkout
     }
-    
+
     // MARK: - Log Set (Hot Path)
     
     /// Mark a set as done - this is the PRIMARY action in focus mode
@@ -369,6 +385,15 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
         
+        sessionLog.log(.setLogged, details: [
+            "exercise": exerciseInstanceId,
+            "set": setId,
+            "weight": weight ?? 0,
+            "reps": reps,
+            "rir": rir ?? -1,
+            "isFailure": isFailure ?? false
+        ])
+
         // 1. Apply optimistically to local state (coordinator handles dependency ordering)
         applyLogSetLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, weight: weight, reps: reps, rir: rir, isFailure: isFailure)
         
@@ -407,6 +432,8 @@ class FocusModeWorkoutService: ObservableObject {
             // Log sync failure but don't rollback local state
             // User can continue working offline
             print("[FocusModeWorkoutService] logSet sync failed: \(error)")
+            sessionLog.log(.syncFailed, details: ["op": "logSet", "error": error.localizedDescription])
+            FirebaseConfig.shared.recordError(error, context: ["op": "logSet"])
             self.error = "Sync pending - you can continue"
             throw error
         }
@@ -425,8 +452,13 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
         
-        // Coordinator handles dependency ordering - no manual wait needed
-        
+        sessionLog.log(.fieldPatched, details: [
+            "exercise": exerciseInstanceId,
+            "set": setId,
+            "field": field,
+            "value": value
+        ])
+
         // 1. Apply optimistically
         applyPatchLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, field: field, value: value)
         
@@ -475,7 +507,13 @@ class FocusModeWorkoutService: ObservableObject {
         }
         
         let newSetId = UUID().uuidString
-        
+
+        sessionLog.log(.setAdded, details: [
+            "exercise": exerciseInstanceId,
+            "setId": newSetId,
+            "type": setType.rawValue
+        ])
+
         // 1. Apply optimistically
         let newSet = FocusModeSet(
             id: newSetId,
@@ -546,6 +584,13 @@ class FocusModeWorkoutService: ObservableObject {
             sets: defaultSets
         )
 
+        sessionLog.log(.exerciseAdded, details: [
+            "instanceId": newInstanceId,
+            "exerciseId": exerciseId,
+            "name": exercise.name,
+            "sets": defaultSets.count
+        ])
+
         // 1. Apply optimistically - exercise appears immediately
         var updatedWorkout = workout
         updatedWorkout.exercises.append(newExercise)
@@ -590,7 +635,12 @@ class FocusModeWorkoutService: ObservableObject {
         guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
-        
+
+        sessionLog.log(.setRemoved, details: [
+            "exercise": exerciseInstanceId,
+            "setId": setId
+        ])
+
         // 1. Apply optimistically
         removeSetLocally(exerciseInstanceId: exerciseInstanceId, setId: setId)
         
@@ -622,7 +672,13 @@ class FocusModeWorkoutService: ObservableObject {
         guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
-        
+
+        let removedName = workout.exercises.first { $0.instanceId == exerciseInstanceId }?.name ?? "?"
+        sessionLog.log(.exerciseRemoved, details: [
+            "instanceId": exerciseInstanceId,
+            "name": removedName
+        ])
+
         // 1. Apply optimistically - remove exercise immediately
         var updatedWorkout = workout
         updatedWorkout.exercises.removeAll { $0.instanceId == exerciseInstanceId }
@@ -690,6 +746,7 @@ class FocusModeWorkoutService: ObservableObject {
         let response: CancelWorkoutResponse = try await apiClient.postJSON("cancelActiveWorkout", body: request)
         
         if response.success {
+            sessionLog.end(outcome: .workoutCancelled)
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
@@ -720,6 +777,12 @@ class FocusModeWorkoutService: ObservableObject {
         
         if response.success {
             let archivedId = response.workoutId ?? workout.id
+            sessionLog.log(.workoutCompleted, details: [
+                "archivedId": archivedId,
+                "exercises": self.workout?.exercises.count ?? 0,
+                "totalSets": self.workout?.exercises.reduce(0) { $0 + $1.sets.count } ?? 0
+            ])
+            sessionLog.end(outcome: .workoutCompleted)
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
@@ -742,9 +805,11 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.syncFailed("Workout name cannot be empty")
         }
         
+        sessionLog.log(.nameChanged, details: ["name": trimmedName])
+
         // Optimistically update local state
         self.workout?.name = trimmedName
-        
+
         // Enqueue to coordinator with coalescing (last-write-wins)
         await mutationCoordinator.setWorkout(workout.id)
         await mutationCoordinator.enqueue(.patchWorkoutMetadata(
@@ -770,9 +835,11 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.syncFailed("Start time cannot be more than 24 hours ago")
         }
         
+        sessionLog.log(.startTimeChanged, details: ["newStartTime": newStartTime.description])
+
         // Optimistically update local state
         self.workout?.startTime = newStartTime
-        
+
         // Convert to ISO8601 string for backend
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -801,12 +868,16 @@ class FocusModeWorkoutService: ObservableObject {
         
         // Get new order as array of instance IDs
         let newOrder = workout.exercises.map { $0.instanceId }
-        
+
+        sessionLog.log(.exercisesReordered, details: [
+            "order": newOrder.joined(separator: ",")
+        ])
+
         // Sync to backend (fire and forget - don't block UI)
         Task {
             await syncReorderToBackend(workoutId: workout.id, order: newOrder)
         }
-        
+
         print("[FocusModeWorkoutService] Reordered exercises: \(newOrder)")
     }
     

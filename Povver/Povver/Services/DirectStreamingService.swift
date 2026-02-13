@@ -89,7 +89,13 @@ class DirectStreamingService: ObservableObject {
     private var gcpAuthToken: String?
     private var tokenExpiryTime: Date?
     
-    private let session = URLSession(configuration: .default)
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30       // 30s to establish connection
+        config.timeoutIntervalForResource = 300     // 5min max for SSE streams
+        config.waitsForConnectivity = true           // Wait for network instead of failing immediately
+        return URLSession(configuration: config)
+    }()
     
     // MARK: - Public Methods
     

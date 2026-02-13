@@ -18,6 +18,7 @@ class AuthService: ObservableObject {
             
             // Initialize timezone if needed when user signs in
             if let user = user {
+                FirebaseConfig.shared.setUserForCrashlytics(user.uid)
                 Task {
                     try? await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: user.uid)
                 }

@@ -64,6 +64,9 @@ struct FocusModeWorkoutScreen: View {
     // Prevents duplicate starts
     @State private var isStartingWorkout = false
 
+    // Error banner (auto-dismiss after 4s)
+    @State private var errorBanner: String? = nil
+
     // Post-workout summary
     @State private var completedWorkout: CompletedWorkoutRef? = nil
     
@@ -232,6 +235,23 @@ struct FocusModeWorkoutScreen: View {
             }
         } message: {
             Text("You have an active workout in progress. Would you like to resume or start fresh?")
+        }
+        .overlay(alignment: .top) {
+            if let msg = errorBanner {
+                Banner(title: "Sync Issue", message: msg, kind: .warning)
+                    .padding(.horizontal, Space.md)
+                    .padding(.top, Space.sm)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onTapGesture { withAnimation { errorBanner = nil } }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: errorBanner)
+        .onChange(of: service.workout) { _, newWorkout in
+            // Keep screen awake while a workout is active
+            UIApplication.shared.isIdleTimerDisabled = newWorkout != nil
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .task {
             await startWorkoutIfNeeded()
@@ -1215,6 +1235,7 @@ struct FocusModeWorkoutScreen: View {
                 try await service.addExercise(exercise: exercise)
             } catch {
                 print("Add exercise failed: \(error)")
+                showError("Failed to add exercise")
             }
         }
     }
@@ -1232,6 +1253,7 @@ struct FocusModeWorkoutScreen: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             } catch {
                 print("Log set failed: \(error)")
+                showError("Set sync pending - you can continue")
             }
         }
     }
@@ -1247,6 +1269,7 @@ struct FocusModeWorkoutScreen: View {
                 )
             } catch {
                 print("Patch failed: \(error)")
+                showError("Edit sync pending")
             }
         }
     }
@@ -1258,6 +1281,7 @@ struct FocusModeWorkoutScreen: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } catch {
                 print("Add set failed: \(error)")
+                showError("Failed to add set")
             }
         }
     }
@@ -1268,6 +1292,7 @@ struct FocusModeWorkoutScreen: View {
                 _ = try await service.removeSet(exerciseInstanceId: exerciseId, setId: setId)
             } catch {
                 print("Remove set failed: \(error)")
+                showError("Failed to remove set")
             }
         }
     }
@@ -1278,6 +1303,7 @@ struct FocusModeWorkoutScreen: View {
                 try await service.removeExercise(exerciseInstanceId: exerciseId)
             } catch {
                 print("Remove exercise failed: \(error)")
+                showError("Failed to remove exercise")
             }
         }
     }
@@ -1287,8 +1313,17 @@ struct FocusModeWorkoutScreen: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
     
+    /// Show a transient error banner that auto-dismisses after 4 seconds.
+    private func showError(_ message: String) {
+        withAnimation { errorBanner = message }
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            withAnimation { if errorBanner == message { errorBanner = nil } }
+        }
+    }
+
     // MARK: - Helpers
-    
+
     private func formatDuration(_ interval: TimeInterval) -> String {
         let hours = Int(interval) / 3600
         let minutes = (Int(interval) % 3600) / 60
