@@ -742,13 +742,6 @@ struct TemplateDetailView: View {
                     }
                 }
             }
-            ToolbarItem(placement: .navigationBarLeading) {
-                if isEditing {
-                    Button("Cancel") {
-                        cancelEditing()
-                    }
-                }
-            }
         }
         .onChange(of: syncState) { oldState, newState in
             if oldState != nil && newState == nil {
@@ -882,7 +875,7 @@ struct TemplateDetailView: View {
                     exercises: $planExercises,
                     selectedCell: $selectedCell,
                     isExpanded: isExpanded,
-                    isPlanningMode: true,  // Library templates are editable
+                    isPlanningMode: !isEditing,
                     showDivider: index < planExercises.count - 1,
                     onToggleExpand: {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -988,11 +981,6 @@ struct TemplateDetailView: View {
         editingName = template?.name ?? templateName
         editingDescription = template?.description ?? ""
         isEditing = true
-    }
-
-    private func cancelEditing() {
-        planExercises = originalPlanExercises
-        isEditing = false
     }
 
     private func saveChanges() {
@@ -1109,7 +1097,6 @@ struct RoutineDetailView: View {
     @State private var editingDescription: String = ""
     @State private var editingFrequency: Int = 3
     @State private var showTemplatePicker = false
-    @State private var originalTemplates: [TemplateItem] = []
 
     private var syncState: FocusModeSyncState? {
         saveService.state(for: routineId)
@@ -1155,13 +1142,6 @@ struct RoutineDetailView: View {
                 } else if !isLoading {
                     Button("Edit") {
                         startEditing()
-                    }
-                }
-            }
-            ToolbarItem(placement: .navigationBarLeading) {
-                if isEditing {
-                    Button("Cancel") {
-                        cancelEditing()
                     }
                 }
             }
@@ -1369,16 +1349,10 @@ struct RoutineDetailView: View {
     // MARK: - Editing
 
     private func startEditing() {
-        originalTemplates = templates
         editingName = routine?.name ?? routineName
         editingDescription = routine?.description ?? ""
         editingFrequency = routine?.frequency ?? max(frequency, 1)
         isEditing = true
-    }
-
-    private func cancelEditing() {
-        templates = originalTemplates
-        isEditing = false
     }
 
     private enum MoveDirection { case up, down }

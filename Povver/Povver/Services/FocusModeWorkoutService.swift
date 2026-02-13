@@ -106,6 +106,9 @@ class FocusModeWorkoutService: ObservableObject {
     
     /// Session ID to validate coordinator callbacks (prevents stale updates)
     private var currentSessionId: UUID?
+
+    /// Tracks in-flight logSet/patchField network calls so completeWorkout() can drain them
+    private var inFlightSyncCount = 0
     
     // MARK: - Dependencies
     
@@ -388,9 +391,11 @@ class FocusModeWorkoutService: ObservableObject {
         )
         
         // 4. Sync to backend (no isSyncing flag - hot path stays fully responsive)
+        inFlightSyncCount += 1
+        defer { inFlightSyncCount -= 1 }
         do {
             let response: LogSetResponse = try await apiClient.postJSON("logSet", body: request)
-            
+
             if response.success, let totals = response.totals {
                 // Update totals from server (source of truth)
                 self.workout?.totals = totals
@@ -452,6 +457,8 @@ class FocusModeWorkoutService: ObservableObject {
         )
         
         // 4. Sync to backend (debounced in production)
+        inFlightSyncCount += 1
+        defer { inFlightSyncCount -= 1 }
         return try await syncPatch(request)
     }
     
@@ -697,9 +704,15 @@ class FocusModeWorkoutService: ObservableObject {
         guard let workout = workout else {
             throw FocusModeError.noActiveWorkout
         }
-        
+
+        // Drain any in-flight logSet/patchField calls before completing.
+        // Task.sleep yields the MainActor, letting pending defer blocks decrement the counter.
+        while inFlightSyncCount > 0 {
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        }
+
         let request = CompleteWorkoutRequest(workoutId: workout.id)
-        
+
         isLoading = true
         defer { isLoading = false }
         

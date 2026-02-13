@@ -6,11 +6,10 @@ enum GridCellField: Equatable, Hashable {
     case weight(setId: String)
     case reps(setId: String)
     case rir(setId: String)
-    case done(setId: String)
-    
+
     var setId: String {
         switch self {
-        case .weight(let id), .reps(let id), .rir(let id), .done(let id):
+        case .weight(let id), .reps(let id), .rir(let id):
             return id
         }
     }
@@ -227,9 +226,12 @@ struct SetGridView: View {
             )
             .frame(width: widths.rir)
             
-            // DONE column
+            // DONE column — direct toggle, no editor panel
             if !isPlanningMode {
-                Button { selectedCell = .done(setId: set.id) } label: {
+                Button {
+                    sets[index].isCompleted = !(sets[index].isCompleted ?? false)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
                     Image(systemName: set.isCompleted == true ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 20))
                         .foregroundColor(set.isCompleted == true ? Color.success : Color.textSecondary.opacity(0.4))
@@ -407,7 +409,6 @@ private struct InlineEditingDock: View {
         case .weight: return set.weight ?? 0
         case .reps: return Double(set.reps)
         case .rir: return Double(set.rir ?? 2)
-        case .done: return 0
         }
     }
     
@@ -448,7 +449,6 @@ private struct InlineEditingDock: View {
         case .weight: weightEditor
         case .reps: repsEditor
         case .rir: rirEditor
-        case .done: doneEditor
         }
     }
     
@@ -590,27 +590,6 @@ private struct InlineEditingDock: View {
         }
     }
     
-    private var doneEditor: some View {
-        Button {
-            guard let idx = currentSetIndex else { return }
-            sets[idx].isCompleted = !(sets[idx].isCompleted ?? false)
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            onDismiss()
-        } label: {
-            HStack {
-                Image(systemName: currentSet?.isCompleted == true ? "checkmark.circle.fill" : "circle")
-                Text(currentSet?.isCompleted == true ? "Mark Incomplete" : "Mark Complete")
-            }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundColor(currentSet?.isCompleted == true ? Color.textSecondary : Color.success)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(currentSet?.isCompleted == true ? Color.surfaceElevated : Color.success.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
     private func stepButton(systemName: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
@@ -644,7 +623,6 @@ private struct InlineEditingDock: View {
             case .weight: sets[i].weight = newValue > 0 ? newValue : nil
             case .reps: sets[i].reps = max(1, Int(newValue))
             case .rir: if !sets[i].isWarmup { sets[i].rir = Int(newValue) }
-            case .done: break
             }
             if editScope == .thisOnly { sets[i].isLinkedToBase = false }
         }

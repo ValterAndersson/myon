@@ -1,7 +1,7 @@
 import Foundation
 
 struct Workout: Codable, Identifiable {
-    let id: String
+    var id: String
     let userId: String
     var name: String?  // Workout name (set by user or from template)
     var sourceTemplateId: String?

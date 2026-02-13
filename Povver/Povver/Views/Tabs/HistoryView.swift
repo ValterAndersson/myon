@@ -92,7 +92,11 @@ struct HistoryView: View {
                     ForEach(groupedWorkouts, id: \.date) { group in
                         Section {
                         ForEach(group.workouts) { workout in
-                            NavigationLink(destination: WorkoutDetailView(workoutId: workout.id)) {
+                            NavigationLink(destination: WorkoutDetailView(workoutId: workout.id, onDelete: { deletedId in
+                                allWorkouts.removeAll { $0.id == deletedId }
+                                workouts.removeAll { $0.id == deletedId }
+                                totalWorkoutCount = allWorkouts.count
+                            })) {
                                 WorkoutRow.history(
                                     name: workout.name,
                                     time: formatTime(workout.date),
@@ -284,6 +288,7 @@ private struct DateHeaderView: View {
 
 struct WorkoutDetailView: View {
     let workoutId: String
+    var onDelete: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var saveService = BackgroundSaveService.shared
@@ -428,6 +433,7 @@ struct WorkoutDetailView: View {
         isDeleting = true
         do {
             try await WorkoutRepository().deleteWorkout(userId: userId, id: workoutId)
+            onDelete?(workoutId)
             dismiss()
         } catch {
             print("[WorkoutDetailView] Failed to delete workout: \(error)")

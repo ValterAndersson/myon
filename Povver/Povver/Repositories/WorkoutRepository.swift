@@ -9,7 +9,11 @@ class WorkoutRepository {
     func getWorkouts(userId: String) async throws -> [Workout] {
         do {
             let snapshot = try await db.collection("users").document(userId).collection("workouts").getDocuments()
-            return snapshot.documents.compactMap { try? $0.data(as: Workout.self) }
+            return snapshot.documents.compactMap { doc in
+                guard var workout = try? doc.data(as: Workout.self) else { return nil }
+                workout.id = doc.documentID
+                return workout
+            }
         } catch {
             print("[WorkoutRepository] getWorkouts error for userId \(userId): \(error)")
             throw error
@@ -20,7 +24,9 @@ class WorkoutRepository {
         do {
             let doc = try await db.collection("users").document(userId).collection("workouts").document(id).getDocument()
             guard doc.exists else { return nil }
-            return try doc.data(as: Workout.self)
+            var workout = try doc.data(as: Workout.self)
+            workout.id = doc.documentID
+            return workout
         } catch {
             print("[WorkoutRepository] getWorkout error for id \(id), userId \(userId): \(error)")
             throw error
