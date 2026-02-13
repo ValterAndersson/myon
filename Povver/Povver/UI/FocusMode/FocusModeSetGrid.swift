@@ -24,11 +24,12 @@ enum FocusModeEditScope: String, CaseIterable {
 struct FocusModeSetGrid: View {
     let exercise: FocusModeExercise
     @Binding var selectedCell: FocusModeGridCell?
-    
+
     let onLogSet: (String, String, Double?, Int, Int?) -> Void
     let onPatchField: (String, String, String, Any) -> Void
     let onAddSet: () -> Void
     let onRemoveSet: (String) -> Void
+    var onToggleAllDone: (() -> Void)? = nil
     
     // Row height - larger than typical for gym use (big fingers, sweat)
     private let rowHeight: CGFloat = 52
@@ -166,7 +167,7 @@ struct FocusModeSetGrid: View {
     private var gridHeader: some View {
         GeometryReader { geo in
             let widths = columnWidths(for: geo.size.width)
-            
+
             HStack(spacing: 0) {
                 Text("SET")
                     .frame(width: widths.set, alignment: .leading)
@@ -176,8 +177,21 @@ struct FocusModeSetGrid: View {
                     .frame(width: widths.reps, alignment: .center)
                 Text("RIR")
                     .frame(width: widths.rir, alignment: .center)
-                Text("✓")
-                    .frame(width: widths.done, alignment: .center)
+
+                // Tappable header: toggle all sets done/undone
+                if let onToggleAllDone {
+                    Button {
+                        onToggleAllDone()
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    } label: {
+                        Text("✓")
+                            .frame(width: widths.done, alignment: .center)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                } else {
+                    Text("✓")
+                        .frame(width: widths.done, alignment: .center)
+                }
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundColor(Color.textSecondary)
@@ -312,14 +326,18 @@ struct FocusModeSetGrid: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
             ZStack {
-                // Subtle ring background
+                // Circle background: filled when done, ring when not
+                Circle()
+                    .fill(set.isDone ? Color.success.opacity(0.15) : Color.clear)
+                    .frame(width: 20, height: 20)
+
                 Circle()
                     .stroke(
                         set.isDone ? Color.success.opacity(0.3) : Color.textSecondary.opacity(0.15),
                         lineWidth: set.isDone ? 2 : 1.5
                     )
                     .frame(width: 20, height: 20)
-                
+
                 // Checkmark when done
                 if set.isDone {
                     Image(systemName: "checkmark")
@@ -420,7 +438,7 @@ struct FocusModeSetGrid: View {
     }
     
     // MARK: - Row Background (v1.1 Single Focus Rule)
-    /// Only the selected/editing row gets accentMuted - completed sets stay neutral
+    /// Selected/editing row gets accentMuted. Done rows get subtle success tint.
     private func rowBackground(for set: FocusModeSet) -> Color {
         if let selected = selectedCell,
            selected.exerciseId == exercise.instanceId,
@@ -428,7 +446,10 @@ struct FocusModeSetGrid: View {
             // ONLY the active/editing row is tinted with accentMuted
             return Color.accentMuted
         }
-        // Completed sets remain neutral (checkmark alone is enough)
+        // Done sets get subtle success tint for at-a-glance visibility
+        if set.isDone {
+            return Color.success.opacity(0.06)
+        }
         // Warmups get subtle grouping background
         if set.isWarmup {
             return Color.surfaceElevated.opacity(0.5)
@@ -492,33 +513,46 @@ struct FocusModeEditingDock: View {
         return allMatch ? .remaining : .thisOnly
     }
     
+    /// Dismiss/Done button (closes editor, does NOT mark set complete)
+    private var dockDoneButton: some View {
+        Button(action: onDismiss) {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                Text("Done")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(.textInverse)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.accent)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
     var body: some View {
         VStack(spacing: Space.sm) {
             // Scope selector (only for working sets)
             if !isWarmup && (selectedCell.isWeight || selectedCell.isReps) {
                 scopeSelector
             }
-            
-            HStack(alignment: .center, spacing: Space.md) {
-                valueEditor
-                
-                Spacer()
-                
-                // Dismiss/Done button (closes editor, does NOT mark set complete)
-                Button(action: onDismiss) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .bold))
-                        Text("Done")
-                            .font(.system(size: 13, weight: .semibold))
+
+            // RIR pills need vertical layout to avoid overflow
+            if selectedCell.isRir {
+                VStack(spacing: Space.sm) {
+                    valueEditor
+                    HStack {
+                        Spacer()
+                        dockDoneButton
                     }
-                    .foregroundColor(.textInverse)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.accent)
-                    .clipShape(Capsule())
                 }
-                .buttonStyle(PlainButtonStyle())
+            } else {
+                HStack(alignment: .center, spacing: Space.md) {
+                    valueEditor
+                    Spacer()
+                    dockDoneButton
+                }
             }
         }
         .padding(.horizontal, Space.md)
@@ -531,16 +565,10 @@ struct FocusModeEditingDock: View {
                 hasComputedDefaultScope = true
             }
             // Auto-focus text field for weight/reps when dock opens
+            // Start empty so typing replaces the value (current value shown as placeholder)
             switch selectedCell {
-            case .weight:
-                let weight = set.displayWeight ?? 0
-                textInputValue = weight > 0 ? formatWeight(weight) : ""
-                isEditingText = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    textFieldFocused = true
-                }
-            case .reps:
-                textInputValue = "\(set.displayReps ?? 10)"
+            case .weight, .reps:
+                textInputValue = ""
                 isEditingText = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     textFieldFocused = true
@@ -602,7 +630,7 @@ struct FocusModeEditingDock: View {
     private var weightEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayWeight ?? 0) <= 0) {
-                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                textInputValue = ""  // Discard partial input; placeholder shows new value
                 let newValue = (set.displayWeight ?? 0) - 2.5
                 applyValueChange("weight", max(0, newValue))
             }
@@ -610,7 +638,7 @@ struct FocusModeEditingDock: View {
             // Tappable value → TextField for direct keyboard input
             if isEditingText {
                 VStack(spacing: 0) {
-                    TextField("", text: $textInputValue)
+                    TextField(formatWeight(set.displayWeight), text: $textInputValue)
                         .font(.system(size: 24, weight: .bold).monospacedDigit())
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.center)
@@ -627,8 +655,7 @@ struct FocusModeEditingDock: View {
                 .frame(width: 90)
             } else {
                 Button {
-                    let weight = set.displayWeight ?? 0
-                    textInputValue = weight > 0 ? formatWeight(weight) : ""
+                    textInputValue = ""
                     isEditingText = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         textFieldFocused = true
@@ -653,7 +680,7 @@ struct FocusModeEditingDock: View {
             }
 
             stepButton(systemName: "plus", disabled: false) {
-                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                textInputValue = ""  // Discard partial input; placeholder shows new value
                 let newValue = (set.displayWeight ?? 0) + 2.5
                 applyValueChange("weight", newValue)
             }
@@ -663,7 +690,7 @@ struct FocusModeEditingDock: View {
     private var repsEditor: some View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayReps ?? 1) <= 1) {
-                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                textInputValue = ""  // Discard partial input; placeholder shows new value
                 let newValue = (set.displayReps ?? 10) - 1
                 applyValueChange("reps", max(1, newValue))
             }
@@ -671,7 +698,7 @@ struct FocusModeEditingDock: View {
             // Tappable value → TextField for direct keyboard input
             if isEditingText {
                 VStack(spacing: 0) {
-                    TextField("", text: $textInputValue)
+                    TextField("\(set.displayReps ?? 10)", text: $textInputValue)
                         .font(.system(size: 24, weight: .bold).monospacedDigit())
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.center)
@@ -688,7 +715,7 @@ struct FocusModeEditingDock: View {
                 .frame(width: 80)
             } else {
                 Button {
-                    textInputValue = "\(set.displayReps ?? 10)"
+                    textInputValue = ""
                     isEditingText = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         textFieldFocused = true
@@ -713,7 +740,7 @@ struct FocusModeEditingDock: View {
             }
 
             stepButton(systemName: "plus", disabled: (set.displayReps ?? 0) >= 30) {
-                if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
+                textInputValue = ""  // Discard partial input; placeholder shows new value
                 let newValue = (set.displayReps ?? 10) + 1
                 applyValueChange("reps", min(30, newValue))
             }

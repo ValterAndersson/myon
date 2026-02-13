@@ -905,18 +905,10 @@ struct ExerciseCardContainer<Content: View>: View {
 
 struct WarmupDivider: View {
     var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: 0.5))
-                path.addLine(to: CGPoint(x: geo.size.width, y: 0.5))
-            }
-            .stroke(
-                Color.separatorLine,
-                style: StrokeStyle(lineWidth: 1, dash: [3, 3])
-            )
-        }
-        .frame(height: 1)
-        .padding(.vertical, Space.sm)
+        Rectangle()
+            .fill(Color.textTertiary)
+            .frame(height: 1.5)
+            .padding(.vertical, Space.sm)
     }
 }
 
@@ -1058,14 +1050,22 @@ struct ExerciseReorderRow: View {
 struct SwipeToDeleteRow<Content: View>: View {
     let onDelete: () -> Void
     @ViewBuilder let content: () -> Content
-    
-    @State private var offset: CGFloat = 0
-    @State private var isRevealed = false
-    
+
+    /// Tracks live drag offset; auto-resets to 0 when gesture ends/cancelled
+    /// (prevents stuck state when ScrollView steals the gesture)
+    @GestureState private var dragOffset: CGFloat = 0
+    /// Persists the revealed/closed state between gestures
+    @State private var baseOffset: CGFloat = 0
+
+    private var isRevealed: Bool { baseOffset != 0 }
+
     private let deleteButtonWidth: CGFloat = 80
     private let deleteThreshold: CGFloat = 60
     private let fullSwipeThreshold: CGFloat = 150
-    
+
+    /// Visible offset = persisted base + live drag (drag auto-resets on cancel)
+    private var visibleOffset: CGFloat { baseOffset + dragOffset }
+
     var body: some View {
         ZStack(alignment: .trailing) {
             // Delete button (revealed behind content)
@@ -1082,64 +1082,73 @@ struct SwipeToDeleteRow<Content: View>: View {
                 }
                 .buttonStyle(PlainButtonStyle())
             }
-            
+
             // Main content with gesture
             content()
                 .background(Color.surface)
-                .offset(x: offset)
+                .offset(x: visibleOffset)
                 .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            let translation = value.translation.width
-                            // Only allow left swipe (negative translation)
-                            if translation < 0 {
-                                // Elastic effect - harder to drag past button width
-                                if abs(translation) > deleteButtonWidth {
-                                    let overDrag = abs(translation) - deleteButtonWidth
-                                    offset = -deleteButtonWidth - (overDrag * 0.3)
-                                } else {
-                                    offset = translation
+                    DragGesture(minimumDistance: 20)
+                        .updating($dragOffset) { value, state, _ in
+                            let translation = value.translation
+                            // Horizontal-only guard: ignore vertical scrolls
+                            guard abs(translation.width) > abs(translation.height) else { return }
+
+                            if baseOffset == 0 {
+                                // Closed state: only allow left swipe
+                                if translation.width < 0 {
+                                    if abs(translation.width) > deleteButtonWidth {
+                                        let overDrag = abs(translation.width) - deleteButtonWidth
+                                        state = -deleteButtonWidth - (overDrag * 0.3)
+                                    } else {
+                                        state = translation.width
+                                    }
                                 }
-                            } else if isRevealed {
-                                // Allow swipe right to close
-                                offset = min(0, -deleteButtonWidth + translation)
+                            } else {
+                                // Revealed state: swipe right to close, cap so total doesn't exceed 0
+                                state = min(deleteButtonWidth, max(0, translation.width))
                             }
                         }
                         .onEnded { value in
-                            let translation = value.translation.width
-                            
+                            let translation = value.translation
+                            // Ignore primarily vertical gestures
+                            guard abs(translation.width) > abs(translation.height) else { return }
+
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                // Full swipe triggers delete
-                                if abs(translation) > fullSwipeThreshold && translation < 0 {
-                                    offset = -UIScreen.main.bounds.width
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                        onDelete()
+                                if baseOffset == 0 {
+                                    // From closed state
+                                    if translation.width < -fullSwipeThreshold {
+                                        // Full swipe triggers delete
+                                        baseOffset = -UIScreen.main.bounds.width
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                            onDelete()
+                                        }
+                                    } else if translation.width < -deleteThreshold {
+                                        // Partial swipe reveals button
+                                        baseOffset = -deleteButtonWidth
+                                    } else {
+                                        baseOffset = 0
                                     }
-                                    return
-                                }
-                                
-                                // Partial swipe reveals/hides button
-                                if translation < -deleteThreshold {
-                                    offset = -deleteButtonWidth
-                                    isRevealed = true
                                 } else {
-                                    offset = 0
-                                    isRevealed = false
+                                    // From revealed state
+                                    if translation.width > deleteThreshold {
+                                        // Swipe right to close
+                                        baseOffset = 0
+                                    } else {
+                                        // Stay revealed
+                                        baseOffset = -deleteButtonWidth
+                                    }
                                 }
                             }
                         }
                 )
-                .simultaneousGesture(
-                    TapGesture()
-                        .onEnded {
-                            if isRevealed {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    offset = 0
-                                    isRevealed = false
-                                }
-                            }
+                .onTapGesture {
+                    if isRevealed {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            baseOffset = 0
                         }
-                )
+                    }
+                }
         }
         .clipped()
     }
