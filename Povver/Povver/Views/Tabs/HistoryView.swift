@@ -311,36 +311,43 @@ struct WorkoutDetailView: View {
         .navigationTitle("Workout")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if workout != nil {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if let state = syncState {
-                        if state.isPending {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .scaleEffect(0.7)
-                                Text("Syncing")
-                                    .font(.system(size: 15))
-                                    .foregroundColor(.textSecondary)
-                            }
-                        } else if state.isFailed {
-                            Button("Retry") {
-                                saveService.retry(entityId: workoutId)
-                            }
-                            .foregroundColor(.warning)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if let state = syncState {
+                    if state.isPending {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .scaleEffect(0.7)
+                            Text("Syncing")
+                                .font(.system(size: 15))
+                                .foregroundColor(.textSecondary)
                         }
-                    } else {
-                        Menu {
-                            Button("Edit") {
-                                showEditSheet = true
-                            }
-                            Button("Delete Workout", role: .destructive) {
-                                showDeleteConfirmation = true
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 17))
+                    } else if state.isFailed {
+                        Button("Retry") {
+                            saveService.retry(entityId: workoutId)
                         }
+                        .foregroundColor(.warning)
+                    }
+                } else if workout != nil {
+                    Menu {
+                        Button("Edit") {
+                            showEditSheet = true
+                        }
+                        Button("Delete Workout", role: .destructive) {
+                            showDeleteConfirmation = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 17))
+                    }
+                } else if !isLoading {
+                    // Workout failed to load — still allow deletion
+                    Button {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 15))
+                            .foregroundColor(.destructive)
                     }
                 }
             }

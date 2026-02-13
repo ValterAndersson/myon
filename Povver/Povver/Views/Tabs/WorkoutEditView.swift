@@ -94,7 +94,7 @@ struct WorkoutEditView: View {
                     exercises: $planExercises,
                     selectedCell: $selectedCell,
                     isExpanded: isExpanded,
-                    isPlanningMode: true,
+                    isPlanningMode: false,
                     showDivider: index < planExercises.count - 1,
                     onToggleExpand: {
                         withAnimation(.easeInOut(duration: 0.2)) {
