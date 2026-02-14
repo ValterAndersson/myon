@@ -1,10 +1,20 @@
 install:
 	python3 -m pip install -r agent_engine_requirements.txt
 
+# GCP SA key for Vertex AI operations (agent deploy, Cloud Run)
+# Resolves: explicit env var > named alias > hardcoded path
+GCP_SA_KEY_PATH := $(or $(GOOGLE_APPLICATION_CREDENTIALS),$(GCP_SA_KEY),$(HOME)/.config/povver/myon-53d85-80792c186dcb.json)
+
 deploy:
-	PROJECT_ID=$$(gcloud config get-value project) && \
+	@# Pre-flight: verify SA key exists
+	@test -f "$(GCP_SA_KEY_PATH)" || \
+		(echo "ERROR: GCP SA key not found at $(GCP_SA_KEY_PATH)"; \
+		 echo "Set GOOGLE_APPLICATION_CREDENTIALS or GCP_SA_KEY, or place key at ~/.config/povver/myon-53d85-80792c186dcb.json"; \
+		 exit 1)
+	@echo "Using SA key: $(GCP_SA_KEY_PATH)"
+	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
 	PYTHONPATH=. python3 -m app.agent_engine_app \
-		--project $$PROJECT_ID \
+		--project myon-53d85 \
 		--location us-central1 \
 		--agent-name canvas-orchestrator \
 		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_API_KEY=$${MYON_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine}

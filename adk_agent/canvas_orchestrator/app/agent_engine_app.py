@@ -36,14 +36,18 @@ from app.shell import create_shell_agent
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Drop broken GOOGLE_APPLICATION_CREDENTIALS paths to prefer ADC
+# Validate GOOGLE_APPLICATION_CREDENTIALS if set — fail loud, not silent.
+# On Vertex AI runtime this env var is absent (ADC is used), so only check
+# when present (i.e. local dev / deploy commands).
 gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 if gac and not os.path.exists(gac):
-    try:
-        os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
-        logger.info(f"Ignoring missing GOOGLE_APPLICATION_CREDENTIALS at {gac}")
-    except Exception:
-        pass
+    logger.warning(
+        "GOOGLE_APPLICATION_CREDENTIALS points to missing file: %s  "
+        "Unsetting to fall back to ADC. If deploy fails with PermissionDenied, "
+        "set it to the GCP SA key: ~/.config/povver/myon-53d85-80792c186dcb.json",
+        gac,
+    )
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
 
 class AgentEngineApp(AdkApp):
@@ -95,7 +99,11 @@ class AgentEngineApp(AdkApp):
         routing = None
         plan = None
         
-        # === 1. SET CONTEXT (Thread-safe via contextvars) ===
+        # === SECURITY BOUNDARY: Context from authenticated request ===
+        # user_id is derived from the authenticated Vertex AI request, NOT from LLM output.
+        # All downstream tool calls retrieve user_id via get_current_context() (contextvars).
+        # ContextVar is required because Vertex AI Agent Engine runs concurrent requests
+        # in the same process — module-level globals would leak user data across requests.
         try:
             ctx = SessionContext.from_message(message)
             set_current_context(ctx, message)
@@ -166,7 +174,11 @@ class AgentEngineApp(AdkApp):
             except Exception as e:
                 logger.error("Functional lane error: %s - falling back to Slow", e)
         
-        # === WORKOUT BRIEF: Front-load context for workout mode ===
+        # === WORKOUT BRIEF: Front-load active workout state for LLM context ===
+        # Fetches workout state once per request (not per LLM turn) and prepends it
+        # to the message. This gives the LLM exercise names, set IDs, and progress
+        # without requiring a tool call. Skipped for Fast Lane (no LLM needed).
+        # Called by: WorkoutCoachViewModel.swift → streamAgentNormalized → here
         augmented_message = message
         if ctx.workout_mode and ctx.active_workout_id:
             if not (routing and routing.lane == Lane.FAST):

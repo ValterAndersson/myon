@@ -131,10 +131,20 @@ npm run serve                  # firebase emulators (functions:5001, firestore:8
 npm run deploy                 # deploy to production
 ```
 
-### Agent System
+### Agent System (Canvas Orchestrator)
+
+**Deploy to Vertex AI:** `make deploy` auto-resolves the GCP SA key in this order:
+1. `$GOOGLE_APPLICATION_CREDENTIALS` (if set and file exists)
+2. `$GCP_SA_KEY` (shell alias from `~/.zshrc`)
+3. `~/.config/povver/myon-53d85-80792c186dcb.json` (hardcoded fallback)
+
+The SA (`ai-agents@myon-53d85.iam.gserviceaccount.com`) must have `roles/aiplatform.user`.
+Do NOT change ADC (`~/.config/gcloud/application_default_credentials.json`) — it's used for Claude billing.
+
 ```bash
-cd adk_agent/catalog_orchestrator
+cd adk_agent/canvas_orchestrator
 make install       # pip install dependencies
+make deploy        # deploy to Vertex AI Agent Engine (uses GCP SA key)
 make dev           # local API server (adk api_server app)
 make test          # pytest tests/ -v
 make lint          # flake8 --max-line-length=100
