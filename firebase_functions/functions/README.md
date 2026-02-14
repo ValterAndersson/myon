@@ -28,9 +28,11 @@ Responses use a normalized shape via utils/response:
 - `getUserPreferences` / `updateUserPreferences` – single source of truth (`users/{uid}/user_attributes/{uid}` mirrored to `users/{uid}`)
   - Note: `updateUserPreferences` uses upsert for both the subdocument and the user mirror. If docs don't exist, they are created.
 
-### Workouts (read-only)
+### Workouts
 - `getUserWorkouts` – history + analytics summary
 - `getWorkout` – single workout + metrics
+- `upsertWorkout` – create or update workout with inline analytics and set_facts (import scripts)
+- `deleteWorkout` – delete completed workout (v2, Bearer lane). `onWorkoutDeleted` trigger in `weekly-analytics.js` handles stats rollback
 
 ### Templates
 - `getUserTemplates`, `getTemplate`, `createTemplate`, `updateTemplate`, `deleteTemplate`
@@ -74,6 +76,15 @@ Catalog model:
 - `exercises/{exerciseId}` (canonical docs)
 - `exercise_aliases/{alias_slug}` → `{ exercise_id, family_slug }` (source of truth for name routing)
 - Core fields: `name`, `name_slug`, `family_slug`, `variant_key`, `movement`, `equipment`, `metadata`, `merged_into?`, `merge_lineage?`, timestamps
+
+### Training Analysis (pre-computed insights)
+- `getAnalysisSummary` – retrieve pre-computed training analysis (insights, daily brief, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`
+- `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` – live drilldown summaries. `getExerciseSummary` accepts `exercise_name` for fuzzy name→ID resolution via the user's training history
+- `querySets` / `aggregateSets` – raw set-level data queries with filtering (v2 onRequest + requireFlexibleAuth)
+- `getActiveSnapshotLite` – lightweight active workout state snapshot
+- `getActiveEvents` – paginated workout event stream
+
+See `training/ARCHITECTURE.md` for implementation details.
 
 ### Canvas (agent-driven UI surface)
 - `applyAction` – single write gateway (phase guards, versioning, idempotency, events)

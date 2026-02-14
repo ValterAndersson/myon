@@ -228,7 +228,7 @@ async function searchExercisesHandler(req, res) {
     if (query && !where.length) {
       // For text search, fetch more documents and filter in-memory (substring match)
       // This allows finding "Jefferson Deadlift" when searching for "deadlift"
-      const fetchLimit = Math.max(200, parsedLimit * 10); // Fetch more for filtering
+      const fetchLimit = 2000; // Full catalog scan for text search (~1000 exercises)
       exercises = await db.getDocuments('exercises', { 
         orderBy: { field: 'name', direction: 'asc' }, 
         limit: fetchLimit 

@@ -94,6 +94,22 @@
         { "fieldPath": "is_warmup", "order": "ASCENDING" },
         { "fieldPath": "workout_date", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_end_time", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "analysis_insights",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "expires_at", "order": "DESCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

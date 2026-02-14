@@ -279,11 +279,11 @@ if (functions.pubsub && typeof functions.pubsub.schedule === 'function') {
 exports.manualWeeklyStatsRecalculation = manualWeeklyStatsRecalculation;
 
 // ============================================================================
-// Token-safe Training Analytics v2 (Callable Functions)
+// Token-safe Training Analytics v2
 // See: docs/TRAINING_ANALYTICS_API_V2_SPEC.md
 // ============================================================================
 
-// Query endpoints (for drilldown)
+// Query endpoints (v2 onRequest with requireFlexibleAuth)
 exports.querySets = querySets;
 exports.aggregateSets = aggregateSets;
 

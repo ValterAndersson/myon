@@ -377,10 +377,28 @@ exports.getExerciseSummary = onRequest(requireFlexibleAuth(async (req, res) => {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
     
-    const { exercise_id, window_weeks } = req.body || {};
-    
+    let { exercise_id, exercise_name, window_weeks } = req.body || {};
+
+    // Resolve exercise_name to exercise_id via user's training history
+    if (!exercise_id && exercise_name) {
+      const nameQuery = exercise_name.toLowerCase().trim();
+      const scan = await db.collection('users').doc(userId).collection('set_facts')
+        .where('is_warmup', '==', false)
+        .orderBy('workout_end_time', 'desc')
+        .limit(200)
+        .get();
+      for (const doc of scan.docs) {
+        const sf = doc.data();
+        const name = (sf.exercise_name || '').toLowerCase();
+        if (name.includes(nameQuery)) {
+          exercise_id = sf.exercise_id;
+          break;
+        }
+      }
+    }
+
     if (!exercise_id) {
-      return res.status(400).json({ success: false, error: 'exercise_id is required' });
+      return res.status(400).json({ success: false, error: 'exercise_id or exercise_name is required' });
     }
     
     const weeks = Math.min(Math.max(1, window_weeks || CAPS.DEFAULT_WEEKS), CAPS.MAX_WEEKS);

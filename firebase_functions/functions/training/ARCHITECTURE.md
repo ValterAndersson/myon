@@ -9,11 +9,12 @@ See `docs/TRAINING_ANALYTICS_API_V2_SPEC.md` for the full specification.
 | File | Endpoints | Purpose |
 |------|----------|---------|
 | `set-facts-generator.js` | — (library) | Core set_facts computation: e1RM, hard set credit, muscle attribution |
-| `query-sets.js` | `querySets`, `aggregateSets` | Paginated raw set queries with muscle/exercise filters |
+| `query-sets.js` | `querySets`, `aggregateSets` | Paginated raw set queries with muscle/exercise filters (v2 onRequest + requireFlexibleAuth) |
 | `series-endpoints.js` | `getExerciseSeries`, `getMuscleGroupSeries`, `getMuscleSeries` | Weekly progression series (bounded to 52 weeks) |
 | `progress-summary.js` | `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary` | Comprehensive progress summaries with flags (plateau, deload, overreach) |
 | `context-pack.js` | `getCoachingPack`, `getActiveSnapshotLite` | Single-call coaching context (<15KB) and minimal active workout state |
 | `active-events.js` | `getActiveEvents` | Paginated workout event stream |
+| `get-analysis-summary.js` | `getAnalysisSummary` | Consolidated retrieval of pre-computed training analysis (latest insights, daily brief, weekly review). Supports `sections` filter, `date`, and `limit` params. Called by Shell Agent's `tool_get_training_analysis` via `app/shell/tools.py` |
 
 ## Data Model
 

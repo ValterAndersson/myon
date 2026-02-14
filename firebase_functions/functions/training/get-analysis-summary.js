@@ -31,8 +31,8 @@ function getTodayDateKey() {
  */
 exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
-    // Get userId from auth (Bearer lane - trusted)
-    const userId = req.auth?.uid;
+    // Get userId from auth or body (dual-auth: Bearer lane or API key + userId in body)
+    const userId = req.auth?.uid || req.body?.userId;
     if (!userId) {
       return fail(res, 'MISSING_USER_ID', 'userId is required', null, 400);
     }

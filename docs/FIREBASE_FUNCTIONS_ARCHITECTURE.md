@@ -43,12 +43,12 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | Domain | Functions | Auth Type |
 |--------|-----------|-----------|
 | **User** | `getUser`, `updateUser`, `getUserPreferences`, `updateUserPreferences`, `upsertUserAttributes` | API Key |
-| **Workouts** | `getUserWorkouts`, `getWorkout` | API Key |
+| **Workouts** | `getUserWorkouts`, `getWorkout`, `upsertWorkout`, `deleteWorkout` | API Key / Flexible |
 | **Templates** | `getUserTemplates`, `getTemplate`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `createTemplateFromPlan`, `patchTemplate` | API Key / Flexible |
 | **Routines** | `getUserRoutines`, `getRoutine`, `createRoutine`, `updateRoutine`, `deleteRoutine`, `getActiveRoutine`, `setActiveRoutine`, `getNextWorkout`, `patchRoutine` | API Key / Flexible |
 | **Exercises** | `getExercises`, `getExercise`, `searchExercises`, `upsertExercise`, `approveExercise`, `ensureExerciseExists`, `resolveExercise`, `mergeExercises` | API Key |
 | **Canvas** | `bootstrapCanvas`, `openCanvas`, `initializeSession`, `applyAction`, `proposeCards`, `purgeCanvas`, `emitEvent`, `expireProposals` | Flexible Auth |
-| **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession` | Flexible Auth |
+| **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
 | **Agents** | `invokeCanvasOrchestrator`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
 | **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
 | **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
@@ -205,6 +205,8 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 | `swapExercise` | Replace exercise in workout |
 | `completeActiveWorkout` | Finalize and persist workout |
 | `cancelActiveWorkout` | Discard active workout |
+| `patchActiveWorkout` | Edit set values, add/remove sets (homogeneous ops per request) |
+| `autofillExercise` | AI bulk prescription for a single exercise's planned sets |
 
 ### Active Workout Document
 
@@ -235,6 +237,19 @@ iOS App → Firebase Function → Vertex AI Agent Engine
   "resumed": false  // true if existing in-progress workout was returned
 }
 ```
+
+---
+
+## Workout Operations
+
+Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
+
+| Function | Description |
+|----------|-------------|
+| `getUserWorkouts` | Fetch paginated workout history with analytics |
+| `getWorkout` | Fetch single workout with full metrics |
+| `upsertWorkout` | Create or update workout with inline analytics and set_facts generation (used by import scripts) |
+| `deleteWorkout` | Delete completed workout. Firestore trigger `onWorkoutDeleted` in `weekly-analytics.js` handles weekly_stats rollback automatically |
 
 ---
 
@@ -327,8 +342,8 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 ### Training Analysis (Pre-computed)
 
 - `getAnalysisSummary` - Retrieve pre-computed training analysis (insights, daily brief, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`.
-- `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` - Live drilldown summaries for specific muscles/exercises
-- `querySets` / `aggregateSets` - Raw set-level data queries with filtering
+- `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` - Live drilldown summaries for specific muscles/exercises. `getExerciseSummary` accepts `exercise_name` for fuzzy name→ID resolution via the user's `set_facts`
+- `querySets` / `aggregateSets` - Raw set-level data queries with filtering (v2 onRequest + requireFlexibleAuth; converted from onCall for HTTP client compatibility)
 - `getActiveSnapshotLite` - Lightweight active workout state snapshot
 - `getActiveEvents` - Paginated workout event stream
 
@@ -388,10 +403,12 @@ firebase_functions/functions/
 ├── README.md                   # Basic readme
 ├── active_workout/             # Active workout endpoints
 │   ├── add-exercise.js
+│   ├── autofill-exercise.js
 │   ├── cancel-active-workout.js
 │   ├── complete-active-workout.js
 │   ├── get-active-workout.js
 │   ├── log-set.js
+│   ├── patch-active-workout.js
 │   ├── propose-session.js
 │   ├── start-active-workout.js
 │   └── swap-exercise.js
@@ -497,7 +514,17 @@ firebase_functions/functions/
 │   ├── plan-to-template-converter.js
 │   ├── validation-response.js
 │   └── validators.js
+├── training/                   # Training analysis endpoints
+│   ├── active-events.js
+│   ├── context-pack.js
+│   ├── get-analysis-summary.js
+│   ├── progress-summary.js
+│   ├── query-sets.js
+│   ├── series-endpoints.js
+│   └── set-facts-generator.js
 └── workouts/                   # Workout operations
+    ├── delete-workout.js
     ├── get-user-workouts.js
-    └── get-workout.js
+    ├── get-workout.js
+    └── upsert-workout.js
 ```
