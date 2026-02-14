@@ -90,18 +90,18 @@ def _import_skills():
     Skills may not be available in all environments (e.g., when running
     outside the ADK app context).
     
-    Note: Uses v2 token-safe skills (get_coaching_context, etc.) instead of
-    legacy endpoints (get_analytics_features, get_recent_workouts).
+    Note: Uses pre-computed analysis (get_training_analysis) and token-safe
+    v2 skills instead of legacy endpoints.
     """
     try:
         from app.skills.coach_skills import (
-            get_coaching_context,
+            get_training_analysis,
             get_training_context,
             get_muscle_group_progress,
             query_training_sets,
         )
         return {
-            "get_coaching_context": get_coaching_context,
+            "get_training_analysis": get_training_analysis,
             "get_training_context": get_training_context,
             "get_muscle_group_progress": get_muscle_group_progress,
             "query_training_sets": query_training_sets,
@@ -147,13 +147,12 @@ def fetch_user_data(user_id: str, workout_id: str) -> Dict[str, Any]:
     skills = _import_skills()
     
     if skills:
-        # Use shared skills (same as Chat Agent) - v2 token-safe endpoints
+        # Use shared skills (same as Chat Agent) - pre-computed analysis
         logger.info("Using shared v2 skills for data fetch")
-        
-        # Get coaching context (replaces get_analytics_features for overview)
-        coaching = skills["get_coaching_context"](
+
+        # Get pre-computed analysis (weekly review + insights)
+        coaching = skills["get_training_analysis"](
             user_id=user_id,
-            window_weeks=12,  # 12-week lookback for trend analysis
         )
         
         # Get training context (routine structure)
