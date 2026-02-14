@@ -3,7 +3,7 @@ Shell Agent - Single unified agent with consistent persona.
 
 Replaces the Router + Sub-Agents architecture with:
 - Fast Lane: Regex patterns → direct skill execution (no LLM)
-- Slow Lane: ShellAgent (gemini-2.5-pro) with unified instruction
+- Slow Lane: ShellAgent (gemini-2.5-flash) with unified instruction
 
 Modules:
 - context: Per-request context (no global state)

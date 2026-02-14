@@ -35,8 +35,8 @@ ARCHITECTURE CONTEXT:
                                       │   getPlanningContext            │
                                       │   getNextWorkout                │
                                       │                                 │
-                                      │ Analytics APIs:                 │
-                                      │   getAnalyticsFeatures          │
+                                      │ Training Analysis APIs:         │
+                                      │   getAnalysisSummary            │
                                       └─────────────────────────────────┘
 
 KEY METHOD → FIREBASE FUNCTION MAPPING:
@@ -53,7 +53,7 @@ KEY METHOD → FIREBASE FUNCTION MAPPING:
 - create_template_from_plan() → firebase_functions/functions/templates/create-template-from-plan.js
 - patch_template() → firebase_functions/functions/templates/patch-template.js
 - patch_routine() → firebase_functions/functions/routines/patch-routine.js
-- get_analytics_features() → firebase_functions/functions/analytics/get-analytics-features.js
+- get_analysis_summary() → firebase_functions/functions/training/get-analysis-summary.js
 
 HOW IT'S USED BY AGENTS:
 Agent tools (planner_tools.py, coach_tools.py, etc.) wrap this client and
@@ -412,52 +412,6 @@ class CanvasFunctionsClient:
         })
 
     # ============================================================================
-    # Analytics APIs (for Analysis Agent)
-    # ============================================================================
-
-    def get_analytics_features(
-        self,
-        user_id: str,
-        *,
-        mode: str = "weekly",
-        weeks: int = 8,
-        exercise_ids: Optional[List[str]] = None,
-        muscles: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """Get analytics features for analysis agent.
-        
-        Fetches time series and rollups for progress analysis.
-        
-        Args:
-            user_id: User ID
-            mode: "weekly" (default), "week", "range", or "daily"
-            weeks: Number of weeks to fetch (1-52, default 8)
-            exercise_ids: Optional list of exercise IDs for per-exercise series
-            muscles: Optional list of muscle names for per-muscle series
-            
-        Returns:
-            {
-                userId, mode, period_weeks, weekIds,
-                rollups: [{ id, total_sets, total_reps, total_weight, 
-                           intensity: { hard_sets_total, load_per_muscle, ... },
-                           fatigue: { muscles, systemic },
-                           summary: { muscle_groups, muscles } }],
-                series_muscle: { [muscle]: [{ week, sets, volume, hard_sets, load }] },
-                series_exercise: { [exerciseId]: { days, e1rm, vol, e1rm_slope, vol_slope } }
-            }
-        """
-        body: Dict[str, Any] = {
-            "userId": user_id,
-            "mode": mode,
-            "weeks": weeks,
-        }
-        if exercise_ids:
-            body["exerciseIds"] = exercise_ids[:50]  # API limit
-        if muscles:
-            body["muscles"] = muscles[:50]  # API limit
-        return self._http.post("getAnalyticsFeatures", body)
-
-    # ============================================================================
     # Token-Safe Training Analytics v2 (Callable Functions)
     # See: docs/TRAINING_ANALYTICS_API_V2_SPEC.md
     # ============================================================================
@@ -612,132 +566,6 @@ class CanvasFunctionsClient:
             body["exercise_name"] = exercise_name
         return self._http.post("getExerciseSummary", body)
 
-    def get_exercise_series(
-        self,
-        user_id: str,
-        *,
-        exercise_id: Optional[str] = None,
-        exercise_name: Optional[str] = None,
-        window_weeks: int = 12,
-    ) -> Dict[str, Any]:
-        """Get weekly training series for an exercise.
-        
-        Use for questions like "How has my bench press improved?" or 
-        "Show me my squat progress over the last 3 months".
-        
-        ACCEPTS EITHER exercise_id OR exercise_name:
-        - exercise_id: Direct lookup by catalog ID
-        - exercise_name: Fuzzy name search (e.g., "bench press", "squats", "deadlift")
-        
-        The fuzzy search matches against exercises in the user's training history.
-        For example, "bench" will match "Bench Press", "Dumbbell Bench Press", etc.
-        
-        Args:
-            user_id: User ID
-            exercise_id: Exercise ID from catalog (optional if exercise_name provided)
-            exercise_name: Exercise name for fuzzy search (e.g., "bench press")
-            window_weeks: Number of weeks to fetch (1-52, default 12)
-            
-        Returns:
-            {
-                "success": true,
-                "data": {
-                    "exercise_id": "abc123",
-                    "exercise_name": "Bench Press",
-                    "matched": true,  // false if name search found no match
-                    "message": "...",  // only present if matched=false
-                    "weekly_points": [
-                        {
-                            "week_start": "2024-01-08",
-                            "sets": 9,
-                            "hard_sets": 7.5,
-                            "volume": 5400,
-                            "avg_rir": 2.0,
-                            "failure_rate": 0.1,
-                            "load_min": 60,
-                            "load_max": 100,
-                            "e1rm_max": 125
-                        }
-                    ],
-                    "summary": {
-                        "total_weeks": 8,
-                        "avg_weekly_sets": 9,
-                        "avg_weekly_volume": 5400,
-                        "avg_weekly_hard_sets": 7.5,
-                        "trend_direction": "increasing"
-                    }
-                }
-            }
-            
-        Example usage:
-            # By name (preferred for user queries)
-            get_exercise_series(user_id, exercise_name="bench press")
-            
-            # By ID (when you have the ID from another query)
-            get_exercise_series(user_id, exercise_id="abc123")
-        """
-        body: Dict[str, Any] = {
-            "window_weeks": window_weeks,
-        }
-        if exercise_id:
-            body["exercise_id"] = exercise_id
-        if exercise_name:
-            body["exercise_name"] = exercise_name
-        return self._http.post("getExerciseSeries", body)
-
-    def get_coaching_pack(
-        self,
-        user_id: str,
-        *,
-        window_weeks: int = 8,
-        top_n_targets: int = 6,
-    ) -> Dict[str, Any]:
-        """Get compact coaching context in a single call.
-        
-        BEST STARTING POINT for coaching conversations. Returns:
-        - Top muscle groups by training volume
-        - Weekly trends for each group
-        - Top exercises per group
-        - Training adherence stats
-        - Change flags (volume drops, high failure rate, low frequency)
-        
-        Response is GUARANTEED under 15KB for token safety.
-        
-        Args:
-            user_id: User ID
-            window_weeks: Analysis window (default 8, max 52)
-            top_n_targets: Number of top muscle groups to return (default 6)
-            
-        Returns:
-            {
-                "success": true,
-                "data": {
-                    "top_targets": [
-                        {
-                            "muscle_group": "chest",
-                            "display_name": "Chest", 
-                            "weekly_effective_volume": [...],
-                            "top_exercises": [{"exercise_id": "...", "exercise_name": "..."}],
-                            "total_volume_in_window": 42000
-                        }
-                    ],
-                    "adherence": {
-                        "avg_sessions_per_week": 3.5,
-                        "target_sessions_per_week": 4,
-                        "weeks_analyzed": 8
-                    },
-                    "change_flags": [
-                        {"type": "volume_drop", "target": "chest", "message": "..."}
-                    ]
-                }
-            }
-        """
-        return self._http.post("getCoachingPack", {
-            "userId": user_id,
-            "window_weeks": window_weeks,
-            "top_n_targets": top_n_targets,
-        })
-
     def query_sets(
         self,
         user_id: str,
@@ -861,17 +689,17 @@ class CanvasFunctionsClient:
         cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get paginated workout events for incremental updates.
-        
+
         Use to track changes in active workout without re-reading full state.
         Events include: set_logged, exercise_added, exercise_swapped, etc.
-        
+
         Args:
             user_id: User ID
             workout_id: Specific workout (defaults to current active)
             after_version: Get events after this version number
             limit: Max events per page (default 20, max 50)
             cursor: Pagination cursor from previous response
-            
+
         Returns:
             {
                 "success": true,
@@ -898,3 +726,72 @@ class CanvasFunctionsClient:
         if cursor:
             body["cursor"] = cursor
         return self._http.post("getActiveEvents", body)
+
+    # ============================================================================
+    # Training Analysis APIs (Pre-computed Insights)
+    # ============================================================================
+
+    def get_analysis_summary(
+        self,
+        user_id: str,
+        *,
+        sections: Optional[List[str]] = None,
+        date: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Get pre-computed training analysis summaries.
+
+        Returns AI-generated insights, daily briefs, and weekly reviews.
+        Use this instead of computing from raw data for faster responses.
+
+        Valid sections:
+            - "insights": Recent analysis_insights (last 7 days)
+            - "daily_brief": Today's training readiness brief
+            - "weekly_review": Most recent weekly progression review
+
+        Args:
+            user_id: User ID
+            sections: Which sections to include (default: all)
+            date: Date for daily_brief (YYYY-MM-DD, defaults to today)
+            limit: Max insights to return (for "insights" section)
+
+        Returns:
+            {
+                "success": true,
+                "data": {
+                    "insights": [
+                        {
+                            "id": "...",
+                            "created_at": "...",
+                            "insight_type": "plateau",
+                            "summary": "...",
+                            "details": {...},
+                            "recommendations": [...]
+                        }
+                    ],
+                    "daily_brief": {
+                        "date": "2024-01-15",
+                        "readiness_score": 0.85,
+                        "recommendations": [...],
+                        "upcoming_workout_suggestion": {...}
+                    },
+                    "weekly_review": {
+                        "week_id": "2024-01-08",
+                        "progression_summary": "...",
+                        "volume_trends": {...},
+                        "intensity_metrics": {...},
+                        "recommendations": [...]
+                    }
+                }
+            }
+        """
+        body: Dict[str, Any] = {
+            "userId": user_id,
+        }
+        if sections:
+            body["sections"] = sections
+        if date:
+            body["date"] = date
+        if limit is not None:
+            body["limit"] = limit
+        return self._http.post("getAnalysisSummary", body)

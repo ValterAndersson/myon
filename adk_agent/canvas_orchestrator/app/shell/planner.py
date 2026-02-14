@@ -57,17 +57,16 @@ Execute the plan above, then synthesize a response.
 PLANNING_TEMPLATES: Dict[str, Dict[str, Any]] = {
     "ANALYZE_PROGRESS": {
         "data_needed": [
-            "Coaching context (8-12 weeks) for volume trends and training adherence",
-            "Muscle group progress for specific body part questions",
-            "Exercise progress for specific exercise progression",
+            "Pre-computed analysis (insights, daily brief, weekly review) for overview and readiness",
+            "Muscle group / muscle / exercise progress for targeted drilldown",
         ],
         "suggested_tools": [
-            "tool_get_coaching_context (start here for overview)",
-            "tool_get_muscle_group_progress (for body part questions)",
-            "tool_get_exercise_progress (for exercise-specific progress)",
-            "tool_query_training_sets (only if raw set evidence needed)",
+            "tool_get_training_analysis (Tier 1: pre-computed overview — start here)",
+            "tool_get_muscle_group_progress (Tier 2: specific body part drilldown)",
+            "tool_get_exercise_progress (Tier 2: specific exercise drilldown)",
+            "tool_query_training_sets (Tier 3: raw set evidence — only if asked)",
         ],
-        "rationale": "Progress analysis uses token-safe v2 endpoints. Start with coaching_context for overview, drill down with muscle/exercise progress, use query_training_sets only for raw evidence.",
+        "rationale": "Start with pre-computed analysis (Tier 1) for broad questions. It contains weekly review with training_load, exercise_trends, progression_candidates, and stalled_exercises. Only drill down to Tier 2/3 if the user asks for a specific target or raw data.",
     },
     "PLAN_ARTIFACT": {
         "data_needed": [

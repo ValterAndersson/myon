@@ -96,124 +96,6 @@ def get_training_context(
         return SkillResult(success=False, error=str(e))
 
 
-# ============================================================================
-# ANALYTICS
-# ============================================================================
-
-def get_analytics_features(
-    user_id: str,
-    weeks: int = 8,
-    exercise_ids: Optional[List[str]] = None,
-    muscles: Optional[List[str]] = None,
-    client: Optional[CanvasFunctionsClient] = None,
-) -> SkillResult:
-    """
-    Fetch analytics features for progress analysis.
-    
-    Args:
-        user_id: User ID (required)
-        weeks: Number of weeks to analyze (1-52, default 8)
-        exercise_ids: Optional exercise IDs for per-exercise e1RM series
-        muscles: Optional muscle names for per-muscle series
-        client: Optional client instance (for Worker injection)
-        
-    Returns:
-        SkillResult with volume, intensity, and progression data
-    """
-    if not user_id:
-        return SkillResult(success=False, error="user_id is required")
-    
-    weeks = max(1, min(52, weeks))
-    logger.info("get_analytics_features uid=%s weeks=%d", user_id, weeks)
-    
-    try:
-        api_client = client or _get_client()
-        resp = api_client.get_analytics_features(
-            user_id,
-            mode="weekly",
-            weeks=weeks,
-            exercise_ids=exercise_ids,
-            muscles=muscles,
-        )
-        
-        success, data, error_details = parse_api_response(resp)
-        if not success:
-            logger.error("get_analytics_features failed: %s", error_details)
-            return SkillResult(success=False, error=str(error_details))
-            
-    except Exception as e:
-        logger.error("get_analytics_features exception: %s", e)
-        return SkillResult(success=False, error=str(e))
-    
-    rollups = data.get("rollups") or []
-    series_muscle = data.get("series_muscle") or {}
-    series_exercise = data.get("series_exercise") or {}
-    
-    # Compute summary stats
-    weeks_with_data = len([r for r in rollups if (r.get("workouts") or r.get("cadence", {}).get("sessions") or 0) > 0])
-    total_workouts = sum(r.get("workouts") or r.get("cadence", {}).get("sessions") or 0 for r in rollups)
-    total_sets = sum(r.get("total_sets") or 0 for r in rollups)
-    total_weight = sum(r.get("total_weight") or 0 for r in rollups)
-    
-    # Aggregate intensity metrics
-    muscle_sets: Dict[str, float] = {}
-    muscle_low_rir: Dict[str, float] = {}
-    total_hard_sets = 0
-    total_low_rir_sets = 0
-    
-    for rollup in rollups:
-        intensity = rollup.get("intensity") or {}
-        total_hard_sets += intensity.get("hard_sets_total") or 0
-        total_low_rir_sets += intensity.get("low_rir_sets_total") or 0
-        
-        for muscle, sets in (intensity.get("hard_sets_per_muscle") or {}).items():
-            muscle_sets[muscle] = muscle_sets.get(muscle, 0) + (sets or 0)
-        for muscle, sets in (intensity.get("low_rir_sets_per_muscle") or {}).items():
-            muscle_low_rir[muscle] = muscle_low_rir.get(muscle, 0) + (sets or 0)
-    
-    sorted_muscles = sorted(muscle_sets.items(), key=lambda x: -x[1])
-    muscle_avg = {m: round(s / max(weeks_with_data, 1), 1) for m, s in muscle_sets.items()}
-    
-    # Calculate intensity ratios
-    muscle_intensity_ratio = {}
-    for muscle, hard in muscle_sets.items():
-        low = muscle_low_rir.get(muscle, 0)
-        if hard > 0:
-            muscle_intensity_ratio[muscle] = round(low / hard, 2)
-    
-    overall_intensity_ratio = round(total_low_rir_sets / max(total_hard_sets, 1), 2)
-    
-    return SkillResult(
-        success=True,
-        data={
-            "weeks_requested": weeks,
-            "weeks_with_data": weeks_with_data,
-            "total_workouts": total_workouts,
-            "total_sets": total_sets,
-            "total_volume_kg": round(total_weight, 0),
-            "avg_workouts_per_week": round(total_workouts / max(weeks_with_data, 1), 1),
-            "avg_sets_per_week": round(total_sets / max(weeks_with_data, 1), 1),
-            "intensity_summary": {
-                "total_hard_sets": total_hard_sets,
-                "total_low_rir_sets": total_low_rir_sets,
-                "intensity_ratio": overall_intensity_ratio,
-                "interpretation": "high intensity" if overall_intensity_ratio > 0.3 else "moderate intensity",
-            },
-            "muscle_sets_ranking": [
-                {
-                    "muscle": m, 
-                    "total_sets": round(s, 1), 
-                    "avg_sets_per_week": muscle_avg.get(m, 0),
-                    "low_rir_sets": round(muscle_low_rir.get(m, 0), 1),
-                    "intensity_ratio": muscle_intensity_ratio.get(m, 0),
-                } 
-                for m, s in sorted_muscles[:10]
-            ],
-            "rollups": rollups,
-            "series_muscle": series_muscle,
-            "series_exercise": series_exercise,
-        }
-    )
 
 
 # ============================================================================
@@ -245,53 +127,6 @@ def get_user_profile(user_id: str) -> SkillResult:
         return SkillResult(success=True, data=data)
     except Exception as e:
         logger.error("get_user_profile exception: %s", e)
-        return SkillResult(success=False, error=str(e))
-
-
-# ============================================================================
-# RECENT WORKOUTS
-# ============================================================================
-
-def get_recent_workouts(
-    user_id: str,
-    limit: int = 10,
-    client: Optional[CanvasFunctionsClient] = None,
-) -> SkillResult:
-    """
-    Get user's recent completed workouts.
-    
-    Args:
-        user_id: User ID (required)
-        limit: Max workouts to return (5-30)
-        client: Optional client instance (for Worker injection)
-        
-    Returns:
-        SkillResult with list of workouts
-    """
-    if not user_id:
-        return SkillResult(success=False, error="user_id is required")
-    
-    limit = max(5, min(30, limit))
-    logger.info("get_recent_workouts uid=%s limit=%d", user_id, limit)
-    
-    try:
-        api_client = client or _get_client()
-        resp = api_client.get_user_workouts(user_id, limit=limit)
-        success, data, error_details = parse_api_response(resp)
-        
-        if not success:
-            return SkillResult(success=False, error=str(error_details))
-        
-        workouts = data.get("items") if isinstance(data, dict) else data
-        if not isinstance(workouts, list):
-            workouts = []
-            
-        return SkillResult(
-            success=True,
-            data={"count": len(workouts), "workouts": workouts}
-        )
-    except Exception as e:
-        logger.error("get_recent_workouts exception: %s", e)
         return SkillResult(success=False, error=str(e))
 
 
@@ -577,58 +412,6 @@ def get_exercise_progress(
         return SkillResult(success=False, error=str(e))
 
 
-def get_coaching_context(
-    user_id: str,
-    window_weeks: int = 8,
-    top_n_targets: int = 6,
-    client: Optional[CanvasFunctionsClient] = None,
-) -> SkillResult:
-    """
-    Get compact coaching context in a single call - TOKEN SAFE.
-    
-    BEST STARTING POINT for coaching conversations. Returns:
-    - Top muscle groups by training volume
-    - Weekly trends for each group
-    - Top exercises per group
-    - Training adherence stats
-    - Change flags (volume drops, high failure rate, low frequency)
-    
-    Response is GUARANTEED under 15KB.
-    
-    Args:
-        user_id: User ID (required)
-        window_weeks: Analysis window (default 8, max 52)
-        top_n_targets: Number of top muscle groups (default 6)
-        client: Optional client for dependency injection
-        
-    Returns:
-        SkillResult with top_targets, adherence, change_flags
-    """
-    if not user_id:
-        return SkillResult(success=False, error="user_id is required")
-    
-    window_weeks = max(1, min(52, window_weeks))
-    top_n_targets = max(1, min(12, top_n_targets))
-    logger.info("get_coaching_context uid=%s weeks=%d", user_id, window_weeks)
-    
-    try:
-        api_client = client or _get_client()
-        resp = api_client.get_coaching_pack(
-            user_id,
-            window_weeks=window_weeks,
-            top_n_targets=top_n_targets,
-        )
-        success, data, error_details = parse_api_response(resp)
-        
-        if not success:
-            return SkillResult(success=False, error=str(error_details))
-        
-        return SkillResult(success=True, data=data)
-    except Exception as e:
-        logger.error("get_coaching_context exception: %s", e)
-        return SkillResult(success=False, error=str(e))
-
-
 def query_training_sets(
     user_id: str,
     muscle_group: Optional[str] = None,
@@ -723,18 +506,100 @@ def query_training_sets(
         return SkillResult(success=False, error=str(e))
 
 
+# ============================================================================
+# PRE-COMPUTED ANALYSIS SUMMARIES
+# ============================================================================
+
+def get_training_analysis(
+    user_id: str,
+    sections: Optional[List[str]] = None,
+    date: Optional[str] = None,
+    limit: int = 5,
+    client: Optional[CanvasFunctionsClient] = None,
+) -> SkillResult:
+    """
+    Get pre-computed AI training analysis — single call for all sections.
+
+    Returns up to 3 sections of pre-computed analysis. Default: all sections.
+
+    Args:
+        user_id: User ID (required)
+        sections: Optional filter. Valid: "insights", "daily_brief", "weekly_review"
+            Default (None): returns all available sections.
+        date: Date for daily_brief lookup (YYYY-MM-DD, defaults to today)
+        limit: Max insights to return (default 5)
+        client: Optional client instance (for Worker injection)
+
+    Returns:
+        SkillResult with requested sections:
+
+        insights: [{
+            id, type: "post_workout",
+            workout_id, workout_date,
+            summary,
+            highlights: [{ type, message, exercise_id? }],
+            flags: [{ type, severity, message }],
+            recommendations: [{ type, target, action, confidence }],
+            created_at, expires_at
+        }]
+
+        daily_brief: {
+            date, has_planned_workout, planned_workout?,
+            readiness: "fresh"|"moderate"|"fatigued",
+            readiness_summary,
+            fatigue_flags: [{ muscle_group, signal, acwr }],
+            adjustments: [{ exercise_name, type, rationale }]
+        }
+
+        weekly_review: {
+            id (YYYY-WNN), week_ending,
+            summary,
+            training_load: { sessions, total_sets, total_volume, vs_last_week },
+            muscle_balance: [{ muscle_group, weekly_sets, trend, status }],
+            exercise_trends: [{ exercise_name, trend, e1rm_slope, note }],
+            progression_candidates: [{ exercise_name, current_weight, suggested_weight, rationale, confidence }],
+            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }]
+        }
+    """
+    if not user_id:
+        return SkillResult(success=False, error="user_id is required")
+
+    logger.info(
+        "get_training_analysis uid=%s sections=%s date=%s limit=%d",
+        user_id, sections, date, limit,
+    )
+
+    try:
+        api_client = client or _get_client()
+        resp = api_client.get_analysis_summary(
+            user_id,
+            sections=sections,
+            date=date,
+            limit=limit,
+        )
+        success, data, error_details = parse_api_response(resp)
+
+        if not success:
+            logger.error("get_training_analysis failed: %s", error_details)
+            return SkillResult(success=False, error=str(error_details))
+
+        return SkillResult(success=True, data=data)
+    except Exception as e:
+        logger.error("get_training_analysis exception: %s", e)
+        return SkillResult(success=False, error=str(e))
+
+
 __all__ = [
     "SkillResult",
     "get_training_context",
-    "get_analytics_features", 
     "get_user_profile",
-    "get_recent_workouts",
     "search_exercises",
     "get_exercise_details",
     # Token-safe v2 analytics
     "get_muscle_group_progress",
     "get_muscle_progress",
     "get_exercise_progress",
-    "get_coaching_context",
     "query_training_sets",
+    # Pre-computed analysis (single consolidated call)
+    "get_training_analysis",
 ]

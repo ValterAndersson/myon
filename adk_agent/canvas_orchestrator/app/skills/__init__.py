@@ -23,8 +23,6 @@ from app.skills.copilot_skills import (
 )
 
 # Coach Skills - Analytics & Coaching
-# Note: Legacy functions (get_analytics_features, get_recent_workouts) have been
-# replaced by token-safe v2 skills for agent use.
 from app.skills.coach_skills import (
     get_training_context,
     get_user_profile,
@@ -34,8 +32,9 @@ from app.skills.coach_skills import (
     get_muscle_group_progress,
     get_muscle_progress,
     get_exercise_progress,
-    get_coaching_context,
     query_training_sets,
+    # Pre-computed analysis (single consolidated call)
+    get_training_analysis,
     SkillResult as CoachSkillResult,
 )
 
@@ -64,8 +63,9 @@ __all__ = [
     "get_muscle_group_progress",
     "get_muscle_progress",
     "get_exercise_progress",
-    "get_coaching_context",
     "query_training_sets",
+    # Pre-computed analysis (single consolidated call)
+    "get_training_analysis",
     "CoachSkillResult",
     # Planner Skills
     "get_planning_context",

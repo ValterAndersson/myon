@@ -59,8 +59,9 @@ from app.skills.coach_skills import (
     get_muscle_group_progress,
     get_muscle_progress,
     get_exercise_progress,
-    get_coaching_context,
     query_training_sets,
+    # Pre-computed analysis (single consolidated call)
+    get_training_analysis,
 )
 
 # Write skills - direct execution (no Safety Gate - cards have accept/dismiss buttons)
@@ -244,7 +245,6 @@ def tool_get_planning_context() -> Dict[str, Any]:
 # =============================================================================
 # TOKEN-SAFE TRAINING ANALYTICS v2 (PREFERRED)
 # These tools use bounded, paginated endpoints that prevent agent timeouts.
-# Use these INSTEAD OF tool_get_analytics_features for progress questions.
 # =============================================================================
 
 def tool_get_muscle_group_progress(
@@ -467,41 +467,6 @@ def tool_get_exercise_progress(
     return result.to_dict()
 
 
-def tool_get_coaching_context(
-    *,
-    window_weeks: int = 8,
-) -> Dict[str, Any]:
-    """
-    Get compact coaching context in a single call - TOKEN SAFE.
-    
-    BEST STARTING POINT for coaching conversations.
-    Response is GUARANTEED under 15KB.
-    
-    Returns:
-        - Top muscle groups by training volume
-        - Weekly trends for each group
-        - Top exercises per group
-        - Training adherence stats
-        - Change flags (volume drops, high failure rate)
-    
-    Args:
-        window_weeks: Analysis window (default 8, max 52)
-    
-    Example:
-        tool_get_coaching_context(window_weeks=8)
-    """
-    ctx = get_current_context()
-    
-    if not ctx.user_id:
-        return {"error": "No user_id available in context"}
-    
-    result = get_coaching_context(
-        user_id=ctx.user_id,
-        window_weeks=window_weeks,
-    )
-    return result.to_dict()
-
-
 def tool_query_training_sets(
     *,
     muscle_group: Optional[str] = None,
@@ -514,83 +479,83 @@ def tool_query_training_sets(
 ) -> Dict[str, Any]:
     """
     Query raw set facts for detailed evidence - DRILLDOWN ONLY.
-    
+
     Use this tool when you need to see ACTUAL SET DATA for evidence-based coaching.
     Prefer summary endpoints (muscle_group_progress, exercise_progress) first.
-    
+
     EXACTLY ONE filter required: muscle_group, muscle, exercise_ids, or exercise_name.
-    
+
     Args:
         muscle_group: Filter by muscle group (e.g., "chest")
             Mutually exclusive with muscle and exercise_ids.
-        
-        muscle: Filter by specific muscle (e.g., "rhomboids")  
+
+        muscle: Filter by specific muscle (e.g., "rhomboids")
             Mutually exclusive with muscle_group and exercise_ids.
-        
+
         exercise_ids: Filter by exercise IDs (max 10)
             Mutually exclusive with other filters.
-        
+
         exercise_name: Filter by exercise name (fuzzy search)
             Examples: "bench press", "squats", "lat pulldown"
             Searches user's training history for matching exercise names.
             PREFERRED when you have a name from user input.
-        
+
         start: Start date YYYY-MM-DD (optional)
         end: End date YYYY-MM-DD (optional)
         limit: Max results (default 50, max 200)
-    
+
     Returns (each set_fact contains):
         workout_date: When this set was performed (YYYY-MM-DD)
-        
+
         exercise_id: Catalog ID of the exercise
         exercise_name: Human-readable name
-        
+
         reps: Number of repetitions performed
-        
+
         weight_kg: Load used (always in kg, normalized from any input unit)
             Example: 100 lbs input → stored as 45.4 kg
-        
+
         volume: reps × weight_kg for this set
             Example: 10 reps × 100kg = 1000 kg volume
-        
+
         rir: Reps in Reserve (how many more reps could have been done)
             0 = failure, 1 = very hard, 2 = hard, 3+ = moderate
             null if not tracked by user
-        
+
         rpe: Rate of Perceived Exertion (10 - RIR, if tracked)
             10 = failure, 9 = 1 rep left, 8 = 2 reps left
-        
+
         e1rm: Estimated one-rep max for this set (null if reps > 12)
             Formula: Epley (weight × (1 + reps/30))
             Only calculated for ≤12 reps (reliable strength estimate range)
-        
+
         is_warmup: true if this was a warm-up set (excluded from analytics)
         is_failure: true if set taken to absolute failure (RIR 0)
-        
+
         muscle_group_contrib: How this exercise contributes to muscle groups
             Example: {"chest": 0.6, "shoulders": 0.25, "arms": 0.15}
-        
+
         muscle_contrib: How this exercise contributes to specific muscles
             Example: {"pectoralis_major": 0.6, "deltoid_anterior": 0.25, "triceps_brachii": 0.15}
-        
+
     Example use cases:
         # See last 20 chest sets for a user asking about chest training
         tool_query_training_sets(muscle_group="chest", limit=20)
-        
+
         # Check recent bench press performance
         tool_query_training_sets(exercise_ids=["barbell-bench-press"], limit=30)
-        
+
         # Investigate rhomboid training specifically
         tool_query_training_sets(muscle="rhomboids", limit=15)
-        
+
     Error Recovery:
         Returns 400 if zero or multiple filters provided.
     """
     ctx = get_current_context()
-    
+
     if not ctx.user_id:
         return {"error": "No user_id available in context"}
-    
+
     result = query_training_sets(
         user_id=ctx.user_id,
         muscle_group=muscle_group,
@@ -600,6 +565,69 @@ def tool_query_training_sets(
         start=start,
         end=end,
         limit=limit,
+    )
+    return result.to_dict()
+
+
+# =============================================================================
+# PRE-COMPUTED ANALYSIS TOOL (consolidated)
+# =============================================================================
+
+def tool_get_training_analysis(
+    *,
+    sections: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Get pre-computed AI training analysis — PREFERRED for progress questions.
+
+    Returns up to 3 sections of pre-computed analysis. Default: all sections.
+    ~6KB total — well within token budget for a single call.
+
+    Args:
+        sections: Optional filter. Valid values: "insights", "daily_brief", "weekly_review"
+            Default (None): returns all available sections in a single call.
+
+    Returns:
+        insights: [{
+            id, type: "post_workout",
+            workout_id, workout_date,
+            summary (2-3 sentences),
+            highlights: [{ type: "pr"|"volume_up"|"consistency"|"intensity", message, exercise_id? }],
+            flags: [{ type: "stall"|"volume_drop"|"overreach"|"fatigue", severity: "info"|"warning"|"action", message }],
+            recommendations: [{ type: "progression"|"deload"|"swap"|"volume_adjust", target, action, confidence }],
+            created_at, expires_at
+        }]
+
+        daily_brief: {
+            date, has_planned_workout, planned_workout?,
+            readiness: "fresh"|"moderate"|"fatigued",
+            readiness_summary (2-3 sentences),
+            fatigue_flags: [{ muscle_group, signal: "fresh"|"building"|"fatigued"|"overreached", acwr }],
+            adjustments: [{ exercise_name, type: "reduce_weight"|"reduce_sets"|"skip"|"swap", rationale }]
+        }
+
+        weekly_review: {
+            id (YYYY-WNN), week_ending,
+            summary (paragraph),
+            training_load: { sessions, total_sets, total_volume, vs_last_week: { sets_delta, volume_delta } },
+            muscle_balance: [{ muscle_group, weekly_sets, trend, status }],
+            exercise_trends: [{ exercise_name, trend: "improving"|"plateaued"|"declining", e1rm_slope, note }],
+            progression_candidates: [{ exercise_name, current_weight, suggested_weight, rationale, confidence }],
+            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }]
+        }
+
+    Examples:
+        tool_get_training_analysis()  # all sections
+        tool_get_training_analysis(sections=["insights"])  # insights only
+        tool_get_training_analysis(sections=["daily_brief", "weekly_review"])  # skip insights
+    """
+    ctx = get_current_context()
+
+    if not ctx.user_id:
+        return {"error": "No user_id available in context"}
+
+    result = get_training_analysis(
+        user_id=ctx.user_id,
+        sections=sections,
     )
     return result.to_dict()
 
@@ -854,18 +882,20 @@ all_tools = [
     FunctionTool(func=tool_search_exercises),
     FunctionTool(func=tool_get_exercise_details),
     FunctionTool(func=tool_get_planning_context),
-    
+
     # Token-safe Training Analytics v2 (PREFERRED for progress questions)
     FunctionTool(func=tool_get_muscle_group_progress),
     FunctionTool(func=tool_get_muscle_progress),
     FunctionTool(func=tool_get_exercise_progress),
-    FunctionTool(func=tool_get_coaching_context),
     FunctionTool(func=tool_query_training_sets),
-    
+
+    # Pre-computed analysis (single consolidated call)
+    FunctionTool(func=tool_get_training_analysis),
+
     # Write tools - Create new (cards have accept/dismiss buttons)
     FunctionTool(func=tool_propose_workout),
     FunctionTool(func=tool_propose_routine),
-    
+
     # Write tools - Update existing (cards have update/dismiss buttons)
     FunctionTool(func=tool_update_routine),
     FunctionTool(func=tool_update_template),
@@ -887,8 +917,9 @@ __all__ = [
     "tool_get_muscle_group_progress",
     "tool_get_muscle_progress",
     "tool_get_exercise_progress",
-    "tool_get_coaching_context",
     "tool_query_training_sets",
+    # Pre-computed analysis (single consolidated call)
+    "tool_get_training_analysis",
     # Write tools - Create
     "tool_propose_workout",
     "tool_propose_routine",

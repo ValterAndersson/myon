@@ -103,7 +103,6 @@ const { openCanvas, preWarmSession } = require('./canvas/open-canvas');
 const { runAnalyticsForUser } = require('./analytics/controller');
 const { analyticsCompactionScheduled, compactAnalyticsForUser } = require('./analytics/compaction');
 const { publishWeeklyJob } = require('./analytics/publish-weekly-job');
-const { getAnalyticsFeatures } = require('./analytics/get-features');
 const { recalculateWeeklyForUser } = require('./analytics/recalculate-weekly-for-user');
 // Agents
 const { invokeCanvasOrchestrator } = require('./agents/invoke-canvas-orchestrator');
@@ -111,11 +110,11 @@ const { getPlanningContext } = require('./agents/get-planning-context');
 const { applyProgression } = require('./agents/apply-progression');
 
 // Token-safe Training Analytics v2
-const { getExerciseSeries, getMuscleGroupSeries, getMuscleSeries } = require('./training/series-endpoints');
 const { querySets, aggregateSets } = require('./training/query-sets');
 const { getMuscleGroupSummary, getMuscleSummary, getExerciseSummary } = require('./training/progress-summary');
-const { getCoachingPack, getActiveSnapshotLite } = require('./training/context-pack');
+const { getActiveSnapshotLite } = require('./training/context-pack');
 const { getActiveEvents } = require('./training/active-events');
+const { getAnalysisSummary } = require('./training/get-analysis-summary');
 
 // Firestore Triggers
 const {
@@ -215,7 +214,7 @@ exports.completeActiveWorkout = completeActiveWorkout;
 exports.cancelActiveWorkout = cancelActiveWorkout;
 
 // StrengthOS Operations
-exports.streamAgentNormalized = functions.https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));
+exports.streamAgentNormalized = functions.runWith({ timeoutSeconds: 300, memory: '512MB' }).https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));
 exports.upsertProgressReport = functions.https.onRequest((req, res) => withApiKey(upsertProgressReport)(req, res));
 exports.getProgressReports = functions.https.onRequest((req, res) => requireFlexibleAuth(getProgressReports)(req, res));
 
@@ -233,7 +232,6 @@ exports.preWarmSession = preWarmSession;
 exports.runAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(runAnalyticsForUser)(req, res));
 exports.compactAnalyticsForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(compactAnalyticsForUser)(req, res));
 exports.publishWeeklyJob = functions.https.onRequest((req, res) => requireFlexibleAuth(publishWeeklyJob)(req, res));
-exports.getAnalyticsFeatures = functions.https.onRequest((req, res) => requireFlexibleAuth(getAnalyticsFeatures)(req, res));
 exports.recalculateWeeklyForUser = functions.https.onRequest((req, res) => requireFlexibleAuth(recalculateWeeklyForUser)(req, res));
 // Agents
 exports.invokeCanvasOrchestrator = functions.https.onRequest((req, res) => requireFlexibleAuth(invokeCanvasOrchestrator)(req, res));
@@ -281,11 +279,6 @@ exports.manualWeeklyStatsRecalculation = manualWeeklyStatsRecalculation;
 // See: docs/TRAINING_ANALYTICS_API_V2_SPEC.md
 // ============================================================================
 
-// Series endpoints (default for coaching/planning)
-exports.getExerciseSeries = getExerciseSeries;
-exports.getMuscleGroupSeries = getMuscleGroupSeries;
-exports.getMuscleSeries = getMuscleSeries;
-
 // Query endpoints (for drilldown)
 exports.querySets = querySets;
 exports.aggregateSets = aggregateSets;
@@ -295,11 +288,11 @@ exports.getMuscleGroupSummary = getMuscleGroupSummary;
 exports.getMuscleSummary = getMuscleSummary;
 exports.getExerciseSummary = getExerciseSummary;
 
-// Context pack (single call for coach initialization)
-exports.getCoachingPack = getCoachingPack;
-
 // Active workout lite (replaces heavy full-state reads)
 exports.getActiveSnapshotLite = getActiveSnapshotLite;
 
 // Active workout events (paginated event stream)
 exports.getActiveEvents = getActiveEvents;
+
+// Training Analysis (pre-computed insights)
+exports.getAnalysisSummary = getAnalysisSummary;

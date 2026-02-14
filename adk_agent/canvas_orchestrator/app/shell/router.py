@@ -3,13 +3,13 @@ Router - 4-Lane request routing for the Shell Agent architecture.
 
 Lanes:
 - Fast Lane: Regex → direct skill execution (no LLM, <500ms)
-- Slow Lane: Shell Agent (gemini-2.5-pro) for conversational CoT
+- Slow Lane: Shell Agent (gemini-2.5-flash) for conversational reasoning
 - Functional Lane: gemini-2.5-flash for structured JSON in/out (Smart Buttons)
 - Worker Lane: Background scripts (triggered by PubSub, not routed)
 
 Model assignment:
 - Fast Lane: No LLM (direct skill execution)
-- Slow Lane: gemini-2.5-pro (Shell Agent)
+- Slow Lane: gemini-2.5-flash (Shell Agent)
 - Functional Lane: gemini-2.5-flash (JSON only, temp=0)
 """
 
