@@ -97,7 +97,7 @@ Timeline:
 │  Regex Match →       Shell Agent →         Flash Agent →  │    PubSub →         │
 │  copilot_skills      CoT Reasoning         JSON Logic     │    Standalone       │
 │                                                           │                     │
-│  Model: NONE         Model: Pro            Model: Flash   │    Model: Pro       │
+│  Model: NONE         Model: Flash          Model: Flash   │    Model: Flash     │
 │  Latency: <500ms     Latency: 2-5s         Latency: <1s   │    Latency: N/A     │
 │                                                           │                     │
 │  Input: Text         Input: Text           Input: JSON    │    Trigger: Event   │
@@ -136,7 +136,7 @@ adk_agent/canvas_orchestrator/
 │   │   ├── context.py            # Per-request SessionContext (immutable)
 │   │   ├── router.py             # 4-Lane routing with route_request()
 │   │   ├── instruction.py        # Unified Coach + Planner voice
-│   │   ├── agent.py              # ShellAgent (gemini-2.5-pro)
+│   │   ├── agent.py              # ShellAgent (gemini-2.5-flash)
 │   │   ├── tools.py              # Tool definitions from pure skills
 │   │   ├── planner.py            # Intent-specific tool planning
 │   │   ├── safety_gate.py        # Write operation confirmation
@@ -201,7 +201,7 @@ route_request("done")
 | Aspect | Value |
 |--------|-------|
 | **Input** | Text (conversational) |
-| **Model** | gemini-2.5-pro |
+| **Model** | gemini-2.5-flash |
 | **Latency** | 2-5 seconds |
 | **Output** | Streaming text |
 
@@ -279,7 +279,7 @@ route_request({"intent": "SWAP_EXERCISE", "target": "Bench Press", "constraint":
 | Aspect | Value |
 |--------|-------|
 | **Trigger** | PubSub event (e.g., `workout_completed`) |
-| **Model** | gemini-2.5-pro |
+| **Model** | gemini-2.5-flash |
 | **Latency** | N/A (async) |
 | **Output** | Database write (InsightCard) |
 
@@ -290,9 +290,8 @@ The worker imports the **exact same skills** as the Chat Agent:
 ```python
 # workers/post_workout_analyst.py
 from app.skills.coach_skills import (
-    get_analytics_features,  # SAME function used by ShellAgent
     get_training_context,
-    get_recent_workouts,
+    get_training_analysis,
 )
 ```
 
@@ -322,7 +321,7 @@ All write operations MUST go through the Safety Gate.
 | `propose_workout` | ✅ Requires confirmation |
 | `propose_routine` | ✅ Requires confirmation |
 | `create_template` | ✅ Requires confirmation |
-| `get_analytics_features` | ❌ Read-only, no gate |
+| `get_training_analysis` | ❌ Read-only, no gate |
 | `search_exercises` | ❌ Read-only, no gate |
 
 **Implementation:**
@@ -570,13 +569,13 @@ route_request(message)  # Parses JSON, routes to Functional Lane
 | Lane | Model | Temperature | Purpose |
 |------|-------|-------------|---------|
 | Fast | None | N/A | Pure Python execution |
-| Slow | gemini-2.5-pro | Default | Conversational CoT |
+| Slow | gemini-2.5-flash | 0.3 | Conversational CoT (with thinking) |
 | Functional | gemini-2.5-flash | 0.0 | Deterministic JSON |
-| Worker | gemini-2.5-pro | 0.2 | Analytical precision |
+| Worker | gemini-2.5-flash | 0.2 | Analytical precision |
 
 Environment variables:
 ```bash
-CANVAS_SHELL_MODEL=gemini-2.5-pro       # Slow Lane
+CANVAS_SHELL_MODEL=gemini-2.5-flash      # Slow Lane
 CANVAS_FUNCTIONAL_MODEL=gemini-2.5-flash  # Functional Lane
 ```
 
@@ -758,17 +757,16 @@ if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
 | Does `propose_routine` require confirmation before writing? | YES | ✅ |
 | Are read-only tools (`search_exercises`, progress summaries) ungated? | YES | ✅ |
 
-### Token-Safe Analytics (v2 - 2026-01-04)
+### Token-Safe Analytics (v2 - 2026-02-14)
 
 | Check | Expected | Verified |
 |-------|----------|----------|
-| Is `tool_get_analytics_features` REMOVED from agent tools? | YES | ✅ |
-| Is `tool_get_recent_workouts` REMOVED from agent tools? | YES | ✅ |
-| Is `tool_get_muscle_group_progress` available (PREFERRED)? | YES | ✅ |
+| Is `tool_get_training_analysis` available (PRE-COMPUTED, PREFERRED START)? | YES | ✅ |
+| Is `tool_get_muscle_group_progress` available (LIVE DRILLDOWN)? | YES | ✅ |
 | Is `tool_get_muscle_progress` available? | YES | ✅ |
 | Is `tool_get_exercise_progress` available? | YES | ✅ |
-| Is `tool_get_coaching_context` available (BEST STARTING POINT)? | YES | ✅ |
-| Is `tool_query_training_sets` available (DRILLDOWN ONLY)? | YES | ✅ |
+| Is `tool_query_training_sets` available (RAW SET DATA)? | YES | ✅ |
+| Are dead tools REMOVED (`coaching_context`, `analytics_features`, `recent_workouts`)? | YES | ✅ |
 | Are all progress summaries bounded under 15KB? | YES | ✅ |
 
 ### iOS Integration (Protocol Multiplexing)
@@ -860,7 +858,8 @@ python workers/post_workout_analyst.py \
 | 2026-01-03 | Complete 4-Lane architecture documentation |
 | 2026-01-03 | ContextVars hardening for Vertex Agent Engine |
 | 2026-01-03 | **Production Integration Documentation**: Added Vertex AI runtime section, ContextVars deep-dive, iOS protocol multiplexing, Monitor Lane schema, comprehensive verification checklist |
-| 2026-01-04 | **Token-Safe Analytics v2**: Removed `tool_get_analytics_features` and `tool_get_recent_workouts` from agent tools. Replaced with bounded, paginated endpoints: `tool_get_muscle_group_progress`, `tool_get_muscle_progress`, `tool_get_exercise_progress`, `tool_get_coaching_context` (best starting point), and `tool_query_training_sets` (drilldown only). All summaries guaranteed under 15KB. See `docs/TRAINING_ANALYTICS_API_V2_SPEC.md` for full specification. |
+| 2026-01-04 | **Token-Safe Analytics v2**: Removed `tool_get_analytics_features` and `tool_get_recent_workouts` from agent tools. Replaced with bounded, paginated endpoints: `tool_get_muscle_group_progress`, `tool_get_muscle_progress`, `tool_get_exercise_progress`, and `tool_query_training_sets` (drilldown only). All summaries guaranteed under 15KB. |
+| 2026-02-14 | **Pre-computed Analysis + Instruction Rewrite**: Consolidated 3 pre-computed tools (`tool_get_recent_insights`, `tool_get_daily_brief`, `tool_get_latest_weekly_review`) + `tool_get_coaching_context` into single `tool_get_training_analysis`. Switched Slow Lane model from `gemini-2.5-flash` to `gemini-2.5-flash` (temp 0.3, thinking enabled). Rewrote system instruction from 190→140 lines: principles over rules, removed schema duplication, added 7 rich examples with Think/Tool/Response chains. Added hallucination guardrails via data-claim principles and no-data examples. Increased streaming timeout to 300s/180s. |
 
 ---
 

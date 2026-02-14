@@ -1341,6 +1341,126 @@ Sources
 
 ---
 
+## Training Analysis Collections
+
+### training_analysis_jobs/{jobId}
+Background job queue for automated training analysis.
+
+- Fields:
+  - `id: string` (document ID)
+  - `type: string` - Job type enum:
+    - `POST_WORKOUT_ANALYSIS` - Analyze completed workout
+    - `DAILY_BRIEF_GENERATION` - Generate daily readiness brief
+    - `WEEKLY_REVIEW_GENERATION` - Generate weekly progression review
+    - `PLATEAU_DETECTION` - Detect training plateaus
+  - `status: string`:
+    - `queued`, `running`, `completed`, `failed`
+  - `user_id: string` - Target user
+  - `trigger: string` - What triggered the job:
+    - `workout_completed` - PubSub trigger from workout completion
+    - `scheduled` - Scheduled cron job
+    - `manual` - Manual trigger
+  - `trigger_context: object` - Additional context (e.g., `workout_id`, `date`)
+  - `priority: number` - Higher wins (default 0)
+  - `payload: object`:
+    - `workout_id?: string` - For POST_WORKOUT_ANALYSIS
+    - `date?: string` - For DAILY_BRIEF_GENERATION (YYYY-MM-DD)
+    - `week_id?: string` - For WEEKLY_REVIEW_GENERATION (YYYY-MM-DD)
+    - `analysis_window_weeks?: number` - Lookback window
+  - `result?: object` - Analysis output
+  - `error?: object` - Error details if failed
+  - `attempts: number` - Retry counter
+  - `max_attempts: number` - Max retries (default 3)
+  - `created_at, updated_at: Timestamp`
+  - `started_at?: Timestamp` - When processing began
+  - `completed_at?: Timestamp` - When processing finished
+
+### users/{uid}/analysis_insights/{id}
+AI-generated post-workout insights. Written by Training Analyst after each workout completion. TTL: 7 days.
+
+- Fields:
+  - `id: string` (document ID)
+  - `type: string` - Always `"post_workout"` currently
+  - `workout_id: string` - Source workout that triggered this insight
+  - `workout_date: string` - Date of the workout (YYYY-MM-DD)
+  - `summary: string` - 2-3 sentence overview of the workout
+  - `highlights: Array<object>` - Positive observations:
+    - `type: string` - `"pr"` | `"volume_up"` | `"consistency"` | `"intensity"`
+    - `message: string` - Human-readable description
+    - `exercise_id?: string` - Related exercise if applicable
+  - `flags: Array<object>` - Concerns or warnings:
+    - `type: string` - `"stall"` | `"volume_drop"` | `"overreach"` | `"fatigue"`
+    - `severity: string` - `"info"` | `"warning"` | `"action"`
+    - `message: string` - Human-readable description
+  - `recommendations: Array<object>` - Actionable next steps:
+    - `type: string` - `"progression"` | `"deload"` | `"swap"` | `"volume_adjust"`
+    - `target: string` - Exercise or muscle group
+    - `action: string` - What to do
+    - `confidence: number` - 0-1 confidence score
+  - `created_at: Timestamp`
+  - `expires_at: Timestamp` - TTL (7 days from creation)
+
+### users/{uid}/daily_briefs/{date}
+Daily training readiness brief. Document ID is date string (YYYY-MM-DD). TTL: 7 days.
+
+- Fields:
+  - `date: string` (YYYY-MM-DD, also document ID)
+  - `has_planned_workout: boolean` - Whether a routine workout is due today
+  - `planned_workout?: object` - Details of the planned workout if applicable
+  - `readiness: string` - Overall readiness level:
+    - `"fresh"` - Well recovered, can push hard
+    - `"moderate"` - Adequate recovery, proceed normally
+    - `"fatigued"` - Accumulated fatigue, consider adjustments
+  - `readiness_summary: string` - 2-3 sentence explanation of readiness assessment
+  - `fatigue_flags: Array<object>` - Per-muscle-group fatigue signals:
+    - `muscle_group: string` - e.g., "chest", "shoulders", "back"
+    - `signal: string` - `"fresh"` | `"building"` | `"fatigued"` | `"overreached"`
+    - `acwr: number` - Acute:Chronic Workload Ratio
+  - `adjustments: Array<object>` - Recommended exercise adjustments:
+    - `exercise_name: string` - Exercise to adjust
+    - `type: string` - `"reduce_weight"` | `"reduce_sets"` | `"skip"` | `"swap"`
+    - `rationale: string` - Why this adjustment is recommended
+  - `created_at: Timestamp`
+
+### users/{uid}/weekly_reviews/{weekId}
+Weekly progression reviews and trend analysis. Document ID is week identifier (YYYY-WNN). TTL: 30 days.
+
+- Fields:
+  - `id: string` (YYYY-WNN format, also document ID)
+  - `week_ending: string` - Last day of the review week (YYYY-MM-DD)
+  - `summary: string` - Paragraph-length overall week assessment
+  - `training_load: object`:
+    - `sessions: number` - Number of workouts this week
+    - `total_sets: number` - Total sets performed
+    - `total_volume: number` - Total volume in kg
+    - `vs_last_week: object` - Week-over-week comparison:
+      - `sets_delta: number` - Change in sets
+      - `volume_delta: number` - Change in volume (kg)
+  - `muscle_balance: Array<object>` - Per-muscle-group volume assessment:
+    - `muscle_group: string` - e.g., "chest", "back", "legs"
+    - `weekly_sets: number` - Total sets this week
+    - `trend: string` - Volume trend direction
+    - `status: string` - `"undertrained"` | `"optimal"` | `"overtrained"`
+  - `exercise_trends: Array<object>` - Per-exercise progression:
+    - `exercise_name: string`
+    - `trend: string` - `"improving"` | `"plateaued"` | `"declining"`
+    - `e1rm_slope: number` - Rate of estimated 1RM change
+    - `note: string` - Context for the trend
+  - `progression_candidates: Array<object>` - Exercises ready for weight increase:
+    - `exercise_name: string`
+    - `current_weight: number` - Current working weight (kg)
+    - `suggested_weight: number` - Recommended next weight (kg)
+    - `rationale: string` - Why this progression is suggested
+    - `confidence: number` - 0-1 confidence score
+  - `stalled_exercises: Array<object>` - Exercises with no progression:
+    - `exercise_name: string`
+    - `weeks_stalled: number` - How many weeks without progress
+    - `suggested_action: string` - Recommended intervention
+    - `rationale: string` - Why this action is suggested
+  - `created_at: Timestamp`
+
+---
+
 ## Catalog Admin v2 Collections
 
 ### catalog_jobs/{jobId}

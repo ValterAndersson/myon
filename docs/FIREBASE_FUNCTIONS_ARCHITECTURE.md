@@ -50,7 +50,8 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | **Canvas** | `bootstrapCanvas`, `openCanvas`, `initializeSession`, `applyAction`, `proposeCards`, `purgeCanvas`, `emitEvent`, `expireProposals` | Flexible Auth |
 | **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession` | Flexible Auth |
 | **Agents** | `invokeCanvasOrchestrator`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
-| **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `getAnalyticsFeatures`, `recalculateWeeklyForUser` | Flexible Auth |
+| **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
+| **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
 
 ---
 
@@ -321,8 +322,15 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 ### Analytics Features
 
 - `runAnalyticsForUser` - Run analytics pipeline for user
-- `getAnalyticsFeatures` - Get computed analytics features
 - `publishWeeklyJob` - Publish weekly analytics job to queue
+
+### Training Analysis (Pre-computed)
+
+- `getAnalysisSummary` - Retrieve pre-computed training analysis (insights, daily brief, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`.
+- `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` - Live drilldown summaries for specific muscles/exercises
+- `querySets` / `aggregateSets` - Raw set-level data queries with filtering
+- `getActiveSnapshotLite` - Lightweight active workout state snapshot
+- `getActiveEvents` - Paginated workout event stream
 
 ---
 

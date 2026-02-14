@@ -5,7 +5,7 @@
 > This document is optimized for LLM/AI consumption. It provides explicit file paths, 
 > complete data schemas, and decision tables to enable accurate code generation without ambiguity.
 >
-> **Last Updated**: 2026-02-13
+> **Last Updated**: 2026-02-14
 > **Branch**: main
 > **Repository Root**: /Users/valterandersson/Documents/Povver
 
@@ -489,6 +489,105 @@ When adding a new field (e.g., `routine.goal`):
 
 ---
 
+## Training Analyst: Background Analysis Architecture
+
+The Training Analyst is an **asynchronous background service** that pre-computes training insights, daily briefs, and weekly reviews. This allows the chat agent to retrieve analysis instantly instead of computing it during conversations.
+
+### Architecture Flow
+
+```
+Workout Completed
+        │
+        ▼ (PubSub trigger)
+Firebase: onWorkoutCompleted()
+        │ Publishes to training_analysis topic
+        ▼
+PubSub: training_analysis_jobs topic
+        │
+        ▼ (Cloud Run Job listens)
+Training Analyst: process_job()
+        │ Reads workout, context, analytics
+        ▼
+Analyzer: analyze_post_workout()
+        │ LLM analysis (gemini-2.5-flash)
+        ▼
+Firestore: analysis_insights/{id} written
+        │
+        ▼ (Chat agent retrieves)
+Chat Agent: tool_get_training_analysis()
+        │ Instant response (<100ms)
+        ▼
+User sees pre-computed insights
+```
+
+### Key Design Principles
+
+| Principle | Rationale |
+|-----------|-----------|
+| **Pre-computation** | Analysis happens in background, not during chat |
+| **Async PubSub** | Workout completion doesn't wait for analysis |
+| **Bounded responses** | All summaries <2KB for fast agent retrieval |
+| **Data budget** | Only last 12 weeks for analysis (configurable) |
+| **Job queue** | Firestore-based queue for retry/monitoring |
+
+### Component Map
+
+```
+adk_agent/training_analyst/
+├── app/
+│   ├── main.py                    ← Cloud Run entry point
+│   ├── job_processor.py           ← Job queue worker
+│   ├── analyzers/
+│   │   ├── post_workout.py        ← Post-workout insights
+│   │   ├── daily_brief.py         ← Daily readiness
+│   │   └── weekly_review.py       ← Weekly progression
+│   ├── libs/
+│   │   ├── firebase_client.py     ← Firestore SDK wrapper
+│   │   └── vertex_client.py       ← Vertex AI LLM client
+│   └── models/
+│       └── schemas.py             ← Output schemas
+└── ARCHITECTURE.md                ← Tier 2 module docs
+```
+
+### Job Types
+
+| Job Type | Trigger | Frequency | Output Collection |
+|----------|---------|-----------|-------------------|
+| `POST_WORKOUT_ANALYSIS` | PubSub on workout completion | Per workout | `analysis_insights` |
+| `DAILY_BRIEF_GENERATION` | Cron 6 AM local time | Daily | `daily_briefs/{date}` |
+| `WEEKLY_REVIEW_GENERATION` | Cron Monday 8 AM local time | Weekly | `weekly_reviews/{weekId}` |
+
+### Data Budget Strategy
+
+To keep responses fast and costs low:
+
+- **Analysis window**: Last 12 weeks (configurable via job payload)
+- **Insight retention**: 30 days (Firestore TTL on `analysis_insights`)
+- **Daily brief**: Only today (document ID = date)
+- **Weekly review**: Last 4 weeks stored, older archived
+
+### Chat Agent Integration
+
+The chat agent retrieves all pre-computed analysis through a single consolidated tool:
+
+```python
+# In app/shell/tools.py
+tool_get_training_analysis(sections=None)  # All sections, or filter: ["insights", "daily_brief", "weekly_review"]
+```
+
+This calls the `getAnalysisSummary` Firebase Function, which reads from Firestore and returns all requested sections in a single HTTP call (~6KB total).
+
+### Firebase Function: getAnalysisSummary
+
+```javascript
+// firebase_functions/functions/training/get-analysis-summary.js
+// Auth: requireFlexibleAuth (Bearer + API key)
+// Params: userId, sections? (array), date? (YYYY-MM-DD), limit? (number)
+// Default: returns all 3 sections for today
+```
+
+---
+
 ## Agent Architecture: 4-Lane Shell Agent (CURRENT)
 
 > **CRITICAL**: The old multi-agent architecture (CoachAgent, PlannerAgent, Orchestrator) 
@@ -513,7 +612,7 @@ adk_agent/canvas_orchestrator/
 │   ├── shell/                   ← 4-LANE PIPELINE
 │   │   ├── router.py            ← Determines lane
 │   │   ├── context.py           ← Per-request SessionContext
-│   │   ├── agent.py             ← ShellAgent (gemini-2.5-pro)
+│   │   ├── agent.py             ← ShellAgent (gemini-2.5-flash)
 │   │   ├── tools.py             ← Tool wrappers
 │   │   ├── planner.py           ← Intent-based planning
 │   │   ├── critic.py            ← Response validation
@@ -537,19 +636,27 @@ adk_agent/canvas_orchestrator/
 |---------------|------|-------|---------|---------|
 | `"done"`, `"8 @ 100"`, `"next set"` | FAST | None | <500ms | `copilot_skills.*` |
 | `{"intent": "SWAP_EXERCISE", ...}` | FUNCTIONAL | Flash | <1s | `functional_handler.py` |
-| `"create a PPL routine"` | SLOW | Pro | 2-5s | `shell/agent.py` |
-| PubSub `workout_completed` | WORKER | Pro | N/A | `post_workout_analyst.py` |
+| `"create a PPL routine"` | SLOW | Flash | 2-5s | `shell/agent.py` |
+| PubSub `workout_completed` | WORKER | Flash | N/A | `post_workout_analyst.py` |
 
 ### Tool Permission Matrix (Shell Agent)
 
 | Skill Function | Read | Write | Safety Gate |
 |----------------|------|-------|-------------|
 | `get_training_context()` | ✅ | - | No |
-| `get_analytics_features()` | ✅ | - | No |
+| `get_training_analysis()` | ✅ | - | No |
+| `get_user_profile()` | ✅ | - | No |
 | `search_exercises()` | ✅ | - | No |
-| `get_recent_workouts()` | ✅ | - | No |
+| `get_exercise_details()` | ✅ | - | No |
+| `get_exercise_progress()` | ✅ | - | No |
+| `get_muscle_group_progress()` | ✅ | - | No |
+| `get_muscle_progress()` | ✅ | - | No |
+| `query_training_sets()` | ✅ | - | No |
+| `get_planning_context()` | ✅ | - | No |
 | `propose_workout()` | - | ✅ | **Yes** |
 | `propose_routine()` | - | ✅ | **Yes** |
+| `update_routine()` | - | ✅ | **Yes** |
+| `update_template()` | - | ✅ | **Yes** |
 | `log_set()` | - | ✅ | No (Fast Lane) |
 
 ### Context Flow (SECURITY CRITICAL)
