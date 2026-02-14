@@ -107,8 +107,7 @@
       "collectionGroup": "analysis_insights",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "expires_at", "order": "DESCENDING" },
-        { "fieldPath": "created_at", "order": "DESCENDING" }
+        { "fieldPath": "expires_at", "order": "ASCENDING" }
       ]
     }
   ],

@@ -53,12 +53,14 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
     const reads = {};
 
     if (requestedSections.includes('insights')) {
+      // Over-fetch non-expired insights, then sort by workout_date in memory.
+      // Firestore requires orderBy on the inequality field (expires_at), but we
+      // want results sorted by workout recency, not analysis creation order.
       reads.insights = db.collection('users').doc(userId)
         .collection('analysis_insights')
         .where('expires_at', '>', now)
-        .orderBy('expires_at', 'desc')
-        .orderBy('created_at', 'desc')
-        .limit(insightsLimit)
+        .orderBy('expires_at')
+        .limit(50)
         .get();
     }
 
@@ -103,7 +105,9 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
           expires_at: data.expires_at?.toDate?.()?.toISOString() || data.expires_at,
         });
       }
-      response.insights = insights;
+      // Sort by workout_date descending so most recent workouts come first
+      insights.sort((a, b) => (b.workout_date || '').localeCompare(a.workout_date || ''));
+      response.insights = insights.slice(0, insightsLimit);
     }
 
     if (results.daily_brief) {

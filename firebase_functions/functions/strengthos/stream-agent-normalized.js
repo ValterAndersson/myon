@@ -74,7 +74,9 @@
  *
  * CALLED BY:
  * - iOS: DirectStreamingService.streamQuery()
- *   → MYON2/MYON2/Services/DirectStreamingService.swift
+ *   → Povver/Povver/Services/DirectStreamingService.swift
+ * - iOS: WorkoutCoachViewModel.send() (workout coaching mode, passes workoutId)
+ *   → Povver/Povver/ViewModels/WorkoutCoachViewModel.swift
  *
  * RELATED FILES:
  * - ./config.js: VERTEX_AI_CONFIG (projectId, location)
@@ -872,7 +874,8 @@ async function streamAgentNormalizedHandler(req, res) {
   };
 
   try {
-    const userId = req.user?.uid || req.auth?.uid || 'anonymous';
+    // Dual auth: Bearer lane → req.auth.uid, API key lane → X-User-Id header or body
+    const userId = req.user?.uid || req.auth?.uid || req.body?.userId || 'anonymous';
     const message = req.body?.message || '';
     const sessionId = req.body?.sessionId || null;
     const canvasId = req.body?.canvasId;
