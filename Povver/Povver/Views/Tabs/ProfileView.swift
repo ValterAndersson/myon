@@ -10,6 +10,9 @@ struct ProfileView: View {
     @State private var isLoading = true
     @State private var sessionCount = 0
     
+    // Auth state
+    @State private var linkedProviders: [AuthProvider] = []
+
     // Edit sheets
     @State private var showingNicknameEditor = false
     @State private var showingHeightEditor = false
@@ -17,6 +20,8 @@ struct ProfileView: View {
     @State private var showingFitnessLevelPicker = false
     @State private var showingTimezonePicker = false
     @State private var showingLogoutConfirmation = false
+    @State private var showingEmailChange = false
+    @State private var showingPasswordChange = false
     
     // Edit values
     @State private var editingNickname = ""
@@ -42,6 +47,10 @@ struct ProfileView: View {
                 sectionHeader("Preferences")
                 preferencesSection
                 
+                // Security Section
+                sectionHeader("Security")
+                securitySection
+
                 // More Section (Placeholders)
                 sectionHeader("More")
                 moreSection
@@ -78,6 +87,15 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showingFitnessLevelPicker) {
             fitnessLevelPickerSheet
+        }
+        .sheet(isPresented: $showingEmailChange) {
+            EmailChangeView(
+                hasEmailProvider: linkedProviders.contains(.email),
+                providerDisplayName: linkedProviders.first(where: { $0 != .email })?.displayName ?? "your provider"
+            )
+        }
+        .sheet(isPresented: $showingPasswordChange) {
+            PasswordChangeView(hasEmailProvider: linkedProviders.contains(.email))
         }
     }
     
@@ -128,11 +146,22 @@ struct ProfileView: View {
     
     private var accountSection: some View {
         VStack(spacing: 0) {
-            ProfileRow(
-                icon: "envelope",
-                title: "Email",
-                value: user?.email ?? authService.currentUser?.email ?? "-"
-            )
+            if linkedProviders.contains(.email) {
+                ProfileRow(
+                    icon: "envelope",
+                    title: "Email",
+                    value: user?.email ?? authService.currentUser?.email ?? "-",
+                    isEditable: true
+                ) {
+                    showingEmailChange = true
+                }
+            } else {
+                ProfileRow(
+                    icon: "envelope",
+                    title: "Email",
+                    value: user?.email ?? authService.currentUser?.email ?? "-"
+                )
+            }
             
             Divider().padding(.leading, 56)
             
@@ -222,6 +251,48 @@ struct ProfileView: View {
         .padding(.horizontal, Space.lg)
     }
     
+    // MARK: - Security Section
+
+    private var securitySection: some View {
+        VStack(spacing: 0) {
+            NavigationLink(destination: LinkedAccountsView()) {
+                ProfileRowLinkContent(
+                    icon: "lock.shield",
+                    title: "Linked Accounts",
+                    subtitle: "\(linkedProviders.count) sign-in method\(linkedProviders.count == 1 ? "" : "s")"
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().padding(.leading, 56)
+
+            Button {
+                showingPasswordChange = true
+            } label: {
+                ProfileRowLinkContent(
+                    icon: "key",
+                    title: linkedProviders.contains(.email) ? "Change Password" : "Set Password",
+                    subtitle: linkedProviders.contains(.email) ? "Update your password" : "Add email sign-in"
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            Divider().padding(.leading, 56)
+
+            NavigationLink(destination: DeleteAccountView()) {
+                ProfileRowLinkContent(
+                    icon: "trash",
+                    title: "Delete Account",
+                    subtitle: "Permanently delete your account"
+                )
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .background(Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+        .padding(.horizontal, Space.lg)
+    }
+
     // MARK: - More Section
     
     private var moreSection: some View {
@@ -453,7 +524,10 @@ struct ProfileView: View {
             isLoading = false
             return
         }
-        
+
+        await authService.reloadCurrentUser()
+        linkedProviders = authService.linkedProviders
+
         // Load user profile
         do {
             user = try await UserRepository.shared.getUser(userId: userId)
@@ -589,112 +663,6 @@ struct ProfileView: View {
         } catch {
             print("[ProfileView] Logout failed: \(error)")
         }
-    }
-}
-
-// MARK: - Profile Row
-
-private struct ProfileRow: View {
-    let icon: String
-    let title: String
-    let value: String
-    var isEditable: Bool = false
-    var action: (() -> Void)? = nil
-    
-    var body: some View {
-        Button {
-            action?()
-        } label: {
-            HStack(spacing: Space.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 18))
-                    .foregroundColor(Color.textSecondary)
-                    .frame(width: 24)
-                
-                Text(title)
-                    .font(.system(size: 15))
-                    .foregroundColor(Color.textPrimary)
-                
-                Spacer()
-                
-                Text(value)
-                    .font(.system(size: 15))
-                    .foregroundColor(isEditable ? Color.textSecondary : Color.textTertiary)
-                    .lineLimit(1)
-                
-                if isEditable {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color.textTertiary)
-                }
-            }
-            .padding(Space.md)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .disabled(action == nil)
-    }
-}
-
-// MARK: - Profile Row Toggle
-
-private struct ProfileRowToggle: View {
-    let icon: String
-    let title: String
-    @Binding var isOn: Bool
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundColor(Color.textSecondary)
-                .frame(width: 24)
-            
-            Text(title)
-                .font(.system(size: 15))
-                .foregroundColor(Color.textPrimary)
-            
-            Spacer()
-            
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-        }
-        .padding(Space.md)
-    }
-}
-
-// MARK: - Profile Row Link Content
-
-private struct ProfileRowLinkContent: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-    
-    var body: some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundColor(Color.textSecondary)
-                .frame(width: 24)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 15))
-                    .foregroundColor(Color.textPrimary)
-                
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(Color.textTertiary)
-        }
-        .padding(Space.md)
-        .contentShape(Rectangle())
     }
 }
 

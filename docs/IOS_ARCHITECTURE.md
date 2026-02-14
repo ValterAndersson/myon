@@ -77,6 +77,8 @@ struct PovverApp: App {
 └─────────────────┘
 ```
 
+RootView observes `AuthService.isAuthenticated` via `.onChange`. When auth state becomes `false` (sign-out, account deletion, token expiration), the flow reactively resets to `.login`. Login and register views use callbacks (`onLogin`, `onRegister`) to transition to `.main` on successful authentication.
+
 ### Tab Structure (`MainTabsView.swift`)
 
 | Tab | View | Purpose |
@@ -146,9 +148,20 @@ struct PovverApp: App {
 ### Key Service Details
 
 #### `AuthService`
-- Manages Firebase Auth state
-- Publishes `isAuthenticated` and `currentUser`
-- Supports email/password, Google, Apple sign-in
+- Manages Firebase Auth state via `Auth.auth().addStateDidChangeListener`
+- Publishes `isAuthenticated` and `currentUser` — `RootView` reactively navigates to `.login` when `isAuthenticated` becomes false
+- Supports three auth providers: Email/Password, Google Sign-In (via GoogleSignIn SDK), Apple Sign-In (via `ASAuthorizationController`)
+- Multi-provider account management: link/unlink providers, reauthenticate per provider, provider data refresh via `reloadCurrentUser()`
+- SSO flow uses `SSOSignInResult` enum: `.existingUser` (complete sign-in) vs `.newUser(userId, email, name)` (caller shows confirmation dialog before Firestore doc creation)
+- Account deletion handles Apple token revocation before Firebase Auth deletion
+- `friendlyAuthError(_:)` maps `AuthErrorCode` to user-facing strings
+- See [Authentication System](#authentication-system) section for full architecture
+
+#### `AppleSignInCoordinator`
+- `@MainActor` class wrapping `ASAuthorizationController` delegate pattern into async/await
+- Generates cryptographic nonce (SHA256) for Apple Sign-In security
+- Returns `AppleSignInResult` with idToken, rawNonce, authorizationCode, fullName, email
+- Stored as `@MainActor private let` on `AuthService` — persists across the sign-in flow to avoid premature deallocation (ASAuthorizationController holds a weak delegate reference)
 
 #### `DirectStreamingService`
 - Streams to Vertex AI Agent Engine via Firebase Function proxy (`streamAgentNormalized`)
@@ -212,7 +225,8 @@ func withRetry<T>(
 
 | Model | Purpose | Key Fields |
 |-------|---------|------------|
-| `User` | User profile | `id`, `email`, `displayName`, `createdAt` |
+| `AuthProvider` | Firebase provider mapping | `rawValue` (Firebase providerID), `displayName`, `icon`, `firestoreValue` |
+| `User` | User profile | `id`, `email`, `displayName`, `createdAt`, `appleAuthorizationCode` |
 | `UserAttributes` | User preferences | `weightFormat`, `heightFormat`, `timezone` |
 | `Workout` | Completed workout | `id`, `userId`, `exercises`, `startedAt`, `completedAt`, `analytics` |
 | `WorkoutTemplate` | Reusable workout plan | `id`, `name`, `exercises`, `userId` |
@@ -285,6 +299,9 @@ func withRetry<T>(
 | `ChatHomeView` | `Views/ChatHomeView.swift` | Chat conversation |
 | `RoutinesListView` | `UI/Routines/RoutinesListView.swift` | Routine management |
 | `TemplatesListView` | `UI/Templates/TemplatesListView.swift` | Template management |
+| `ProfileView` | `Views/Tabs/ProfileView.swift` | Profile, preferences, security settings |
+| `LoginView` | `Views/LoginView.swift` | Email + SSO login |
+| `RegisterView` | `Views/RegisterView.swift` | Email + SSO registration |
 
 ### Canvas Views
 
@@ -376,14 +393,231 @@ Centralized design tokens for consistency:
 
 | Component | Purpose |
 |-----------|---------|
-| `MyonButton` | Standard button styles |
+| `PovverButton` | Standard button styles (primary, secondary, destructive) |
 | `MyonText` | Typography component |
 | `SurfaceCard` | Card container with elevation |
+| `ProfileComponents` | ProfileRow, ProfileRowToggle, ProfileRowLinkContent (shared across settings views) |
 | `AgentPromptBar` | Chat input with send button |
 | `CardActionBar` | Action buttons for cards |
 | `Banner` / `Toast` | Feedback components |
 | `Spinner` / `StatusTag` | Auxiliary indicators |
 | `DropdownMenu` | Dropdown selection |
+
+---
+
+## Authentication System
+
+### Overview
+
+Multi-provider authentication via Firebase Auth with three providers: Email/Password, Google Sign-In, Apple Sign-In. Accounts can have multiple linked providers. Firebase's "One account per email" setting auto-links providers that share an email address.
+
+### Architecture
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ AuthService (singleton, ObservableObject)                      │
+│                                                                │
+│  @Published isAuthenticated: Bool                              │
+│  @Published currentUser: FirebaseAuth.User?                    │
+│  linkedProviders: [AuthProvider] (computed from providerData)  │
+│                                                                │
+│  ┌─────────────┐  ┌──────────────────────┐  ┌──────────────┐  │
+│  │ Email/Pass  │  │ Google (GIDSignIn)   │  │ Apple (ASAuth│  │
+│  │ signUp()    │  │ signInWithGoogle()   │  │ signInWith   │  │
+│  │ signIn()    │  │ reauthWithGoogle()   │  │ Apple()      │  │
+│  │ changePass()│  │ linkGoogle()         │  │ reauthWith   │  │
+│  │ setPass()   │  │                      │  │ Apple()      │  │
+│  │ resetPass() │  │                      │  │ linkApple()  │  │
+│  └─────────────┘  └──────────────────────┘  └──────────────┘  │
+│                                                                │
+│  Shared: createUserDocument(), deleteAccount(), signOut()      │
+│  Shared: reloadCurrentUser(), friendlyAuthError()              │
+│  Shared: confirmSSOAccountCreation()                           │
+└────────────────────────────────────────────────────────────────┘
+         │                                    │
+         ▼                                    ▼
+┌─────────────────┐              ┌─────────────────────────┐
+│  RootView       │              │  AppleSignInCoordinator  │
+│  .onChange(of:   │              │  @MainActor              │
+│  isAuthenticated)│              │  ASAuthorizationDelegate│
+└─────────────────┘              │  nonce + SHA256          │
+                                  └─────────────────────────┘
+```
+
+### AuthProvider Enum (`Models/AuthProvider.swift`)
+
+Maps Firebase provider IDs to app-level identifiers. Three values:
+
+| Case | rawValue | firestoreValue | Firebase providerID |
+|------|----------|----------------|---------------------|
+| `.email` | `"password"` | `"email"` | `password` |
+| `.google` | `"google.com"` | `"google.com"` | `google.com` |
+| `.apple` | `"apple.com"` | `"apple.com"` | `apple.com` |
+
+- `rawValue` matches `currentUser.providerData[].providerID` — used by `AuthProvider.from()` and `unlinkProvider()`
+- `firestoreValue` is written to `users/{uid}.provider` on account creation — uses `"email"` for readability instead of Firebase's `"password"`
+- `displayName` and `icon` provide human-readable label and SF Symbol for UI
+
+### SSO Sign-In Flow (Google and Apple)
+
+Both Google and Apple follow the same `SSOSignInResult` pattern:
+
+```
+User taps "Sign in with Google/Apple"
+        │
+        ▼
+AuthService.signInWithGoogle() / signInWithApple()
+        │ Authenticate with provider SDK
+        │ Sign in to Firebase Auth with credential
+        │ Refresh user.providerData via reload()
+        ▼
+Check: Does Firestore user document exist?
+        │
+        ├─ YES → return .existingUser
+        │         (complete sign-in, register device, init timezone)
+        │
+        └─ NO  → return .newUser(userId, email, name)
+                  (caller shows confirmation dialog)
+                          │
+                          ▼
+                  User confirms → confirmSSOAccountCreation()
+                          │ Creates Firestore user doc
+                          │ Stores apple_authorization_code if Apple
+                          │
+                  User cancels → authService.signOut()
+                          │ Cleans up the Firebase Auth session
+```
+
+**Why the confirmation step**: Firebase creates the Auth account immediately on SSO sign-in. If the user didn't intend to create a Povver account, we sign them out. The Firestore user document is only created after explicit confirmation.
+
+### Provider Data Refresh
+
+Firebase's `currentUser.providerData` can be stale after sign-in or linking operations. This caused a bug where LinkedAccountsView showed Google as "available to link" when Firebase had already auto-linked it.
+
+**Fix**: Call `user.reload()` followed by `self.currentUser = Auth.auth().currentUser` after every auth state change:
+- After `signInWithGoogle()` and `signInWithApple()` — refreshes provider list after potential auto-linking
+- After `linkGoogle()` and `linkApple()` — reflects the newly linked provider
+- `reloadCurrentUser()` — utility called by `ProfileView.loadProfile()` and `LinkedAccountsView.task`
+
+### Account Deletion Flow
+
+```
+DeleteAccountView
+        │ Tap "Delete My Account"
+        ▼
+ReauthenticationView (required by Firebase)
+        │ Verify with email/Google/Apple
+        ▼
+Confirmation dialog ("Delete Everything?")
+        │
+        ▼
+AuthService.deleteAccount()
+        │
+        ├─ If Apple linked: read apple_authorization_code from Firestore
+        │                    → Auth.auth().revokeToken() (App Store 5.1.1(v))
+        │
+        ├─ UserRepository.shared.deleteUser() (all subcollections)
+        │
+        ├─ user.delete() (Firebase Auth account)
+        │
+        └─ SessionManager.shared.endSession()
+                │
+                ▼
+        RootView reactively navigates to .login
+```
+
+### Reauthentication
+
+Sensitive operations (email change, password change, account deletion) require recent authentication. `ReauthenticationView` is a half-sheet that:
+1. Reads `authService.linkedProviders` to determine which verification options to show
+2. Shows password field if `.email` is linked
+3. Shows "Verify with Google" / "Verify with Apple" buttons for SSO providers
+4. On success, calls the `onSuccess` callback (which proceeds with the sensitive operation)
+
+Email change and account deletion auto-trigger the reauth sheet when Firebase returns `requiresRecentLogin`.
+
+### Password Management
+
+Two modes based on linked providers:
+- **Change Password** (has `.email` provider): Current password → reauthenticate → update password
+- **Set Password** (SSO-only, no `.email`): New password → `user.link(with: EmailAuthProvider.credential)` — adds email/password as an additional provider
+
+### Forgot Password
+
+Standalone sheet from login screen. Sends Firebase password reset email via `Auth.auth().sendPasswordReset(withEmail:)`. Has two states: form (email input) and sent confirmation with "try again" option.
+
+### Google Sign-In Setup
+
+**Dependencies**: `GoogleSignIn` and `GoogleSignInSwift` SPM packages.
+
+**Configuration**:
+- URL scheme in `Info.plist`: reversed client ID from `GoogleService-Info.plist` (e.g., `com.googleusercontent.apps.919326069447-...`)
+- `PovverApp.swift`: `.onOpenURL { url in GIDSignIn.sharedInstance.handle(url) }` for redirect handling
+- `UIApplication+RootVC.swift`: extension providing `rootViewController` for `GIDSignIn.signIn(withPresenting:)`
+
+**Auth flow**: `GIDSignIn.signIn()` → extract `idToken` + `accessToken` → `GoogleAuthProvider.credential()` → `Auth.auth().signIn(with:)`
+
+### Apple Sign-In Setup
+
+**Dependencies**: `AuthenticationServices` framework (built-in), `CryptoKit` for SHA256 nonce.
+
+**Configuration**:
+- "Sign in with Apple" capability added in Xcode (Signing & Capabilities)
+- Apple Developer portal: Services ID, Key with Sign in with Apple enabled
+- Firebase Console: Apple provider configured with Services ID, Team ID, Key ID, private key
+
+**Auth flow**: `ASAuthorizationController` → delegate callbacks → extract `identityToken` + `authorizationCode` → `OAuthProvider.appleCredential(withIDToken:rawNonce:fullName:)` → `Auth.auth().signIn(with:)`
+
+**Apple-specific concerns**:
+- `apple_authorization_code` stored in Firestore for token revocation on account deletion
+- "Hide My Email" users get a private relay address — Firebase won't auto-link to existing email accounts
+- Apple Private Email Relay requires registering the Firebase sender address in Apple Developer portal for email delivery
+
+### Linked Accounts Management
+
+`LinkedAccountsView` (push from ProfileView Security section):
+- Shows currently linked providers with unlink option (disabled if only 1 provider remains)
+- Shows available providers with link buttons
+- Linking: calls `authService.linkGoogle()` / `linkApple()` / shows `PasswordChangeView` for email
+- Unlinking: confirmation dialog → `authService.unlinkProvider()` → validates `providerData.count > 1`
+
+### Error Handling
+
+`AuthService.friendlyAuthError(_:)` maps `AuthErrorCode` to user-facing messages:
+
+| AuthErrorCode | User Message |
+|---------------|-------------|
+| `.wrongPassword` | "Incorrect password. Please try again." |
+| `.requiresRecentLogin` | "For your security, please sign in again to continue." |
+| `.emailAlreadyInUse` | "This email is already in use by another account." |
+| `.weakPassword` | "Password must be at least 6 characters." |
+| `.accountExistsWithDifferentCredential` | "An account with this email already exists. Please sign in with your original method, then link this provider in Settings." |
+| `.invalidCredential` | "The sign-in credentials are invalid. Please try again." |
+| `.networkError` | "Network error. Please check your connection and try again." |
+| `.credentialAlreadyInUse` | "This account is already linked to a different Povver account." |
+| `.userNotFound` | "No account found with this email. Please register first." |
+| default | "Something went wrong. Please try again." |
+
+### File Map
+
+| File | Purpose |
+|------|---------|
+| `Models/AuthProvider.swift` | Provider enum (email, google, apple) |
+| `Services/AuthService.swift` | All auth logic: sign-in, sign-up, SSO, link/unlink, reauth, delete |
+| `Services/AppleSignInCoordinator.swift` | ASAuthorizationController async/await wrapper |
+| `Services/SessionManager.swift` | UserDefaults session persistence |
+| `Extensions/UIApplication+RootVC.swift` | Root view controller for Google SDK |
+| `UI/Components/ProfileComponents.swift` | Shared row components (ProfileRow, ProfileRowToggle, ProfileRowLinkContent) |
+| `Views/RootView.swift` | Reactive auth state → navigation flow |
+| `Views/LoginView.swift` | Email login + SSO buttons + forgot password |
+| `Views/RegisterView.swift` | Email registration + SSO buttons |
+| `Views/Settings/ReauthenticationView.swift` | Multi-provider reauthentication sheet |
+| `Views/Settings/EmailChangeView.swift` | Email change with verification |
+| `Views/Settings/PasswordChangeView.swift` | Change or set password |
+| `Views/Settings/ForgotPasswordView.swift` | Password reset email flow |
+| `Views/Settings/LinkedAccountsView.swift` | Link/unlink provider management |
+| `Views/Settings/DeleteAccountView.swift` | Account deletion with reauth + confirmation |
+| `Views/Tabs/ProfileView.swift` | Profile tab with Security section |
 
 ---
 
@@ -397,10 +631,12 @@ Povver/Povver/
 │   ├── FirebaseConfig.swift        # Firebase initialization
 │   └── StrengthOSConfig.swift      # Environment config
 ├── Extensions/
-│   └── String+Extensions.swift     # String helpers
+│   ├── String+Extensions.swift     # String helpers
+│   └── UIApplication+RootVC.swift  # Root VC for Google Sign-In
 ├── Models/
 │   ├── ActiveWorkout.swift
 │   ├── ActiveWorkoutDoc.swift
+│   ├── AuthProvider.swift          # Auth provider enum (email/google/apple)
 │   ├── ChatMessage.swift
 │   ├── Exercise.swift
 │   ├── FocusModeModels.swift
@@ -427,7 +663,8 @@ Povver/Povver/
 │   ├── AgentsApi.swift             # Agent invocation
 │   ├── AnyCodable.swift            # Dynamic JSON coding
 │   ├── ApiClient.swift             # HTTP client
-│   ├── AuthService.swift           # Firebase Auth
+│   ├── AppleSignInCoordinator.swift # Apple Sign-In async wrapper
+│   ├── AuthService.swift           # Firebase Auth (multi-provider)
 │   ├── CacheManager.swift          # Memory/disk cache
 │   ├── CanvasActions.swift         # Action builders
 │   ├── CanvasDTOs.swift            # Canvas data types
@@ -455,10 +692,19 @@ Povver/Povver/
 │   ├── ChatHomeEntry.swift         # Chat entry
 │   ├── ChatHomeView.swift          # Chat conversation
 │   ├── ComponentGallery.swift      # Dev component gallery
-│   ├── LoginView.swift
+│   ├── LoginView.swift             # Email + SSO login
 │   ├── MainTabsView.swift          # Tab navigation
-│   ├── RegisterView.swift
-│   └── RootView.swift              # App root
+│   ├── RegisterView.swift          # Email + SSO registration
+│   ├── RootView.swift              # App root (reactive auth nav)
+│   ├── Tabs/
+│   │   └── ProfileView.swift       # Profile & settings
+│   └── Settings/
+│       ├── ReauthenticationView.swift   # Multi-provider reauth sheet
+│       ├── EmailChangeView.swift        # Email change + verification
+│       ├── PasswordChangeView.swift     # Change or set password
+│       ├── ForgotPasswordView.swift     # Password reset flow
+│       ├── LinkedAccountsView.swift     # Link/unlink providers
+│       └── DeleteAccountView.swift      # Account deletion
 └── UI/
     ├── Canvas/
     │   ├── Models.swift            # Canvas card models
@@ -497,9 +743,10 @@ Povver/Povver/
     │   ├── FocusModeComponents.swift   # Shared components
     │   └── FocusModeExerciseSearch.swift # Exercise search
     ├── Components/
-    │   ├── MyonButton.swift
+    │   ├── PovverButton.swift          # Button styles
     │   ├── MyonText.swift
     │   ├── SurfaceCard.swift
+    │   ├── ProfileComponents.swift     # ProfileRow, ProfileRowToggle, ProfileRowLinkContent
     │   ├── DropdownMenu.swift
     │   └── ... (component library)
     ├── DesignSystem/

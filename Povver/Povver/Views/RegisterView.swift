@@ -2,107 +2,133 @@ import SwiftUI
 import FirebaseAuth
 
 struct RegisterView: View {
-    @StateObject private var authService = AuthService.shared
+    @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var session = SessionManager.shared
     @State private var email = ""
     @State private var password = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var showingNewAccountConfirmation = false
+    @State private var pendingSSOResult: AuthService.SSOSignInResult?
     var onRegister: ((String) -> Void)? = nil
     var onBackToLogin: (() -> Void)? = nil
-    
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: Space.xl) {
-                Spacer(minLength: Space.xxl)
-                
-                // Title
-                Text("Register")
-                    .textStyle(.appTitle)
-                    .foregroundColor(.textPrimary)
-                
-                // Form fields
-                VStack(spacing: Space.md) {
-                    // Email field
-                    authTextField(
-                        placeholder: "Email",
-                        text: $email,
-                        keyboardType: .emailAddress,
-                        isSecure: false
-                    )
-                    
-                    // Password field
-                    authTextField(
-                        placeholder: "Password",
-                        text: $password,
-                        keyboardType: .default,
-                        isSecure: true
-                    )
-                }
-                
-                // Error message
-                if let errorMessage = errorMessage {
-                    Text(errorMessage)
-                        .textStyle(.caption)
-                        .foregroundColor(.destructive)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, Space.lg)
-                }
-                
-                // Register button
-                PovverButton("Register", style: .primary) {
-                    performRegistration()
-                }
-                .disabled(isLoading || email.isEmpty || password.isEmpty)
-                
-                // Divider
-                HStack(spacing: Space.md) {
-                    Rectangle()
-                        .fill(Color.separatorLine)
-                        .frame(height: StrokeWidthToken.hairline)
-                    Text("or")
-                        .textStyle(.secondary)
-                        .foregroundColor(.textTertiary)
-                    Rectangle()
-                        .fill(Color.separatorLine)
-                        .frame(height: StrokeWidthToken.hairline)
-                }
-                .padding(.vertical, Space.sm)
-                
-                // Social signup buttons
-                VStack(spacing: Space.md) {
-                    PovverButton("Sign up with Google", style: .secondary, leadingIcon: Image(systemName: "globe")) {
-                        // TODO: Implement Google sign-up
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: Space.xl) {
+                    Spacer(minLength: Space.xxxl)
+
+                    // Brand header
+                    VStack(spacing: Space.sm) {
+                        Text("POVVER")
+                            .font(.system(size: 40, weight: .black, design: .default))
+                            .tracking(2)
+                            .foregroundColor(.textPrimary)
+
+                        Text("Create your account")
+                            .textStyle(.secondary)
+                            .foregroundColor(.textSecondary)
                     }
-                    
-                    PovverButton("Sign up with Apple", style: .secondary, leadingIcon: Image(systemName: "apple.logo")) {
-                        // TODO: Implement Apple sign-up
+
+                    // Form fields
+                    VStack(spacing: Space.md) {
+                        authTextField(
+                            placeholder: "Email",
+                            text: $email,
+                            keyboardType: .emailAddress,
+                            isSecure: false
+                        )
+
+                        authTextField(
+                            placeholder: "Password",
+                            text: $password,
+                            keyboardType: .default,
+                            isSecure: true
+                        )
                     }
+
+                    // Error message
+                    if let errorMessage = errorMessage {
+                        Text(errorMessage)
+                            .textStyle(.caption)
+                            .foregroundColor(.destructive)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, Space.lg)
+                    }
+
+                    // Register button
+                    PovverButton("Create Account", style: .primary) {
+                        performRegistration()
+                    }
+                    .disabled(isLoading || email.isEmpty || password.isEmpty)
+
+                    // Divider
+                    HStack(spacing: Space.md) {
+                        Rectangle()
+                            .fill(Color.separatorLine)
+                            .frame(height: StrokeWidthToken.hairline)
+                        Text("or")
+                            .textStyle(.secondary)
+                            .foregroundColor(.textTertiary)
+                        Rectangle()
+                            .fill(Color.separatorLine)
+                            .frame(height: StrokeWidthToken.hairline)
+                    }
+                    .padding(.vertical, Space.sm)
+
+                    // Social signup buttons
+                    VStack(spacing: Space.md) {
+                        PovverButton("Sign up with Google", style: .secondary, leadingIcon: Image(systemName: "globe")) {
+                            performGoogleSignIn()
+                        }
+                        .disabled(isLoading)
+
+                        PovverButton("Sign up with Apple", style: .secondary, leadingIcon: Image(systemName: "apple.logo")) {
+                            performAppleSignIn()
+                        }
+                        .disabled(isLoading)
+                    }
+
+                    Spacer(minLength: Space.xxxl)
+
+                    // Login link
+                    Button {
+                        onBackToLogin?()
+                    } label: {
+                        Text("Already have an account? ")
+                            .foregroundColor(.textSecondary) +
+                        Text("Login")
+                            .foregroundColor(.accent)
+                            .fontWeight(.semibold)
+                    }
+                    .textStyle(.secondary)
                 }
-                
-                Spacer(minLength: Space.lg)
-                
-                // Login link
-                Button {
-                    onBackToLogin?()
-                } label: {
-                    Text("Already have an account? ")
-                        .foregroundColor(.textSecondary) +
-                    Text("Login")
-                        .foregroundColor(.accent)
-                        .fontWeight(.semibold)
-                }
-                .textStyle(.secondary)
-                
-                Spacer(minLength: Space.xl)
+                .padding(.horizontal, Space.lg)
+                .padding(.vertical, Space.lg)
+                .frame(minHeight: geometry.size.height)
             }
-            .padding(.horizontal, Space.lg)
         }
         .background(Color.bg.ignoresSafeArea())
+        .confirmationDialog(
+            "Create Account",
+            isPresented: $showingNewAccountConfirmation
+        ) {
+            Button("Create Account") {
+                confirmSSOAccount()
+            }
+            Button("Cancel", role: .cancel) {
+                try? authService.signOut()
+            }
+        } message: {
+            if case .newUser(_, let email, _) = pendingSSOResult {
+                Text("Create a new Povver account with \(email)?")
+            }
+        }
     }
-    
+
     // MARK: - Auth Text Field
-    
+
     @ViewBuilder
     private func authTextField(
         placeholder: String,
@@ -131,9 +157,64 @@ struct RegisterView: View {
                 .strokeBorder(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
         )
     }
-    
+
     // MARK: - Actions
-    
+
+    @State private var ssoProvider: AuthProvider?
+
+    private func performGoogleSignIn() {
+        ssoProvider = .google
+        performSSOSignIn { try await authService.signInWithGoogle() }
+    }
+
+    private func performAppleSignIn() {
+        ssoProvider = .apple
+        performSSOSignIn { try await authService.signInWithApple() }
+    }
+
+    private func performSSOSignIn(_ signIn: @escaping () async throws -> AuthService.SSOSignInResult) {
+        isLoading = true
+        Task {
+            do {
+                let result = try await signIn()
+                switch result {
+                case .existingUser:
+                    if let user = Auth.auth().currentUser {
+                        session.startSession(userId: user.uid)
+                        onRegister?(user.uid)
+                    }
+                case .newUser:
+                    pendingSSOResult = result
+                    showingNewAccountConfirmation = true
+                }
+                errorMessage = nil
+            } catch {
+                errorMessage = AuthService.friendlyAuthError(error)
+            }
+            isLoading = false
+        }
+    }
+
+    private func confirmSSOAccount() {
+        guard case .newUser(let userId, let email, let name) = pendingSSOResult else { return }
+        isLoading = true
+        Task {
+            do {
+                try await authService.confirmSSOAccountCreation(
+                    userId: userId,
+                    email: email,
+                    name: name,
+                    provider: ssoProvider ?? .apple
+                )
+                session.startSession(userId: userId)
+                onRegister?(userId)
+            } catch {
+                errorMessage = AuthService.friendlyAuthError(error)
+            }
+            isLoading = false
+        }
+    }
+
     private func performRegistration() {
         isLoading = true
         Task {
@@ -145,7 +226,7 @@ struct RegisterView: View {
                 }
                 errorMessage = nil
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = AuthService.friendlyAuthError(error)
             }
             isLoading = false
         }

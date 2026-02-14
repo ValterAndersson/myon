@@ -86,7 +86,13 @@ class UserRepository {
         let userRef = db.collection(collection).document(userId)
         
         // Delete all subcollections first
-        let subcollections = ["user_attributes", "linked_devices", "workouts", "workout_templates"]
+        // Matches Firestore security rules — "workout_templates" was wrong (collection is "templates")
+        let subcollections = [
+            "user_attributes", "linked_devices", "workouts", "templates",
+            "routines", "active_workouts", "canvases", "progress_reports",
+            "weekly_stats", "analytics_series_exercise", "analytics_series_muscle",
+            "analytics_rollups", "analytics_state"
+        ]
         for subcollection in subcollections {
             let snapshot = try await userRef.collection(subcollection).getDocuments()
             for document in snapshot.documents {

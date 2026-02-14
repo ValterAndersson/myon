@@ -1,21 +1,18 @@
-//
-//  PovverApp.swift
-//  Povver
-//
-//  Created by Valter Andersson on 9.6.2025.
-//
-
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct PovverApp: App {
     init() {
         FirebaseConfig.shared.configure()
     }
-    
+
     var body: some Scene {
         WindowGroup {
             RootView()
+                .onOpenURL { url in
+                    GIDSignIn.sharedInstance.handle(url)
+                }
         }
     }
 }

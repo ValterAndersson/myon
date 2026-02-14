@@ -506,11 +506,12 @@ Top-level user profile and owner of most subcollections.
   - `uid: string` (mirrors auth uid)
   - `email: string`
   - `name?: string`
-  - `provider: string`
+  - `provider: string` — Auth provider used at account creation. Values: `"email"`, `"google.com"`, `"apple.com"`. Written by `AuthService.createUserDocument()` via `AuthProvider.firestoreValue`.
   - `created_at: Timestamp`
   - `week_starts_on_monday: boolean` (default true)
   - `timezone?: string`
   - `activeRoutineId?: string` (points to a routine doc under `users/{uid}/routines`)
+  - `apple_authorization_code?: string` — Stored on first Apple Sign-In and refreshed on subsequent sign-ins. Required for Apple token revocation on account deletion (App Store requirement 5.1.1(v)). Written by `AuthService.signInWithApple()` (existing user) and `AuthService.confirmSSOAccountCreation()` (new user). Read by `AuthService.deleteAccount()` before calling `Auth.auth().revokeToken()`.
   - (Historic mirrors) `weightFormat?`, `heightFormat?`, `locale?` (canonical values live in `user_attributes`)
 
 Subcollections:
