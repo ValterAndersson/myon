@@ -20,6 +20,10 @@ class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
     }
 
     /// Presents the Apple Sign-In sheet and returns the result.
+    ///
+    /// SECURITY: sha256(nonce) is sent to Apple for anti-replay validation.
+    /// The raw nonce is kept locally and passed to Firebase, which verifies
+    /// it against Apple's hashed version. This prevents credential replay attacks.
     func signIn() async throws -> AppleSignInResult {
         let nonce = randomNonceString()
         currentNonce = nonce
@@ -34,6 +38,8 @@ class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
         controller.presentationContextProvider = self
         controller.performRequests()
 
+        // Bridge ASAuthorizationController's delegate callbacks to async/await.
+        // Continuation is resumed in authorizationController delegate methods below.
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }

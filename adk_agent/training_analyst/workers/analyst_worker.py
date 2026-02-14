@@ -65,7 +65,13 @@ def log_event(
 
 
 class HeartbeatThread:
-    """Background thread for lease renewal."""
+    """Background thread for lease renewal during long-running analyzer jobs.
+
+    Prevents lease expiration while the analyzer is still working. Without this,
+    jobs running longer than the lease TTL (5 min default) would be reclaimed by
+    the watchdog and re-queued, causing duplicate analysis runs.
+    Stops automatically when the worker calls stop() after job completion/failure.
+    """
 
     def __init__(self, job_id: str, worker_id: str):
         self.job_id = job_id

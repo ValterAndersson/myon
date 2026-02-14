@@ -49,9 +49,10 @@ class AuthService: ObservableObject {
 
     // MARK: - Google Sign-In
 
-    /// Result of a Google sign-in attempt. `.existingUser` means the Firebase account
-    /// already existed; `.newUser` means Firebase created a new account and the caller
-    /// should show a confirmation before creating the Firestore document.
+    /// SSO sign-in returns `.newUser` if no Firestore user doc exists.
+    /// Caller MUST show confirmation UI before calling confirmSSOAccountCreation().
+    /// This prevents auto-creating accounts without explicit user consent.
+    /// Pattern shared by Google and Apple sign-in flows.
     enum SSOSignInResult {
         case existingUser
         case newUser(userId: String, email: String, name: String?)

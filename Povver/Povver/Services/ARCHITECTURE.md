@@ -6,7 +6,9 @@ Services are singleton managers and API clients that provide cross-cutting conce
 
 | File | Purpose |
 |------|---------|
-| `AuthService.swift` | Firebase Auth state management (sign-in, sign-out, `isAuthenticated`, `currentUser`) |
+| `AuthService.swift` | Multi-provider Firebase Auth (email, Google, Apple). Handles sign-in/sign-up, SSO credential linking, provider refresh after auto-linking, account deletion with Apple token revocation (App Store 5.1.1(v)), and reauthentication flows |
+| `AppleSignInCoordinator.swift` | `ASAuthorizationController` delegate wrapper. Bridges Apple's delegate callbacks to async/await via `CheckedContinuation`. Manages nonce generation (sha256 to Apple, raw to Firebase) |
+| `WorkoutSessionLogger.swift` | On-device workout event recorder. Writes timestamped JSON to `Documents/workout_logs/`. Auto-flushes on app background. Writes breadcrumbs to Crashlytics for crash correlation |
 | `SessionManager.swift` | User session lifecycle and state |
 | `ApiClient.swift` | Generic HTTP client with auth token injection |
 | `CloudFunctionService.swift` | Firebase Functions HTTP client (base URL, request building) |
