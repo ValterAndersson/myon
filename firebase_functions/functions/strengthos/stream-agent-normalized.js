@@ -697,7 +697,8 @@ class TextNormalizer {
     text = text.replace(/-\s*([\.,!\?])/g, '$1');
 
     // Ensure a space after sentence punctuation when followed by a letter (fixes "performance.Based")
-    text = text.replace(/([\.!\?])(\S)/g, (m, p1, p2) => `${p1} ${p2}`);
+    // Exclude digits after '.' to preserve decimal numbers like "67.2 kg"
+    text = text.replace(/([\.!\?])([a-zA-Z])/g, (m, p1, p2) => `${p1} ${p2}`);
 
     // Drop trailing hyphens at end of lines introduced mid-stream ("working sets-\n" → "working sets\n")
     text = text.replace(/-\s*$/gm, '');
@@ -924,8 +925,9 @@ async function streamAgentNormalizedHandler(req, res) {
 
     const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:streamQuery`;
     
-    // Prepend context hint with canvas_id, user_id, and optional workout_id
-    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'} workout_id=${workoutId || 'none'})`;
+    // Prepend context hint with canvas_id, user_id, today's date, and optional workout_id
+    const todayISO = new Date().toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'} workout_id=${workoutId || 'none'} today=${todayISO})`;
     const finalMessage = message ? `${contextHint}\n${message}` : contextHint;
     
     const payload = {

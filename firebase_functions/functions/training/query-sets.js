@@ -154,9 +154,10 @@ exports.querySets = onRequest(requireFlexibleAuth(async (req, res) => {
     }
 
     // Apply sort and pagination
-    // Note: Firestore has limitations on compound queries
-    // We'll sort after fetching if needed for complex sorts
-    let firestoreSort = 'workout_end_time';
+    // When date range filters (start/end) are present, Firestore requires
+    // the first orderBy to be on the inequality field (workout_date).
+    const hasDateRange = !!(start || end);
+    let firestoreSort = hasDateRange ? 'workout_date' : 'workout_end_time';
     let firestoreDirection = 'desc';
 
     if (sortMode === 'date_asc') {
@@ -167,11 +168,9 @@ exports.querySets = onRequest(requireFlexibleAuth(async (req, res) => {
 
     // Apply cursor
     if (cursorData?.last_value) {
-      if (firestoreDirection === 'desc') {
-        query = query.startAfter(new Date(cursorData.last_value));
-      } else {
-        query = query.startAfter(new Date(cursorData.last_value));
-      }
+      // When sorting by workout_date (string), use string cursor; otherwise Date
+      const cursorValue = hasDateRange ? cursorData.last_value : new Date(cursorData.last_value);
+      query = query.startAfter(cursorValue);
     }
 
     // Limit +1 to detect hasMore

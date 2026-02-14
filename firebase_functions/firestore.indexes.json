@@ -104,10 +104,30 @@
       ]
     },
     {
-      "collectionGroup": "analysis_insights",
+      "collectionGroup": "set_facts",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "expires_at", "order": "ASCENDING" }
+        { "fieldPath": "muscle_group_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "muscle_keys", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "set_facts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "exercise_id", "order": "ASCENDING" },
+        { "fieldPath": "is_warmup", "order": "ASCENDING" },
+        { "fieldPath": "workout_date", "order": "DESCENDING" }
       ]
     }
   ],

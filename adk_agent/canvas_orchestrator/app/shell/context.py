@@ -102,20 +102,22 @@ class SessionContext:
     This is NOT persistent across requests. Each request creates a new
     SessionContext from the message prefix.
 
-    Format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W]) message
+    Format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
     """
     canvas_id: str
     user_id: str
     correlation_id: Optional[str]
     workout_mode: bool = False
     active_workout_id: Optional[str] = None
-    
+    today: Optional[str] = None  # YYYY-MM-DD, injected by streamAgentNormalized
+
     @classmethod
     def from_message(cls, message: str) -> "SessionContext":
         """
         Parse context from message prefix.
 
-        Expected format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W]) message
+        Expected format:
+            (context: canvas_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
 
         Args:
             message: Raw message with optional context prefix
@@ -125,12 +127,14 @@ class SessionContext:
         """
         match = re.search(
             r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)'
-            r'(?:\s+workout_id=(\S+))?\)',
+            r'(?:\s+workout_id=(\S+))?'
+            r'(?:\s+today=(\S+))?\)',
             message
         )
         if match:
             corr = match.group(3).strip()
             workout_id = match.group(4).strip() if match.group(4) else None
+            today = match.group(5).strip() if match.group(5) else None
 
             # Parse workout mode
             workout_mode = False
@@ -145,6 +149,7 @@ class SessionContext:
                 correlation_id=corr if corr != "none" else None,
                 workout_mode=workout_mode,
                 active_workout_id=active_workout_id,
+                today=today if today and today != "none" else None,
             )
         # Fallback for malformed messages
         return cls(canvas_id="", user_id="", correlation_id=None)
