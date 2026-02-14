@@ -144,11 +144,21 @@ make chat          # interactive chat session
 make deploy        # deploy to Vertex AI Agent Engine
 ```
 
+### Training Analyst
+```bash
+cd adk_agent/training_analyst
+make install       # pip install dependencies
+make worker-local  # run analyst worker locally
+make trigger-worker # trigger Cloud Run worker
+```
+
 ### Utility Scripts
 ```bash
 node scripts/import_strong_csv.js     # import Strong CSV workout data
 node scripts/seed_simple.js           # seed Firestore test data
 node scripts/purge_user_data.js       # purge user data
+node scripts/backfill_set_facts.js    # backfill set_facts + series from workouts
+node scripts/backfill_analysis_jobs.js # backfill training analysis (post-workout, weekly, daily)
 ```
 
 ---

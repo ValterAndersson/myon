@@ -1,0 +1,9 @@
+# Training Analyst Worker dependencies
+# google-adk is NOT included — it's only for Agent Engine.
+
+google-cloud-firestore>=2.16.0
+google-cloud-logging>=3.11.0
+google-auth>=2.0.0
+google-genai>=1.20.0
+pydantic>=2.11.0
+python-dotenv>=1.1.0

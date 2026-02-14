@@ -1,0 +1,25 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: training-analyst-scheduler
+spec:
+  template:
+    spec:
+      taskCount: 1
+      parallelism: 1
+
+      template:
+        spec:
+          containers:
+            - image: gcr.io/myon-53d85/training-analyst-worker:latest
+
+              # Run scheduler mode
+              command: ["python", "workers/scheduler.py"]
+
+              resources:
+                limits:
+                  memory: "512Mi"
+                  cpu: "1"
+
+          # 30 minute timeout
+          timeoutSeconds: 1800

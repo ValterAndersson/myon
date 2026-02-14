@@ -13,6 +13,9 @@ Run via `node scripts/<name>.js`. Require Firebase Admin SDK (ADC or emulator).
 | `seed_full_user.js` | Seed a full user profile with workout history, templates, routines, and analytics data. | `node scripts/seed_full_user.js` |
 | `purge_user_data.js` | Delete all data for a user (workouts, templates, routines, analytics, canvases). Recursive subcollection deletion. | `node scripts/purge_user_data.js` |
 | `backfill_set_facts.js` | Backfill `set_facts` collection from existing workout history. Used when deploying Training Analytics v2. | `node scripts/backfill_set_facts.js` |
+| `backfill_analysis_jobs.js` | Enqueue POST_WORKOUT, WEEKLY_REVIEW, and DAILY_BRIEF analysis jobs for historical data. Idempotent (deterministic job IDs). Run after `backfill_set_facts.js`. | `node scripts/backfill_analysis_jobs.js --user <userId> --months 3` |
+| `find_analysis_users.js` | Find users with existing analysis data (analysis_insights, daily_briefs, weekly_reviews). | `node scripts/find_analysis_users.js` |
+| `dump_analysis_data.js` | Dump latest analysis insights/briefs/reviews for a user. | `node scripts/dump_analysis_data.js` |
 
 ## Python Scripts — Catalog Normalization
 
