@@ -328,3 +328,4 @@ exercises_dump_*.json
 .cache/
 .temp/
 .tmp/
+screenshots/
