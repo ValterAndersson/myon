@@ -8,13 +8,13 @@ The Shell Agent is the single agent architecture that routes all user messages t
 |------|---------|
 | `agent.py` | ShellAgent class: ADK agent definition (gemini-2.5-flash, temp 0.3), before_model/before_tool callbacks for context injection |
 | `router.py` | Lane router: classifies messages into FAST/FUNCTIONAL/SLOW lanes, dispatches to handlers |
-| `context.py` | Per-request context via `ContextVar`. Thread-safe session context (`user_id`, `canvas_id`, `correlation_id`, `workout_mode`, `active_workout_id`). Required because Vertex AI Agent Engine is concurrent serverless — module globals leak across requests |
+| `context.py` | Per-request context via `ContextVar`. Thread-safe session context (`user_id`, `canvas_id`, `correlation_id`, `workout_mode`, `active_workout_id`, `today`). Required because Vertex AI Agent Engine is concurrent serverless — module globals leak across requests |
 | `tools.py` | ADK `FunctionTool` definitions wrapping skill modules. Tool registry (`all_tools`) consumed by `agent.py`. 18 tools: 10 read + 4 canvas write + 4 workout |
 | `functional_handler.py` | FUNCTIONAL lane: handles structured intent JSON (`SWAP_EXERCISE`, `ADJUST_LOAD`, etc.) |
 | `planner.py` | SLOW lane planning logic |
 | `critic.py` | Output quality validation |
 | `safety_gate.py` | Safety checks for write operations |
-| `instruction.py` | System instruction. Principles-over-rules design: teaches thinking patterns via examples with Think/Tool/Response chains. Includes ACTIVE WORKOUT MODE section activated by workout_id in context. |
+| `instruction.py` | System instruction. Principles-over-rules design: teaches thinking patterns via examples with Think/Tool/Response chains. Includes DATE AWARENESS section (today from context prefix) and ACTIVE WORKOUT MODE section activated by workout_id in context. |
 | `__init__.py` | Module exports |
 
 ## Routing Flow
@@ -40,7 +40,7 @@ When `workout_id` is present in the context prefix, the agent enters workout coa
 ### Context prefix format
 
 ```
-(context: canvas_id=X user_id=Y corr=Z workout_id=W)
+(context: canvas_id=X user_id=Y corr=Z workout_id=W today=YYYY-MM-DD)
 ```
 
 When `workout_id=none` or absent, workout mode is off. Any other value activates it.
@@ -85,7 +85,7 @@ set_current_context(ctx, message)
 
 # Retrieved by tools (tools.py)
 ctx = get_current_context()
-# → SessionContext(user_id, canvas_id, correlation_id, workout_mode, active_workout_id)
+# → SessionContext(user_id, canvas_id, correlation_id, workout_mode, active_workout_id, today)
 ```
 
 ## Security

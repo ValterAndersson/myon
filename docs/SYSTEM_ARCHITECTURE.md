@@ -239,7 +239,7 @@ iOS: WorkoutCoachViewModel.send()
         │ Calls DirectStreamingService.streamQuery(workoutId: workout.id)
         ▼
 Firebase: stream-agent-normalized.js
-        │ Builds context prefix: (context: canvas_id=X user_id=Y corr=Z workout_id=W)
+        │ Builds context prefix: (context: canvas_id=X user_id=Y corr=Z workout_id=W today=YYYY-MM-DD)
         │ Opens SSE to Vertex AI
         ▼
 Agent: agent_engine_app.py::stream_query()
@@ -269,7 +269,7 @@ iOS: FocusModeWorkoutService receives updated workout state
 - `Povver/Povver/Services/DirectStreamingService.swift` ← streamQuery(workoutId:)
 - `firebase_functions/functions/strengthos/stream-agent-normalized.js` ← workout_id in context
 - `adk_agent/canvas_orchestrator/app/agent_engine_app.py` ← Workout Brief injection
-- `adk_agent/canvas_orchestrator/app/shell/context.py` ← SessionContext.workout_mode
+- `adk_agent/canvas_orchestrator/app/shell/context.py` ← SessionContext (workout_mode, today)
 - `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` ← Brief builder + mutations
 - `adk_agent/canvas_orchestrator/app/shell/tools.py` ← 4 workout tool wrappers
 - `adk_agent/canvas_orchestrator/app/shell/instruction.py` ← ACTIVE WORKOUT MODE section

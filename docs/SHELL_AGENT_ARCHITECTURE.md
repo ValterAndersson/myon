@@ -364,10 +364,13 @@ class SessionContext:
     canvas_id: str
     user_id: str
     correlation_id: Optional[str] = None
-    
+    workout_mode: bool = False
+    active_workout_id: Optional[str] = None
+    today: Optional[str] = None  # YYYY-MM-DD, injected by streamAgentNormalized
+
     @classmethod
     def from_message(cls, message: str) -> "SessionContext":
-        # Parse from message prefix
+        # Parse from context prefix in message
         ...
 
 # Usage
