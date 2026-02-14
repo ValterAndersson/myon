@@ -448,10 +448,10 @@ exports.getExerciseSummary = onRequest(requireFlexibleAuth(async (req, res) => {
       });
     }
     
-    // Get first workout's sets (most recent) capped at 3
+    // Get first workout's sets (most recent) — all working sets
     let lastSessionSets = [];
     for (const [_, sets] of workoutSets) {
-      lastSessionSets = sets.sort((a, b) => a.set_index - b.set_index).slice(0, 3);
+      lastSessionSets = sets.sort((a, b) => a.set_index - b.set_index);
       break;
     }
     

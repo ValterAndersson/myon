@@ -216,12 +216,22 @@ async function getPlanningContextHandler(req, res) {
           end_time: w.end_time,
           total_sets: w.analytics?.total_sets,
           total_volume: w.analytics?.total_weight,
-          // ENHANCED: Include exercise titles (not full set data)
-          // This allows agent to answer "What exercises did I do last workout?"
-          exercises: (w.exercises || []).slice(0, 15).map(ex => ({
-            name: ex.name || ex.exercise_name,
-            sets: (ex.sets || []).filter(s => s.type !== 'warmup').length
-          }))
+          // Include per-exercise performance data so the agent can answer
+          // "how did I do yesterday?" with actual reps, weights, and RIR
+          exercises: (w.exercises || []).slice(0, 15).map(ex => {
+            const allSets = ex.sets || [];
+            const workingSets = allSets.filter(s => s.type !== 'warmup' && s.is_completed !== false);
+            return {
+              name: ex.name || ex.exercise_name,
+              exercise_id: ex.exercise_id || null,
+              working_sets: workingSets.length,
+              sets: workingSets.map(s => ({
+                reps: s.reps || 0,
+                weight_kg: s.weight_kg || 0,
+                rir: s.rir ?? null,
+              })),
+            };
+          })
         };
       });
     }
