@@ -60,6 +60,16 @@ function getFirestore() {
 const API_BASE_URL = 'https://us-central1-myon-53d85.cloudfunctions.net';
 const API_KEY = 'myon-agent-key-2024';
 
+// Manual overrides for Strong exercise names that the auto-matcher gets wrong.
+// Key: exact Strong CSV exercise name, Value: correct catalog exercise ID.
+const STRONG_EXERCISE_OVERRIDES = {
+  'Lateral Raise (Dumbbell)': 'lateral_raise__lateral-raise-dumbbell',
+  'Lateral Raise (Cable)': 'lateral_raise__lateral-raise-cable',
+  'Seated Row (Cable)': 'seated_row__seated-row-cable',
+  'Ball Side Throw': 'side_throw__side-throw-medicine-ball',
+  'Upright Row (Cable)': 'upright_row__upright-row-cable',
+};
+
 function iso(date) {
   return (date instanceof Date ? date : new Date(date)).toISOString();
 }
@@ -634,6 +644,14 @@ function scoreMatch(strongName, strongEquip, exercise) {
 async function resolveExerciseInteractive(cache, strongName, strongEquip, userId, sessionMappings, createdExercises) {
   const cacheKey = `${strongName}|${strongEquip.join(',')}`;
 
+  // Check manual overrides first
+  if (STRONG_EXERCISE_OVERRIDES[strongName]) {
+    const overrideId = STRONG_EXERCISE_OVERRIDES[strongName];
+    console.log(`  [O] Override: "${strongName}" -> ${overrideId}`);
+    cache.set(cacheKey, overrideId);
+    return overrideId;
+  }
+
   // Check session cache first
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   if (sessionMappings.has(strongName)) {
@@ -896,6 +914,15 @@ async function main() {
         continue;
       }
 
+      // Look up the canonical catalog name for this exercise
+      let displayName = exName; // fallback to Strong CSV name
+      try {
+        const exDoc = await db.collection('exercises').doc(exId).get();
+        if (exDoc.exists) {
+          displayName = exDoc.data().name || exName;
+        }
+      } catch (e) { /* use fallback */ }
+
       // Sort sets by Set Order
       srows.sort((a, b) => sortSetOrder(a['Set Order'], b['Set Order']));
       const sets = [];
@@ -921,7 +948,7 @@ async function main() {
       }
 
       if (sets.length === 0) continue;
-      exercises.push({ exercise_id: exId, name: base, position: exercises.length, sets });
+      exercises.push({ exercise_id: exId, name: displayName, position: exercises.length, sets });
     }
 
     if (exercises.length === 0) {

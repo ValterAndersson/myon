@@ -487,11 +487,31 @@ exports.onWorkoutCompleted = onDocumentUpdated(
         }
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
-      
+
+      // Enqueue background analysis job
+      try {
+        await db.collection('training_analysis_jobs').add({
+          type: 'POST_WORKOUT',
+          status: 'queued',
+          priority: 100,
+          payload: {
+            user_id: event.params.userId,
+            workout_id: event.params.workoutId,
+            window_weeks: 4,
+          },
+          attempts: 0,
+          max_attempts: 3,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
+      }
+
       if (!result.success) {
         console.error(`Failed to update weekly stats:`, result);
       }
-      
+
       return result;
     } catch (error) {
       console.error('Error in onWorkoutCompleted:', error);
@@ -631,6 +651,26 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
         }
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
+
+      // Enqueue background analysis job
+      try {
+        await db.collection('training_analysis_jobs').add({
+          type: 'POST_WORKOUT',
+          status: 'queued',
+          priority: 100,
+          payload: {
+            user_id: event.params.userId,
+            workout_id: event.params.workoutId,
+            window_weeks: 4,
+          },
+          attempts: 0,
+          max_attempts: 3,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
+      }
 
       return result;
     } catch (error) {
