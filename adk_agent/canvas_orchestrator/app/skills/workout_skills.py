@@ -1,0 +1,428 @@
+"""
+Workout Execution Skills — active workout read/write operations.
+
+These skills call Firebase Functions for workout mutations.
+Unlike copilot_skills (Fast Lane, regex-only), these are LLM-directed.
+
+Architecture:
+- get_workout_state_formatted() is called by stream_query() to build the Workout Brief
+- log_set(), swap_exercise(), complete_workout() are called by tool wrappers
+- All functions take explicit user_id/workout_id (from ContextVar, never from LLM)
+
+Firestore active_workout document shape (exercises array):
+  exercises[].instance_id   — stable UUID per exercise in this workout
+  exercises[].exercise_id   — catalog exercise ID
+  exercises[].name          — display name
+  exercises[].sets[].id     — stable set UUID
+  exercises[].sets[].status — "planned" | "done" | "skipped"
+  exercises[].sets[].weight — kg (flat, not nested)
+  exercises[].sets[].reps   — int
+  exercises[].sets[].rir    — int
+  totals.sets               — count of done working/dropset sets
+  totals.reps               — sum of reps
+  totals.volume             — sum of weight * reps
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+MYON_FUNCTIONS_BASE_URL = os.getenv(
+    "MYON_FUNCTIONS_BASE_URL",
+    "https://us-central1-myon-53d85.cloudfunctions.net"
+)
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "myon-agent-key-2024")
+
+
+def _get_client():
+    """Get a CanvasFunctionsClient instance."""
+    from app.libs.tools_canvas.client import CanvasFunctionsClient
+    return CanvasFunctionsClient(
+        base_url=MYON_FUNCTIONS_BASE_URL,
+        api_key=FIREBASE_API_KEY,
+    )
+
+
+@dataclass
+class WorkoutSkillResult:
+    """Result from a workout skill execution."""
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"success": self.success, "message": self.message}
+        if self.data:
+            result["data"] = self.data
+        if self.error:
+            result["error"] = self.error
+        return result
+
+
+def get_workout_state_formatted(user_id: str, workout_id: str) -> str:
+    """
+    Get formatted workout brief for injection into agent context.
+
+    Fetches active workout and daily brief in parallel, finds current exercise,
+    and formats as a compact brief for the LLM.
+
+    Returns:
+        Formatted workout brief string, or empty string on failure
+    """
+    try:
+        client = _get_client()
+
+        # Parallel fetch: workout data + daily brief
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            workout_future = executor.submit(client.get_active_workout, user_id)
+            analysis_future = executor.submit(
+                client.get_analysis_summary,
+                user_id,
+                sections=["daily_brief"]
+            )
+
+            workout_resp = workout_future.result(timeout=10)
+            analysis_resp = analysis_future.result(timeout=10)
+
+        # Extract workout data — handler returns { success, workout: {...} }
+        if not workout_resp.get("success"):
+            logger.warning("get_active_workout failed: %s", workout_resp.get("error"))
+            return ""
+
+        workout_data = workout_resp.get("workout")
+        if not workout_data:
+            logger.warning("No active workout")
+            return ""
+
+        # Extract daily brief
+        daily_brief = None
+        if analysis_resp.get("success"):
+            daily_brief = analysis_resp.get("data", {}).get("daily_brief")
+
+        # Find current exercise
+        current_ex_id, current_instance_id = _find_current_exercise(workout_data)
+
+        # Fetch exercise history if we have a current exercise
+        exercise_history = None
+        if current_ex_id:
+            try:
+                ex_resp = client.get_exercise_summary(
+                    user_id=user_id,
+                    exercise_id=current_ex_id,
+                    window_weeks=12
+                )
+                if ex_resp.get("success"):
+                    exercise_history = ex_resp.get("data")
+            except Exception as e:
+                logger.debug("Failed to fetch exercise history: %s", e)
+
+        return _format_workout_brief(workout_data, exercise_history, daily_brief)
+
+    except Exception as e:
+        logger.error("get_workout_state_formatted error: %s", e)
+        return ""
+
+
+def _find_current_exercise(
+    workout_data: Dict[str, Any],
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Find the current exercise (first exercise with a planned set).
+
+    Returns:
+        Tuple of (exercise_id, exercise_instance_id) or (None, None)
+    """
+    exercises = workout_data.get("exercises", [])
+    for ex in exercises:
+        sets = ex.get("sets", [])
+        for s in sets:
+            if s.get("status") == "planned":
+                return ex.get("exercise_id"), ex.get("instance_id")
+    return None, None
+
+
+def _format_workout_brief(
+    workout_data: Dict[str, Any],
+    exercise_history: Optional[Dict[str, Any]],
+    daily_brief: Optional[Dict[str, Any]],
+) -> str:
+    """
+    Format workout brief as compact text for LLM context.
+
+    Active workout Firestore schema:
+    - exercises[].instance_id — stable exercise instance UUID
+    - exercises[].sets[].id — stable set UUID
+    - exercises[].sets[].status — "planned" | "done" | "skipped"
+    - exercises[].sets[].weight — kg (flat on set, not nested)
+    - exercises[].sets[].reps — int (flat on set after logSet)
+    - totals.sets — done working/dropset count
+    - totals.volume — total volume kg
+    """
+    lines = ["[WORKOUT BRIEF]"]
+
+    # Header line
+    workout_name = workout_data.get("name", "Workout")
+    start_time = workout_data.get("start_time", "")
+    if isinstance(start_time, str) and "T" in start_time:
+        start_time = start_time.split("T")[1][:5]
+    elif hasattr(start_time, "strftime"):
+        start_time = start_time.strftime("%H:%M")
+    else:
+        start_time = "?"
+
+    # totals.sets = completed done sets; count all sets for total
+    totals = workout_data.get("totals", {})
+    completed_sets = totals.get("sets", 0)
+    total_sets = sum(
+        len(ex.get("sets", []))
+        for ex in workout_data.get("exercises", [])
+    )
+
+    readiness = "moderate"
+    if daily_brief:
+        readiness = daily_brief.get("readiness", "moderate")
+
+    lines.append(
+        f"{workout_name} | Started {start_time}"
+        f" | {completed_sets}/{total_sets} sets"
+        f" | Readiness: {readiness}"
+    )
+    lines.append("")
+
+    # Exercise list
+    exercises = workout_data.get("exercises", [])
+    current_ex_id, _ = _find_current_exercise(workout_data)
+
+    for ex in exercises:
+        ex_name = ex.get("name", "Unknown")
+        ex_id = ex.get("exercise_id", "")
+        # Active workout uses instance_id, not id
+        instance_id = ex.get("instance_id", "")
+
+        current_marker = " \u2190 CURRENT" if ex_id == current_ex_id else ""
+        lines.append(f"> {ex_name} [{instance_id}]{current_marker}")
+
+        sets = ex.get("sets", [])
+        first_planned_shown = False
+
+        for idx, s in enumerate(sets):
+            status = s.get("status", "planned")
+            set_id = s.get("id", "")
+            set_num = idx + 1
+
+            if status == "done":
+                # logSet writes weight/reps/rir flat on the set object
+                weight = s.get("weight", 0)
+                reps = s.get("reps", 0)
+                rir = s.get("rir")
+                rir_str = f" @ RIR {rir}" if rir is not None else ""
+                lines.append(
+                    f"  \u2713 Set {set_num} [{set_id}]:"
+                    f" {weight}kg \u00d7 {reps}{rir_str}"
+                )
+            elif status == "planned" and not first_planned_shown:
+                # Show first planned set with arrow (next to log)
+                weight = s.get("weight", "?")
+                lines.append(
+                    f"  \u2192 Set {set_num} [{set_id}]:"
+                    f" {weight}kg \u00d7 ? (planned)"
+                )
+                first_planned_shown = True
+            elif status == "planned":
+                lines.append(
+                    f"  \u00b7 Set {set_num} [{set_id}]: planned"
+                )
+            # skipped sets: omit from brief to save tokens
+
+        lines.append("")
+
+    # Exercise history (for current exercise)
+    if exercise_history:
+        last_session = exercise_history.get("last_session", [])
+        if last_session:
+            history_sets = []
+            for s in last_session[-3:]:
+                weight = s.get("weight_kg", 0)
+                reps = s.get("reps", 0)
+                history_sets.append(f"{weight}kg\u00d7{reps}")
+
+            # e1RM trend
+            weekly_points = exercise_history.get("weekly_points", [])
+            if len(weekly_points) >= 3:
+                e1rms = [
+                    w.get("e1rm_max")
+                    for w in weekly_points[-3:]
+                    if w.get("e1rm_max")
+                ]
+                if len(e1rms) >= 2:
+                    e1rm_str = "\u2192".join(
+                        [str(int(e)) for e in e1rms]
+                    )
+                    if e1rms[-1] > e1rms[0]:
+                        trend = "\u2191"
+                    elif e1rms[-1] < e1rms[0]:
+                        trend = "\u2193"
+                    else:
+                        trend = "\u2192"
+                    lines.append(
+                        f"History: {', '.join(history_sets)}"
+                        f" | e1RM: {e1rm_str} ({trend})"
+                    )
+                else:
+                    lines.append(f"History: {', '.join(history_sets)}")
+            else:
+                lines.append(f"History: {', '.join(history_sets)}")
+            lines.append("")
+
+    # Readiness summary
+    if daily_brief:
+        readiness_summary = daily_brief.get("readiness_summary", "")
+        if readiness_summary:
+            lines.append(f"Readiness: {readiness} \u2014 {readiness_summary}")
+        else:
+            lines.append(f"Readiness: {readiness}")
+
+    return "\n".join(lines)
+
+
+def log_set(
+    user_id: str,
+    workout_id: str,
+    exercise_instance_id: str,
+    set_id: str,
+    reps: int,
+    weight_kg: float,
+    rir: Optional[int] = None,
+) -> WorkoutSkillResult:
+    """Log a completed set in the active workout."""
+    try:
+        client = _get_client()
+        resp = client.log_set(
+            user_id=user_id,
+            workout_id=workout_id,
+            exercise_instance_id=exercise_instance_id,
+            set_id=set_id,
+            reps=reps,
+            weight_kg=weight_kg,
+            rir=rir,
+        )
+
+        if resp.get("success"):
+            totals = resp.get("totals", {})
+            return WorkoutSkillResult(
+                success=True,
+                message=f"Logged: {reps} \u00d7 {weight_kg}kg",
+                data={"totals": totals, "event_id": resp.get("event_id")},
+            )
+        else:
+            return WorkoutSkillResult(
+                success=False,
+                message="Failed to log set",
+                error=resp.get("error", "Unknown error"),
+            )
+
+    except Exception as e:
+        logger.error("log_set error: %s", e)
+        return WorkoutSkillResult(
+            success=False,
+            message="Failed to log set",
+            error=str(e),
+        )
+
+
+def swap_exercise(
+    user_id: str,
+    workout_id: str,
+    exercise_instance_id: str,
+    new_exercise_id: str,
+) -> WorkoutSkillResult:
+    """Swap an exercise in the active workout."""
+    try:
+        client = _get_client()
+        resp = client.swap_exercise(
+            user_id=user_id,
+            workout_id=workout_id,
+            exercise_instance_id=exercise_instance_id,
+            new_exercise_id=new_exercise_id,
+        )
+
+        # swapExercise returns { event_id } on success
+        if resp.get("event_id"):
+            return WorkoutSkillResult(
+                success=True,
+                message="Exercise swapped",
+                data=resp,
+            )
+        elif resp.get("duplicate"):
+            return WorkoutSkillResult(
+                success=True,
+                message="Exercise already swapped (duplicate)",
+            )
+        else:
+            return WorkoutSkillResult(
+                success=False,
+                message="Failed to swap exercise",
+                error=resp.get("error", "Unknown error"),
+            )
+
+    except Exception as e:
+        logger.error("swap_exercise error: %s", e)
+        return WorkoutSkillResult(
+            success=False,
+            message="Failed to swap exercise",
+            error=str(e),
+        )
+
+
+def complete_workout(
+    user_id: str,
+    workout_id: str,
+) -> WorkoutSkillResult:
+    """Complete the active workout and archive it."""
+    try:
+        client = _get_client()
+        resp = client.complete_active_workout(
+            user_id=user_id,
+            workout_id=workout_id,
+        )
+
+        # completeActiveWorkout returns { workout_id, archived: true }
+        if resp.get("archived"):
+            return WorkoutSkillResult(
+                success=True,
+                message="Workout complete",
+                data={
+                    "archived_workout_id": resp.get("workout_id"),
+                    "archived": True,
+                },
+            )
+        else:
+            return WorkoutSkillResult(
+                success=False,
+                message="Failed to complete workout",
+                error=resp.get("error", "Unknown error"),
+            )
+
+    except Exception as e:
+        logger.error("complete_workout error: %s", e)
+        return WorkoutSkillResult(
+            success=False,
+            message="Failed to complete workout",
+            error=str(e),
+        )
+
+
+__all__ = [
+    "get_workout_state_formatted",
+    "log_set",
+    "swap_exercise",
+    "complete_workout",
+    "WorkoutSkillResult",
+]

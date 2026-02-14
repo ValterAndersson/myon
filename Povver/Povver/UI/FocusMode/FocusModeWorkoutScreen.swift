@@ -243,7 +243,13 @@ struct FocusModeWorkoutScreen: View {
     private func sheetContent(for sheet: FocusModeActiveSheet) -> some View {
         switch sheet {
         case .coach:
-            aiPanelPlaceholder
+            WorkoutCoachView(
+                viewModel: WorkoutCoachViewModel(
+                    workoutId: service.workout?.id ?? ""
+                )
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         case .exerciseSearch:
             FocusModeExerciseSearch { exercise in
                 addExercise(exercise)
@@ -1016,32 +1022,6 @@ struct FocusModeWorkoutScreen: View {
                 .font(.system(size: 15))
                 .foregroundColor(Color.textSecondary)
         }
-    }
-    
-    // MARK: - AI Panel Placeholder - uses SheetScaffold for v1.1 consistency
-    
-    private var aiPanelPlaceholder: some View {
-        SheetScaffold(
-            title: "Copilot",
-            doneTitle: "Done",
-            onCancel: { activeSheet = nil },
-            onDone: { activeSheet = nil }
-        ) {
-            VStack(spacing: Space.xl) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 48))
-                    .foregroundColor(Color.accent)
-                
-                Text("Copilot")
-                    .font(.system(size: 20, weight: .semibold))
-                
-                Text("AI assistance coming soon")
-                    .font(.system(size: 15))
-                    .foregroundColor(Color.textSecondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .presentationDetents([.medium])
     }
     
     // MARK: - Add Exercise Button

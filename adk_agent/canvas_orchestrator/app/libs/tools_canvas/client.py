@@ -795,3 +795,81 @@ class CanvasFunctionsClient:
         if limit is not None:
             body["limit"] = limit
         return self._http.post("getAnalysisSummary", body)
+
+    # ============================================================================
+    # Active Workout APIs (Workout Mode)
+    # ============================================================================
+
+    def get_active_workout(self, user_id: str) -> Dict[str, Any]:
+        """Get the user's active workout with full state.
+
+        Uses requireFlexibleAuth — userId from X-User-Id header.
+        Returns { success: true, workout: {...} | null }.
+        """
+        return self._http.post(
+            "getActiveWorkout", {},
+            headers={"X-User-Id": user_id},
+        )
+
+    def log_set(
+        self,
+        user_id: str,
+        workout_id: str,
+        exercise_instance_id: str,
+        set_id: str,
+        *,
+        reps: int,
+        weight_kg: float,
+        rir: Optional[int] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Log a completed set in an active workout.
+
+        Matches LogSetSchemaV2 in validators.js — snake_case fields,
+        nested values object, required idempotency_key.
+        """
+        import uuid
+        body = {
+            "workout_id": workout_id,
+            "exercise_instance_id": exercise_instance_id,
+            "set_id": set_id,
+            "values": {
+                "weight": weight_kg,
+                "reps": reps,
+                "rir": rir if rir is not None else 0,
+            },
+            "idempotency_key": idempotency_key or str(uuid.uuid4()),
+        }
+        return self._http.post(
+            "logSet", body,
+            headers={"X-User-Id": user_id},
+        )
+
+    def swap_exercise(
+        self,
+        user_id: str,
+        workout_id: str,
+        exercise_instance_id: str,
+        new_exercise_id: str,
+    ) -> Dict[str, Any]:
+        """Swap an exercise in the active workout.
+
+        Handler expects: workout_id, from_exercise_id, to_exercise_id.
+        """
+        return self._http.post(
+            "swapExercise",
+            {
+                "workout_id": workout_id,
+                "from_exercise_id": exercise_instance_id,
+                "to_exercise_id": new_exercise_id,
+            },
+            headers={"X-User-Id": user_id},
+        )
+
+    def complete_active_workout(self, user_id: str, workout_id: str) -> Dict[str, Any]:
+        """Complete an active workout and archive it."""
+        return self._http.post(
+            "completeActiveWorkout",
+            {"workout_id": workout_id},
+            headers={"X-User-Id": user_id},
+        )

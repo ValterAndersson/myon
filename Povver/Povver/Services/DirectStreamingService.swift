@@ -114,7 +114,8 @@ class DirectStreamingService: ObservableObject {
         canvasId: String,
         message: String,
         correlationId: String,
-        sessionId: String?
+        sessionId: String?,
+        workoutId: String? = nil
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -152,7 +153,8 @@ class DirectStreamingService: ObservableObject {
                         "canvasId": canvasId,
                         "message": message,
                         "correlationId": correlationId,
-                        "sessionId": sessionId as Any
+                        "sessionId": sessionId as Any,
+                        "workoutId": workoutId as Any
                     ].compactMapValues { $0 }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     

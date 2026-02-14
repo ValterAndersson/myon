@@ -73,6 +73,14 @@ from app.skills.planner_skills import (
     get_planning_context as _get_planning_context,
 )
 
+# Workout skills - active workout execution (LLM-directed)
+from app.skills.workout_skills import (
+    log_set as workout_log_set,
+    swap_exercise as workout_swap_exercise,
+    complete_workout as workout_complete,
+    get_workout_state_formatted,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -871,6 +879,141 @@ def tool_update_template(
 
 
 # =============================================================================
+# WORKOUT TOOLS (Active Workout Mode)
+# These tools are only available when workout_mode=True in context.
+# =============================================================================
+
+def tool_log_set(
+    *,
+    exercise_instance_id: str,
+    set_id: str,
+    reps: int,
+    weight_kg: float,
+    rir: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Log a completed set in the active workout.
+
+    Use this when the user reports completing a set (e.g., "8 at 100kg").
+    Extract the set_id from the Workout Brief (next planned set marked with →).
+
+    Args:
+        exercise_instance_id: Exercise instance ID from the brief (e.g., "ex-abc123")
+        set_id: Set ID from the brief (e.g., "set-003")
+        reps: Number of reps performed
+        weight_kg: Weight used in kg
+        rir: Reps in reserve (optional, 0-4)
+
+    Returns:
+        Success message or error
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    result = workout_log_set(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+        exercise_instance_id=exercise_instance_id,
+        set_id=set_id,
+        reps=reps,
+        weight_kg=weight_kg,
+        rir=rir,
+    )
+    return result.to_dict()
+
+
+def tool_swap_exercise(
+    *,
+    exercise_instance_id: str,
+    new_exercise_query: str,
+) -> Dict[str, Any]:
+    """
+    Swap an exercise in the active workout.
+
+    Use this when the user wants to replace an exercise (e.g., "swap to dumbbells").
+    First search for the new exercise using tool_search_exercises, then swap.
+
+    Args:
+        exercise_instance_id: Exercise instance ID to swap (from brief)
+        new_exercise_query: Query to find replacement exercise
+
+    Returns:
+        Success message or error
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    # Search for the new exercise
+    search_result = search_exercises(query=new_exercise_query, limit=1)
+    if not search_result.success:
+        return {"error": f"No exercise found for '{new_exercise_query}'"}
+
+    # search_exercises returns SkillResult(data={"items": [...], "count": n})
+    items = search_result.data.get("items", [])
+    if not items:
+        return {"error": f"No exercise found for '{new_exercise_query}'"}
+
+    new_exercise_id = items[0].get("id")
+    if not new_exercise_id:
+        return {"error": "Failed to get exercise ID from search result"}
+
+    result = workout_swap_exercise(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+        exercise_instance_id=exercise_instance_id,
+        new_exercise_id=new_exercise_id,
+    )
+    return result.to_dict()
+
+
+def tool_complete_workout() -> Dict[str, Any]:
+    """
+    Complete the active workout and archive it.
+
+    Use this when the user says they're done (e.g., "I'm done", "finish workout").
+
+    Returns:
+        Summary of completed workout or error
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    result = workout_complete(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+    )
+    return result.to_dict()
+
+
+def tool_get_workout_state() -> Dict[str, Any]:
+    """
+    Get current workout state (refresh the brief).
+
+    Rarely needed since the brief is auto-injected at the start of each message.
+    Use only if you need to refresh mid-conversation.
+
+    Returns:
+        Formatted workout state
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    brief = get_workout_state_formatted(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+    )
+    return {"success": True, "brief": brief}
+
+
+# =============================================================================
 # TOOL REGISTRY
 # =============================================================================
 
@@ -899,6 +1042,12 @@ all_tools = [
     # Write tools - Update existing (cards have update/dismiss buttons)
     FunctionTool(func=tool_update_routine),
     FunctionTool(func=tool_update_template),
+
+    # Workout tools - Active workout execution (workout_mode only)
+    FunctionTool(func=tool_log_set),
+    FunctionTool(func=tool_swap_exercise),
+    FunctionTool(func=tool_complete_workout),
+    FunctionTool(func=tool_get_workout_state),
 ]
 
 
@@ -926,4 +1075,9 @@ __all__ = [
     # Write tools - Update
     "tool_update_routine",
     "tool_update_template",
+    # Workout tools - Active workout execution
+    "tool_log_set",
+    "tool_swap_exercise",
+    "tool_complete_workout",
+    "tool_get_workout_state",
 ]

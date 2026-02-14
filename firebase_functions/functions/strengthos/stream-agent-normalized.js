@@ -176,6 +176,16 @@ const TOOL_LABELS = {
   ask_user: 'Clarifying',
   send_message: 'Responding',
   
+  // === WORKOUT TOOLS (active workout coaching) ===
+  tool_log_set: 'Logging set',
+  tool_swap_exercise: 'Swapping exercise',
+  tool_complete_workout: 'Completing workout',
+  tool_get_workout_state: 'Refreshing workout state',
+  log_set: 'Logging set',
+  swap_exercise: 'Swapping exercise',
+  complete_workout: 'Completing workout',
+  get_workout_state: 'Refreshing workout state',
+
   // Legacy tools (v1.0 - deprecated)
   tool_set_context: 'Setting up',
   tool_record_user_info: 'Recording information',
@@ -323,6 +333,15 @@ function describeToolResult(name, summary = '', args = {}) {
       return 'Context loaded';
     case 'tool_get_exercise_details':
       return 'Exercise details loaded';
+    // Workout tools
+    case 'tool_log_set':
+      return 'Set logged';
+    case 'tool_swap_exercise':
+      return 'Exercise swapped';
+    case 'tool_complete_workout':
+      return 'Workout completed';
+    case 'tool_get_workout_state':
+      return 'Workout state refreshed';
     default:
       return summary || 'Complete';
   }
@@ -858,6 +877,7 @@ async function streamAgentNormalizedHandler(req, res) {
     const sessionId = req.body?.sessionId || null;
     const canvasId = req.body?.canvasId;
     const correlationId = req.body?.correlationId || null;
+    const workoutId = req.body?.workoutId || null;
     
     if (!canvasId) {
       sse.write({ type: 'error', error: 'canvasId is required' });
@@ -901,8 +921,8 @@ async function streamAgentNormalizedHandler(req, res) {
 
     const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:streamQuery`;
     
-    // Prepend context hint with canvas_id and user_id for Canvas Orchestrator
-    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'})`;
+    // Prepend context hint with canvas_id, user_id, and optional workout_id
+    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'} workout_id=${workoutId || 'none'})`;
     const finalMessage = message ? `${contextHint}\n${message}` : contextHint;
     
     const payload = {

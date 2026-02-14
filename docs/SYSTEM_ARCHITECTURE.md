@@ -15,7 +15,11 @@
 
 | Component | Absolute Path | Purpose |
 |-----------|---------------|---------|
-| **iOS App Entry** | `Povver/Povver/PovverApp.swift` | SwiftUI app entry |
+| **iOS App Entry** | `Povver/Povver/PovverApp.swift` | SwiftUI app entry + Google URL handler |
+| **iOS Auth Service** | `Povver/Povver/Services/AuthService.swift` | Multi-provider auth (email, Google, Apple) |
+| **iOS Auth Provider** | `Povver/Povver/Models/AuthProvider.swift` | Provider enum mapping |
+| **iOS Apple Coordinator** | `Povver/Povver/Services/AppleSignInCoordinator.swift` | ASAuth delegate wrapper |
+| **iOS Root Navigation** | `Povver/Povver/Views/RootView.swift` | Reactive auth state navigation |
 | **iOS Canvas Screen** | `Povver/Povver/Views/CanvasScreen.swift` | Main chat/canvas UI |
 | **iOS Workout Screen** | `Povver/Povver/UI/FocusMode/FocusModeWorkoutScreen.swift` | Active workout UI |
 | **iOS Streaming Service** | `Povver/Povver/Services/DirectStreamingService.swift` | Agent communication |
@@ -24,6 +28,9 @@
 | **Agent Entry Point** | `adk_agent/canvas_orchestrator/app/agent_engine_app.py` | Vertex AI entry |
 | **Agent Router** | `adk_agent/canvas_orchestrator/app/shell/router.py` | 4-Lane routing |
 | **Agent Skills** | `adk_agent/canvas_orchestrator/app/skills/` | Pure logic modules |
+| **Agent Workout Skills** | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Workout brief + mutation skills |
+| **iOS Workout Coach VM** | `Povver/Povver/ViewModels/WorkoutCoachViewModel.swift` | Workout chat state |
+| **iOS Workout Coach View** | `Povver/Povver/UI/FocusMode/WorkoutCoachView.swift` | Compact gym chat UI |
 | **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
 | **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |
 
@@ -219,6 +226,63 @@ Next get-next-workout.js call uses cursor for O(1) lookup
 
 ---
 
+### 5. Workout Coaching Flow (Active Workout + Agent)
+
+```
+User taps Coach button during active workout
+        │
+        ▼
+iOS: WorkoutCoachView presents compact chat sheet
+        │ User sends message (e.g., "log 8 at 100")
+        ▼
+iOS: WorkoutCoachViewModel.send()
+        │ Calls DirectStreamingService.streamQuery(workoutId: workout.id)
+        ▼
+Firebase: stream-agent-normalized.js
+        │ Builds context prefix: (context: canvas_id=X user_id=Y corr=Z workout_id=W)
+        │ Opens SSE to Vertex AI
+        ▼
+Agent: agent_engine_app.py::stream_query()
+        │ 1. Parses workout_id from context → ctx.workout_mode = true
+        │ 2. Routes message (Fast/Functional/Slow)
+        │ 3. If Slow Lane: front-loads Workout Brief (~1350 tokens)
+        │    - Parallel fetch: getActiveWorkout + getAnalysisSummary
+        │    - Sequential: getExerciseSummary (current exercise)
+        │    - Formats as [WORKOUT BRIEF] text prepended to message
+        │ 4. LLM sees: brief + user message + workout instruction overlay
+        │ 5. LLM calls workout tools as needed (tool_log_set, etc.)
+        ▼
+Agent tools (via workout_skills.py):
+        │ tool_log_set → client.log_set → Firebase logSet
+        │ tool_swap_exercise → search + client.swap_exercise → Firebase swapExercise
+        │ tool_complete_workout → client.complete_active_workout → Firebase completeActiveWorkout
+        ▼
+Firebase: Active workout endpoints mutate Firestore
+        │
+        ▼ (Firestore listener fires)
+iOS: FocusModeWorkoutService receives updated workout state
+```
+
+**Files involved** (CURRENT PATHS):
+- `Povver/Povver/UI/FocusMode/WorkoutCoachView.swift` ← Compact chat sheet
+- `Povver/Povver/ViewModels/WorkoutCoachViewModel.swift` ← Ephemeral chat VM
+- `Povver/Povver/Services/DirectStreamingService.swift` ← streamQuery(workoutId:)
+- `firebase_functions/functions/strengthos/stream-agent-normalized.js` ← workout_id in context
+- `adk_agent/canvas_orchestrator/app/agent_engine_app.py` ← Workout Brief injection
+- `adk_agent/canvas_orchestrator/app/shell/context.py` ← SessionContext.workout_mode
+- `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` ← Brief builder + mutations
+- `adk_agent/canvas_orchestrator/app/shell/tools.py` ← 4 workout tool wrappers
+- `adk_agent/canvas_orchestrator/app/shell/instruction.py` ← ACTIVE WORKOUT MODE section
+
+**Design decisions**:
+- Same Vertex AI deployment, mode-based switching (no second agent)
+- Workout Brief front-loaded once per request (not per LLM turn)
+- Fast Lane still works in workout mode (bypasses brief fetch for <500ms)
+- Chat is ephemeral (in-memory, not persisted to Firestore)
+- Instruction overlay enforces 2-sentence max responses for gym context
+
+---
+
 ## Schema Contracts (Cross-Boundary Data Shapes)
 
 ### Canvas Card (Agent → Firestore → iOS)
@@ -355,9 +419,11 @@ Firebase Functions use **two mutually exclusive authentication lanes**. Never mi
 
 **Service Lane (API Key)**
 - Used by: Agent system, service-to-service calls
-- userId: From `req.body.userId` or `req.query.userId` (trusted)
-- Authenticated via `x-api-key` header
-- Example: Agent writing canvas cards, catalog admin operations
+- Authenticated via `X-API-Key` header
+- userId source depends on middleware:
+  - `withApiKey` endpoints: userId from `req.body.userId` (handler reads body directly)
+  - `requireFlexibleAuth` endpoints: userId from `X-User-Id` header (middleware sets `req.auth.uid`)
+- Example: Agent writing canvas cards (withApiKey), workout mutations (requireFlexibleAuth)
 
 ```javascript
 // BEARER LANE - user-facing endpoints
@@ -365,12 +431,35 @@ Firebase Functions use **two mutually exclusive authentication lanes**. Never mi
 const userId = req.auth.uid;  // ← Only source of truth
 // Any req.body.userId or req.query.userId is IGNORED
 
-// SERVICE LANE - agent/service endpoints  
+// SERVICE LANE - agent/service endpoints
 // userId from request body (trusted service-to-service)
 const userId = req.body?.userId || req.query?.userId;
 ```
 
 **Security Rule**: Bearer-authenticated endpoints must never trust client-provided userId. This prevents cross-user data exposure.
+
+### iOS Authentication Architecture
+
+The iOS app supports three Firebase Auth providers: Email/Password, Google Sign-In, Apple Sign-In.
+
+**Key files**: `AuthService.swift` (service), `AuthProvider.swift` (enum), `AppleSignInCoordinator.swift` (Apple delegate wrapper), `RootView.swift` (reactive navigation)
+
+**SSO flow pattern** (shared by Google and Apple):
+1. Provider SDK authenticates → Firebase Auth credential
+2. `Auth.auth().signIn(with: credential)` → Firebase creates/links auth account
+3. `user.reload()` to refresh stale `providerData` (critical for auto-linking)
+4. Check if Firestore `users/{uid}` exists → return `.existingUser` or `.newUser`
+5. `.newUser` → confirmation dialog → `createUserDocument()` if confirmed, `signOut()` if cancelled
+
+**Provider data staleness**: After sign-in or linking, `currentUser.providerData` may not reflect auto-linked providers. Always call `user.reload()` + reassign `self.currentUser = Auth.auth().currentUser` after auth state changes.
+
+**Account deletion sequence**: Reauth → Apple token revocation (if applicable) → Firestore subcollection deletion → Firebase Auth deletion → session cleanup → RootView reactively navigates to login.
+
+**Firestore fields for auth**:
+- `users/{uid}.provider` — provider used at account creation (`"email"`, `"google.com"`, `"apple.com"`)
+- `users/{uid}.apple_authorization_code` — required for Apple token revocation on account deletion
+
+See `docs/IOS_ARCHITECTURE.md` [Authentication System] section for exhaustive details.
 
 ### Error Response Format
 
@@ -491,27 +580,27 @@ When adding a new field (e.g., `routine.goal`):
 
 ## Training Analyst: Background Analysis Architecture
 
-The Training Analyst is an **asynchronous background service** that pre-computes training insights, daily briefs, and weekly reviews. This allows the chat agent to retrieve analysis instantly instead of computing it during conversations.
+The Training Analyst is an **asynchronous background service** that pre-computes training insights, daily briefs, and weekly reviews. It runs as Cloud Run Jobs processing from a Firestore-backed job queue. This allows the chat agent to retrieve analysis instantly instead of computing it during conversations.
 
 ### Architecture Flow
 
 ```
 Workout Completed
         │
-        ▼ (PubSub trigger)
-Firebase: onWorkoutCompleted()
-        │ Publishes to training_analysis topic
+        ▼ (Firestore trigger: onWorkoutCompleted)
+Firebase: weekly-analytics.js
+        │ Writes job to training_analysis_jobs collection
         ▼
-PubSub: training_analysis_jobs topic
-        │
-        ▼ (Cloud Run Job listens)
-Training Analyst: process_job()
-        │ Reads workout, context, analytics
+Firestore: training_analysis_jobs/{jobId}
+        │ status: "queued"
+        ▼ (Cloud Run Job polls every 15 min)
+Training Analyst Worker: poll_job() → lease → run
+        │ Routes to appropriate analyzer
         ▼
-Analyzer: analyze_post_workout()
-        │ LLM analysis (gemini-2.5-flash)
+PostWorkoutAnalyzer / DailyBriefAnalyzer / WeeklyReviewAnalyzer
+        │ Reads aggregated data, calls Gemini LLM
         ▼
-Firestore: analysis_insights/{id} written
+Firestore: analysis_insights / daily_briefs / weekly_reviews
         │
         ▼ (Chat agent retrieves)
 Chat Agent: tool_get_training_analysis()
@@ -525,46 +614,74 @@ User sees pre-computed insights
 | Principle | Rationale |
 |-----------|-----------|
 | **Pre-computation** | Analysis happens in background, not during chat |
-| **Async PubSub** | Workout completion doesn't wait for analysis |
+| **Firestore queue** | Lease-based concurrency, no PubSub dependency |
 | **Bounded responses** | All summaries <2KB for fast agent retrieval |
-| **Data budget** | Only last 12 weeks for analysis (configurable) |
-| **Job queue** | Firestore-based queue for retry/monitoring |
+| **Data budget** | Only pre-aggregated data to LLM (never raw workouts) |
+| **Retry with backoff** | Max 3 attempts, exponential backoff (5-30 min) |
 
 ### Component Map
 
 ```
 adk_agent/training_analyst/
 ├── app/
-│   ├── main.py                    ← Cloud Run entry point
-│   ├── job_processor.py           ← Job queue worker
+│   ├── config.py                  ← Models, TTLs, collection names
+│   ├── firestore_client.py        ← Firestore SDK singleton
 │   ├── analyzers/
+│   │   ├── base.py                ← Shared LLM client (google.genai + Vertex AI)
 │   │   ├── post_workout.py        ← Post-workout insights
 │   │   ├── daily_brief.py         ← Daily readiness
 │   │   └── weekly_review.py       ← Weekly progression
-│   ├── libs/
-│   │   ├── firebase_client.py     ← Firestore SDK wrapper
-│   │   └── vertex_client.py       ← Vertex AI LLM client
-│   └── models/
-│       └── schemas.py             ← Output schemas
+│   └── jobs/
+│       ├── models.py              ← Job, JobPayload, JobStatus, JobType
+│       ├── queue.py               ← Create, poll, lease, complete, fail
+│       └── watchdog.py            ← Stuck job recovery
+├── workers/
+│   ├── analyst_worker.py          ← Main worker (+ watchdog entry point)
+│   └── scheduler.py               ← Daily/weekly job creation
+├── Makefile                       ← Build, deploy, trigger commands
 └── ARCHITECTURE.md                ← Tier 2 module docs
 ```
 
 ### Job Types
 
-| Job Type | Trigger | Frequency | Output Collection |
-|----------|---------|-----------|-------------------|
-| `POST_WORKOUT_ANALYSIS` | PubSub on workout completion | Per workout | `analysis_insights` |
-| `DAILY_BRIEF_GENERATION` | Cron 6 AM local time | Daily | `daily_briefs/{date}` |
-| `WEEKLY_REVIEW_GENERATION` | Cron Monday 8 AM local time | Weekly | `weekly_reviews/{weekId}` |
+| Job Type | Trigger | Model | Output Collection | TTL |
+|----------|---------|-------|-------------------|-----|
+| `POST_WORKOUT` | `onWorkoutCompleted` Firestore trigger | gemini-2.5-pro | `users/{uid}/analysis_insights/{autoId}` | 7 days |
+| `DAILY_BRIEF` | Scheduler (daily 6 AM UTC) | gemini-2.5-flash | `users/{uid}/daily_briefs/{YYYY-MM-DD}` | 7 days |
+| `WEEKLY_REVIEW` | Scheduler (Sundays) | gemini-2.5-pro | `users/{uid}/weekly_reviews/{YYYY-WNN}` | 30 days |
 
 ### Data Budget Strategy
 
-To keep responses fast and costs low:
+All analyzers read from **pre-aggregated collections only** (never raw workout docs):
 
-- **Analysis window**: Last 12 weeks (configurable via job payload)
-- **Insight retention**: 30 days (Firestore TTL on `analysis_insights`)
-- **Daily brief**: Only today (document ID = date)
-- **Weekly review**: Last 4 weeks stored, older archived
+| Analyzer | Data Budget | Sources |
+|----------|------------|---------|
+| Post-Workout | ~8KB | Trimmed workout (~1.5KB) + 4wk rollups (~2KB) + exercise series (~4KB) |
+| Daily Brief | ~4KB | Next template (~1KB) + 4wk rollups (~2KB) + recent insight (~1KB) |
+| Weekly Review | ~35KB | 12wk rollups (~6KB) + top 10 exercise series (~18KB) + 8 muscle group series (~10KB) + routine context (~1KB) |
+
+### Backfill
+
+Historical analysis can be generated via the backfill script:
+
+```bash
+# 1. Rebuild analytics foundation (set_facts, series, rollups)
+FIREBASE_SERVICE_ACCOUNT_PATH=$FIREBASE_SA_KEY \
+  node scripts/backfill_set_facts.js --user <userId> --rebuild-series
+
+# 2. Enqueue analysis jobs (idempotent — safe to re-run)
+FIREBASE_SERVICE_ACCOUNT_PATH=$FIREBASE_SA_KEY \
+  node scripts/backfill_analysis_jobs.js --user <userId> --months 3
+
+# 3. Process the jobs
+GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY \
+  PYTHONPATH=adk_agent/training_analyst \
+  python3 adk_agent/training_analyst/workers/analyst_worker.py
+```
+
+The backfill script uses deterministic job IDs (`bf-pw-{hash}`, `bf-wr-{hash}`, `bf-db-{hash}`) so re-runs overwrite existing jobs instead of creating duplicates.
+
+**Required Firestore index**: `training_analysis_jobs` composite index on `status` (ASC) + `created_at` (ASC).
 
 ### Chat Agent Integration
 
@@ -623,6 +740,7 @@ adk_agent/canvas_orchestrator/
 │   │   ├── coach_skills.py      ← Analytics, user data
 │   │   ├── planner_skills.py    ← Artifact creation
 │   │   ├── copilot_skills.py    ← Set logging, workout
+│   │   ├── workout_skills.py    ← Workout Brief + active workout mutations
 │   │   └── gated_planner.py     ← Safety-gated writes
 │   └── libs/                    ← Utilities
 ├── workers/                     ← BACKGROUND JOBS
@@ -658,6 +776,10 @@ adk_agent/canvas_orchestrator/
 | `update_routine()` | - | ✅ | **Yes** |
 | `update_template()` | - | ✅ | **Yes** |
 | `log_set()` | - | ✅ | No (Fast Lane) |
+| `tool_log_set()` | - | ✅ | No (workout mode gated) |
+| `tool_swap_exercise()` | - | ✅ | No (workout mode gated) |
+| `tool_complete_workout()` | - | ✅ | No (workout mode gated) |
+| `tool_get_workout_state()` | ✅ | - | No (workout mode gated) |
 
 ### Context Flow (SECURITY CRITICAL)
 

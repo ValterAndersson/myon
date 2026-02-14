@@ -166,12 +166,27 @@ class AgentEngineApp(AdkApp):
             except Exception as e:
                 logger.error("Functional lane error: %s - falling back to Slow", e)
         
+        # === WORKOUT BRIEF: Front-load context for workout mode ===
+        augmented_message = message
+        if ctx.workout_mode and ctx.active_workout_id:
+            if not (routing and routing.lane == Lane.FAST):
+                try:
+                    from app.skills.workout_skills import get_workout_state_formatted
+                    workout_brief = get_workout_state_formatted(
+                        ctx.user_id, ctx.active_workout_id
+                    )
+                    if workout_brief:
+                        augmented_message = f"{workout_brief}\n\n{augmented_message}"
+                        logger.info("WORKOUT BRIEF: injected %d chars", len(workout_brief))
+                except Exception as e:
+                    logger.warning("Workout brief error: %s", e)
+
         # === 5. TOOL PLANNER: Generate plan for Slow Lane ===
         if routing and should_generate_plan(routing):
             try:
                 plan = generate_plan(routing, message)
                 logger.info("PLANNER: Generated plan for %s", routing.intent)
-                
+
                 # === EMIT: Planner output ===
                 if plan and not plan.skip_planning:
                     yield self._create_pipeline_event("planner", {
@@ -182,15 +197,14 @@ class AgentEngineApp(AdkApp):
                     })
             except Exception as e:
                 logger.warning("Planner error: %s", e)
-        
+
         # === 6. SLOW LANE: LLM execution ===
         logger.info("SLOW LANE: %s (intent=%s)", message[:50], routing.intent if routing else "unknown")
-        
-        # Inject planning context if available
-        augmented_message = message
+
+        # Inject planning context if available (appends to end, after workout brief)
         if plan and not plan.skip_planning:
             plan_prompt = plan.to_system_prompt()
-            augmented_message = f"{message}\n\n{plan_prompt}"
+            augmented_message = f"{augmented_message}\n\n{plan_prompt}"
             logger.info("PLANNER: Injected plan for %s", plan.intent)
         
         # Collect response for critic pass

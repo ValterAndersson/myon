@@ -98,39 +98,53 @@ def clear_current_context() -> None:
 class SessionContext:
     """
     Per-request context extracted from message prefix.
-    
+
     This is NOT persistent across requests. Each request creates a new
     SessionContext from the message prefix.
-    
-    Format: (context: canvas_id=X user_id=Y corr=Z) message
+
+    Format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W]) message
     """
     canvas_id: str
     user_id: str
     correlation_id: Optional[str]
+    workout_mode: bool = False
+    active_workout_id: Optional[str] = None
     
     @classmethod
     def from_message(cls, message: str) -> "SessionContext":
         """
         Parse context from message prefix.
-        
-        Expected format: (context: canvas_id=X user_id=Y corr=Z) message
-        
+
+        Expected format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W]) message
+
         Args:
             message: Raw message with optional context prefix
-            
+
         Returns:
             SessionContext with parsed values, or empty context if parsing fails
         """
         match = re.search(
-            r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)\)', 
+            r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)'
+            r'(?:\s+workout_id=(\S+))?\)',
             message
         )
         if match:
             corr = match.group(3).strip()
+            workout_id = match.group(4).strip() if match.group(4) else None
+
+            # Parse workout mode
+            workout_mode = False
+            active_workout_id = None
+            if workout_id and workout_id != "none":
+                workout_mode = True
+                active_workout_id = workout_id
+
             return cls(
                 canvas_id=match.group(1).strip(),
                 user_id=match.group(2).strip(),
                 correlation_id=corr if corr != "none" else None,
+                workout_mode=workout_mode,
+                active_workout_id=active_workout_id,
             )
         # Fallback for malformed messages
         return cls(canvas_id="", user_id="", correlation_id=None)
@@ -139,16 +153,17 @@ class SessionContext:
     def strip_prefix(message: str) -> str:
         """
         Remove context prefix from message for cleaner processing.
-        
+
         Args:
             message: Raw message with optional context prefix
-            
+
         Returns:
             Message without the context prefix
         """
         return re.sub(
-            r'\(context:\s*canvas_id=\S+\s+user_id=\S+\s+corr=\S+\)\s*', 
-            '', 
+            r'\(context:\s*canvas_id=\S+\s+user_id=\S+\s+corr=\S+'
+            r'(?:\s+workout_id=\S+)?\)\s*',
+            '',
             message
         ).strip()
     
@@ -159,6 +174,8 @@ class SessionContext:
     def __str__(self) -> str:
         """Format for logging."""
         corr = self.correlation_id or "none"
+        if self.workout_mode and self.active_workout_id:
+            return f"SessionContext(canvas={self.canvas_id}, user={self.user_id}, corr={corr}, workout={self.active_workout_id})"
         return f"SessionContext(canvas={self.canvas_id}, user={self.user_id}, corr={corr})"
 
 
