@@ -2,7 +2,7 @@
 # =========================
 
 .PHONY: help install test worker-local watchdog-local scheduler-local \
-        docker-build docker-push deploy-worker deploy-watchdog deploy-scheduler \
+        docker-push deploy-worker deploy-watchdog deploy-scheduler \
         trigger-worker trigger-watchdog trigger-scheduler deploy
 
 # Configuration
@@ -24,8 +24,7 @@ help:
 	@echo "  make scheduler-local - Run scheduler locally"
 	@echo ""
 	@echo "Docker:"
-	@echo "  make docker-build    - Build Docker image"
-	@echo "  make docker-push     - Push to GCR"
+	@echo "  make docker-push     - Build and push to GCR (via Cloud Build)"
 	@echo ""
 	@echo "Cloud Run Jobs:"
 	@echo "  make deploy          - Deploy all jobs"
@@ -56,14 +55,9 @@ watchdog-local:
 scheduler-local:
 	python workers/scheduler.py
 
-# Build Docker image
-docker-build:
-	docker build -t training-analyst-worker:$(IMAGE_TAG) .
-	docker tag training-analyst-worker:$(IMAGE_TAG) gcr.io/$(PROJECT_ID)/training-analyst-worker:$(IMAGE_TAG)
-
-# Push to Google Container Registry
-docker-push: docker-build
-	docker push gcr.io/$(PROJECT_ID)/training-analyst-worker:$(IMAGE_TAG)
+# Build and push via Cloud Build (builds natively on amd64, avoids arm64 issues on Apple Silicon)
+docker-push:
+	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/training-analyst-worker:$(IMAGE_TAG) --project=$(PROJECT_ID)
 
 # Deploy worker job
 deploy-worker:

@@ -2,7 +2,7 @@
 # =======================
 # Container for running training analysis jobs as Cloud Run Jobs.
 
-FROM python:3.11-slim
+FROM --platform=linux/amd64 python:3.11-slim
 
 # Prevent stdout buffering
 ENV PYTHONUNBUFFERED=1
