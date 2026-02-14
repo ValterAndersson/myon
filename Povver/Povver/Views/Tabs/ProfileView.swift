@@ -120,7 +120,8 @@ struct ProfileView: View {
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(Color.textPrimary)
                     
-                    if let email = user?.email ?? authService.currentUser?.email {
+                    if let email = user?.email ?? authService.currentUser?.email,
+                       !email.hasSuffix("@privaterelay.appleid.com") {
                         Text(email)
                             .font(.system(size: 14))
                             .foregroundColor(Color.textSecondary)
@@ -155,16 +156,10 @@ struct ProfileView: View {
                 ) {
                     showingEmailChange = true
                 }
-            } else {
-                ProfileRow(
-                    icon: "envelope",
-                    title: "Email",
-                    value: user?.email ?? authService.currentUser?.email ?? "-"
-                )
+
+                Divider().padding(.leading, 56)
             }
-            
-            Divider().padding(.leading, 56)
-            
+
             ProfileRow(
                 icon: "person",
                 title: "Nickname",
@@ -486,7 +481,8 @@ struct ProfileView: View {
         if let name = user?.name, !name.isEmpty {
             return name
         }
-        if let email = user?.email ?? authService.currentUser?.email {
+        if let email = user?.email ?? authService.currentUser?.email,
+           !email.hasSuffix("@privaterelay.appleid.com") {
             return email.components(separatedBy: "@").first ?? email
         }
         return "User"

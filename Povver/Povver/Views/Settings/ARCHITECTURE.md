@@ -54,7 +54,7 @@ Several views adapt based on linked providers:
 - **EmailChangeView**: SSO-only users see a disabled state with lock icon; email users see the change form
 - **PasswordChangeView**: title is "Change Password" vs "Set Password"; current password field only shown for email users
 - **LinkedAccountsView**: unlink button hidden when only 1 provider remains
-- **ProfileView**: email row is tappable only if `.email` provider is linked; password row label adapts
+- **ProfileView**: email row is hidden entirely if `.email` provider is not linked (SSO-only users see only the Nickname row); Apple relay emails (`@privaterelay.appleid.com`) are hidden from the profile header and excluded from display name fallback; password row label adapts
 
 ### Error Display
 
