@@ -926,7 +926,7 @@ async function streamAgentNormalizedHandler(req, res) {
         data: payload,
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         responseType: 'stream',
-        timeout: 60000,
+        timeout: 180000,  // 3 min — Flash may think + call tools + respond
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
         validateStatus: (status) => status >= 200 && status < 500,
