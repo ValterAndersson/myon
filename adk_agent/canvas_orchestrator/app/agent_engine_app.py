@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Generator
+from typing import Any, Dict, Generator, List, Optional
 from collections.abc import Mapping, Sequence
 
 import google.auth
@@ -363,11 +363,15 @@ root_agent = create_shell_agent()
 def deploy_canvas_orchestrator(
     project: str,
     location: str,
-    agent_name: str | None = "canvas-orchestrator",
+    agent_name: Optional[str] = "canvas-orchestrator",
     requirements_file: str = "agent_engine_requirements.txt",
-    extra_packages: list[str] = ["./app"],
-    env_vars: dict[str, str] = {},
+    extra_packages: Optional[List[str]] = None,
+    env_vars: Optional[Dict[str, str]] = None,
 ) -> agent_engines.AgentEngine:
+    if extra_packages is None:
+        extra_packages = ["./app"]
+    if env_vars is None:
+        env_vars = {}
     staging_bucket_uri = f"gs://{project}-agent-engine"
     try:
         from google.cloud import storage

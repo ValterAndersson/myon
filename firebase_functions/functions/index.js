@@ -7,6 +7,7 @@ const { suggestAliases } = require('./exercises/suggest-aliases');
 const { refineExercise } = require('./exercises/refine-exercise');
 const { searchAliases } = require('./exercises/search-aliases');
 const functions = require('firebase-functions');
+const { onRequest: onRequestV2 } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 
 // Initialize admin if not already initialized
@@ -214,7 +215,10 @@ exports.completeActiveWorkout = completeActiveWorkout;
 exports.cancelActiveWorkout = cancelActiveWorkout;
 
 // StrengthOS Operations
-exports.streamAgentNormalized = functions.runWith({ timeoutSeconds: 300, memory: '512MB' }).https.onRequest(requireFlexibleAuth(streamAgentNormalizedHandler));
+exports.streamAgentNormalized = onRequestV2(
+  { timeoutSeconds: 300, memory: '512MiB' },
+  requireFlexibleAuth(streamAgentNormalizedHandler)
+);
 exports.upsertProgressReport = functions.https.onRequest((req, res) => withApiKey(upsertProgressReport)(req, res));
 exports.getProgressReports = functions.https.onRequest((req, res) => requireFlexibleAuth(getProgressReports)(req, res));
 
