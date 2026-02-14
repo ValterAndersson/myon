@@ -1,7 +1,7 @@
 """
 Shell Agent - Single unified agent with Coach persona.
 
-Model: gemini-2.5-pro
+Model: gemini-2.5-flash
 
 This is the main agent that handles all "Slow Lane" requests. It combines
 the capabilities of the former CoachAgent and PlannerAgent into a single
@@ -21,6 +21,7 @@ import os
 from typing import Any, Dict
 
 from google.adk import Agent
+from google.genai.types import GenerateContentConfig
 
 from app.shell.context import SessionContext
 from app.shell.instruction import SHELL_INSTRUCTION
@@ -77,11 +78,19 @@ def _before_model_callback(callback_context, llm_request):
 # Uses tools from shell/tools.py (pure skills only, no legacy agents)
 # ============================================================================
 
+# NOTE: Do NOT set max_output_tokens here. Gemini 2.5 Flash counts thinking
+# tokens toward that budget, so even 1024 causes mid-sentence truncation.
+# Response length is controlled via instruction-level caps (hard cap 12 lines).
+_SHELL_CONFIG = GenerateContentConfig(
+    temperature=0.3,
+)
+
 ShellAgent = Agent(
     name="ShellAgent",
-    model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-pro"),
+    model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-flash"),
     instruction=SHELL_INSTRUCTION,
     tools=all_tools,  # From shell/tools.py - pure skills with Safety Gate
+    generate_content_config=_SHELL_CONFIG,
     before_tool_callback=_before_tool_callback,
     before_model_callback=_before_model_callback,
 )
@@ -133,9 +142,10 @@ def create_shell_agent() -> Agent:
     """
     return Agent(
         name="ShellAgent",
-        model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-pro"),
+        model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-flash"),
         instruction=SHELL_INSTRUCTION,
         tools=all_tools,
+        generate_content_config=GenerateContentConfig(temperature=0.3),
         before_tool_callback=_before_tool_callback,
         before_model_callback=_before_model_callback,
     )

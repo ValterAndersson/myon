@@ -3,7 +3,7 @@ Canvas Orchestrator Agent Engine Entry Point.
 
 4-Lane Architecture (Single Shell Agent):
 - Fast Lane: Regex patterns → direct skill execution (no LLM, <500ms)
-- Slow Lane: ShellAgent (gemini-2.5-pro) for conversational reasoning
+- Slow Lane: ShellAgent (gemini-2.5-flash) for conversational reasoning
 - Functional Lane: gemini-2.5-flash for JSON-only Smart Button logic
 - Worker Lane: Background scripts (triggered by PubSub, not routed here)
 
