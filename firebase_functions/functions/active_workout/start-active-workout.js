@@ -167,6 +167,7 @@ async function startActiveWorkoutHandler(req, res) {
         current: null,
         exercises: exercises,
         totals: { sets: 0, reps: 0, volume: 0, stimulus_score: 0 },
+        version: 1,
         start_time: now,
         end_time: null,
         created_at: now,

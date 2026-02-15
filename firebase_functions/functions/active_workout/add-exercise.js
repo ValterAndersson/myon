@@ -1,18 +1,21 @@
 /**
  * addExercise - Add a new exercise to an active workout
- * 
+ *
  * Per FOCUS_MODE_WORKOUT_EXECUTION.md spec:
  * - Adds exercise to exercises array with client-provided instance_id
  * - Creates event with exercise_added type
  * - Uses workout-scoped idempotency
+ *
+ * CONCURRENCY: All reads and writes are inside a Firestore transaction
+ * to prevent lost updates from concurrent requests.
  */
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
-const { 
-  checkWorkoutIdempotency, 
-  storeWorkoutIdempotency 
+const {
+  ensureWorkoutIdempotent,
+  storeWorkoutIdempotentTx
 } = require('../utils/idempotency');
 
 const db = admin.firestore();
@@ -27,66 +30,33 @@ async function addExerciseHandler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    
+
     const userId = req.user?.uid || req.auth?.uid;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
-    const { 
-      workout_id: workoutId, 
+    // 1. Parse and validate required fields (pure — no Firestore reads)
+    const {
+      workout_id: workoutId,
       instance_id: instanceId,
-      exercise_id: exerciseId, 
-      name, 
+      exercise_id: exerciseId,
+      name,
       position,
       sets,
       idempotency_key: idempotencyKey,
       client_timestamp: clientTimestamp,
     } = req.body || {};
 
-    // Validate required fields
     if (!workoutId || !exerciseId) {
       return fail(res, 'INVALID_ARGUMENT', 'Missing workout_id or exercise_id', null, 400);
     }
-    
+
     if (!instanceId) {
       return fail(res, 'INVALID_ARGUMENT', 'Missing instance_id', null, 400);
     }
 
-    // Check idempotency
-    if (idempotencyKey) {
-      const idem = await checkWorkoutIdempotency(userId, workoutId, idempotencyKey);
-      if (idem.isDuplicate && idem.cachedResponse) {
-        return ok(res, idem.cachedResponse);
-      }
-    }
-
-    // Fetch workout
-    const workoutRef = db.doc(`users/${userId}/active_workouts/${workoutId}`);
-    const workoutSnap = await workoutRef.get();
-    
-    if (!workoutSnap.exists) {
-      return fail(res, 'NOT_FOUND', 'Workout not found', null, 404);
-    }
-    
-    const workout = workoutSnap.data();
-    
-    if (workout.status !== 'in_progress') {
-      return fail(res, 'INVALID_STATE', 'Workout is not in progress', null, 400);
-    }
-
-    // Check for duplicate instance_id
-    const existingExercise = (workout.exercises || []).find(ex => ex.instance_id === instanceId);
-    if (existingExercise) {
-      return fail(res, 'DUPLICATE_INSTANCE_ID', 'Exercise instance already exists', null, 400);
-    }
-
-    // Build new exercise object
-    const exercisePosition = typeof position === 'number' ? position : (workout.exercises || []).length;
-    
-    // Process sets - ensure they have proper structure
-    console.log('[addExercise] Received sets from client:', JSON.stringify(sets));
-    
+    // 2. Process sets outside transaction (pure transformation)
     const processedSets = (sets || []).map(set => ({
       id: set.id,
       set_type: set.set_type || 'working',
@@ -96,67 +66,113 @@ async function addExerciseHandler(req, res) {
       rir: set.target_rir ?? set.rir ?? null,
       tags: set.tags || {},
     }));
-    
-    console.log('[addExercise] Processed sets to store:', JSON.stringify(processedSets));
-    
-    const newExercise = {
-      instance_id: instanceId,
-      exercise_id: exerciseId,
-      name: name || null,
-      position: exercisePosition,
-      sets: processedSets,
-    };
 
-    // Add to exercises array
-    const updatedExercises = [...(workout.exercises || []), newExercise];
-
-    // Create event
+    // 3. Pre-generate refs outside transaction
+    const workoutRef = db.doc(`users/${userId}/active_workouts/${workoutId}`);
     const eventRef = db.collection(`users/${userId}/active_workouts/${workoutId}/events`).doc();
-    const event = {
-      id: eventRef.id,
-      type: 'exercise_added',
-      payload: {
-        exercise_instance_id: instanceId,
+
+    // 4. Run everything in a transaction
+    const result = await db.runTransaction(async (tx) => {
+      // 4a. Check idempotency inside transaction
+      if (idempotencyKey) {
+        const idem = await ensureWorkoutIdempotent(tx, userId, workoutId, idempotencyKey);
+        if (idem.isDuplicate && idem.cachedResponse) {
+          return { duplicate: true, response: idem.cachedResponse };
+        }
+      }
+
+      // 4b. Read workout
+      const workoutSnap = await tx.get(workoutRef);
+      if (!workoutSnap.exists) {
+        throw { httpCode: 404, code: 'NOT_FOUND', message: 'Workout not found' };
+      }
+
+      const workout = workoutSnap.data();
+
+      if (workout.status !== 'in_progress') {
+        throw { httpCode: 400, code: 'INVALID_STATE', message: 'Workout is not in progress' };
+      }
+
+      // 4c. Check for duplicate instance_id
+      const existingExercise = (workout.exercises || []).find(ex => ex.instance_id === instanceId);
+      if (existingExercise) {
+        throw { httpCode: 400, code: 'DUPLICATE_INSTANCE_ID', message: 'Exercise instance already exists' };
+      }
+
+      // 4d. Build new exercise object
+      const exercisePosition = typeof position === 'number' ? position : (workout.exercises || []).length;
+
+      const newExercise = {
+        instance_id: instanceId,
         exercise_id: exerciseId,
         name: name || null,
         position: exercisePosition,
-        sets_count: processedSets.length,
-      },
-      diff_ops: [{
-        op: 'add',
-        path: `/exercises/-`,
-        value: newExercise,
-      }],
-      cause: 'user_edit',
-      ui_source: 'add_exercise_button',
-      idempotency_key: idempotencyKey || null,
-      client_timestamp: clientTimestamp || null,
-      created_at: admin.firestore.FieldValue.serverTimestamp(),
-    };
+        sets: processedSets,
+      };
 
-    // Update workout document
-    await workoutRef.update({
-      exercises: updatedExercises,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      // 4e. Add to exercises array
+      const updatedExercises = [...(workout.exercises || []), newExercise];
+
+      // 4f. Version increment
+      const nextVersion = (workout.version || 0) + 1;
+
+      // 4g. Build event
+      const event = {
+        id: eventRef.id,
+        type: 'exercise_added',
+        payload: {
+          exercise_instance_id: instanceId,
+          exercise_id: exerciseId,
+          name: name || null,
+          position: exercisePosition,
+          sets_count: processedSets.length,
+        },
+        diff_ops: [{
+          op: 'add',
+          path: `/exercises/-`,
+          value: newExercise,
+        }],
+        cause: 'user_edit',
+        ui_source: 'add_exercise_button',
+        idempotency_key: idempotencyKey || null,
+        client_timestamp: clientTimestamp || null,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      // 4h. Write workout update + event
+      tx.update(workoutRef, {
+        exercises: updatedExercises,
+        version: nextVersion,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      tx.set(eventRef, event);
+
+      // 4i. Build response and store idempotency
+      const response = {
+        success: true,
+        exercise_instance_id: instanceId,
+        event_id: eventRef.id,
+        version: nextVersion,
+      };
+
+      if (idempotencyKey) {
+        storeWorkoutIdempotentTx(tx, userId, workoutId, idempotencyKey, response);
+      }
+
+      return response;
     });
 
-    // Write event
-    await eventRef.set(event);
-
-    // Build response
-    const response = {
-      success: true,
-      exercise_instance_id: instanceId,
-      event_id: eventRef.id,
-    };
-
-    // Store idempotency
-    if (idempotencyKey) {
-      await storeWorkoutIdempotency(userId, workoutId, idempotencyKey, response);
+    // 5. Handle duplicate
+    if (result.duplicate) {
+      return ok(res, result.response);
     }
 
-    return ok(res, response);
+    return ok(res, result);
   } catch (error) {
+    if (error.httpCode) {
+      return fail(res, error.code, error.message, error.details || null, error.httpCode);
+    }
     console.error('add-exercise error:', error);
     return fail(res, 'INTERNAL', 'Failed to add exercise', { message: error.message }, 500);
   }

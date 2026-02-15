@@ -1,6 +1,6 @@
 # Active Workout Domain
 
-HTTP tools for managing a user's in-progress workout. These are legacy-compatible and also reused by the Canvas reducer via shared cores.
+HTTP endpoints for managing a user's in-progress workout.
 
 ## File Inventory
 
@@ -9,20 +9,43 @@ HTTP tools for managing a user's in-progress workout. These are legacy-compatibl
 | `start-active-workout.js` | `startActiveWorkout` | Create active workout from plan or template |
 | `get-active-workout.js` | `getActiveWorkout` | Fetch most recent active workout |
 | `propose-session.js` | `proposeSession` | Propose a session plan stub |
-| `log-set.js` | `logSet` | Log a completed set (v2, idempotent) |
-| `patch-active-workout.js` | `patchActiveWorkout` | Edit workout values, add/remove sets (v2) |
-| `autofill-exercise.js` | `autofillExercise` | AI bulk prescription for a single exercise (v2) |
-| `add-exercise.js` | `addExercise` | Add exercise to workout (v2, idempotent) |
-| `swap-exercise.js` | `swapExercise` | Swap exercise in workout (v2, idempotent) |
+| `log-set.js` | `logSet` | Log a completed set (v2, transactional, idempotent) |
+| `patch-active-workout.js` | `patchActiveWorkout` | Edit workout values, add/remove sets (v2, transactional) |
+| `autofill-exercise.js` | `autofillExercise` | AI bulk prescription for a single exercise (v2, transactional) |
+| `add-exercise.js` | `addExercise` | Add exercise to workout (v2, transactional, idempotent) |
+| `swap-exercise.js` | `swapExercise` | Swap exercise in workout (v2, idempotent, stub) |
 | `complete-active-workout.js` | `completeActiveWorkout` | Finish workout, archive to `workouts/` (v2) |
 | `cancel-active-workout.js` | `cancelActiveWorkout` | Cancel workout without archiving (v2) |
+
+## Concurrency Model
+
+All four hot-path mutation endpoints (`logSet`, `patchActiveWorkout`, `addExercise`, `autofillExercise`) use Firestore transactions to prevent lost updates from concurrent requests. The pattern:
+
+1. **Outside transaction**: method check, auth, schema validation, parse fields, pre-generate `workoutRef` + `eventRef` (no Firestore reads).
+2. **Inside `db.runTransaction()`**: idempotency check → read workout → validate state → compute mutations → increment `version` → write workout + event + idempotency record.
+3. **Outside transaction**: return response or cached idempotency response.
+
+Validation errors inside the transaction are thrown as structured objects `{ httpCode, code, message, details }` and caught by the outer try/catch for HTTP response mapping via `fail()`.
+
+### Version Field
+
+The `version` field is a monotonically incrementing integer on the active workout document. Starts at `1` (set by `startActiveWorkout`), incremented by every mutation. Existing documents without `version` are treated as version `0` via `(workout.version || 0) + 1`. The server always returns `version` in mutation responses. iOS tracks it for debugging. No client-side version enforcement — Firestore transactions handle serialization automatically.
+
+### Shared Helpers
+
+Shared logic extracted to `../utils/active-workout-helpers.js`:
+- `computeTotals(exercises)` — recomputes `{ sets, reps, volume }` from exercises array
+- `findExercise(exercises, instanceId)` — returns `{ index, exercise }` or null
+- `findSet(exercise, setId)` — returns `{ index, set }` or null
+- `findExerciseAndSet(exercises, instanceId, setId)` — combined lookup
 
 ## Key Endpoints
 
 ### startActiveWorkout (HTTPS)
 - Auth: flexible
 - Request: `{ "plan"?: object }`
-- Response: `{ success, data: { workout_id, active_workout_doc } }`
+- Response: `{ success, data: { workout_id, workout, resumed } }`
+- Initializes `version: 1` on new workout documents
 
 ### getActiveWorkout (HTTPS)
 - Auth: flexible
@@ -35,35 +58,29 @@ HTTP tools for managing a user's in-progress workout. These are legacy-compatibl
 
 ### logSet (HTTPS, v2)
 - Auth: flexible; idempotency_key supported
-- Request: `{ workout_id, exercise_id, set_index, actual }`
-- Response: `{ success, data: { event_id } }`
+- Request: `{ workout_id, exercise_instance_id, set_id, values, is_failure?, idempotency_key }`
+- Response: `{ success, data: { event_id, totals, version } }`
 
 ### patchActiveWorkout (HTTPS, v2)
 - Auth: flexible; idempotency_key supported
-- Request: `{ workout_id, ops: [{ type, ... }] }`
-- Response: `{ success, data: { event_id } }`
+- Request: `{ workout_id, ops: [{ op, target, field?, value? }], cause, ui_source, idempotency_key }`
+- Response: `{ success, data: { event_id, totals, version } }`
 
 ### autofillExercise (HTTPS, v2)
 - Auth: flexible; idempotency_key supported
-- Request: `{ workout_id, exercise_id, sets: [...] }`
-- Response: `{ success, data: { event_id } }`
+- Request: `{ workout_id, exercise_instance_id, updates?, additions?, idempotency_key }`
+- Response: `{ success, data: { event_id, totals, version } }`
 
-### addExercise / swapExercise (HTTPS, v2)
-- Auth: flexible; idempotency_key supported for `addExercise`
-- Requests: standard IDs
-- Response: `{ success, data: { event_id } }`
+### addExercise (HTTPS, v2)
+- Auth: flexible; idempotency_key supported
+- Request: `{ workout_id, instance_id, exercise_id, name?, position?, sets?, idempotency_key }`
+- Response: `{ success, data: { exercise_instance_id, event_id, version } }`
 
 ### completeActiveWorkout / cancelActiveWorkout (HTTPS, v2)
 - Auth: flexible
 - Requests: `{ workout_id }`
 - Response: `{ success, data: { ... } }`
 
-## Shared cores (used by Canvas reducer)
-- `shared/active_workout/log_set_core.js` → appends `set_performed` event and updates timestamps
-- `shared/active_workout/swap_core.js` → appends `exercise_swapped` event
-- `shared/active_workout/adjust_load_core.js` → appends `load_adjusted` event
-- `shared/active_workout/reorder_sets_core.js` → appends `sets_reordered` event
-
 ## Firestore layout
-- `users/{uid}/active_workouts/{workoutId}` with `events/{eventId}` appends
+- `users/{uid}/active_workouts/{workoutId}` with `events/{eventId}` appends and `idempotency/{key}` records
 - Archived workouts under `users/{uid}/workouts/{workoutId}`

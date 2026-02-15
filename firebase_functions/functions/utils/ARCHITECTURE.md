@@ -9,7 +9,8 @@ Shared helpers used across Firebase Function endpoints. These provide consistent
 | `response.js` | Response helpers: `ok(res, data)` / `fail(res, code, message, details, httpStatus)`. All endpoints use these for consistent response shape. |
 | `validators.js` | Ajv schema validation: loads and compiles JSON schemas, validates request/card payloads |
 | `validation-response.js` | Validation error formatting for agent self-healing (includes attempted payload, errors, hints, expected schema) |
-| `idempotency.js` | Idempotency key check and storage in `users/{uid}/canvases/{canvasId}/idempotency/{key}` |
+| `idempotency.js` | Idempotency key check and storage. Supports global, canvas-scoped, and workout-scoped (transactional) variants. |
+| `active-workout-helpers.js` | Shared helpers for active workout mutations: `computeTotals`, `findExercise`, `findSet`, `findExerciseAndSet`. Used by all four hot-path endpoints. |
 | `firestore-helper.js` | Firestore abstractions: `upsertDocument`, `upsertDocumentInSubcollection`, timestamp handling |
 | `plan-to-template-converter.js` | Converts `session_plan` card content to a `WorkoutTemplate` document structure |
 | `strings.js` | String utilities: slug generation, name normalization |

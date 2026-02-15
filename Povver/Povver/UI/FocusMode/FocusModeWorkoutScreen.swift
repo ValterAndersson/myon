@@ -15,6 +15,7 @@ import SwiftUI
 
 struct FocusModeWorkoutScreen: View {
     @StateObject private var service = FocusModeWorkoutService.shared
+    @StateObject private var coachViewModel = WorkoutCoachViewModel(workoutId: "")
     @Environment(\.dismiss) private var dismiss
     
     // Workout source (template, routine, plan, or empty)
@@ -243,11 +244,7 @@ struct FocusModeWorkoutScreen: View {
     private func sheetContent(for sheet: FocusModeActiveSheet) -> some View {
         switch sheet {
         case .coach:
-            WorkoutCoachView(
-                viewModel: WorkoutCoachViewModel(
-                    workoutId: service.workout?.id ?? ""
-                )
-            )
+            WorkoutCoachView(viewModel: coachViewModel)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         case .exerciseSearch:
@@ -1114,14 +1111,24 @@ struct FocusModeWorkoutScreen: View {
     
     // MARK: - Timer
     
+    /// Sync coach VM with current workout ID so conversation persists across sheet opens.
+    private func syncCoachWorkoutId() {
+        if let workoutId = service.workout?.id {
+            coachViewModel.updateWorkout(workoutId)
+        }
+    }
+
     /// Start the elapsed time timer. Guards against double-start.
     /// Timer derives elapsed time from workout.startTime (single source of truth).
     private func startTimer() {
         guard let workout = service.workout else { return }
-        
+
         // Guard against double-start
         guard timer == nil else { return }
-        
+
+        // Sync coach VM with current workout
+        syncCoachWorkoutId()
+
         // Reset UI state
         screenMode = .normal
         elapsedTime = Date().timeIntervalSince(workout.startTime)

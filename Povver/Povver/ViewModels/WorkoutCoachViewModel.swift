@@ -13,13 +13,21 @@ final class WorkoutCoachViewModel: ObservableObject {
     @Published var isStreaming = false
     @Published var inputText = ""
 
-    let workoutId: String
+    private(set) var workoutId: String
     let conversationId: String
     private var currentSessionId: String?
 
     init(workoutId: String, conversationId: String = "workout-coach") {
         self.workoutId = workoutId
         self.conversationId = conversationId
+    }
+
+    /// Update workout context. Resets conversation for a different workout.
+    func updateWorkout(_ workoutId: String) {
+        guard workoutId != self.workoutId else { return }
+        self.workoutId = workoutId
+        self.messages = []
+        self.currentSessionId = nil
     }
 
     func send() async {

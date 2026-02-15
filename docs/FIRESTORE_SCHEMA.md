@@ -657,6 +657,7 @@ Subcollections:
      - `current?: any`
      - `exercises: any[]` (app-managed during session)
      - `totals: { sets: number, reps: number, volume: number, stimulus_score: number }`
+     - `version: number` (monotonically incrementing; starts at 1, incremented on each mutation. Used for debugging and future optimistic concurrency. Existing documents without this field are treated as version 0.)
      - `start_time: Timestamp`
      - `end_time?: Timestamp`
      - `notes?: string`

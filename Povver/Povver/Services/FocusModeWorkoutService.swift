@@ -422,8 +422,9 @@ class FocusModeWorkoutService: ObservableObject {
             let response: LogSetResponse = try await apiClient.postJSON("logSet", body: request)
 
             if response.success, let totals = response.totals {
-                // Update totals from server (source of truth)
+                // Update totals and version from server (source of truth)
                 self.workout?.totals = totals
+                if let version = response.version { self.workout?.version = version }
                 return totals
             } else {
                 throw FocusModeError.syncFailed(response.error ?? "Unknown error")
@@ -931,6 +932,7 @@ class FocusModeWorkoutService: ObservableObject {
             // Apply updates locally
             applyAutofillLocally(exerciseInstanceId: exerciseInstanceId, updates: updates, additions: additions)
             self.workout?.totals = totals
+            if let version = response.version { self.workout?.version = version }
             return totals
         } else {
             throw FocusModeError.autofillFailed(response.error ?? "Unknown error")
@@ -941,20 +943,22 @@ class FocusModeWorkoutService: ObservableObject {
     
     private func syncPatch(_ request: PatchActiveWorkoutRequest) async throws -> WorkoutTotals {
         let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
-        
+
         if response.success, let totals = response.totals {
             self.workout?.totals = totals
+            if let version = response.version { self.workout?.version = version }
             return totals
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Unknown error")
         }
     }
-    
+
     private func syncAddSetPatch(_ request: AddSetPatchRequest) async throws -> WorkoutTotals {
         let response: PatchActiveWorkoutResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
-        
+
         if response.success, let totals = response.totals {
             self.workout?.totals = totals
+            if let version = response.version { self.workout?.version = version }
             return totals
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Unknown error")
@@ -1764,40 +1768,45 @@ private struct PatchActiveWorkoutResponse: Decodable {
     let success: Bool
     let eventId: String?
     let totals: WorkoutTotals?
+    let version: Int?
     let error: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case success
         case data
         case error
     }
-    
+
     private struct DataWrapper: Decodable {
         let success: Bool?
         let eventId: String?
         let totals: WorkoutTotals?
-        
+        let version: Int?
+
         enum CodingKeys: String, CodingKey {
             case success
             case eventId = "event_id"
             case totals
+            case version
         }
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         // Get top-level success
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
-        
+
         // Try to decode from nested data wrapper (new response format)
         if let data = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
             self.eventId = data.eventId
             self.totals = data.totals
+            self.version = data.version
         } else {
             self.eventId = nil
             self.totals = nil
+            self.version = nil
         }
     }
 }
@@ -2031,8 +2040,9 @@ private struct GetActiveWorkoutData: Decodable {
     let status: String?
     let exercises: [GetActiveWorkoutExerciseDTO]?
     let totals: WorkoutTotals?
+    let version: Int?
     let startTime: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -2040,6 +2050,7 @@ private struct GetActiveWorkoutData: Decodable {
         case status
         case exercises
         case totals
+        case version
         case startTime = "start_time"
     }
 }
@@ -2122,6 +2133,7 @@ extension FocusModeWorkout {
             name: data.name,
             exercises: exercises,
             totals: data.totals ?? WorkoutTotals(),
+            version: data.version ?? 0,
             startTime: startTime,
             endTime: nil,
             createdAt: Date(),
@@ -2338,10 +2350,11 @@ private struct StartActiveWorkoutWorkoutData: Decodable {
     let status: String?
     let exercises: [GetActiveWorkoutExerciseDTO]?
     let totals: WorkoutTotals?
+    let version: Int?
     let sourceTemplateId: String?
     let sourceRoutineId: String?
     let startTime: Date?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -2349,11 +2362,12 @@ private struct StartActiveWorkoutWorkoutData: Decodable {
         case status
         case exercises
         case totals
+        case version
         case sourceTemplateId = "source_template_id"
         case sourceRoutineId = "source_routine_id"
         case startTime = "start_time"
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
@@ -2362,6 +2376,7 @@ private struct StartActiveWorkoutWorkoutData: Decodable {
         self.status = try container.decodeIfPresent(String.self, forKey: .status)
         self.exercises = try container.decodeIfPresent([GetActiveWorkoutExerciseDTO].self, forKey: .exercises)
         self.totals = try container.decodeIfPresent(WorkoutTotals.self, forKey: .totals)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version)
         self.sourceTemplateId = try container.decodeIfPresent(String.self, forKey: .sourceTemplateId)
         self.sourceRoutineId = try container.decodeIfPresent(String.self, forKey: .sourceRoutineId)
         
@@ -2431,6 +2446,7 @@ extension FocusModeWorkout {
             name: workoutData?.name,
             exercises: exercises,
             totals: workoutData?.totals ?? WorkoutTotals(),
+            version: workoutData?.version ?? 0,
             startTime: startTime,
             endTime: nil,
             createdAt: Date(),

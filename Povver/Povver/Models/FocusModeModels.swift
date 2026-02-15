@@ -275,11 +275,12 @@ struct FocusModeWorkout: Codable, Identifiable {
     var name: String?
     var exercises: [FocusModeExercise]
     var totals: WorkoutTotals
+    var version: Int
     var startTime: Date
     var endTime: Date?
     var createdAt: Date
     var updatedAt: Date?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -289,12 +290,60 @@ struct FocusModeWorkout: Codable, Identifiable {
         case name
         case exercises
         case totals
+        case version
         case startTime = "start_time"
         case endTime = "end_time"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
-    
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.userId = try container.decode(String.self, forKey: .userId)
+        self.status = try container.decode(WorkoutStatus.self, forKey: .status)
+        self.sourceTemplateId = try container.decodeIfPresent(String.self, forKey: .sourceTemplateId)
+        self.sourceRoutineId = try container.decodeIfPresent(String.self, forKey: .sourceRoutineId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.exercises = try container.decode([FocusModeExercise].self, forKey: .exercises)
+        self.totals = try container.decode(WorkoutTotals.self, forKey: .totals)
+        self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        self.startTime = try container.decode(Date.self, forKey: .startTime)
+        self.endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    init(
+        id: String,
+        userId: String,
+        status: WorkoutStatus,
+        sourceTemplateId: String? = nil,
+        sourceRoutineId: String? = nil,
+        name: String? = nil,
+        exercises: [FocusModeExercise],
+        totals: WorkoutTotals,
+        version: Int = 0,
+        startTime: Date,
+        endTime: Date? = nil,
+        createdAt: Date,
+        updatedAt: Date? = nil
+    ) {
+        self.id = id
+        self.userId = userId
+        self.status = status
+        self.sourceTemplateId = sourceTemplateId
+        self.sourceRoutineId = sourceRoutineId
+        self.name = name
+        self.exercises = exercises
+        self.totals = totals
+        self.version = version
+        self.startTime = startTime
+        self.endTime = endTime
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
     enum WorkoutStatus: String, Codable {
         case inProgress = "in_progress"
         case completed = "completed"
@@ -357,38 +406,43 @@ struct LogSetResponse: Decodable {
     let success: Bool
     let eventId: String?
     let totals: WorkoutTotals?
+    let version: Int?
     let error: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case success
         case data
         case error
     }
-    
+
     private struct DataWrapper: Decodable {
         let eventId: String?
         let totals: WorkoutTotals?
+        let version: Int?
         let success: Bool?
-        
+
         enum CodingKeys: String, CodingKey {
             case eventId = "event_id"
             case totals
+            case version
             case success
         }
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
-        
-        // API returns { data: { event_id, totals, success }, success: true }
+
+        // API returns { data: { event_id, totals, version, success }, success: true }
         if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
             self.eventId = dataWrapper.eventId
             self.totals = dataWrapper.totals
+            self.version = dataWrapper.version
         } else {
             self.eventId = nil
             self.totals = nil
+            self.version = nil
         }
     }
 }
@@ -447,38 +501,43 @@ struct AutofillExerciseResponse: Decodable {
     let success: Bool
     let eventId: String?
     let totals: WorkoutTotals?
+    let version: Int?
     let error: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case success
         case data
         case error
     }
-    
+
     private struct DataWrapper: Decodable {
         let eventId: String?
         let totals: WorkoutTotals?
+        let version: Int?
         let success: Bool?
-        
+
         enum CodingKeys: String, CodingKey {
             case eventId = "event_id"
             case totals
+            case version
             case success
         }
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.success = try container.decodeIfPresent(Bool.self, forKey: .success) ?? true
         self.error = try container.decodeIfPresent(String.self, forKey: .error)
-        
-        // API returns { data: { event_id, totals, success }, success: true }
+
+        // API returns { data: { event_id, totals, version, success }, success: true }
         if let dataWrapper = try container.decodeIfPresent(DataWrapper.self, forKey: .data) {
             self.eventId = dataWrapper.eventId
             self.totals = dataWrapper.totals
+            self.version = dataWrapper.version
         } else {
             self.eventId = nil
             self.totals = nil
+            self.version = nil
         }
     }
 }
