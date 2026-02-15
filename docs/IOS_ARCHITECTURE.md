@@ -89,6 +89,15 @@ RootView observes `AuthService.isAuthenticated` via `.onChange`. When auth state
 | Canvas | `CanvasScreen` | AI-powered planning workspace |
 | Dev (DEBUG) | `ComponentGallery` | UI component testing |
 
+### Canvas Navigation
+
+Navigation entry points use `conversationId` instead of `canvasId`:
+
+- `ChatHomeView` navigates to `CanvasScreen` with `entryContext` (contains `conversationId`)
+- `CoachTabView` navigates to `CanvasScreen` with `entryContext`
+- `CanvasScreen` still exists (rename deferred to avoid large refactor)
+- `CanvasViewModel` internally uses both `conversationId` and `canvasId` during migration phase
+
 ---
 
 ## Architecture Layers
@@ -168,12 +177,12 @@ RootView observes `AuthService.isAuthenticated` via `.onChange`. When auth state
 - Parses SSE events into `StreamEvent` objects
 - Handles markdown sanitization and deduplication
 - Returns `AsyncThrowingStream<StreamEvent, Error>`
+- Parameter `conversationId` passed to backend (also sends `canvasId` for backward compatibility during migration)
 
 #### `CanvasService`
 - `bootstrapCanvas(userId, purpose)` - Create new canvas
 - `openCanvas(userId, purpose)` - Open or resume canvas with session
 - `initializeSession(canvasId, purpose)` - Initialize agent session
-- `applyAction(request)` - Execute canvas actions
 - `purgeCanvas(userId, canvasId)` - Delete canvas
 
 #### `ActiveWorkoutManager`
@@ -205,7 +214,6 @@ All repositories extend data access with type-safe Firestore operations:
 | `TemplateRepository` | `users/{id}/templates` | Workout templates |
 | `RoutineRepository` | `users/{id}/routines` | Routines (template sequences) |
 | `ExerciseRepository` | `exercises` | Global exercise catalog |
-| `CanvasRepository` | `users/{id}/canvases`, `.../cards` | Canvas and card state |
 
 ### `BaseRepository`
 
@@ -251,6 +259,7 @@ func withRetry<T>(
 | Model | Purpose |
 |-------|---------|
 | `StreamEvent` | SSE event with type, content, metadata |
+| `StreamEvent.EventType` | Enum including `.artifact` for proposed cards |
 | `ChatMessage` | Chat UI message with author, content, timestamp |
 | `AgentProgressState` | Tool execution progress tracking |
 | `WorkspaceEvent` | Workspace events from agent |
@@ -261,30 +270,35 @@ func withRetry<T>(
 
 | ViewModel | Views | Responsibilities |
 |-----------|-------|------------------|
-| `CanvasViewModel` | `CanvasScreen`, card views | Canvas state, Firestore listeners, action handling |
+| `CanvasViewModel` | `CanvasScreen`, card views | Canvas state, SSE artifact handling, card lifecycle |
 | `RoutinesViewModel` | `RoutinesListView`, detail views | Routine CRUD, active routine management |
 | `ExercisesViewModel` | Exercise search | Exercise catalog fetching |
 
 ### `CanvasViewModel` (Primary)
 
 **State:**
-- `cards: [CanvasCardModel]` - All cards on canvas
+- `cards: [CanvasCardModel]` - All cards (built from SSE artifact events)
 - `cardsByLane: [CardLane: [CanvasCardModel]]` - Cards grouped by lane
 - `isLoading`, `isAgentProcessing`, `error`
 - `canvasId`, `sessionId`, `userId`
 - `agentProgress: AgentProgressState`
 
 **Key Methods:**
-- `bootstrap()` - Create/resume canvas
-- `sendMessage(_:)` - Invoke agent with message
-- `applyAction(_:)` - Execute canvas action
-- `acceptCard(_:)` / `rejectCard(_:)` - Proposal handling
+- `bootstrap()` - Create/resume canvas, attach minimal listeners
+- `sendMessage(_:)` - Invoke agent with message, stream SSE
+- `buildCardFromArtifact(data: [String: Any])` - Convert artifact SSE event to `CanvasCardModel` via JSON round-trip decoding
+- `handleIncomingStreamEvent(_:)` - Process SSE events, including `.artifact` case
+- `acceptCard(_:)` / `dismissCard(_:)` - Proposal handling via `AgentsApi.artifactAction()`
 - `startWorkout(from:)` - Begin active workout
 
 **Firestore Listeners:**
-- Cards subcollection (`cards`)
 - Workspace events (`workspace_events`)
 - Active workout doc (`active_workouts/{canvasId}`)
+
+**Notes:**
+- No longer subscribes to Firestore `cards` collection — cards now come from SSE artifact events
+- Artifact events carry card data in SSE payload, ViewModel decodes to `CanvasCardModel` and appends to `cards` array
+- Card renderers unchanged — still take `CanvasCardModel` as input
 
 ---
 
@@ -335,20 +349,29 @@ func withRetry<T>(
 
 ## Canvas System
 
-The Canvas is the primary AI interaction surface. It displays cards organized by lanes and manages agent streaming.
+The Canvas is the primary AI interaction surface. It displays cards organized by lanes and manages agent streaming. Cards are now delivered via SSE artifact events instead of Firestore listeners.
 
-### Canvas Lifecycle
+### Canvas Lifecycle (Conversation-Based)
 
 ```
 1. User opens Canvas tab
 2. CanvasScreen.onAppear → CanvasViewModel.bootstrap()
 3. bootstrap() calls openCanvas(userId, purpose)
 4. Backend returns canvasId + sessionId
-5. ViewModel attaches Firestore listeners for cards
+5. ViewModel attaches minimal Firestore listeners (workspace events, active workout)
 6. User sends message → sendMessage()
-7. Agent streams response → cards written to Firestore
-8. Listeners update local state → UI refreshes
+7. Agent streams SSE response → artifact events contain card data
+8. handleIncomingStreamEvent() detects .artifact case
+9. buildCardFromArtifact() converts artifact data to CanvasCardModel
+10. Card appended to local cards array → UI refreshes
 ```
+
+### Pre-Warming (SessionPreWarmer)
+
+`SessionPreWarmer` (singleton) pre-warms Vertex AI sessions on app appear to reduce cold-start latency:
+- Triggered by `CoachTabView.onAppear` and `MainTabsView.onAppear`
+- Calls backend pre-warm endpoint with `conversationId` and `canvasId`
+- No user-visible UI — runs silently in background
 
 ### Card Actions
 
@@ -356,23 +379,54 @@ Cards can define actions in their `actions` and `menuItems` arrays:
 
 | Action Type | Purpose |
 |-------------|---------|
-| `accept` | Accept proposed card |
-| `reject` | Reject proposed card |
+| `accept` | Accept proposed card via `artifactAction()` |
+| `dismiss` | Dismiss proposed card via `artifactAction()` |
+| `save_routine` | Save routine via `artifactAction()` |
+| `start_workout` | Start workout via `artifactAction()` |
 | `edit` | Open edit interface |
-| `start` | Start workout from plan |
-| `save_as_template` | Save plan as template |
-| `add_to_routine` | Add template to routine |
 | `refine` | Open refinement sheet |
 | `swap` | Open exercise swap sheet |
 
-### Canvas DTOs
+### Artifact Action Flow
 
-Request/response types for canvas operations:
+Card lifecycle actions (accept, dismiss, save_routine, start_workout) now use `AgentsApi.artifactAction()`:
 
-- `ApplyActionRequestDTO` - Action request with idempotency key
-- `ApplyActionResponseDTO` - Action result with changed cards
-- `CanvasStateDTO` - Canvas state snapshot
-- `CanvasMapper` - Firestore document to model conversion
+```
+User taps Accept/Dismiss → CanvasViewModel.acceptCard() / dismissCard()
+        │
+        ▼
+AgentsApi.artifactAction(artifactId: cardId, action: "accept" | "dismiss" | ...)
+        │
+        ▼
+Backend processes action, returns result
+        │
+        ▼
+ViewModel updates card status or removes from local state
+```
+
+### Artifact SSE Event Structure
+
+Artifact events carry card data in SSE payload:
+
+```json
+{
+  "type": "artifact",
+  "artifact_id": "card-uuid",
+  "data": {
+    "id": "card-uuid",
+    "type": "session_plan",
+    "lane": "execution",
+    "status": "pending",
+    "title": "Push Day Workout",
+    "data": { ... }
+  }
+}
+```
+
+`buildCardFromArtifact(data:)` converts `data` to `CanvasCardModel` via JSON round-trip:
+1. Serialize `data` dict to JSON
+2. Decode as `CanvasCardModel` (which is `Codable`)
+3. Append to `cards` array
 
 ---
 
@@ -621,6 +675,53 @@ Standalone sheet from login screen. Sends Firebase password reset email via `Aut
 
 ---
 
+## Canvas to Conversations Migration
+
+### Overview
+
+The Canvas system has been migrated from Firestore-based card storage to SSE artifact events. This enables real-time card delivery without polling Firestore listeners.
+
+### Key Changes
+
+| Component | Before | After |
+|-----------|--------|-------|
+| Card source | Firestore `cards` subcollection | SSE artifact events |
+| Card delivery | Firestore snapshot listeners | `StreamEvent.EventType.artifact` |
+| Card conversion | Direct Firestore decode | `buildCardFromArtifact()` JSON round-trip |
+| Card actions | `CanvasService.applyAction()` | `AgentsApi.artifactAction()` |
+| Bootstrap | `openCanvas()` + Firestore listeners | `openCanvas()` + minimal listeners + SSE |
+| Navigation param | `canvasId` | `conversationId` (with backward-compat `canvasId`) |
+
+### Deleted Files
+
+- `Repositories/CanvasRepository.swift` - No longer needed, cards from SSE
+- `Services/PendingAgentInvoke.swift` - Dead code, `.take()` never called
+
+### Renamed Parameters
+
+- `DirectStreamingService.stream()`: `canvasId` → `conversationId`
+- POST body includes both `conversationId` and `canvasId` for backward compatibility during backend migration
+
+### Deferred Renames
+
+The following names remain unchanged to avoid large refactors:
+
+- `CanvasViewModel` - Still named "Canvas" but handles artifacts from conversations
+- `CanvasScreen` - Still named "Canvas" but navigates with `conversationId`
+- `canvasId` field in ViewModel - Used internally alongside `conversationId`
+
+### Migration Checklist
+
+When fully migrated to conversations:
+
+1. Rename `CanvasViewModel` to `ConversationViewModel`
+2. Rename `CanvasScreen` to `ConversationScreen`
+3. Remove `canvasId` parameter from `DirectStreamingService` (keep only `conversationId`)
+4. Update navigation paths to use `conversationId` consistently
+5. Remove Firestore schema references to `canvases/{canvasId}/cards`
+
+---
+
 ## Directory Structure
 
 ```
@@ -650,7 +751,6 @@ Povver/Povver/
 │   └── WorkspaceEvent.swift
 ├── Repositories/
 │   ├── BaseRepository.swift
-│   ├── CanvasRepository.swift
 │   ├── ExerciseRepository.swift
 │   ├── retry.swift
 │   ├── RoutineRepository.swift
@@ -677,8 +777,8 @@ Povver/Povver/
 │   ├── Errors.swift                # Error types
 │   ├── FirebaseService.swift       # Firestore abstraction
 │   ├── Idempotency.swift           # Idempotency keys
-│   ├── PendingAgentInvoke.swift    # Pending message queue
 │   ├── SessionManager.swift        # Session state
+│   ├── SessionPreWarmer.swift      # Vertex AI session pre-warming
 │   ├── FocusModeWorkoutService.swift # Active workout API
 │   ├── WorkoutSessionLogger.swift  # On-device event log
 │   ├── TemplateManager.swift       # Template editing

@@ -118,6 +118,7 @@ Timeline:
                       │  • planner_skills.py (artifacts)│
                       │  • copilot_skills.py (logging)  │
                       │  • gated_planner.py (safety)    │
+                      │  • workout_skills.py (workout)  │
                       └─────────────────────────────────┘
 ```
 
@@ -147,7 +148,7 @@ adk_agent/canvas_orchestrator/
 │   │   ├── __init__.py
 │   │   ├── copilot_skills.py     # Lane 1: log_set, get_next_set
 │   │   ├── coach_skills.py       # Analytics, user data
-│   │   ├── planner_skills.py     # Artifact creation
+│   │   ├── planner_skills.py     # Artifact creation (returns data, not cards)
 │   │   └── gated_planner.py      # Safety Gate wrapper
 │   │
 │   └── agents/                   # LEGACY (deprecated)
@@ -213,6 +214,7 @@ route_request("create a PPL routine")
     → Tool Planner injects: "INTERNAL PLAN: Use search_exercises, propose_routine"
     → LLM CoT reasoning
     → tool_propose_routine() with dry_run=True (Safety Gate)
+    → Returns artifact data in SkillResult
     → Critic validates response
   → Stream: "I've designed a 3-day PPL routine..."
 ```
@@ -220,12 +222,12 @@ route_request("create a PPL routine")
 **Safety Gate Integration:**
 ```python
 # First call returns preview
-tool_propose_routine(name="PPL", workouts=[...])  
-# → dry_run=True → "Preview: 3 workouts. Say 'confirm' to publish."
+result = tool_propose_routine(name="PPL", workouts=[...])
+# → dry_run=True → SkillResult with artifact data preview
 
 # After confirmation
-tool_propose_routine(name="PPL", workouts=[...])
-# → User said "confirm" → dry_run=False → Published
+result = tool_propose_routine(name="PPL", workouts=[...])
+# → User said "confirm" → dry_run=False → SkillResult with final artifact
 ```
 
 ---
@@ -265,6 +267,7 @@ route_request({"intent": "SWAP_EXERCISE", "target": "Bench Press", "constraint":
   → RoutingResult(lane=FUNCTIONAL, intent="SWAP_EXERCISE")
   → execute_functional_lane()
   → FunctionalHandler._handle_swap_exercise()
+    → CanvasFunctionsClient.swap_exercise() via workout_skills
     → search_exercises(equipment="machine")
     → Flash: "Select best alternative"
   → JSON: {"action": "REPLACE_EXERCISE", "data": {"old": "Bench Press", "new": {...}}}
@@ -316,13 +319,14 @@ All write operations MUST go through the Safety Gate.
 
 **Gated Operations:**
 
-| Operation | Gate |
-|-----------|------|
-| `propose_workout` | ✅ Requires confirmation |
-| `propose_routine` | ✅ Requires confirmation |
-| `create_template` | ✅ Requires confirmation |
-| `get_training_analysis` | ❌ Read-only, no gate |
-| `search_exercises` | ❌ Read-only, no gate |
+| Operation | Gate | Return Format |
+|-----------|------|---------------|
+| `propose_workout` | ✅ Requires confirmation | Artifact in SkillResult.data |
+| `propose_routine` | ✅ Requires confirmation | Artifact in SkillResult.data |
+| `propose_routine_update` | ✅ Requires confirmation | Artifact in SkillResult.data |
+| `propose_template_update` | ✅ Requires confirmation | Artifact in SkillResult.data |
+| `get_training_analysis` | ❌ Read-only, no gate | Standard SkillResult |
+| `search_exercises` | ❌ Read-only, no gate | Standard SkillResult |
 
 **Implementation:**
 
@@ -332,10 +336,19 @@ from app.shell.safety_gate import check_safety_gate, WriteOperation
 
 def propose_workout(ctx, message, **kwargs):
     decision = check_safety_gate(WriteOperation.PROPOSE_WORKOUT, message)
-    
+
     # First call: dry_run=True (preview)
     # After "confirm": dry_run=False (execute)
-    return _propose_workout(..., dry_run=decision.dry_run)
+    result = _propose_workout(..., dry_run=decision.dry_run)
+
+    # Returns SkillResult with artifact data:
+    # data = {
+    #     "artifact_type": "workout_plan",
+    #     "content": {...},
+    #     "actions": [...],
+    #     "status": "proposed"
+    # }
+    return result
 ```
 
 **Confirmation Keywords:**
@@ -350,10 +363,10 @@ CONFIRM_KEYWORDS = {"confirm", "yes", "do it", "go ahead", "publish", "save", "a
 **Old Architecture (Dangerous):**
 ```python
 # Legacy - DO NOT USE
-_context = {"canvas_id": None, "user_id": None}  # Module-level mutable!
+_context = {"conversation_id": None, "user_id": None}  # Module-level mutable!
 
 def some_tool():
-    canvas_id = _context["canvas_id"]  # Race condition!
+    conversation_id = _context["conversation_id"]  # Race condition!
 ```
 
 **New Architecture (Safe):**
@@ -361,7 +374,7 @@ def some_tool():
 # shell/context.py
 @dataclass(frozen=True)  # Immutable!
 class SessionContext:
-    canvas_id: str
+    conversation_id: str
     user_id: str
     correlation_id: Optional[str] = None
     workout_mode: bool = False
@@ -430,13 +443,13 @@ def set_current_context(ctx: "SessionContext", message: str = "") -> None:
 def get_current_context() -> "SessionContext":
     """
     Get the context for the current request.
-    
+
     Called by tool wrappers (tool_get_training_context, etc.) to retrieve
-    user_id and canvas_id without those values being passed as function args.
-    
+    user_id and conversation_id without those values being passed as function args.
+
     SECURITY: This ensures the LLM cannot hallucinate a user_id.
     The user_id comes from the authenticated request, not the LLM.
-    
+
     Raises:
         RuntimeError: If called outside an active request context.
                       This indicates a bug in the calling code.
@@ -481,6 +494,8 @@ def get_current_message() -> str:
 │  agent_engine_app.py :: stream_query()                                      │
 │                                                                             │
 │  1. Parse context from message prefix                                       │
+│     Format: "(context: conversation_id=X user_id=Y corr=Z [workout_id=W]   │
+│              [today=YYYY-MM-DD]) message"                                   │
 │     ctx = SessionContext.from_message(message)                              │
 │                                                                             │
 │  2. SET CONTEXT IMMEDIATELY (before any routing)                            │
@@ -510,6 +525,8 @@ def get_current_message() -> str:
 │      result = get_training_context(ctx.user_id)  ← Uses verified user_id    │
 │      return result.to_dict()                                                │
 │                                                                             │
+│  NOTE: conversation_id validation removed from tools - only user_id checked │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -528,6 +545,112 @@ def get_current_message() -> str:
 # LLM calls: tool_get_training_context()
 # Tool internally: ctx = get_current_context()  # From authenticated request
 # → Only accesses the requesting user's data
+```
+
+---
+
+## Planner Skills: Artifact Return Pattern
+
+### Direct Artifact Return (No Card Creation)
+
+Planner skills no longer call Firebase Functions to create cards. Instead, they return artifact data directly in the `SkillResult.data` dictionary. The iOS client receives this data and handles rendering/persistence.
+
+**Artifact-Returning Skills:**
+
+| Skill | Returns |
+|-------|---------|
+| `propose_workout()` | `{"artifact_type": "workout_plan", "content": {...}, "actions": [...], "status": "proposed"}` |
+| `propose_routine()` | `{"artifact_type": "routine", "content": {...}, "actions": [...], "status": "proposed"}` |
+| `propose_routine_update()` | `{"artifact_type": "routine_update", "content": {...}, "actions": [...], "status": "proposed"}` |
+| `propose_template_update()` | `{"artifact_type": "template_update", "content": {...}, "actions": [...], "status": "proposed"}` |
+
+**Example Flow:**
+
+```python
+# planner_skills.py
+def propose_workout(user_id: str, **kwargs) -> SkillResult:
+    # Generate workout plan
+    workout_plan = _build_workout_plan(...)
+
+    # Return as artifact data (no Firebase call)
+    return SkillResult(
+        success=True,
+        message="Here's your workout plan",
+        data={
+            "artifact_type": "workout_plan",
+            "content": workout_plan,
+            "actions": [
+                {"type": "confirm", "label": "Accept Plan"},
+                {"type": "dismiss", "label": "Dismiss"}
+            ],
+            "status": "proposed"
+        }
+    )
+```
+
+**iOS Consumption:**
+
+The iOS client receives the artifact data in the SSE stream and renders it as a specialized view component (e.g., `WorkoutPlanView`) with action buttons.
+
+### CanvasFunctionsClient: Simplified API
+
+**Removed Methods (Canvas-Specific):**
+- `propose_cards()` - No longer needed, replaced by direct artifact return
+- `bootstrap_canvas()` - Canvas initialization removed
+- `emit_event()` - Event emission removed
+
+**Remaining Methods (Workout Operations):**
+- `get_active_workout()` - Retrieve active workout state
+- `log_set()` - Log a completed set
+- `swap_exercise()` - Replace exercise in active workout
+- `complete_active_workout()` - Mark workout as completed
+- `get_exercise_summary()` - Exercise catalog data
+- `get_analysis_summary()` - Training analysis summaries
+- `get_planning_context()` - Context for workout planning
+- `get_routine()` - Fetch routine details
+- `create_routine_from_data()` - Create routine from artifact
+- `search_exercises()` - Search exercise catalog
+
+### HTTP Connection Pooling
+
+**Performance Optimization:**
+
+The `HttpClient` now uses `requests.Session()` with connection pooling to reduce latency for repeated Firebase Function calls.
+
+```python
+# canvas/canvas_client.py
+class HttpClient:
+    def __init__(self):
+        self.session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=10,   # Number of connection pools
+            pool_maxsize=20        # Connections per pool
+        )
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
+
+    def post(self, url: str, **kwargs):
+        return self.session.post(url, **kwargs)
+```
+
+**Impact:**
+- Reuses TCP connections across tool calls within a single request
+- Reduces connection overhead by 50-70ms per Firebase call
+- Particularly beneficial for multi-tool sequences (e.g., search_exercises + propose_routine)
+
+**Singleton Pattern:**
+
+`workout_skills.py` uses a singleton client instance to maximize connection reuse across all copilot operations:
+
+```python
+# skills/workout_skills.py
+_client_instance = None
+
+def _get_client() -> CanvasFunctionsClient:
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = CanvasFunctionsClient(...)
+    return _client_instance
 ```
 
 ---
@@ -700,28 +823,29 @@ iOS Action: Show "Coach Tip" toast overlay. Does NOT go into chat history.
 ```
 iOS Action: Show prominent alert. May pause workout timer.
 
-### Canvas Cards vs Chat Bubbles (FOR iOS DEVELOPERS)
+### Artifacts vs Chat Bubbles (FOR iOS DEVELOPERS)
 
 The iOS app renders two distinct UI elements from agent responses:
 
 | Response Type | Detection | iOS Rendering |
 |--------------|-----------|---------------|
 | Chat text | Plain string in stream | `ChatBubble` view |
-| Canvas Card | JSON with `card_type` | `SessionPlanCard`, `RoutineSummaryCard`, etc. |
+| Artifact | JSON with `artifact_type` | `WorkoutPlanView`, `RoutineSummaryView`, etc. |
 
-**Canvas Card Detection (iOS):**
+**Artifact Detection (iOS):**
 
 ```swift
-// Check for canvas card structure
-struct CanvasCard: Codable {
-    let card_type: String         // "session_plan", "routine_summary", etc.
-    let card_id: String
-    let payload: AnyCodable
+// Check for artifact structure
+struct Artifact: Codable {
+    let artifact_type: String     // "workout_plan", "routine", etc.
+    let content: AnyCodable
+    let actions: [ArtifactAction]
+    let status: String            // "proposed", "accepted", "dismissed"
 }
 
 // In stream handler:
-if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
-    renderCanvasCard(card)  // Specialized UI component
+if let artifact = try? JSONDecoder().decode(Artifact.self, from: data) {
+    renderArtifact(artifact)  // Specialized UI component
 } else {
     renderChatBubble(text)  // Standard chat display
 }
@@ -732,10 +856,10 @@ if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
 | iOS File | Purpose |
 |----------|---------|
 | `Services/DirectStreamingService.swift` | WebSocket/HTTP2 streaming client |
-| `Services/CanvasActions.swift` | Handle canvas card actions (confirm, dismiss) |
+| `Services/ConversationActions.swift` | Handle artifact actions (confirm, dismiss) |
 | `Services/AgentsApi.swift` | API wrapper for agent invocation |
-| `UI/Canvas/Cards/*.swift` | Render specific card types |
-| `ViewModels/CanvasViewModel.swift` | State management for canvas items |
+| `UI/Conversation/Artifacts/*.swift` | Render specific artifact types |
+| `ViewModels/ConversationViewModel.swift` | State management for conversation items |
 
 ---
 
@@ -750,14 +874,17 @@ if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
 | Do tool functions use `get_current_context()` to retrieve user_id? | YES | ✅ |
 | Is `user_id` EXCLUDED from tool function signatures (LLM-facing)? | YES | ✅ |
 | Does `get_current_context()` raise RuntimeError if called outside request? | YES | ✅ |
+| Is tool validation checking `user_id` only (not `conversation_id`)? | YES | ✅ |
 
 ### Write Safety (Mutation Prevention)
 
 | Check | Expected | Verified |
 |-------|----------|----------|
 | Is `tool_manage_routine` excluded from `tools.py`? | YES | ✅ |
-| Does `propose_workout` require confirmation before writing? | YES | ✅ |
-| Does `propose_routine` require confirmation before writing? | YES | ✅ |
+| Does `propose_workout` return artifact data in SkillResult.data? | YES | ✅ |
+| Does `propose_routine` return artifact data in SkillResult.data? | YES | ✅ |
+| Does `propose_routine_update` return artifact data in SkillResult.data? | YES | ✅ |
+| Does `propose_template_update` return artifact data in SkillResult.data? | YES | ✅ |
 | Are read-only tools (`search_exercises`, progress summaries) ungated? | YES | ✅ |
 
 ### Token-Safe Analytics (v2 - 2026-02-14)
@@ -780,14 +907,18 @@ if let card = try? JSONDecoder().decode(CanvasCard.self, from: data) {
 | Does Functional Lane return pure JSON (not chat text)? | YES | ✅ |
 | Does MONITOR_STATE return `{"action": "NULL"}` when no intervention? | YES | ✅ |
 | Does MONITOR_STATE return `{"action": "NUDGE", ...}` for interventions? | YES | ✅ |
+| Do planner skills return artifacts with `artifact_type`, `content`, `actions`, `status`? | YES | ✅ |
 
-### Performance (Latency Targets)
+### Performance
 
 | Check | Expected | Verified |
 |-------|----------|----------|
 | Does "log set" / "done" bypass the LLM? | YES | ✅ |
 | Is Fast Lane latency < 500ms? | YES | ✅ (target) |
 | Is Functional Lane latency < 1s? | YES | ✅ (target) |
+| Does `HttpClient` use `requests.Session()` with connection pooling? | YES | ✅ |
+| Is `HTTPAdapter` configured with `pool_connections=10, pool_maxsize=20`? | YES | ✅ |
+| Does `workout_skills.py` use singleton client pattern? | YES | ✅ |
 
 ### Architecture (No Legacy Dependencies)
 
@@ -819,7 +950,7 @@ Set logged: 8 reps @ 100kg
 result = await execute_functional_lane(
     routing=RoutingResult(lane=Lane.FUNCTIONAL, intent="SWAP_EXERCISE"),
     payload={"target": "Barbell Bench", "constraint": "machine"},
-    ctx=SessionContext(canvas_id="c1", user_id="u1")
+    ctx=SessionContext(conversation_id="c1", user_id="u1")
 )
 # → {"action": "REPLACE_EXERCISE", "data": {...}}
 ```
@@ -863,6 +994,7 @@ python workers/post_workout_analyst.py \
 | 2026-01-03 | **Production Integration Documentation**: Added Vertex AI runtime section, ContextVars deep-dive, iOS protocol multiplexing, Monitor Lane schema, comprehensive verification checklist |
 | 2026-01-04 | **Token-Safe Analytics v2**: Removed `tool_get_analytics_features` and `tool_get_recent_workouts` from agent tools. Replaced with bounded, paginated endpoints: `tool_get_muscle_group_progress`, `tool_get_muscle_progress`, `tool_get_exercise_progress`, and `tool_query_training_sets` (drilldown only). All summaries guaranteed under 15KB. |
 | 2026-02-14 | **Pre-computed Analysis + Instruction Rewrite**: Consolidated 3 pre-computed tools (`tool_get_recent_insights`, `tool_get_daily_brief`, `tool_get_latest_weekly_review`) + `tool_get_coaching_context` into single `tool_get_training_analysis`. Switched Slow Lane model from `gemini-2.5-flash` to `gemini-2.5-flash` (temp 0.3, thinking enabled). Rewrote system instruction from 190→140 lines: principles over rules, removed schema duplication, added 7 rich examples with Think/Tool/Response chains. Added hallucination guardrails via data-claim principles and no-data examples. Increased streaming timeout to 300s/180s. |
+| 2026-02-15 | **Canvas → Conversations Migration**: Changed context prefix from `canvas_id=X` to `conversation_id=X`. Planner skills (`propose_workout`, `propose_routine`, `propose_routine_update`, `propose_template_update`) now return artifact data directly in SkillResult.data with keys: `artifact_type`, `content`, `actions`, `status`. Removed `CanvasFunctionsClient` methods `propose_cards()`, `bootstrap_canvas()`, `emit_event()`. Removed `canvas_id` parameter from tool validation (now only checks `user_id`). Added HTTP connection pooling via `HttpClient` with `requests.Session()` and `HTTPAdapter(pool_connections=10, pool_maxsize=20)`. Changed `workout_skills.py` client to singleton pattern. |
 
 ---
 

@@ -179,9 +179,9 @@ node scripts/backfill_analysis_jobs.js # backfill training analysis (post-workou
 
 MVVM: Views → ViewModels → Services/Repositories → Firebase SDK.
 
-- **Entry**: `PovverApp.swift` → `RootView.swift` → `MainTabsView.swift` (tabs: Chat, Routines, Templates, Canvas)
-- **Canvas system**: Primary AI interaction surface. `CanvasViewModel` manages cards, agent streaming, Firestore snapshot listeners. Cards organized by lanes (planning/analysis/execution).
-- **Streaming**: `DirectStreamingService` opens SSE via `streamAgentNormalized` Firebase Function proxy to Vertex AI.
+- **Entry**: `PovverApp.swift` → `RootView.swift` → `MainTabsView.swift` (tabs: Coach, Train, Routines, Templates)
+- **Chat system**: Primary AI interaction surface. `CanvasViewModel` manages SSE streaming, artifact rendering, and conversation state. Artifacts (workout plans, routines, analysis) arrive via SSE events and render inline using card components (`SessionPlanCard`, `RoutineSummaryCard`, etc.).
+- **Streaming**: `DirectStreamingService` opens SSE via `streamAgentNormalized` Firebase Function proxy to Vertex AI. Artifact events are emitted when agent tools return `artifact_type` data.
 - **Models**: `Codable` structs with `decodeIfPresent` + sensible defaults. Use `@DocumentID` for Firestore doc IDs.
 - **Design tokens**: `UI/DesignSystem/Tokens.swift` — spacing, radius, typography, colors.
 
@@ -194,7 +194,7 @@ All functions exported from `index.js`. Two patterns for wrapping handlers:
 // Service lane — userId from req.body/query (trusted agent calls)
 exports.getUser = functions.https.onRequest((req, res) => withApiKey(getUser)(req, res));
 // Bearer lane — userId from req.auth.uid ONLY (iOS app calls)
-exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAuth(applyAction)(req, res));
+exports.artifactAction = functions.https.onRequest((req, res) => requireFlexibleAuth(artifactAction)(req, res));
 ```
 
 **v2** (newer endpoints): Self-contained with `onRequest` from `firebase-functions/v2/https`, auth middleware built-in. Exported directly: `exports.logSet = logSet;`
@@ -207,9 +207,8 @@ exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAut
 5. For v2 functions, wrap internally and export directly
 
 **Key patterns:**
-- Canvas reducer `canvas/apply-action.js` is the single writer for all canvas state mutations (transactions, version checks, idempotency)
-- Idempotency via client-generated `idempotency_key`
-- Optimistic concurrency via `expected_version`
+- `stream-agent-normalized.js` handles SSE streaming, artifact detection, and message persistence to `conversations/{id}/messages` and `conversations/{id}/artifacts`
+- `artifacts/artifact-action.js` handles artifact lifecycle (accept, dismiss, save_routine, start_workout)
 - Auth security: Bearer-lane endpoints **never** trust client-provided userId — always derive from `req.auth.uid`
 
 ### Agent System — 4-Lane Shell Agent
@@ -238,7 +237,9 @@ Automated catalog curation via Cloud Run Jobs: quality audits, gap analysis, LLM
 
 | Collection | Purpose |
 |------------|---------|
-| `users/{uid}/canvases/{id}/cards/{cardId}` | Canvas cards (proposed/accepted/dismissed) |
+| `users/{uid}/conversations/{id}/messages` | Conversation history (user prompts, agent responses, artifact refs) |
+| `users/{uid}/conversations/{id}/artifacts` | Proposed artifacts from agent (plans, routines, analysis) |
+| `users/{uid}/agent_sessions/{purpose}` | Vertex AI session references for reuse |
 | `users/{uid}/routines/{id}` | Ordered template sequences with cursor tracking |
 | `users/{uid}/templates/{id}` | Reusable workout plans |
 | `users/{uid}/active_workouts/{id}` | In-progress workouts |
@@ -255,13 +256,12 @@ Full schema with field-level detail: `docs/FIRESTORE_SCHEMA.md`
 When adding a new field or data shape, update across all affected layers:
 
 1. **Firestore schema** → `docs/FIRESTORE_SCHEMA.md`
-2. **Firebase Function write path** → e.g., `create-routine-from-draft.js`, `propose-cards-core.js`
+2. **Firebase Function write path** → e.g., `create-routine-from-draft.js`, `stream-agent-normalized.js`
 3. **Firebase Function read path** → e.g., `get-routine.js`, `get-planning-context.js`
 4. **iOS Model** → `Povver/Povver/Models/*.swift` (ensure `Codable` with `decodeIfPresent` + default)
 5. **iOS UI** → relevant views
-6. **Agent schema** → `canvas/schemas/card_types/*.schema.json` (if agent writes the field)
-7. **Agent tools** → `app/skills/*.py` (if agent reads/writes the field)
-8. **Documentation** → all three tiers as applicable
+6. **Agent tools** → `app/skills/*.py` (if agent reads/writes the field)
+7. **Documentation** → all three tiers as applicable
 
 ---
 
@@ -270,6 +270,9 @@ When adding a new field or data shape, update across all affected layers:
 | Deprecated | Replacement |
 |------------|-------------|
 | `adk_agent/canvas_orchestrator/_archived/` | Shell Agent (`app/shell/`) |
+| `canvas/apply-action.js` and all `canvas/*.js` | Artifacts via `stream-agent-normalized.js` + `artifacts/artifact-action.js` |
+| `CanvasRepository.swift` | Artifacts from SSE events in `CanvasViewModel` |
+| `PendingAgentInvoke.swift` | Dead code — removed |
 | `routines/create-routine.js` | `routines/create-routine-from-draft.js` |
 | `routines/update-routine.js` | `routines/patch-routine.js` |
 | `templates/update-template.js` | `templates/patch-template.js` |

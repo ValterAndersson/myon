@@ -297,6 +297,49 @@ extension CanvasScreen {
                         showFocusMode = true
                     }
                 }
+            case "save_as_template":
+                // Save session plan exercises as a new template
+                if let exercisesJson = action.payload?["exercises_json"],
+                   let data = exercisesJson.data(using: .utf8),
+                   let planExercises = try? JSONDecoder().decode([PlanExercise].self, from: data) {
+                    Task {
+                        do {
+                            let uid = AuthService.shared.currentUser?.uid ?? ""
+                            let templateExercises = planExercises.enumerated().map { (idx, ex) -> WorkoutTemplateExercise in
+                                let templateSets = ex.sets.map { s -> WorkoutTemplateSet in
+                                    WorkoutTemplateSet(
+                                        id: s.id,
+                                        reps: s.reps,
+                                        rir: s.rir ?? 2,
+                                        type: s.type?.rawValue ?? "working",
+                                        weight: s.weight ?? 0
+                                    )
+                                }
+                                return WorkoutTemplateExercise(
+                                    id: ex.id,
+                                    exerciseId: ex.exerciseId ?? ex.id,
+                                    name: ex.name,
+                                    position: idx,
+                                    sets: templateSets,
+                                    restBetweenSets: ex.restBetweenSets
+                                )
+                            }
+                            let template = WorkoutTemplate(
+                                id: "",
+                                userId: uid,
+                                name: card.title ?? "Workout Template",
+                                exercises: templateExercises,
+                                createdAt: Date(),
+                                updatedAt: Date()
+                            )
+                            _ = try await CloudFunctionService().createTemplate(template: template)
+                            await MainActor.run { toastText = "Template saved" }
+                        } catch {
+                            print("[CanvasScreen] Failed to save template: \(error)")
+                            await MainActor.run { toastText = "Failed to save template" }
+                        }
+                    }
+                }
             case "adjust_plan":
                 if let instruction = action.payload?["instruction"],
                    let currentPlan = action.payload?["current_plan"] {

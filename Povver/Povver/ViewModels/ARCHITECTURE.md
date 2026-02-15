@@ -6,34 +6,40 @@ ViewModels manage observable state and business logic for SwiftUI views. They co
 
 | File | Primary Views | Responsibilities |
 |------|---------------|------------------|
-| `CanvasViewModel.swift` | `CanvasScreen`, all card views | Canvas state, Firestore snapshot listeners, agent streaming, action dispatch, card grouping by lane |
+| `CanvasViewModel.swift` | `CanvasScreen`, all card views | Agent streaming, artifact rendering, conversation state, action dispatch |
 | `ExercisesViewModel.swift` | Exercise search views | Exercise catalog fetching and search |
-| `WorkoutCoachViewModel.swift` | `WorkoutCoachView` | Ephemeral in-memory chat during active workout. Streams agent responses via `DirectStreamingService.streamQuery(workoutId:)` with workout context prefix. Chat is not persisted to Firestore. Mirrors `CanvasViewModel` streaming pattern (message buffer → flush on `.done`) |
+| `WorkoutCoachViewModel.swift` | `WorkoutCoachView` | Ephemeral in-memory chat during active workout. Streams agent responses via `DirectStreamingService.streamQuery(workoutId:)` with workout context prefix. Chat is not persisted to Firestore. Mirrors `CanvasViewModel` streaming pattern (message buffer, flush on `.done`) |
 
 ## CanvasViewModel (Primary)
 
-The central ViewModel managing the Canvas experience:
+The central ViewModel managing the conversation + artifact experience:
 
 **State:**
-- `cards: [CanvasCardModel]` — All cards on canvas
-- `cardsByLane: [CardLane: [CanvasCardModel]]` — Cards grouped by lane
-- `isLoading`, `isAgentProcessing`, `error`
-- `canvasId`, `sessionId`, `userId`
+- `cards: [CanvasCardModel]` — Artifact cards built from SSE `artifact` events
+- `streamEvents: [StreamEvent]` — SSE events for workspace timeline display
+- `workspaceEvents: [WorkspaceEvent]` — Persisted conversation history
+- `thinkingState: ThinkingProcessState` — Collapsible thought process UI
+- `canvasId` (used as conversationId), `currentSessionId`, `currentUserId`
 
 **Key Methods:**
-- `bootstrap()` — Create/resume canvas via `CanvasService.openCanvas()`
-- `sendMessage(_:)` — Invoke agent with streaming via `DirectStreamingService`
-- `applyAction(_:)` — Execute canvas action via `CanvasService.applyAction()`
-- `acceptCard(_:)` / `rejectCard(_:)` — Proposal handling
-- `startWorkout(from:)` — Begin active workout and navigate to Focus Mode
+- `start(userId:purpose:)` — Create conversation via `openCanvas()`, attach Firestore listeners
+- `startSSEStream()` — Begin agent streaming via `DirectStreamingService`
+- `handleIncomingStreamEvent(_:)` — Process SSE events including `.artifact` type
+- `buildCardFromArtifact(type:content:actions:status:)` — Converts artifact SSE data to `CanvasCardModel` via JSON round-trip decoding. Supports: `session_plan`, `routine_summary`, `analysis_summary`, `visualization`.
 
-**Firestore Listeners (via CanvasRepository):**
-- Cards subcollection
-- Workspace events
-- Active workout doc
+**Artifact Flow:**
+1. Agent tool returns `artifact_type` in response
+2. `stream-agent-normalized.js` detects and emits SSE `artifact` event
+3. `handleIncomingStreamEvent()` receives `.artifact` case
+4. `buildCardFromArtifact()` converts to `CanvasCardModel`
+5. Card appended to `cards` array, rendered by existing card components
+
+**Firestore Listeners:**
+- Workspace events (for reload)
+- Canvas events (telemetry)
 
 ## Cross-References
 
 - Views: `Povver/Povver/Views/CanvasScreen.swift`, `UI/Canvas/`
-- Services: `Povver/Povver/Services/CanvasService.swift`, `DirectStreamingService.swift`
-- Repositories: `Povver/Povver/Repositories/CanvasRepository.swift`
+- Services: `DirectStreamingService.swift`, `AgentsApi.swift`
+- Card renderers: `UI/Canvas/Cards/SessionPlanCard.swift`, `RoutineSummaryCard.swift`, etc.

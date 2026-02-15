@@ -19,6 +19,8 @@ public struct StreamEvent: Codable {
         case done = "done"
         // Pipeline events for thought process visibility (router, planner, critic)
         case pipeline = "pipeline"
+        // Artifact events carry proposed cards from agent tools
+        case artifact = "artifact"
     }
     
     public let type: String  // Keep as string for flexibility

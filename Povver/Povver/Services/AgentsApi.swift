@@ -37,6 +37,7 @@ enum AgentsApi {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
 
         // Add Bearer auth
         if let currentUser = AuthService.shared.currentUser {

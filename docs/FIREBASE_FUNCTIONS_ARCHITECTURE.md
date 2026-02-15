@@ -9,7 +9,7 @@
 1. [Overview](#overview)
 2. [Function Categories](#function-categories)
 3. [Authentication & Middleware](#authentication--middleware)
-4. [Canvas Operations](#canvas-operations)
+4. [Conversation Operations](#conversation-operations)
 5. [Agent Operations](#agent-operations)
 6. [Active Workout Operations](#active-workout-operations)
 7. [CRUD Operations](#crud-operations)
@@ -25,12 +25,12 @@
 Firebase Functions serve as the backend API layer for the Povver fitness platform. Functions are deployed to Google Cloud and provide:
 
 - RESTful HTTP endpoints for CRUD operations
-- Canvas system state management
+- Conversation and artifact lifecycle management
 - Agent streaming proxy to Vertex AI Agent Engine
 - Firestore triggers for real-time data processing
 - Scheduled jobs for analytics and maintenance
 
-**Runtime**: Node.js 18+
+**Runtime**: Node.js 22
 **Region**: us-central1
 **Framework**: Firebase Functions (Gen 1 and Gen 2)
 
@@ -47,9 +47,10 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | **Templates** | `getUserTemplates`, `getTemplate`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `createTemplateFromPlan`, `patchTemplate` | API Key / Flexible |
 | **Routines** | `getUserRoutines`, `getRoutine`, `createRoutine`, `updateRoutine`, `deleteRoutine`, `getActiveRoutine`, `setActiveRoutine`, `getNextWorkout`, `patchRoutine` | API Key / Flexible |
 | **Exercises** | `getExercises`, `getExercise`, `searchExercises`, `upsertExercise`, `approveExercise`, `ensureExerciseExists`, `resolveExercise`, `mergeExercises` | API Key |
-| **Canvas** | `bootstrapCanvas`, `openCanvas`, `initializeSession`, `applyAction`, `proposeCards`, `purgeCanvas`, `emitEvent`, `expireProposals` | Flexible Auth |
+| **Conversations** | `artifactAction` | Flexible Auth |
+| **Sessions** | `initializeSession`, `preWarmSession`, `cleanupSessions` | Flexible Auth / Scheduled |
 | **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
-| **Agents** | `invokeCanvasOrchestrator`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
+| **Agents** | `invokeAgent`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
 | **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
 | **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
 
@@ -81,7 +82,7 @@ exports.getUser = functions.https.onRequest((req, res) => withApiKey(getUser)(re
 ```javascript
 const { requireFlexibleAuth } = require('./auth/middleware');
 // Bearer lane: userId from req.auth.uid ONLY, client userId params IGNORED
-exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAuth(applyAction)(req, res));
+exports.artifactAction = functions.https.onRequest((req, res) => requireFlexibleAuth(artifactAction)(req, res));
 ```
 
 ### Service Token Exchange
@@ -92,66 +93,70 @@ exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAut
 
 ---
 
-## Canvas Operations
+## Conversation Operations
 
-The Canvas is the central AI workspace where agents publish cards and users interact with proposals.
+Conversations are the primary AI interaction surface. The agent streams messages and emits artifacts (workout plans, routines, analyses) that users can accept, dismiss, or save.
 
-### Core Endpoints
+### Artifact Lifecycle
 
-| Function | Purpose | Input | Output |
-|----------|---------|-------|--------|
-| `openCanvas` | Get or create canvas + session (optimized) | `userId`, `purpose` | `{canvasId, sessionId}` |
-| `bootstrapCanvas` | Create or resume canvas | `userId`, `purpose` | `{canvasId}` |
-| `initializeSession` | Create agent session for canvas | `canvasId`, `purpose` | `{sessionId}` |
-| `applyAction` | Execute canvas action (reducer) | `ApplyActionRequest` | `{changedCards}` |
-| `proposeCards` | Agent publishes cards | `ProposeCardsRequest` | `{cards}` |
-| `purgeCanvas` | Delete canvas and all cards | `userId`, `canvasId` | `{success}` |
-| `emitEvent` | Publish workspace event | `canvasId`, `event` | `{success}` |
-| `expireProposals` | Mark old proposals expired | - | `{expired}` |
+`artifactAction` handles all artifact lifecycle operations:
 
-### Canvas State Flow
+**Location**: `artifacts/artifact-action.js`
+**Auth**: `requireFlexibleAuth` (Bearer lane)
 
-```
-1. Client calls openCanvas(userId, purpose)
-2. Backend finds/creates canvas document
-3. Backend initializes agent session (Vertex AI)
-4. Returns canvasId + sessionId
-5. Client attaches Firestore listeners to /cards
-6. Agent invocations → proposeCards → cards written to Firestore
-7. User actions → applyAction → card state changes
+**Input**:
+```javascript
+{
+  userId: string,           // Derived from auth token (req.auth.uid)
+  conversationId: string,
+  artifactId: string,
+  action: string,           // "accept" | "dismiss" | "save_routine" | "start_workout"
+  day?: number              // Optional, for routine/template actions
+}
 ```
 
-### Action Reducer (`apply-action.js`)
+**Actions**:
 
-The action reducer handles all canvas state transitions:
+| Action | Description | Effect |
+|--------|-------------|--------|
+| `accept` | Accept artifact | Updates artifact status to "accepted" |
+| `dismiss` | Dismiss artifact | Updates artifact status to "dismissed" |
+| `save_routine` | Save workout plan as routine | Creates routine document from artifact data |
+| `start_workout` | Start workout from plan | Creates active workout from artifact data |
 
-| Action | Description |
-|--------|-------------|
-| `accept` | Accept proposal, update card status |
-| `reject` | Reject proposal, archive card |
-| `edit` | Modify card content |
-| `start` | Start workout from session plan |
-| `save_as_template` | Convert plan to user template |
-| `add_to_routine` | Add template to routine |
-| `refine` | Request agent refinement |
-| `swap_exercise` | Swap exercise in plan |
-| `reorder_exercises` | Reorder plan exercises |
+**Output**:
+```javascript
+{
+  success: true,
+  artifact: { /* updated artifact document */ },
+  routine?: { /* created routine document (if save_routine) */ },
+  workout?: { /* created workout document (if start_workout) */ }
+}
+```
 
-### Card Types (JSON Schemas)
+### Session Management
 
-| Schema File | Card Type |
-|-------------|-----------|
-| `session_plan.schema.json` | Workout session plan |
-| `routine_summary.schema.json` | Routine overview |
-| `routine_overview.schema.json` | Routine details with schedule |
-| `visualization.schema.json` | Charts and tables |
-| `analysis_summary.schema.json` | Progress analysis |
-| `clarify_questions.schema.json` | Agent clarification questions |
-| `agent_stream.schema.json` | Streaming agent output |
-| `inline_info.schema.json` | Inline informational text |
-| `list.schema.json` | Generic list card |
-| `proposal_group.schema.json` | Group of related proposals |
-| `set_target.schema.json` | Set target for exercise |
+**`initializeSession`** - Create agent session for conversation:
+
+**Location**: `sessions/initialize-session.js`
+**Auth**: `requireFlexibleAuth`
+
+**Input**: `conversationId`, `purpose`
+**Output**: `{sessionId}`
+
+**`preWarmSession`** - Pre-warm agent session (reduce cold-start latency):
+
+**Location**: `sessions/pre-warm-session.js`
+**Auth**: `requireFlexibleAuth`
+
+**Input**: `userId`
+**Output**: `{success, sessionId}`
+
+**`cleanupSessions`** - Scheduled function to purge stale sessions:
+
+**Location**: `sessions/cleanup-sessions.js`
+**Trigger**: Scheduled (every 6 hours)
+**Purpose**: Deletes sessions older than 24 hours
 
 ---
 
@@ -163,27 +168,58 @@ The action reducer handles all canvas state transitions:
 
 ```
 iOS App → Firebase Function → Vertex AI Agent Engine
-           (SSE proxy)         (ADK agent)
+           (SSE proxy)         (Shell Agent)
+```
+
+**Location**: `strengthos/stream-agent-normalized.js`
+**Auth**: `requireFlexibleAuth`
+
+**Input**:
+```javascript
+{
+  conversationId: string,    // Primary identifier (canvasId supported for backward compat)
+  message: string,
+  userId?: string            // Derived from auth token (req.auth.uid)
+}
 ```
 
 **Stream Event Types:**
 - `thinking` - Agent processing indicator
 - `thought` - Agent reasoning content
 - `tool_start` / `tool_end` - Tool execution lifecycle
-- `message` - Agent text response
-- `card` - Card publication event
+- `message` - Agent text response chunk
+- `artifact` - Artifact publication event (workout plan, routine, analysis)
 - `error` - Error notification
+
+**Message Persistence**:
+- User messages persisted to `conversations/{id}/messages`
+- Agent messages persisted to `conversations/{id}/messages`
+- Replaces old `workspace_entries` collection
+
+**Artifact Detection**:
+- Agent tool responses are scanned for `artifact_type` field
+- When detected, artifact is emitted as SSE event and persisted to `conversations/{id}/artifacts`
+- Artifact types: `workout_plan`, `routine`, `analysis`, etc.
 
 ### Agent Invocation
 
-`invokeCanvasOrchestrator` triggers agent execution:
+`invokeAgent` triggers agent execution:
+
+**Location**: `agents/invoke-agent.js` (renamed from `invoke-canvas-orchestrator.js`)
+**Auth**: `requireFlexibleAuth`
+
 - Forwards user message to agent
 - Agent streams responses via `streamAgentNormalized`
-- Agent tools write cards via `proposeCards`
+- Agent tools emit artifacts directly in responses
 
 ### Planning Context
 
 `getPlanningContext` provides agent with user context:
+
+**Location**: `agents/get-planning-context.js`
+**Auth**: `requireFlexibleAuth`
+
+**Returns**:
 - User preferences and goals
 - Workout history
 - Active routine information
@@ -414,7 +450,7 @@ firebase_functions/functions/
 │   └── swap-exercise.js
 ├── agents/                     # Agent invocation
 │   ├── get-planning-context.js
-│   └── invoke-canvas-orchestrator.js
+│   └── invoke-agent.js         # Renamed from invoke-canvas-orchestrator.js
 ├── aliases/                    # Exercise alias management
 │   ├── delete-alias.js
 │   └── upsert-alias.js
@@ -424,28 +460,11 @@ firebase_functions/functions/
 │   ├── get-features.js
 │   ├── publish-weekly-job.js
 │   └── recalculate-weekly-for-user.js
+├── artifacts/                  # Artifact lifecycle
+│   └── artifact-action.js      # Accept, dismiss, save_routine, start_workout
 ├── auth/                       # Authentication middleware
 │   ├── exchange-token.js
 │   └── middleware.js
-├── canvas/                     # Canvas operations
-│   ├── apply-action.js         # Action reducer
-│   ├── bootstrap-canvas.js
-│   ├── emit-event.js
-│   ├── expire-proposals-scheduled.js
-│   ├── expire-proposals.js
-│   ├── initialize-session.js
-│   ├── open-canvas.js          # Optimized open
-│   ├── propose-cards-core.js   # Card proposal logic
-│   ├── propose-cards.js
-│   ├── purge-canvas.js
-│   ├── reducer-utils.js        # Reducer helpers
-│   ├── validators.js           # Schema validation
-│   └── schemas/                # JSON schemas
-│       ├── action.schema.json
-│       ├── apply_action_request.schema.json
-│       ├── card_input.schema.json
-│       ├── propose_cards_request.schema.json
-│       └── card_types/         # Card type schemas
 ├── exercises/                  # Exercise catalog
 │   ├── approve-exercise.js
 │   ├── backfill-normalize-family.js
@@ -481,14 +500,17 @@ firebase_functions/functions/
 │   ├── set-active-routine.js
 │   └── update-routine.js
 ├── scripts/                    # Dev scripts
-│   ├── seed_canvas.js
 │   └── weekly_publisher.js
+├── sessions/                   # Session management
+│   ├── cleanup-sessions.js     # Scheduled: purge stale sessions
+│   ├── initialize-session.js   # Create agent session
+│   └── pre-warm-session.js     # Pre-warm session (reduce cold-start)
 ├── shared/                     # Shared utilities
 │   └── active_workout/
 │       └── reorder_sets_core.js
 ├── strengthos/                 # Agent streaming
 │   ├── progress-reports.js
-│   └── stream-agent-normalized.js
+│   └── stream-agent-normalized.js  # SSE proxy with artifact detection
 ├── templates/                  # Template operations
 │   ├── create-template-from-plan.js
 │   ├── create-template.js
@@ -498,8 +520,7 @@ firebase_functions/functions/
 │   ├── patch-template.js
 │   └── update-template.js
 ├── tests/                      # Test files
-│   ├── reducer.invariants.test.js
-│   └── reducer.utils.test.js
+│   └── (test files)
 ├── triggers/                   # Firestore triggers
 │   ├── muscle-volume-calculations.js
 │   ├── weekly-analytics.js
@@ -512,6 +533,7 @@ firebase_functions/functions/
 │   └── upsert-attributes.js
 ├── utils/                      # Shared utilities
 │   ├── plan-to-template-converter.js
+│   ├── response.js             # ok() / fail() response helpers
 │   ├── validation-response.js
 │   └── validators.js
 ├── training/                   # Training analysis endpoints

@@ -661,7 +661,10 @@ def tool_propose_workout(
     Args:
         title: Workout name (e.g., "Push Day", "Leg Hypertrophy")
         exercises: List of exercises, each with:
-            - name: Exercise name
+            - name: Exercise name in catalog format "Name (Equipment)",
+              e.g. "Deadlift (Barbell)", "Bench Press (Barbell)",
+              "Lateral Raise (Dumbbell)", "Leg Press (Machine)".
+              Never use "Equipment Name" format like "Barbell Deadlift".
             - exercise_id: Catalog ID
             - sets: Number of working sets (3-4)
             - reps: Target reps (8-12 for hypertrophy)
@@ -707,7 +710,8 @@ def tool_propose_routine(
         frequency: Times per week (3, 4, 5, 6)
         workouts: List of workout days, each with:
             - title: Day name (e.g., "Push", "Pull", "Legs")
-            - exercises: List of exercises (same format as propose_workout)
+            - exercises: List of exercises (same format as propose_workout,
+              names in catalog format "Name (Equipment)")
         description: Brief routine description
     """
     ctx = get_current_context()
@@ -843,7 +847,7 @@ def tool_update_template(
         template_id: ID of the template to update (from tool_get_planning_context)
 
         exercises: List of exercises with modifications. Each exercise:
-            - name: Exercise name
+            - name: Exercise name in catalog format "Name (Equipment)"
             - exercise_id: Catalog ID
             - sets: Number of working sets (3-4)
             - reps: Target reps (8-12 for hypertrophy)

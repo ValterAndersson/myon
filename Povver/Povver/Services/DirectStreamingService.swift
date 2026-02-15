@@ -151,6 +151,7 @@ class DirectStreamingService: ObservableObject {
                     let body: [String: Any] = [
                         "userId": userId,
                         "conversationId": conversationId,
+                        "canvasId": conversationId,  // backward compat: production backend still reads canvasId
                         "message": message,
                         "correlationId": correlationId,
                         "sessionId": sessionId as Any,

@@ -14,12 +14,12 @@ final class WorkoutCoachViewModel: ObservableObject {
     @Published var inputText = ""
 
     let workoutId: String
-    let canvasId: String
+    let conversationId: String
     private var currentSessionId: String?
 
-    init(workoutId: String, canvasId: String = "workout-coach") {
+    init(workoutId: String, conversationId: String = "workout-coach") {
         self.workoutId = workoutId
-        self.canvasId = canvasId
+        self.conversationId = conversationId
     }
 
     func send() async {
@@ -59,7 +59,7 @@ final class WorkoutCoachViewModel: ObservableObject {
         do {
             let stream = DirectStreamingService.shared.streamQuery(
                 userId: userId,
-                canvasId: canvasId,
+                conversationId: conversationId,
                 message: text,
                 correlationId: UUID().uuidString,
                 sessionId: currentSessionId,
@@ -105,7 +105,7 @@ final class WorkoutCoachViewModel: ObservableObject {
                     let errorText = event.displayText
                     updateAgentMessage(id: agentMsgId, text: errorText.isEmpty ? "Error" : errorText, status: .failed)
 
-                case .pipeline, .thinking, .thought, .heartbeat, .card,
+                case .pipeline, .thinking, .thought, .heartbeat, .card, .artifact,
                      .agentResponse, .userPrompt, .userResponse, .clarificationRequest:
                     break
 

@@ -637,7 +637,7 @@ function transformToIOSEvent(adkEvent) {
     case 'error':
       // Clear tracked times on error
       eventStartTimes.clear();
-      
+
       return {
         ...base,
         type: 'error',
@@ -646,7 +646,20 @@ function transformToIOSEvent(adkEvent) {
           text: adkEvent.error || 'Unknown error'
         }
       };
-    
+
+    case 'artifact':
+      return {
+        ...base,
+        type: 'artifact',
+        content: {
+          artifact_id: adkEvent.artifact_id || null,
+          artifact_type: adkEvent.artifact_type || 'unknown',
+          artifact_content: adkEvent.content || {},
+          actions: adkEvent.actions || [],
+          status: adkEvent.status || 'proposed',
+        }
+      };
+
     default:
       // Pass through other events as-is
       return {
@@ -1146,6 +1159,22 @@ async function streamAgentNormalizedHandler(req, res) {
               // If tool response contains artifact_type, emit as artifact SSE event
               // and persist to Firestore for reload + action handling
               if (parsedResponse && parsedResponse.artifact_type) {
+                logger.info('[streamAgentNormalized] Artifact detected', {
+                  tool: name,
+                  artifact_type: parsedResponse.artifact_type,
+                });
+
+                // Emit artifact to iOS IMMEDIATELY via SSE (before async Firestore write)
+                // Uses sse.write() to route through transformToIOSEvent for proper iOS format
+                sse.write({
+                  type: 'artifact',
+                  artifact_type: parsedResponse.artifact_type,
+                  content: parsedResponse.content || {},
+                  actions: parsedResponse.actions || [],
+                  status: 'proposed',
+                });
+
+                // Persist artifact to Firestore async (don't block SSE stream)
                 const artifactData = {
                   type: parsedResponse.artifact_type,
                   content: parsedResponse.content || {},
@@ -1155,20 +1184,9 @@ async function streamAgentNormalizedHandler(req, res) {
                   created_at: admin.firestore.FieldValue.serverTimestamp(),
                 };
 
-                // Persist artifact to Firestore
                 artifactsRef.add(artifactData)
                   .then(docRef => {
-                    // Emit artifact to iOS via SSE for instant display
-                    sseRaw.write({
-                      type: 'artifact',
-                      artifact_id: docRef.id,
-                      artifact_type: parsedResponse.artifact_type,
-                      content: parsedResponse.content || {},
-                      actions: parsedResponse.actions || [],
-                      status: 'proposed',
-                    });
-
-                    // Also persist a message reference for conversation history
+                    // Persist a message reference for conversation history
                     messagesRef.add({
                       type: 'artifact',
                       artifact_type: parsedResponse.artifact_type,
@@ -1179,14 +1197,6 @@ async function streamAgentNormalizedHandler(req, res) {
                   })
                   .catch(err => {
                     logger.warn('[streamAgentNormalized] artifact persist failed', { error: String(err?.message || err) });
-                    // Still emit the artifact via SSE even if persist fails
-                    sseRaw.write({
-                      type: 'artifact',
-                      artifact_type: parsedResponse.artifact_type,
-                      content: parsedResponse.content || {},
-                      actions: parsedResponse.actions || [],
-                      status: 'proposed',
-                    });
                   });
               }
 
@@ -1230,6 +1240,7 @@ async function streamAgentNormalizedHandler(req, res) {
                 const before = remainder.slice(0, idx);
                 if (before) {
                   normalizer.buffer += before;
+                  accumulatedAgentText += before;
                   sse.write({ type: 'text_delta', text: before });
                 }
                 // Toggle fence state

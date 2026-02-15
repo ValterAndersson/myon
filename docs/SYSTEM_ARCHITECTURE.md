@@ -5,7 +5,7 @@
 > This document is optimized for LLM/AI consumption. It provides explicit file paths, 
 > complete data schemas, and decision tables to enable accurate code generation without ambiguity.
 >
-> **Last Updated**: 2026-02-14
+> **Last Updated**: 2026-02-15
 > **Branch**: main
 > **Repository Root**: /Users/valterandersson/Documents/Povver
 
@@ -20,9 +20,10 @@
 | **iOS Auth Provider** | `Povver/Povver/Models/AuthProvider.swift` | Provider enum mapping |
 | **iOS Apple Coordinator** | `Povver/Povver/Services/AppleSignInCoordinator.swift` | ASAuth delegate wrapper |
 | **iOS Root Navigation** | `Povver/Povver/Views/RootView.swift` | Reactive auth state navigation |
-| **iOS Canvas Screen** | `Povver/Povver/Views/CanvasScreen.swift` | Main chat/canvas UI |
+| **iOS Conversation Screen** | `Povver/Povver/Views/ConversationView.swift` | Main chat UI with inline artifacts |
 | **iOS Workout Screen** | `Povver/Povver/UI/FocusMode/FocusModeWorkoutScreen.swift` | Active workout UI |
 | **iOS Streaming Service** | `Povver/Povver/Services/DirectStreamingService.swift` | Agent communication |
+| **iOS Conversation Service** | `Povver/Povver/Services/ConversationService.swift` | Artifact actions |
 | **iOS Workout Service** | `Povver/Povver/Services/FocusModeWorkoutService.swift` | Workout API calls |
 | **iOS Session Logger** | `Povver/Povver/Services/WorkoutSessionLogger.swift` | On-device workout event log (JSON) |
 | **Agent Entry Point** | `adk_agent/canvas_orchestrator/app/agent_engine_app.py` | Vertex AI entry |
@@ -32,7 +33,9 @@
 | **iOS Workout Coach VM** | `Povver/Povver/ViewModels/WorkoutCoachViewModel.swift` | Workout chat state |
 | **iOS Workout Coach View** | `Povver/Povver/UI/FocusMode/WorkoutCoachView.swift` | Compact gym chat UI |
 | **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
+| **Conversation APIs** | `firebase_functions/functions/conversations/` | Artifact actions |
 | **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |
+| **Session APIs** | `firebase_functions/functions/sessions/` | Session initialization |
 
 ---
 
@@ -64,7 +67,7 @@
 │                                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │ Firestore (source of truth)                                             │   │
-│  │  users/{uid}/canvases, routines, templates, workouts, active_workouts  │   │
+│  │  users/{uid}/conversations, routines, templates, workouts, active_wks  │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -74,61 +77,58 @@
 
 ## Critical Data Flows
 
-### 1. Canvas Conversation Flow (User → Agent → Cards)
+### 1. Conversation Flow with Inline Artifacts (User → Agent → SSE)
 
 ```
 User types message in iOS
         │
         ▼
 iOS: DirectStreamingService.streamQuery()
-        │ POST /streamAgentNormalized
+        │ POST /streamAgentNormalized (conversationId)
         ▼
 Firebase: stream-agent-normalized.js
+        │ Writes message to conversations/{id}/messages
         │ Opens SSE to Vertex AI
         ▼
-Agent: orchestrator.py classifies intent
-        │ Routes to Planner/Coach/Copilot
+Agent: shell/router.py classifies intent
+        │ Routes to Fast/Functional/Slow lane
         ▼
-Agent: planner_agent.tool_propose_routine()
-        │ HTTP POST to Firebase
+Agent: planner_skills.propose_routine()
+        │ Returns artifact data in SkillResult
         ▼
-Firebase: propose-cards.js
-        │ Writes to Firestore
+Agent: shell/agent.py emits SSE artifact event
+        │ {type: "artifact", data: {...}, artifactId: "..."}
         ▼
-Firestore: canvases/{id}/cards/{cardId} created
-        │
-        ▼ (listener fires)
-iOS: CanvasRepository snapshot listener
-        │
+iOS: DirectStreamingService receives artifact event
+        │ Converts to CanvasCardModel (reuses renderers)
         ▼
-iOS: CanvasViewModel.cards updated
+iOS: ConversationViewModel appends artifact
         │
         ▼
-iOS: UI renders new card
+iOS: UI renders artifact inline with messages
 ```
 
 **Files involved** (CURRENT PATHS):
 - `Povver/Povver/Services/DirectStreamingService.swift` ← iOS streaming
 - `firebase_functions/functions/strengthos/stream-agent-normalized.js`
 - `adk_agent/canvas_orchestrator/app/shell/router.py` ← Routes intent
-- `adk_agent/canvas_orchestrator/app/skills/planner_skills.py` ← Creates cards
-- `firebase_functions/functions/canvas/propose-cards.js`
-- `Povver/Povver/Repositories/CanvasRepository.swift`
-- `Povver/Povver/ViewModels/CanvasViewModel.swift`
+- `adk_agent/canvas_orchestrator/app/skills/planner_skills.py` ← Returns artifacts
+- `Povver/Povver/ViewModels/ConversationViewModel.swift`
+- `Povver/Povver/Views/ConversationView.swift`
 
 ---
 
-### 2. Accept Routine Proposal Flow
+### 2. Accept Artifact Flow
 
 ```
-User taps "Accept" on routine_summary card
+User taps "Accept" on routine_summary artifact
         │
         ▼
-iOS: applyAction(type: "ACCEPT_PROPOSAL", cardId)
-        │ POST /applyAction
+iOS: artifactAction(action: "accept", artifactId, conversationId)
+        │ POST /artifactAction
         ▼
-Firebase: apply-action.js
-        │ Calls createRoutineFromDraftCore()
+Firebase: artifact-action.js
+        │ Routes based on artifact type
         ▼
 Firebase: create-routine-from-draft.js
         │ Creates templates + routine
@@ -136,16 +136,16 @@ Firebase: create-routine-from-draft.js
 Firestore: templates/{id} created (one per day)
 Firestore: routines/{id} created
 Firestore: users/{uid}.activeRoutineId set
-Firestore: cards marked status='accepted'
+Firestore: conversations/{id}/artifacts/{artifactId} updated (status='accepted')
         │
         ▼ (listeners fire)
-iOS: CanvasRepository emits snapshot
+iOS: ConversationRepository listener sees artifact update
 iOS: RoutineRepository listener receives new routine
 ```
 
 **Files involved** (CURRENT PATHS):
-- `Povver/Povver/Services/CanvasActions.swift` → `applyAction()`
-- `firebase_functions/functions/canvas/apply-action.js`
+- `Povver/Povver/Services/ConversationService.swift` → `artifactAction()`
+- `firebase_functions/functions/conversations/artifact-action.js`
 - `firebase_functions/functions/routines/create-routine-from-draft.js`
 - `firebase_functions/functions/utils/plan-to-template-converter.js`
 
@@ -239,7 +239,7 @@ iOS: WorkoutCoachViewModel.send()
         │ Calls DirectStreamingService.streamQuery(workoutId: workout.id)
         ▼
 Firebase: stream-agent-normalized.js
-        │ Builds context prefix: (context: canvas_id=X user_id=Y corr=Z workout_id=W today=YYYY-MM-DD)
+        │ Builds context prefix: (context: conversation_id=X user_id=Y corr=Z workout_id=W today=YYYY-MM-DD)
         │ Opens SSE to Vertex AI
         ▼
 Agent: agent_engine_app.py::stream_query()
@@ -283,21 +283,116 @@ iOS: FocusModeWorkoutService receives updated workout state
 
 ---
 
-## Schema Contracts (Cross-Boundary Data Shapes)
+## Conversation & Artifact Architecture
 
-### Canvas Card (Agent → Firestore → iOS)
+### Design Principles
+
+The conversation system is a lightweight replacement for the previous canvas architecture. Key differences:
+
+| Aspect | Old Canvas | New Conversations |
+|--------|-----------|-------------------|
+| **State Management** | Transactional reducer with version checking | Simple message append + optional artifact storage |
+| **Artifact Delivery** | Firestore subcollection → listener | SSE events → in-memory |
+| **Persistence** | 5 subcollections (cards, workspace, actions, drafts, events) | 2 subcollections (messages, artifacts - optional) |
+| **Complexity** | apply-action reducer, undo stack, phase state machine | Direct writes, no state machine |
+| **Session Init** | openCanvas → bootstrapCanvas → propose initial cards | initialize-session → returns sessionId |
+
+### Conversation Schema
 
 ```json
-// Firestore: users/{uid}/canvases/{canvasId}/cards/{cardId}
+// Firestore: users/{uid}/conversations/{conversationId}
 {
-  "id": "card_abc123",
-  "type": "session_plan",              // Card type
-  "status": "proposed",                 // proposed | accepted | dismissed
-  "lane": "artifact",                   // artifact | suggestion | system
+  "id": "conv_abc",
+  "created_at": Timestamp,
+  "updated_at": Timestamp,
+  "title": "Push/Pull/Legs Routine",  // Optional, set after first message
+  "context": {
+    "workout_id": "...",              // If in workout mode
+    "routine_id": "..."               // If discussing specific routine
+  }
+}
+```
+
+### Message Schema
+
+```json
+// Firestore: users/{uid}/conversations/{id}/messages/{msgId}
+{
+  "id": "msg_abc",
+  "role": "user",                     // user | assistant | system
+  "content": "Create a PPL routine",
+  "created_at": Timestamp,
+  "metadata": {
+    "model": "gemini-2.5-flash",     // For assistant messages
+    "lane": "slow"                   // fast | functional | slow
+  }
+}
+```
+
+### Artifact Lifecycle
+
+1. **Creation**: Agent tool returns artifact data in SkillResult
+2. **Delivery**: Agent emits SSE event `{type: "artifact", data: {...}, artifactId: "..."}`
+3. **Display**: iOS receives SSE event, converts to CanvasCardModel, renders inline
+4. **Persistence** (optional): iOS may write to `conversations/{id}/artifacts/{artifactId}` for later retrieval
+5. **Action**: User taps Accept/Dismiss → calls `artifactAction` endpoint → updates artifact status + executes side effects
+
+### SSE Event Types
+
+| Event Type | Data | Purpose |
+|------------|------|---------|
+| `message_start` | `{messageId}` | Begin new assistant message |
+| `text` | `{delta}` | Streaming text chunk |
+| `artifact` | `{type, content, meta, artifactId}` | Inline artifact (routine, workout, etc.) |
+| `message_end` | `{}` | Complete assistant message |
+| `error` | `{code, message}` | Error during streaming |
+
+### Session Management
+
+```
+iOS: ConversationViewModel.init()
+        │
+        ▼
+iOS: initializeSession()
+        │ POST /initializeSession
+        ▼
+Firebase: initialize-session.js
+        │ Creates conversation doc if needed
+        │ Returns sessionId + conversationId
+        ▼
+iOS: SessionPreWarmer preloads context
+        │ Parallel fetch: routines, templates, recent workouts
+        ▼
+iOS: Ready to stream
+```
+
+**Files involved**:
+- `firebase_functions/functions/sessions/initialize-session.js`
+- `Povver/Povver/Services/SessionPreWarmer.swift`
+- `Povver/Povver/ViewModels/ConversationViewModel.swift`
+
+### Migration Notes
+
+The `stream-agent-normalized.js` endpoint accepts both `conversationId` and `canvasId` (backward compatibility during migration). New clients should pass `conversationId`.
+
+Agent context prefix changed from `canvas_id=X` to `conversation_id=X`.
+
+---
+
+## Schema Contracts (Cross-Boundary Data Shapes)
+
+### Artifact (Agent → SSE → iOS, Firestore storage optional)
+
+```json
+// SSE Event: {type: "artifact", data: {...}, artifactId: "..."}
+// Firestore (optional): users/{uid}/conversations/{convId}/artifacts/{artifactId}
+{
+  "id": "artifact_abc123",
+  "type": "session_plan",              // Artifact type (routine_summary, workout_plan, etc.)
+  "status": "proposed",                // proposed | accepted | dismissed
   "created_at": Timestamp,
   "updated_at": Timestamp,
   "meta": {
-    "groupId": "group_xyz",            // Links cards in same proposal
     "draftId": "draft_123",            // For routine_summary only
     "sourceTemplateId": "...",         // If editing existing template
     "sourceRoutineId": "..."           // If editing existing routine
@@ -306,7 +401,7 @@ iOS: FocusModeWorkoutService receives updated workout state
 }
 ```
 
-**iOS mapping**: `CanvasMapper.mapCard()` → `CanvasCardModel`
+**iOS mapping**: Artifacts received via SSE are converted to `CanvasCardModel` for rendering (reuses existing card renderers)
 
 ---
 
@@ -489,31 +584,15 @@ return fail(res, 'NOT_FOUND', 'Resource not found', { details }, 404);
 ### Idempotency
 
 ```javascript
-// Apply-action uses idempotency_key to prevent duplicate writes
+// Artifact actions use idempotency_key to prevent duplicate writes
 {
-  "action": {
-    "type": "ACCEPT_PROPOSAL",
-    "card_id": "...",
-    "idempotency_key": "uuid-v4"  // Client-generated
-  }
+  "action": "accept",
+  "artifact_id": "...",
+  "conversation_id": "...",
+  "idempotency_key": "uuid-v4"  // Client-generated
 }
 
 // Server checks: if (await Idempotency.check(key)) return cached response
-```
-
-### Version Conflict Handling
-
-```javascript
-// Canvas uses optimistic concurrency
-{
-  "expected_version": 5,  // Client's current version
-  "action": {...}
-}
-
-// If state.version != expected_version:
-return fail(res, 'STALE_VERSION', 'Version conflict');
-
-// iOS retries once with fresh version
 ```
 
 ---
@@ -543,9 +622,9 @@ When adding a new field (e.g., `routine.goal`):
 6. **iOS UI**
    - Add to relevant views (RoutineDetailView, etc.)
 
-7. **Agent Schema** (if agent needs to write it)
-   - `canvas/schemas/card_types/routine_summary.schema.json`
-   - Agent prompt instructions
+7. **Agent Skills** (if agent needs to write it)
+   - Update return data in `app/skills/planner_skills.py`
+   - Agent prompt instructions in `app/shell/instruction.py`
 
 ---
 
@@ -555,8 +634,18 @@ When adding a new field (e.g., `routine.goal`):
 
 | File | Reason | Replacement |
 |------|--------|-------------|
-| `Povver/Povver/Archived/CloudFunctionProxy.swift` | Old HTTP wrapper | `CanvasService.swift` |
+| `Povver/Povver/Archived/CloudFunctionProxy.swift` | Old HTTP wrapper | `ConversationService.swift` |
 | `Povver/Povver/Archived/StrengthOSClient.swift` | Old API client | `CloudFunctionService.swift` |
+| `Povver/Povver/Repositories/CanvasRepository.swift` | Canvas system removed | `ConversationRepository.swift` |
+| `canvas/apply-action.js` | Canvas reducer removed | `conversations/artifact-action.js` |
+| `canvas/propose-cards.js` | Canvas cards removed | Artifacts via SSE |
+| `canvas/bootstrap-canvas.js` | Canvas bootstrap removed | `sessions/initialize-session.js` |
+| `canvas/open-canvas.js` | Canvas open removed | Direct conversation creation |
+| `canvas/emit-event.js` | Canvas events removed | SSE from agent |
+| `canvas/purge-canvas.js` | Canvas purge removed | N/A |
+| `canvas/expire-proposals.js` | Canvas expiry removed | N/A |
+| `canvas/reducer-utils.js` | Canvas reducer removed | N/A |
+| `canvas/validators.js` | Canvas validators removed | N/A |
 | `routines/create-routine.js` | Manual routine creation | `create-routine-from-draft.js` |
 | `routines/update-routine.js` | Direct update | `patch-routine.js` |
 | `templates/update-template.js` | Direct update | `patch-template.js` |
@@ -567,14 +656,15 @@ When adding a new field (e.g., `routine.goal`):
 |--------|---------|-------|
 | `templateIds` | `template_ids` | get-next-workout handles both |
 | `weight` | `weight_kg` | Normalized on archive |
+| `canvasId` | `conversationId` | stream-agent-normalized supports both during migration |
 
-### Unused Functions to Consider Removing
+### Removed Collections
 
-| Function | Status | Notes |
-|----------|--------|-------|
-| `canvas/expire-proposals.js` | May be unused | Check if scheduled job uses |
-| `aliases/upsert-alias.js` | Low usage | Part of exercise catalog admin |
-| `maintenance/*.js` | One-time scripts | Consider archiving |
+| Collection | Status | Replacement |
+|------------|--------|-------------|
+| `users/{uid}/canvases/{id}/cards` | Removed | `conversations/{id}/artifacts` (optional Firestore storage) |
+| `users/{uid}/canvases/{id}/workspace_entries` | Removed | `conversations/{id}/messages` |
+| `users/{uid}/canvases/{id}` | Removed | `conversations/{id}` (lightweight metadata) |
 
 ---
 
@@ -759,27 +849,29 @@ adk_agent/canvas_orchestrator/
 
 ### Tool Permission Matrix (Shell Agent)
 
-| Skill Function | Read | Write | Safety Gate |
-|----------------|------|-------|-------------|
-| `get_training_context()` | ✅ | - | No |
-| `get_training_analysis()` | ✅ | - | No |
-| `get_user_profile()` | ✅ | - | No |
-| `search_exercises()` | ✅ | - | No |
-| `get_exercise_details()` | ✅ | - | No |
-| `get_exercise_progress()` | ✅ | - | No |
-| `get_muscle_group_progress()` | ✅ | - | No |
-| `get_muscle_progress()` | ✅ | - | No |
-| `query_training_sets()` | ✅ | - | No |
-| `get_planning_context()` | ✅ | - | No |
-| `propose_workout()` | - | ✅ | **Yes** |
-| `propose_routine()` | - | ✅ | **Yes** |
-| `update_routine()` | - | ✅ | **Yes** |
-| `update_template()` | - | ✅ | **Yes** |
-| `log_set()` | - | ✅ | No (Fast Lane) |
-| `tool_log_set()` | - | ✅ | No (workout mode gated) |
-| `tool_swap_exercise()` | - | ✅ | No (workout mode gated) |
-| `tool_complete_workout()` | - | ✅ | No (workout mode gated) |
-| `tool_get_workout_state()` | ✅ | - | No (workout mode gated) |
+| Skill Function | Read | Write | Returns Artifact | Safety Gate |
+|----------------|------|-------|------------------|-------------|
+| `get_training_context()` | ✅ | - | No | No |
+| `get_training_analysis()` | ✅ | - | No | No |
+| `get_user_profile()` | ✅ | - | No | No |
+| `search_exercises()` | ✅ | - | No | No |
+| `get_exercise_details()` | ✅ | - | No | No |
+| `get_exercise_progress()` | ✅ | - | No | No |
+| `get_muscle_group_progress()` | ✅ | - | No | No |
+| `get_muscle_progress()` | ✅ | - | No | No |
+| `query_training_sets()` | ✅ | - | No | No |
+| `get_planning_context()` | ✅ | - | No | No |
+| `propose_workout()` | - | - | **Yes** | **Yes** |
+| `propose_routine()` | - | - | **Yes** | **Yes** |
+| `update_routine()` | - | - | **Yes** | **Yes** |
+| `update_template()` | - | - | **Yes** | **Yes** |
+| `log_set()` | - | ✅ | No | No (Fast Lane) |
+| `tool_log_set()` | - | ✅ | No | No (workout mode gated) |
+| `tool_swap_exercise()` | - | ✅ | No | No (workout mode gated) |
+| `tool_complete_workout()` | - | ✅ | No | No (workout mode gated) |
+| `tool_get_workout_state()` | ✅ | - | No | No (workout mode gated) |
+
+Note: "Returns Artifact" means the tool returns artifact data in SkillResult, which the agent emits as an SSE artifact event. These tools no longer write directly to Firestore (canvas cards removed).
 
 ### Context Flow (SECURITY CRITICAL)
 
@@ -808,8 +900,8 @@ See `firebase_functions/firestore.indexes.json` for composite indexes.
 
 **Critical queries requiring indexes**:
 - `workouts` ordered by `end_time desc` (for get-recent-workouts)
-- `cards` filtered by `type` and `status` (for accept-all-in-group)
-- `workspace_entries` ordered by `created_at` (for conversation history)
+- `messages` ordered by `created_at` (for conversation history)
+- `artifacts` filtered by `status` (for pending proposals)
 
 ---
 

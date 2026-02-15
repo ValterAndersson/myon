@@ -533,10 +533,30 @@ final class CanvasViewModel: ObservableObject {
         case .thought:
             streamEvents.append(event)
             
+        case .artifact:
+            // Build a CanvasCardModel from artifact SSE event data
+            guard let artifactType = event.content?["artifact_type"]?.value as? String else { break }
+
+            let artifactContent = event.content?["artifact_content"]?.value as? [String: Any] ?? [:]
+            let actionsRaw = event.content?["actions"]?.value as? [Any] ?? []
+            let actionStrings = actionsRaw.compactMap { $0 as? String }
+            let status = event.content?["status"]?.value as? String ?? "proposed"
+
+            if let card = buildCardFromArtifact(
+                type: artifactType,
+                content: artifactContent,
+                actions: actionStrings,
+                status: status
+            ) {
+                cards.append(card)
+                streamEvents.append(event)
+                DebugLogger.log(.canvas, "Artifact card added: type=\(artifactType) id=\(card.id)")
+            }
+
         case .card, .heartbeat:
             break
         }
-        
+
         // Auto-hide overlay if cards start appearing
         if !cards.isEmpty {
             showStreamOverlay = false
@@ -561,6 +581,130 @@ final class CanvasViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Artifact → Card Conversion
+
+    /// Converts an artifact SSE event into a CanvasCardModel for inline display.
+    /// Uses JSON round-trip to leverage existing Codable decoders (PlanExercise, RoutineSummaryData, etc.)
+    private func buildCardFromArtifact(
+        type: String,
+        content: [String: Any],
+        actions: [String],
+        status: String
+    ) -> CanvasCardModel? {
+        let cardStatus = CardStatus(rawValue: status) ?? .proposed
+        let cardActions = actions.map { action -> CardAction in
+            let label: String
+            let style: CardActionStyle
+            switch action {
+            case "start_workout":
+                label = "Start Workout"
+                style = .primary
+            case "save_routine":
+                label = "Save Routine"
+                style = .primary
+            case "dismiss":
+                label = "Dismiss"
+                style = .ghost
+            default:
+                label = action.replacingOccurrences(of: "_", with: " ").capitalized
+                style = .secondary
+            }
+            return CardAction(kind: action, label: label, style: style)
+        }
+
+        switch type {
+        case "session_plan":
+            let title = content["title"] as? String ?? "Workout"
+            let coachNotes = content["coach_notes"] as? String
+            let blocks = content["blocks"] as? [[String: Any]] ?? []
+
+            // Parse blocks → [PlanExercise] via JSON round-trip (reuses existing Codable decoder)
+            var exercises: [PlanExercise] = []
+            if let jsonData = try? JSONSerialization.data(withJSONObject: blocks),
+               let decoded = try? JSONDecoder().decode([PlanExercise].self, from: jsonData) {
+                exercises = decoded
+            }
+
+            return CanvasCardModel(
+                id: UUID().uuidString,
+                type: .session_plan,
+                status: cardStatus,
+                lane: .workout,
+                title: title,
+                data: .sessionPlan(exercises: exercises),
+                actions: cardActions,
+                meta: CardMeta(notes: coachNotes),
+                publishedAt: Date()
+            )
+
+        case "routine_summary":
+            let name = content["name"] as? String ?? "Routine"
+            let description = content["description"] as? String
+            let frequency = content["frequency"] as? Int ?? 0
+            let workoutsRaw = content["workouts"] as? [[String: Any]] ?? []
+
+            var workouts: [RoutineWorkoutSummary] = []
+            if let jsonData = try? JSONSerialization.data(withJSONObject: workoutsRaw),
+               let decoded = try? JSONDecoder().decode([RoutineWorkoutSummary].self, from: jsonData) {
+                workouts = decoded
+            }
+
+            let routineData = RoutineSummaryData(
+                name: name,
+                description: description,
+                frequency: frequency,
+                workouts: workouts
+            )
+
+            return CanvasCardModel(
+                id: UUID().uuidString,
+                type: .routine_summary,
+                status: cardStatus,
+                lane: .workout,
+                title: name,
+                data: .routineSummary(routineData),
+                actions: cardActions,
+                publishedAt: Date()
+            )
+
+        case "analysis_summary":
+            if let jsonData = try? JSONSerialization.data(withJSONObject: content),
+               let decoded = try? JSONDecoder().decode(AnalysisSummaryData.self, from: jsonData) {
+                return CanvasCardModel(
+                    id: UUID().uuidString,
+                    type: .analysis_summary,
+                    status: cardStatus,
+                    lane: .analysis,
+                    title: decoded.headline,
+                    data: .analysisSummary(decoded),
+                    actions: cardActions,
+                    publishedAt: Date()
+                )
+            }
+            return nil
+
+        case "visualization":
+            if let jsonData = try? JSONSerialization.data(withJSONObject: content),
+               let decoded = try? JSONDecoder().decode(VisualizationSpec.self, from: jsonData) {
+                return CanvasCardModel(
+                    id: UUID().uuidString,
+                    type: .visualization,
+                    status: cardStatus,
+                    lane: .analysis,
+                    title: decoded.title,
+                    data: .visualization(spec: decoded),
+                    actions: cardActions,
+                    publishedAt: Date()
+                )
+            }
+            return nil
+
+        default:
+            DebugLogger.log(.canvas, "Unknown artifact type: \(type)")
+            return nil
+        }
+    }
+
     private func attachEventsListener(userId: String, canvasId: String) {
         eventsListener?.remove()
         let db = Firestore.firestore()
