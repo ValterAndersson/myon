@@ -670,14 +670,42 @@ Subcollections:
        - `payload: { exercise_id: string, set_index: number, actual: { reps: number, rir: number, weight?: number } }`
        - `created_at: Timestamp`
 
-9) canvases/{canvasId}
-   - Deterministic collaboration surface for planning/active/analysis phases.
+9) conversations/{conversationId}
+   - User conversation history with AI agent. Replaces canvas system for new implementations.
+   - Root document fields:
+     - `user_id: string`
+     - `purpose?: string` (e.g., 'chat', 'planning', 'analysis')
+     - `created_at, updated_at: Timestamp`
+
+   - Subcollections:
+     - messages/{messageId}
+       - Conversation messages (user prompts, agent responses, artifact references).
+       - Fields:
+         - `type: 'user_prompt' | 'agent_response' | 'artifact'`
+         - `content?: string` (text content for user_prompt and agent_response, null for artifact)
+         - `artifact_type?: string` (for artifact type messages: 'session_plan' | 'routine_summary' | 'analysis_summary' | 'visualization')
+         - `artifact_id?: string` (reference to artifact document ID)
+         - `correlation_id?: string` (links related messages and artifacts)
+         - `created_at: Timestamp`
+
+     - artifacts/{artifactId}
+       - AI-proposed artifacts (session plans, routine summaries, analyses, visualizations).
+       - Fields:
+         - `type: 'session_plan' | 'routine_summary' | 'analysis_summary' | 'visualization'`
+         - `content: { ... }` (artifact-specific structured data)
+         - `actions: string[]` (available actions, e.g., ["start_workout", "dismiss"])
+         - `status: 'proposed' | 'accepted' | 'dismissed'`
+         - `correlation_id?: string` (links to message that proposed this artifact)
+         - `created_at, updated_at: Timestamp`
+
+10) canvases/{canvasId} (DEPRECATED - replaced by conversations)
+   - Legacy collaboration surface for planning/active/analysis phases.
    - Root document fields:
      - `state: { phase: 'planning' | 'active' | 'analysis', version: number, purpose: string, lanes: string[], created_at: Timestamp, updated_at: Timestamp }`
      - `meta: { user_id: string }`
 
    - Subcollections:
-     - cards/{cardId}
+     - cards/{cardId} (DEPRECATED)
        - Fields:
          - `type: string` (e.g., `session_plan`, `set_target`, `set_result`, `note`, `visualization`, `instruction`, `coach_proposal`, etc.)
          - `status: 'proposed' | 'active' | 'accepted' | 'rejected' | 'expired' | 'completed'`
@@ -688,11 +716,11 @@ Subcollections:
          - `by: 'user' | 'agent'`
          - `created_at, updated_at: Timestamp`
 
-     - up_next/{entryId}
+     - up_next/{entryId} (DEPRECATED)
        - Queue of next actions/cards; trimmed to max 20.
        - Fields: `card_id: string`, `priority: number`, `inserted_at: Timestamp`
 
-     - events/{eventId}
+     - events/{eventId} (DEPRECATED)
        - Reducer events for deterministic replay/undo.
        - Fields:
          - `type: 'apply_action' | 'instruction_added' | 'group_action' | 'session_started' | ...`
@@ -700,11 +728,18 @@ Subcollections:
          - `correlation_id?: string`
          - `created_at: Timestamp`
 
-    - idempotency/{key}
+    - idempotency/{key} (DEPRECATED)
       - Scoped idempotency guard.
       - Fields: `key: string`, `created_at: Timestamp`
 
-10) analytics_series_exercise/{exercise_id}
+11) agent_sessions/{purpose}
+   - Vertex AI session references for conversation continuity.
+   - Fields:
+     - `session_id: string` (Vertex AI Agent Engine session ID)
+     - `purpose: string` (e.g., 'chat', 'planning')
+     - `created_at, updated_at: Timestamp`
+
+12) analytics_series_exercise/{exercise_id}
    - Per-exercise time series of daily points and compacted weekly aggregates (sublinear growth).
    - Fields:
      - `points_by_day: { [YYYY-MM-DD]: { e1rm?: number, vol?: number } }`
@@ -712,13 +747,13 @@ Subcollections:
      - `schema_version: number`
      - `updated_at: Timestamp`, `compacted_at?: Timestamp`
 
-11) analytics_series_muscle/{muscle}
+13) analytics_series_muscle/{muscle}
    - Per-muscle weekly aggregates.
    - Fields:
      - `weeks: { [YYYY-MM-DD]: { sets: number, volume: number, hard_sets?: number, low_rir_sets?: number, load?: number } }`
      - `updated_at: Timestamp`
 
-12) analytics_rollups/{periodId}
+14) analytics_rollups/{periodId}
    - Weekly/monthly compact rollups keyed by `yyyy-ww` or `yyyy-mm`.
    - Fields:
      - `total_sets, total_reps, total_weight: number`
@@ -734,7 +769,7 @@ Subcollections:
      - `load_per_muscle_group?: { [group]: number }`
      - `updated_at: Timestamp`
 
-13) analytics_state/current
+15) analytics_state/current
    - Watermarks and cursors for idempotent incremental processing.
    - Fields:
      - `last_processed_workout_at?: string (ISO)`
@@ -742,7 +777,7 @@ Subcollections:
      - `job_cursors?: { [key]: any }`
      - `updated_at: Timestamp`
 
-14) agent_recommendations/{recommendationId}
+16) agent_recommendations/{recommendationId}
    - Audit log of agent-initiated changes to user training data.
    - Used by background agents (post_workout_analyst) to log and optionally queue changes.
    - Supports two modes: auto-pilot (immediate apply) or review (pending approval).
@@ -879,14 +914,16 @@ Notes:
 
 ## Security Rules (firestore.rules)
 
-- `users/{uid}/canvases/**`: read allowed to the authenticated owner; writes are disallowed directly (single-writer via Functions only). All canvas mutations flow through HTTPS endpoints (e.g., `applyAction`, `proposeCards`, `bootstrapCanvas`).
-- Other user subcollections under `users/{uid}`: read/write allowed to the authenticated owner (excluding `canvases`). This includes `workouts`, `weekly_stats`, `templates`, `routines`, `user_attributes`, `linked_devices`, `progress_reports`, `active_workouts`, and analytics collections under `analytics_*` prefixes.
+- `users/{uid}/conversations/**`: read allowed to the authenticated owner; writes to `messages` allowed by owner; writes to `artifacts` disallowed directly (managed by agent via Functions).
+- `users/{uid}/canvases/**` (DEPRECATED): read allowed to the authenticated owner; writes are disallowed directly (single-writer via Functions only). All canvas mutations flow through HTTPS endpoints (e.g., `applyAction`, `proposeCards`, `bootstrapCanvas`).
+- Other user subcollections under `users/{uid}`: read/write allowed to the authenticated owner (excluding `canvases` and `artifacts`). This includes `workouts`, `weekly_stats`, `templates`, `routines`, `user_attributes`, `linked_devices`, `progress_reports`, `active_workouts`, `agent_sessions`, and analytics collections under `analytics_*` prefixes.
 - Admin/agents: Function-layer auth (API keys, service accounts) mediates privileged writes.
 - Analytics: lives under `users/{uid}/analytics_*` and inherits owner read/write. Backend Functions (triggers/HTTPS) write these docs on behalf of the user.
 
 Implications:
-- Client apps should not attempt to write to `users/{uid}/canvases/**` directly.
-- Direct client reads of canvases are supported (for UI live updates), but writes must go through Functions.
+- Client apps can write user messages to `users/{uid}/conversations/{conversationId}/messages` directly.
+- Client apps should not attempt to write artifacts or canvas data directly.
+- Direct client reads of conversations, artifacts, and canvases are supported (for UI live updates).
 
 ---
 
@@ -896,7 +933,12 @@ Implications:
 - Weekly stats: direct doc get/set `users/{uid}/weekly_stats/{weekId}`.
 - Template and Routine CRUD: subcollection reads/writes under the user, with analytics calculations performed by triggers or function logic.
 - Active workout session: `users/{uid}/active_workouts` latest by `updated_at`; log set events via `active_workouts/{id}/events`.
-- Canvas:
+- Conversations:
+  - Read messages: `users/{uid}/conversations/{conversationId}/messages` ordered by `created_at`.
+  - Read artifacts: `users/{uid}/conversations/{conversationId}/artifacts` filtered by `status='proposed'` for pending items.
+  - Write user messages: client writes directly to `messages` subcollection.
+  - Agent artifacts: written by agent tools via Functions, client reads for UI updates.
+- Canvas (DEPRECATED):
   - Reducer transaction updates `users/{uid}/canvases/{canvasId}` and subcollections (`cards`, `up_next`, `events`, `idempotency`).
   - Agents propose cards in batch and manage `up_next`, enforcing max 20 entries.
  - Analytics:
@@ -995,11 +1037,15 @@ users/{uid}
   ├─ progress_reports/{reportId}
   ├─ active_workouts/{activeWorkoutId}
   │    └─ events/{eventId}
-  └─ canvases/{canvasId}
-       ├─ cards/{cardId}
-       ├─ up_next/{entryId}
-       ├─ events/{eventId}
-       └─ idempotency/{key}
+  ├─ conversations/{conversationId}
+  │    ├─ messages/{messageId}
+  │    └─ artifacts/{artifactId}
+  ├─ agent_sessions/{purpose}
+  └─ canvases/{canvasId} (DEPRECATED)
+       ├─ cards/{cardId} (DEPRECATED)
+       ├─ up_next/{entryId} (DEPRECATED)
+       ├─ events/{eventId} (DEPRECATED)
+       └─ idempotency/{key} (DEPRECATED)
 
 exercises/{exerciseId}
 exercise_aliases/{alias_slug}
