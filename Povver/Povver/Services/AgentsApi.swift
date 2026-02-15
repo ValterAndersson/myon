@@ -2,17 +2,50 @@ import Foundation
 
 struct AgentInvokeRequest: Codable {
     let userId: String
-    let canvasId: String
+    let conversationId: String
     let message: String
     let correlationId: String
 }
 
 enum AgentsApi {
-    static func invokeCanvasOrchestrator(_ req: AgentInvokeRequest) async throws {
+    static func invokeAgent(_ req: AgentInvokeRequest) async throws {
         struct Empty: Decodable {}
-        DebugLogger.log(.agent, "invokeCanvasOrchestrator user=\(req.userId) canvas=\(req.canvasId)")
+        DebugLogger.log(.agent, "invokeAgent user=\(req.userId) conv=\(req.conversationId)")
         let _: Empty = try await ApiClient.shared.postJSON("invokeCanvasOrchestrator", body: req)
     }
+
+    /// Handle an artifact action (accept, dismiss, save_routine, start_workout, etc.)
+    static func artifactAction(
+        userId: String,
+        conversationId: String,
+        artifactId: String,
+        action: String,
+        day: Int? = nil
+    ) async throws -> [String: Any] {
+        var body: [String: Any] = [
+            "userId": userId,
+            "conversationId": conversationId,
+            "artifactId": artifactId,
+            "action": action
+        ]
+        if let day = day {
+            body["day"] = day
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let url = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/artifactAction")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Add Bearer auth
+        if let currentUser = AuthService.shared.currentUser {
+            let token = try await currentUser.getIDToken()
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (responseData, _) = try await URLSession.shared.data(for: request)
+        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] ?? [:]
+        return json
+    }
 }
-
-

@@ -108,10 +108,10 @@ class DirectStreamingService: ObservableObject {
         #endif
     }
 
-    /// Query the agent with streaming response (Canvas version with AsyncSequence)
+    /// Query the agent with streaming response (AsyncSequence)
     func streamQuery(
         userId: String,
-        canvasId: String,
+        conversationId: String,
         message: String,
         correlationId: String,
         sessionId: String?,
@@ -126,7 +126,7 @@ class DirectStreamingService: ObservableObject {
                     // Start pipeline logging (new focused logger)
                     AgentPipelineLogger.startRequest(
                         correlationId: correlationId,
-                        canvasId: canvasId,
+                        canvasId: conversationId,
                         sessionId: sessionId,
                         message: message
                     )
@@ -150,7 +150,7 @@ class DirectStreamingService: ObservableObject {
                     
                     let body: [String: Any] = [
                         "userId": userId,
-                        "canvasId": canvasId,
+                        "conversationId": conversationId,
                         "message": message,
                         "correlationId": correlationId,
                         "sessionId": sessionId as Any,

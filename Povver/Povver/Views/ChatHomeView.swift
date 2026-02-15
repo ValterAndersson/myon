@@ -5,7 +5,7 @@ struct ChatHomeView: View {
     @State private var query: String = ""
     @State private var navigateToCanvas = false
     @State private var entryContext: String = ""
-    
+
     /// Binding to switch tabs from quick actions
     @AppStorage("selectedTab") private var selectedTab: String = "coach"
 
@@ -51,7 +51,7 @@ struct ChatHomeView: View {
 
     private var header: some View {
         VStack(alignment: .center, spacing: Space.sm) {
-            PovverText("What’s on the agenda today?", style: .display, align: .center)
+            PovverText("What's on the agenda today?", style: .display, align: .center)
         }
     }
 
@@ -59,7 +59,6 @@ struct ChatHomeView: View {
         AgentPromptBar(text: $query, placeholder: "Ask anything") {
             entryContext = "freeform:" + query
             navigateToCanvas = true
-            // Defer orchestrator call to CanvasScreen once canvasId is ready
         }
         .frame(maxWidth: 680)
     }
@@ -70,18 +69,16 @@ struct ChatHomeView: View {
             let columns = [GridItem(.flexible(), spacing: Space.md), GridItem(.flexible(), spacing: Space.md)]
             LazyVGrid(columns: columns, alignment: .center, spacing: Space.md) {
                 QuickActionCard(title: "Plan program", icon: iconForPreset("make a training program")) {
-                    entryContext = "quick:Plan program"; navigateToCanvas = true
-                    Task {
-                        let preset = "Take a look at my profile and goals and propose a training program well suited for me, relying on defined exercise science."
-                        await sendToAgentIfPossible(message: preset)
-                    }
+                    entryContext = "quick:Plan program"
+                    navigateToCanvas = true
                 }
                 QuickActionCard(title: "Train", icon: "figure.strengthtraining.traditional") {
                     // Switch to Train tab - tab change is handled via AppStorage
                     selectedTab = "train"
                 }
                 QuickActionCard(title: "Analyze progress", icon: iconForPreset("analyze my progress")) {
-                    entryContext = "quick:Analyze progress"; navigateToCanvas = true
+                    entryContext = "quick:Analyze progress"
+                    navigateToCanvas = true
                 }
             }
         }
@@ -95,7 +92,6 @@ struct ChatHomeView: View {
 
     @ViewBuilder private var canvasDestination: some View {
         if let uid = userId {
-            // Use purpose-based bootstrap; no fixed canvas id
             CanvasScreen(userId: uid, canvasId: nil, purpose: purposeForEntryContext(entryContext), entryContext: entryContext)
         } else {
             EmptyState(title: "Not signed in", message: "Login to view canvas.")
@@ -113,20 +109,6 @@ struct ChatHomeView: View {
         case "start exercise": return "play.fill"
         case "analyze my progress": return "chart.bar"
         default: return "sparkles"
-        }
-    }
-
-    @MainActor private func sendToAgentIfPossible(message: String) async {
-        guard let uid = userId else { return }
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let corr = UUID().uuidString
-        if let cid = CanvasRepository.shared.currentCanvasId {
-            try? await AgentsApi.invokeCanvasOrchestrator(.init(userId: uid, canvasId: cid, message: trimmed, correlationId: corr))
-        } else {
-            // Stash for CanvasScreen to execute once canvas is ready
-            // We cannot access vm here; use a simple static stash on repository for now
-            PendingAgentInvoke.shared.set(message: trimmed, correlationId: corr)
         }
     }
 }

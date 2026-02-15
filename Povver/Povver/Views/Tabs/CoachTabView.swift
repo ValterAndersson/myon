@@ -76,36 +76,24 @@ struct CoachTabView: View {
                 QuickActionCard(title: "Plan program", icon: "calendar.badge.plus") {
                     entryContext = "quick:Plan program"
                     navigateToCanvas = true
-                    Task {
-                        await sendPresetMessage("Take a look at my profile and goals and propose a training program well suited for me, relying on defined exercise science.")
-                    }
                 }
-                
+
                 // Analyze progress
                 QuickActionCard(title: "Analyze progress", icon: "chart.bar") {
                     entryContext = "quick:Analyze progress"
                     navigateToCanvas = true
-                    Task {
-                        await sendPresetMessage("Analyze my recent training progress and give me insights on how I'm doing.")
-                    }
                 }
-                
+
                 // Create routine
                 QuickActionCard(title: "Create routine", icon: "figure.strengthtraining.traditional") {
                     entryContext = "quick:Create routine"
                     navigateToCanvas = true
-                    Task {
-                        await sendPresetMessage("I want to create a new training routine. Help me design a program based on my goals and schedule.")
-                    }
                 }
-                
+
                 // Review plan
                 QuickActionCard(title: "Review plan", icon: "doc.text.magnifyingglass") {
                     entryContext = "quick:Review plan"
                     navigateToCanvas = true
-                    Task {
-                        await sendPresetMessage("Show me my current routine and let me know if any adjustments would help my progress.")
-                    }
                 }
             }
         }
@@ -141,25 +129,6 @@ struct CoachTabView: View {
         }
     }
     
-    @MainActor
-    private func sendPresetMessage(_ message: String) async {
-        guard let uid = AuthService.shared.currentUser?.uid else { return }
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        
-        let corr = UUID().uuidString
-        if let cid = CanvasRepository.shared.currentCanvasId {
-            try? await AgentsApi.invokeCanvasOrchestrator(.init(
-                userId: uid,
-                canvasId: cid,
-                message: trimmed,
-                correlationId: corr
-            ))
-        } else {
-            // Stash for CanvasScreen to execute once canvas is ready
-            PendingAgentInvoke.shared.set(message: trimmed, correlationId: corr)
-        }
-    }
 }
 
 #if DEBUG

@@ -38,6 +38,12 @@ struct RootView: View {
                 flow = .login
             }
         }
+        // Pre-warm agent session after successful auth
+        .onChange(of: flow) { _, newFlow in
+            if newFlow == .main, let uid = authService.currentUser?.uid {
+                SessionPreWarmer.shared.preWarmIfNeeded(userId: uid, trigger: "auth_complete")
+            }
+        }
     }
 }
 

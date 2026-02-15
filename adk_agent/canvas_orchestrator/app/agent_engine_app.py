@@ -107,7 +107,7 @@ class AgentEngineApp(AdkApp):
         try:
             ctx = SessionContext.from_message(message)
             set_current_context(ctx, message)
-            logger.debug("Context set: user=%s canvas=%s", ctx.user_id, ctx.canvas_id)
+            logger.debug("Context set: user=%s conv=%s", ctx.user_id, ctx.conversation_id)
         except Exception as e:
             logger.error("Failed to set context: %s", e)
         

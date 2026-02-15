@@ -368,7 +368,7 @@ final class CanvasViewModel: ObservableObject {
                 // Stream agent events
                 for try await event in DirectStreamingService.shared.streamQuery(
                     userId: userId,
-                    canvasId: canvasId,
+                    conversationId: canvasId,
                     message: message,
                     correlationId: correlationId,
                     sessionId: self.currentSessionId

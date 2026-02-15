@@ -89,6 +89,9 @@ const { streamAgentNormalizedHandler } = require('./strengthos/stream-agent-norm
 const { requireFlexibleAuth } = require('./auth/middleware');
 const { upsertProgressReport, getProgressReports } = require('./strengthos/progress-reports');
 
+// Artifact Operations
+const { artifactAction } = require('./artifacts/artifact-action');
+
 // Canvas Operations
 const { applyAction } = require('./canvas/apply-action');
 const { proposeCards } = require('./canvas/propose-cards');
@@ -216,11 +219,14 @@ exports.cancelActiveWorkout = cancelActiveWorkout;
 
 // StrengthOS Operations
 exports.streamAgentNormalized = onRequestV2(
-  { timeoutSeconds: 300, memory: '512MiB' },
+  { timeoutSeconds: 300, memory: '512MiB' /* minInstances: 1 */ },
   requireFlexibleAuth(streamAgentNormalizedHandler)
 );
 exports.upsertProgressReport = functions.https.onRequest((req, res) => withApiKey(upsertProgressReport)(req, res));
 exports.getProgressReports = functions.https.onRequest((req, res) => requireFlexibleAuth(getProgressReports)(req, res));
+
+// Artifact Operations
+exports.artifactAction = artifactAction;
 
 // Canvas Operations
 exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAuth(applyAction)(req, res));
@@ -273,6 +279,20 @@ if (functions.pubsub && typeof functions.pubsub.schedule === 'function') {
   });
 } else {
   console.log('Skipping expireProposalsScheduled export: scheduler not available in current runtime');
+}
+
+// Session Cleanup
+const { cleanupStaleSessions } = require('./sessions/cleanup-sessions');
+if (functions.pubsub && typeof functions.pubsub.schedule === 'function') {
+  exports.cleanupStaleSessions = functions.pubsub.schedule('every 6 hours').onRun(async (context) => {
+    try {
+      const result = await cleanupStaleSessions();
+      console.log('cleanupStaleSessions result', result);
+    } catch (e) {
+      console.error('cleanupStaleSessions error', e);
+    }
+    return null;
+  });
 }
 
 // Callable Functions

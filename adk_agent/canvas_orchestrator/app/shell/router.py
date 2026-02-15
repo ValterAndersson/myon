@@ -212,7 +212,7 @@ def execute_fast_lane(
     Args:
         routing: Routing result from route_message
         message: Raw message
-        ctx: Session context with user_id, canvas_id, etc.
+        ctx: Session context with user_id, conversation_id, etc.
         
     Returns:
         Dict with skill result, ready for response formatting

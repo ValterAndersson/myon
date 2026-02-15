@@ -60,10 +60,10 @@ struct PreWarmedSession {
         Int(Date().timeIntervalSince(createdAt) * 1000)
     }
     
-    /// Sessions are considered stale after 5 minutes in cache
-    /// (The actual session TTL is 30 min in Firestore)
+    /// Sessions are considered stale after 15 minutes in cache
+    /// (The actual session TTL is 55 min in Firestore, Vertex AI ~60 min)
     var isStale: Bool {
-        ageMs > 5 * 60 * 1000
+        ageMs > 15 * 60 * 1000
     }
 }
 

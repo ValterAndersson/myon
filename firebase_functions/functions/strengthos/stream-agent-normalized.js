@@ -879,21 +879,47 @@ async function streamAgentNormalizedHandler(req, res) {
     const userId = req.user?.uid || req.auth?.uid || req.body?.userId || 'anonymous';
     const message = req.body?.message || '';
     const sessionId = req.body?.sessionId || null;
-    const canvasId = req.body?.canvasId;
+    // Accept both conversationId (new) and canvasId (legacy) during migration
+    const conversationId = req.body?.conversationId || req.body?.canvasId;
     const correlationId = req.body?.correlationId || null;
     const workoutId = req.body?.workoutId || null;
-    
-    if (!canvasId) {
-      sse.write({ type: 'error', error: 'canvasId is required' });
-      done(false, new Error('canvasId is required'));
+
+    if (!conversationId) {
+      sse.write({ type: 'error', error: 'conversationId is required' });
+      done(false, new Error('conversationId is required'));
       return;
     }
-    
+
+    // Messages collection for conversation history persistence
+    const messagesRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('conversations')
+      .doc(conversationId)
+      .collection('messages');
+
+    // Artifacts collection for proposed artifacts
+    const artifactsRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('conversations')
+      .doc(conversationId)
+      .collection('artifacts');
+
+    // Persist user's message
+    messagesRef.add({
+      type: 'user_prompt',
+      content: message,
+      correlation_id: correlationId || null,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    }).catch(err => logger.warn('[streamAgentNormalized] user message persist failed', { error: String(err?.message || err) }));
+
+    // Legacy workspace_entries persistence (kept during migration)
     const workspaceRef = db
       .collection('users')
       .doc(userId)
       .collection('canvases')
-      .doc(canvasId)
+      .doc(conversationId)
       .collection('workspace_entries');
     persistWorkspaceEntry = enqueueWorkspaceEntry(workspaceRef, correlationId);
     
@@ -925,9 +951,9 @@ async function streamAgentNormalizedHandler(req, res) {
 
     const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/reasoningEngines/${agentId}:streamQuery`;
     
-    // Prepend context hint with canvas_id, user_id, today's date, and optional workout_id
+    // Prepend context hint with conversation_id, user_id, today's date, and optional workout_id
     const todayISO = new Date().toISOString().split('T')[0]; // YYYY-MM-DD in UTC
-    const contextHint = `(context: canvas_id=${canvasId} user_id=${userId} corr=${correlationId || 'none'} workout_id=${workoutId || 'none'} today=${todayISO})`;
+    const contextHint = `(context: conversation_id=${conversationId} user_id=${userId} corr=${correlationId || 'none'} workout_id=${workoutId || 'none'} today=${todayISO})`;
     const finalMessage = message ? `${contextHint}\n${message}` : contextHint;
     
     const payload = {
@@ -1002,6 +1028,7 @@ async function streamAgentNormalizedHandler(req, res) {
     let hasEmittedThinkingEvent = false;
     let lineCount = 0;
     let dataChunkCount = 0;
+    let accumulatedAgentText = ''; // Full agent text for conversation persistence
     
     // === RESET AGENT STATE FOR NEW STREAM ===
     // Reset to orchestrator at start of each request
@@ -1114,7 +1141,55 @@ async function streamAgentNormalizedHandler(req, res) {
               
               // Pass displayText and phase to tool_result so transformToIOSEvent can use them
               sse.write({ type: 'tool_result', name, summary, displayText, phase });
-              
+
+              // === ARTIFACT DETECTION ===
+              // If tool response contains artifact_type, emit as artifact SSE event
+              // and persist to Firestore for reload + action handling
+              if (parsedResponse && parsedResponse.artifact_type) {
+                const artifactData = {
+                  type: parsedResponse.artifact_type,
+                  content: parsedResponse.content || {},
+                  actions: parsedResponse.actions || [],
+                  status: 'proposed',
+                  correlation_id: correlationId,
+                  created_at: admin.firestore.FieldValue.serverTimestamp(),
+                };
+
+                // Persist artifact to Firestore
+                artifactsRef.add(artifactData)
+                  .then(docRef => {
+                    // Emit artifact to iOS via SSE for instant display
+                    sseRaw.write({
+                      type: 'artifact',
+                      artifact_id: docRef.id,
+                      artifact_type: parsedResponse.artifact_type,
+                      content: parsedResponse.content || {},
+                      actions: parsedResponse.actions || [],
+                      status: 'proposed',
+                    });
+
+                    // Also persist a message reference for conversation history
+                    messagesRef.add({
+                      type: 'artifact',
+                      artifact_type: parsedResponse.artifact_type,
+                      artifact_id: docRef.id,
+                      correlation_id: correlationId || null,
+                      created_at: admin.firestore.FieldValue.serverTimestamp(),
+                    }).catch(err => logger.warn('[streamAgentNormalized] artifact message ref failed', { error: String(err?.message || err) }));
+                  })
+                  .catch(err => {
+                    logger.warn('[streamAgentNormalized] artifact persist failed', { error: String(err?.message || err) });
+                    // Still emit the artifact via SSE even if persist fails
+                    sseRaw.write({
+                      type: 'artifact',
+                      artifact_type: parsedResponse.artifact_type,
+                      content: parsedResponse.content || {},
+                      actions: parsedResponse.actions || [],
+                      status: 'proposed',
+                    });
+                  });
+              }
+
               if (parsedResponse && Array.isArray(parsedResponse.events)) {
                 for (const evt of parsedResponse.events) {
                   if (evt && typeof evt === 'object') {
@@ -1171,6 +1246,7 @@ async function streamAgentNormalizedHandler(req, res) {
               if (remainder) {
                 // Skip list item detection for simplicity
                 normalizer.buffer += remainder;
+                accumulatedAgentText += remainder;
                 sse.write({ type: 'text_delta', text: remainder });
               }
 
@@ -1208,7 +1284,17 @@ async function streamAgentNormalizedHandler(req, res) {
       if (pre) {
         sse.write({ type: 'text_commit', text: pre });
       }
-      
+
+      // Persist agent response to conversation messages for reload
+      if (accumulatedAgentText.trim()) {
+        messagesRef.add({
+          type: 'agent_response',
+          content: accumulatedAgentText.trim(),
+          correlation_id: correlationId || null,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+        }).catch(err => logger.warn('[streamAgentNormalized] agent response persist failed', { error: String(err?.message || err) }));
+      }
+
       // If no data chunks received, the session is likely corrupted/stale
       if (dataChunkCount === 0) {
         logger.warn('[streamAgentNormalized] Stream ended with NO data - invalidating session', { 

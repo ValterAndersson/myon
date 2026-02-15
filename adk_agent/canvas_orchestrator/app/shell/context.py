@@ -55,8 +55,8 @@ def get_current_context() -> "SessionContext":
     """
     Get the context for the current request.
     
-    Called by tool wrappers to get user_id, canvas_id.
-    
+    Called by tool wrappers to get user_id, conversation_id.
+
     Returns:
         SessionContext for current request
         
@@ -102,9 +102,12 @@ class SessionContext:
     This is NOT persistent across requests. Each request creates a new
     SessionContext from the message prefix.
 
-    Format: (context: canvas_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
+    Format: (context: conversation_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
+
+    Note: Also accepts legacy canvas_id= prefix for backward compatibility
+    during the canvas-to-conversations migration.
     """
-    canvas_id: str
+    conversation_id: str
     user_id: str
     correlation_id: Optional[str]
     workout_mode: bool = False
@@ -117,6 +120,9 @@ class SessionContext:
         Parse context from message prefix.
 
         Expected format:
+            (context: conversation_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
+
+        Also accepts legacy format for backward compatibility:
             (context: canvas_id=X user_id=Y corr=Z [workout_id=W] [today=YYYY-MM-DD]) message
 
         Args:
@@ -125,8 +131,9 @@ class SessionContext:
         Returns:
             SessionContext with parsed values, or empty context if parsing fails
         """
+        # Accept both conversation_id= and canvas_id= (backward compat)
         match = re.search(
-            r'\(context:\s*canvas_id=(\S+)\s+user_id=(\S+)\s+corr=(\S+)'
+            r'\(context:\s*(?:conversation_id|canvas_id)=(\S+)\s+user_id=(\S+)\s+corr=(\S+)'
             r'(?:\s+workout_id=(\S+))?'
             r'(?:\s+today=(\S+))?\)',
             message
@@ -144,7 +151,7 @@ class SessionContext:
                 active_workout_id = workout_id
 
             return cls(
-                canvas_id=match.group(1).strip(),
+                conversation_id=match.group(1).strip(),
                 user_id=match.group(2).strip(),
                 correlation_id=corr if corr != "none" else None,
                 workout_mode=workout_mode,
@@ -152,7 +159,7 @@ class SessionContext:
                 today=today if today and today != "none" else None,
             )
         # Fallback for malformed messages
-        return cls(canvas_id="", user_id="", correlation_id=None)
+        return cls(conversation_id="", user_id="", correlation_id=None)
     
     @staticmethod
     def strip_prefix(message: str) -> str:
@@ -166,22 +173,22 @@ class SessionContext:
             Message without the context prefix
         """
         return re.sub(
-            r'\(context:\s*canvas_id=\S+\s+user_id=\S+\s+corr=\S+'
-            r'(?:\s+workout_id=\S+)?\)\s*',
+            r'\(context:\s*(?:conversation_id|canvas_id)=\S+\s+user_id=\S+\s+corr=\S+'
+            r'(?:\s+workout_id=\S+)?(?:\s+today=\S+)?\)\s*',
             '',
             message
         ).strip()
     
     def is_valid(self) -> bool:
         """Check if context has required fields."""
-        return bool(self.canvas_id and self.user_id)
+        return bool(self.conversation_id and self.user_id)
     
     def __str__(self) -> str:
         """Format for logging."""
         corr = self.correlation_id or "none"
         if self.workout_mode and self.active_workout_id:
-            return f"SessionContext(canvas={self.canvas_id}, user={self.user_id}, corr={corr}, workout={self.active_workout_id})"
-        return f"SessionContext(canvas={self.canvas_id}, user={self.user_id}, corr={corr})"
+            return f"SessionContext(conv={self.conversation_id}, user={self.user_id}, corr={corr}, workout={self.active_workout_id})"
+        return f"SessionContext(conv={self.conversation_id}, user={self.user_id}, corr={corr})"
 
 
 __all__ = [

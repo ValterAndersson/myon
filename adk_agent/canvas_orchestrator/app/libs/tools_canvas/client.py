@@ -2,47 +2,14 @@
 client.py - Agent → Firebase Functions HTTP Client
 
 PURPOSE:
-HTTP client for Agent to call Firebase Functions. This is the primary way
-the agent reads and writes data. All methods call Firebase Cloud Functions
-which then interact with Firestore.
+HTTP client for Agent to call Firebase Functions for READ operations.
+All methods call Firebase Cloud Functions which interact with Firestore.
 
-ARCHITECTURE CONTEXT:
-┌─────────────────────────────┐       ┌─────────────────────────────────┐
-│ Agent (Vertex AI)           │       │ Firebase Functions              │
-│                             │       │                                 │
-│ PlannerAgent                │       │ Canvas APIs:                    │
-│ CoachAgent     ────────────►│──────►│   proposeCards, bootstrapCanvas │
-│ CopilotAgent               │       │   emitEvent                     │
-│                             │       │                                 │
-│ Uses:                       │       │ User APIs:                      │
-│   CanvasFunctionsClient     │       │   getUser, getUserPreferences   │
-│   (this file)               │       │   getUserWorkouts               │
-│                             │       │                                 │
-└─────────────────────────────┘       │ Exercise APIs:                  │
-                                      │   searchExercises               │
-                                      │                                 │
-                                      │ Template APIs:                  │
-                                      │   getTemplate, getUserTemplates │
-                                      │   createTemplateFromPlan        │
-                                      │   patchTemplate                 │
-                                      │                                 │
-                                      │ Routine APIs:                   │
-                                      │   getRoutine, getUserRoutines   │
-                                      │   getActiveRoutine, patchRoutine│
-                                      │   setActiveRoutine              │
-                                      │                                 │
-                                      │ Planning APIs:                  │
-                                      │   getPlanningContext            │
-                                      │   getNextWorkout                │
-                                      │                                 │
-                                      │ Training Analysis APIs:         │
-                                      │   getAnalysisSummary            │
-                                      └─────────────────────────────────┘
+Note: Write operations (propose_workout, propose_routine, etc.) now return
+artifact data directly via tool responses. The streaming layer handles
+persistence. This client is used only for read-only API calls.
 
 KEY METHOD → FIREBASE FUNCTION MAPPING:
-- propose_cards() → firebase_functions/functions/canvas/propose-cards.js
-- bootstrap_canvas() → firebase_functions/functions/canvas/bootstrap-canvas.js
-- emit_event() → firebase_functions/functions/canvas/emit-event.js
 - get_user() → firebase_functions/functions/user/get-user.js
 - get_user_preferences() → firebase_functions/functions/user/get-user-preferences.js
 - get_user_workouts() → firebase_functions/functions/workouts/get-user-workouts.js
@@ -54,25 +21,6 @@ KEY METHOD → FIREBASE FUNCTION MAPPING:
 - patch_template() → firebase_functions/functions/templates/patch-template.js
 - patch_routine() → firebase_functions/functions/routines/patch-routine.js
 - get_analysis_summary() → firebase_functions/functions/training/get-analysis-summary.js
-
-HOW IT'S USED BY AGENTS:
-Agent tools (planner_tools.py, coach_tools.py, etc.) wrap this client and
-expose methods as FunctionTool instances that the LLM can call:
-
-  from ..libs.tools_canvas.client import CanvasFunctionsClient
-  
-  client = CanvasFunctionsClient(
-      base_url="https://us-central1-myon-53d85.cloudfunctions.net",
-      api_key="myon-agent-key-2024"
-  )
-  result = client.search_exercises(muscle_group="chest", limit=10)
-
-RELATED FILES:
-- agents/tools/planner_tools.py: Uses this client for planning tools
-- agents/tools/coach_tools.py: Uses this client for coaching tools
-- agents/tools/copilot_tools.py: Uses this client for copilot tools
-- agents/tools/analysis_tools.py: Uses this client for analytics tools
-- libs/tools_common/http.py: Underlying HTTP implementation
 
 AUTHENTICATION:
 - api_key: Static API key for server-to-server auth
@@ -106,28 +54,6 @@ class CanvasFunctionsClient:
             timeout_seconds=self.timeout_seconds,
         )
 
-    def propose_cards(
-        self,
-        canvas_id: str,
-        cards: List[Dict[str, Any]],
-        *,
-        user_id: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        headers: Dict[str, str] = {}
-        if correlation_id:
-            headers["X-Correlation-Id"] = correlation_id
-        if user_id:
-            headers["X-User-Id"] = user_id
-        # Also pass correlationId in body for clients that read body (server side extracts header first)
-        body: Dict[str, Any] = {"canvasId": canvas_id, "cards": cards}
-        if correlation_id:
-            body["correlationId"] = correlation_id
-        return self._http.post("proposeCards", body, headers=headers or None)
-
-    def bootstrap_canvas(self, user_id: str, purpose: str) -> Dict[str, Any]:
-        return self._http.post("bootstrapCanvas", {"userId": user_id, "purpose": purpose})
-    
     def get_user(self, user_id: str) -> Dict[str, Any]:
         """Get comprehensive user profile data."""
         return self._http.post("getUser", {"userId": user_id})
@@ -142,29 +68,6 @@ class CanvasFunctionsClient:
             "userId": user_id,
             "limit": limit
         })
-
-    def emit_event(
-        self,
-        user_id: str,
-        canvas_id: str,
-        event_type: str,
-        payload: Optional[Dict[str, Any]] = None,
-        *,
-        correlation_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Write a debug event to the canvas events collection."""
-        headers: Dict[str, str] = {}
-        if correlation_id:
-            headers["X-Correlation-Id"] = correlation_id
-        body: Dict[str, Any] = {
-            "userId": user_id,
-            "canvasId": canvas_id,
-            "type": event_type,
-            "payload": payload or {},
-        }
-        if correlation_id:
-            body["correlationId"] = correlation_id
-        return self._http.post("emitEvent", body, headers=headers or None)
 
     def search_exercises(
         self,

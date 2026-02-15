@@ -18,12 +18,12 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// Session validity window (30 minutes)
-const SESSION_TTL_MS = 30 * 60 * 1000;
+// Session validity window (55 minutes — Vertex AI sessions survive ~60min)
+const SESSION_TTL_MS = 55 * 60 * 1000;
 
 // Agent version - INCREMENT THIS ON EVERY DEPLOY
 // This forces fresh sessions when the agent schema changes
-const AGENT_VERSION = '2.4.0'; // Fix ADK transfer semantics
+const AGENT_VERSION = '2.6.0'; // Aligned with open-canvas.js
 
 async function initializeSessionHandler(req, res) {
   if (req.method !== 'POST') {

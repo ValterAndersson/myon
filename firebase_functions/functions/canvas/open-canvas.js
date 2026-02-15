@@ -41,10 +41,9 @@ async function getGcpAuthToken() {
   return cachedGcpToken;
 }
 
-// Session TTL: 30 minutes of inactivity
-// With pre-warming, we want sessions to stay valid longer so users can take their time
-// Vertex AI sessions are revalidated on each stream, so longer TTL is safe
-const SESSION_TTL_MS = 30 * 60 * 1000;
+// Session TTL: 55 minutes of inactivity
+// Vertex AI sessions auto-expire at ~60min. 55min gives buffer while maximizing reuse.
+const SESSION_TTL_MS = 55 * 60 * 1000;
 
 // Agent version - MUST MATCH initialize-session.js and stream-agent-normalized.js
 // When agent is updated, bump this to invalidate all existing sessions
@@ -291,11 +290,10 @@ async function openCanvasHandler(req, res) {
   }
 }
 
-// Export WITHOUT min instances for now (avoids ~$12.60/month fixed cost)
-// Add minInstances: 1 when ready for production
 exports.openCanvas = onRequest({
   timeoutSeconds: 60,
   memory: '512MiB'
+  // minInstances: 1
 }, requireFlexibleAuth(openCanvasHandler));
 
 // Also export a pre-warm endpoint that can be called on app launch
@@ -323,8 +321,8 @@ async function preWarmSessionHandler(req, res) {
   }
 }
 
-// Also without minInstances for now - add when app goes to production
 exports.preWarmSession = onRequest({
   timeoutSeconds: 30,
   memory: '256MiB'
+  // minInstances: 1
 }, requireFlexibleAuth(preWarmSessionHandler));

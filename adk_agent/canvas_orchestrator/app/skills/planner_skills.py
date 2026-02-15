@@ -6,8 +6,10 @@ These are extracted from planner_agent.py and refactored to:
 - Support dry_run mode for Safety Gate
 - Return structured results
 
-Write operations (propose_workout, propose_routine) support dry_run mode
-which returns what WOULD be created without actually publishing.
+Write operations (propose_workout, propose_routine) return artifact data
+directly via the tool response. The streaming layer (stream-agent-normalized.js)
+detects artifact_type in tool responses and handles SSE emission + Firestore
+persistence. The agent never writes cards/artifacts to Firestore directly.
 """
 
 from __future__ import annotations
@@ -20,19 +22,15 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from app.libs.tools_canvas.client import CanvasFunctionsClient
-from app.libs.tools_common.response_helpers import (
-    parse_api_response,
-    format_validation_error_for_agent,
-)
 
 logger = logging.getLogger(__name__)
 
-# Singleton client
+# Singleton client — used by get_planning_context() for read-only calls
 _client: Optional[CanvasFunctionsClient] = None
 
 
 def _get_client() -> CanvasFunctionsClient:
-    """Get or create the canvas client."""
+    """Get or create the client for read-only API calls."""
     global _client
     if _client is None:
         base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
@@ -196,7 +194,6 @@ def get_planning_context(user_id: str) -> SkillResult:
 # ============================================================================
 
 def propose_workout(
-    canvas_id: str,
     user_id: str,
     title: str,
     exercises: List[Dict[str, Any]],
@@ -207,10 +204,12 @@ def propose_workout(
     dry_run: bool = False,
 ) -> SkillResult:
     """
-    Create and optionally publish a workout plan.
-    
+    Create a workout plan artifact.
+
+    Returns artifact data directly. The streaming layer detects artifact_type
+    in the tool response and handles SSE emission + Firestore persistence.
+
     Args:
-        canvas_id: Canvas ID (required)
         user_id: User ID (required)
         title: Workout name
         exercises: List of exercises with name, exercise_id, sets, reps, rir, weight_kg
@@ -219,37 +218,19 @@ def propose_workout(
         coach_notes: Rationale for this plan
         correlation_id: Request correlation ID
         dry_run: If True, return preview without publishing (Safety Gate)
-        
+
     Returns:
-        SkillResult with published workout or preview
+        SkillResult with artifact data or preview
     """
-    if not canvas_id or not user_id:
-        return SkillResult(success=False, error="canvas_id and user_id are required")
-    
+    if not user_id:
+        return SkillResult(success=False, error="user_id is required")
+
     # Build exercise blocks
     blocks = _build_exercise_blocks(exercises)
-    
+
     if not blocks:
         return SkillResult(success=False, error="No valid exercises provided")
-    
-    # Build the session_plan card
-    card = {
-        "type": "session_plan",
-        "lane": "workout",
-        "priority": 90,
-        "actions": [
-            {"kind": "accept_plan", "label": "Accept Plan", "style": "primary", "iconSystemName": "checkmark"},
-            {"kind": "dismiss_plan", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
-            {"kind": "follow_up", "label": "Adjust", "style": "ghost", "iconSystemName": "bubble.left"},
-        ],
-        "content": {
-            "title": title,
-            "blocks": blocks,
-            "estimated_duration_minutes": duration_minutes,
-            "coach_notes": coach_notes,
-        },
-    }
-    
+
     # SAFETY GATE: If dry_run, return preview without publishing
     if dry_run:
         logger.info("PROPOSE_WORKOUT DRY_RUN: title='%s' exercises=%d", title, len(blocks))
@@ -269,32 +250,23 @@ def propose_workout(
                 "action_required": "Call propose_workout with dry_run=False to publish",
             }
         )
-    
-    # Publish via proposeCards
-    logger.info("PROPOSE_WORKOUT: canvas=%s title='%s' exercises=%d", canvas_id, title, len(blocks))
-    
-    try:
-        resp = _get_client().propose_cards(
-            canvas_id=canvas_id,
-            cards=[card],
-            user_id=user_id,
-            correlation_id=correlation_id,
-        )
-        
-        success, data, error_details = parse_api_response(resp)
-        if not success:
-            logger.error("PROPOSE_WORKOUT ERROR: %s", error_details)
-            return SkillResult(success=False, error=str(error_details))
-        
-    except Exception as e:
-        logger.error("PROPOSE_WORKOUT FAILED: %s", e)
-        return SkillResult(success=False, error=str(e))
-    
+
+    # Return artifact data directly — streaming layer handles persistence
+    logger.info("PROPOSE_WORKOUT: title='%s' exercises=%d", title, len(blocks))
+
     return SkillResult(
         success=True,
         data={
-            "status": "published",
-            "message": f"'{title}' published to canvas",
+            "artifact_type": "session_plan",
+            "content": {
+                "title": title,
+                "blocks": blocks,
+                "estimated_duration_minutes": duration_minutes,
+                "coach_notes": coach_notes,
+            },
+            "actions": ["start_workout", "dismiss"],
+            "status": "proposed",
+            "message": f"'{title}' proposed ({len(blocks)} exercises, ~{duration_minutes} min)",
             "exercises": len(blocks),
             "total_sets": sum(len(b.get("sets", [])) for b in blocks),
         }
@@ -306,7 +278,6 @@ def propose_workout(
 # ============================================================================
 
 def propose_routine(
-    canvas_id: str,
     user_id: str,
     name: str,
     frequency: int,
@@ -316,10 +287,12 @@ def propose_routine(
     dry_run: bool = False,
 ) -> SkillResult:
     """
-    Create and optionally publish a complete routine with multiple workouts.
-    
+    Create a routine artifact with embedded workout data.
+
+    Returns a single routine_summary artifact with all workouts and their
+    exercises embedded inline. The streaming layer handles persistence.
+
     Args:
-        canvas_id: Canvas ID (required)
         user_id: User ID (required)
         name: Routine name
         frequency: Times per week
@@ -327,69 +300,36 @@ def propose_routine(
         description: Routine description
         correlation_id: Request correlation ID
         dry_run: If True, return preview without publishing (Safety Gate)
-        
+
     Returns:
-        SkillResult with published routine or preview
+        SkillResult with artifact data or preview
     """
-    if not canvas_id or not user_id:
-        return SkillResult(success=False, error="canvas_id and user_id are required")
-    
+    if not user_id:
+        return SkillResult(success=False, error="user_id is required")
+
     if not workouts:
         return SkillResult(success=False, error="At least one workout is required")
-    
-    # Build all workout cards
-    cards: List[Dict[str, Any]] = []
+
+    # Build workout data with embedded exercises
     workout_summaries = []
-    
+
     for idx, workout in enumerate(workouts):
         title = workout.get("title") or f"Day {idx + 1}"
         exercises = workout.get("exercises") or []
-        
+
         blocks = _build_exercise_blocks(exercises)
         estimated_duration = len(blocks) * 5 + 10
-        
-        day_card = {
-            "type": "session_plan",
-            "lane": "workout",
-            "content": {
-                "title": title,
-                "blocks": blocks,
-                "estimated_duration_minutes": estimated_duration,
-            },
-            "actions": [
-                {"kind": "expand", "label": "View Details", "style": "ghost"},
-            ],
-        }
-        cards.append(day_card)
-        
+
         workout_summaries.append({
             "day": idx + 1,
             "title": title,
-            "card_id": None,
+            "blocks": blocks,
             "estimated_duration": estimated_duration,
             "exercise_count": len(blocks),
         })
-    
-    # Create routine_summary anchor card
-    summary_card = {
-        "type": "routine_summary",
-        "lane": "workout",
-        "priority": 95,
-        "content": {
-            "name": name,
-            "description": description,
-            "frequency": frequency,
-            "workouts": workout_summaries,
-        },
-        "actions": [
-            {"kind": "save_routine", "label": "Save Routine", "style": "primary", "iconSystemName": "checkmark"},
-            {"kind": "dismiss_draft", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
-        ],
-    }
-    
-    all_cards = [summary_card] + cards
+
     total_exercises = sum(w.get("exercise_count", 0) for w in workout_summaries)
-    
+
     # SAFETY GATE: If dry_run, return preview without publishing
     if dry_run:
         logger.info("PROPOSE_ROUTINE DRY_RUN: name='%s' workouts=%d", name, len(workouts))
@@ -409,32 +349,23 @@ def propose_routine(
                 "action_required": "Call propose_routine with dry_run=False to publish",
             }
         )
-    
-    # Publish all cards
-    logger.info("PROPOSE_ROUTINE: canvas=%s name='%s' workouts=%d", canvas_id, name, len(workouts))
-    
-    try:
-        resp = _get_client().propose_cards(
-            canvas_id=canvas_id,
-            cards=all_cards,
-            user_id=user_id,
-            correlation_id=correlation_id,
-        )
-        
-        success, data, error_details = parse_api_response(resp)
-        if not success:
-            logger.error("PROPOSE_ROUTINE ERROR: %s", error_details)
-            return SkillResult(success=False, error=str(error_details))
-        
-    except Exception as e:
-        logger.error("PROPOSE_ROUTINE FAILED: %s", e)
-        return SkillResult(success=False, error=str(e))
-    
+
+    # Return artifact data directly — streaming layer handles persistence
+    logger.info("PROPOSE_ROUTINE: name='%s' workouts=%d", name, len(workouts))
+
     return SkillResult(
         success=True,
         data={
-            "status": "published",
-            "message": f"'{name}' routine published ({len(workouts)} workouts)",
+            "artifact_type": "routine_summary",
+            "content": {
+                "name": name,
+                "description": description,
+                "frequency": frequency,
+                "workouts": workout_summaries,
+            },
+            "actions": ["save_routine", "dismiss"],
+            "status": "proposed",
+            "message": f"'{name}' routine proposed ({len(workouts)} workouts)",
             "workout_count": len(workouts),
             "total_exercises": total_exercises,
         }
@@ -446,28 +377,23 @@ def propose_routine(
 # ============================================================================
 
 def propose_routine_update(
-    canvas_id: str,
     user_id: str,
     routine_id: str,
     workouts: List[Dict[str, Any]],
     name: Optional[str] = None,
     description: Optional[str] = None,
     frequency: Optional[int] = None,
-    routine_name: Optional[str] = None,  # Original routine name for UI display
+    routine_name: Optional[str] = None,
     correlation_id: Optional[str] = None,
     dry_run: bool = False,
 ) -> SkillResult:
     """
-    Propose updates to an existing routine via canvas cards.
-    
-    Cards are published WITH sourceRoutineId and sourceTemplateIds so that
-    when user confirms, createRoutineFromDraftCore UPDATES instead of creates.
-    
-    Use this when modifying an existing routine (e.g., "improve my Push Pull Legs").
-    Use propose_routine for creating new routines from scratch.
-    
+    Propose updates to an existing routine as an artifact.
+
+    Returns artifact data with source metadata so the artifact action endpoint
+    can UPDATE the existing routine instead of creating a new one.
+
     Args:
-        canvas_id: Canvas ID (required)
         user_id: User ID (required)
         routine_id: ID of routine to update (required)
         workouts: List of workouts, each with:
@@ -477,99 +403,47 @@ def propose_routine_update(
         name: New routine name (optional, keeps existing if not provided)
         description: New description (optional)
         frequency: New frequency (optional)
+        routine_name: Current routine name for UI display
         correlation_id: Request correlation ID
         dry_run: If True, return preview without publishing
-        
+
     Returns:
-        SkillResult with published cards or preview
+        SkillResult with artifact data or preview
     """
-    if not canvas_id or not user_id:
-        return SkillResult(success=False, error="canvas_id and user_id are required")
-    
+    if not user_id:
+        return SkillResult(success=False, error="user_id is required")
+
     if not routine_id:
         return SkillResult(success=False, error="routine_id is required for updates")
-    
+
     if not workouts:
         return SkillResult(success=False, error="At least one workout is required")
-    
-    # Generate unique draft ID for this update
-    draft_id = f"update-{routine_id}-{str(uuid.uuid4())[:8]}"
-    group_id = f"grp-{str(uuid.uuid4())[:8]}"
-    
-    # Build all workout cards with source metadata
-    cards: List[Dict[str, Any]] = []
+
+    # Build workout data with embedded exercises and source metadata
     workout_summaries = []
-    
+
     for idx, workout in enumerate(workouts):
         title = workout.get("title") or f"Day {idx + 1}"
         exercises = workout.get("exercises") or []
-        source_template_id = workout.get("source_template_id")  # Original template if updating
-        
+        source_template_id = workout.get("source_template_id")
+
         blocks = _build_exercise_blocks(exercises)
         estimated_duration = len(blocks) * 5 + 10
-        
-        day_card = {
-            "type": "session_plan",
-            "lane": "workout",
-            "meta": {
-                "groupId": group_id,
-                "mode": "update",
-            },
-            "content": {
-                "title": title,
-                "blocks": blocks,
-                "estimated_duration_minutes": estimated_duration,
-            },
-            "actions": [
-                {"kind": "expand", "label": "View Details", "style": "ghost"},
-            ],
-        }
-        
-        # Add source template ID for update path
-        if source_template_id:
-            day_card["meta"]["sourceTemplateId"] = source_template_id
-        
-        cards.append(day_card)
-        
-        workout_summaries.append({
+
+        summary = {
             "day": idx + 1,
             "title": title,
-            "card_id": None,  # Will be set by propose-cards.js
+            "blocks": blocks,
             "estimated_duration": estimated_duration,
             "exercise_count": len(blocks),
-            "source_template_id": source_template_id,
-        })
-    
-    # Create routine_summary anchor card with source metadata
-    summary_card = {
-        "type": "routine_summary",
-        "lane": "workout",
-        "priority": 95,
-        "meta": {
-            "groupId": group_id,
-            "draftId": draft_id,
-            "sourceRoutineId": routine_id,  # ← KEY: Enables update path
-            "mode": "update",
-        },
-        "content": {
-            "name": name,
-            "description": description,
-            "frequency": frequency or len(workouts),
-            "workouts": workout_summaries,
-            "mode": "update",  # UI indicator
-            "source_routine_id": routine_id,
-            "source_routine_name": routine_name,  # For UI display: "Updating: [name]"
-        },
-        "actions": [
-            {"kind": "save_routine", "label": "Update Routine", "style": "primary", "iconSystemName": "checkmark"},
-            {"kind": "dismiss_draft", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
-            {"kind": "save_as_new", "label": "Save as New", "style": "ghost", "iconSystemName": "doc.badge.plus"},
-        ],
-    }
-    
-    all_cards = [summary_card] + cards
+        }
+        if source_template_id:
+            summary["source_template_id"] = source_template_id
+
+        workout_summaries.append(summary)
+
     total_exercises = sum(w.get("exercise_count", 0) for w in workout_summaries)
-    
+
     # SAFETY GATE: If dry_run, return preview without publishing
     if dry_run:
         logger.info("PROPOSE_ROUTINE_UPDATE DRY_RUN: routine_id='%s' workouts=%d", routine_id, len(workouts))
@@ -591,32 +465,26 @@ def propose_routine_update(
                 "action_required": "Call propose_routine_update with dry_run=False to publish",
             }
         )
-    
-    # Publish all cards
-    logger.info("PROPOSE_ROUTINE_UPDATE: canvas=%s routine_id='%s' workouts=%d", canvas_id, routine_id, len(workouts))
-    
-    try:
-        resp = _get_client().propose_cards(
-            canvas_id=canvas_id,
-            cards=all_cards,
-            user_id=user_id,
-            correlation_id=correlation_id,
-        )
-        
-        success, data, error_details = parse_api_response(resp)
-        if not success:
-            logger.error("PROPOSE_ROUTINE_UPDATE ERROR: %s", error_details)
-            return SkillResult(success=False, error=str(error_details))
-        
-    except Exception as e:
-        logger.error("PROPOSE_ROUTINE_UPDATE FAILED: %s", e)
-        return SkillResult(success=False, error=str(e))
-    
+
+    # Return artifact data directly
+    logger.info("PROPOSE_ROUTINE_UPDATE: routine_id='%s' workouts=%d", routine_id, len(workouts))
+
     return SkillResult(
         success=True,
         data={
-            "status": "published",
-            "message": f"Routine update published ({len(workouts)} workouts)",
+            "artifact_type": "routine_summary",
+            "content": {
+                "name": name,
+                "description": description,
+                "frequency": frequency or len(workouts),
+                "workouts": workout_summaries,
+                "mode": "update",
+                "source_routine_id": routine_id,
+                "source_routine_name": routine_name,
+            },
+            "actions": ["save_routine", "dismiss", "save_as_new"],
+            "status": "proposed",
+            "message": f"Routine update proposed ({len(workouts)} workouts)",
             "mode": "update",
             "source_routine_id": routine_id,
             "workout_count": len(workouts),
@@ -630,7 +498,6 @@ def propose_routine_update(
 # ============================================================================
 
 def propose_template_update(
-    canvas_id: str,
     user_id: str,
     template_id: str,
     exercises: List[Dict[str, Any]],
@@ -640,18 +507,12 @@ def propose_template_update(
     dry_run: bool = False,
 ) -> SkillResult:
     """
-    Propose updates to an existing workout template via canvas card.
-    
-    Card is published WITH sourceTemplateId so that when user confirms,
-    the existing template is UPDATED instead of creating a new one.
-    
-    Use this for:
-    - Updating a standalone template
-    - Updating a single day within a routine
-    - Quick modifications without rebuilding entire routine
-    
+    Propose updates to an existing workout template as an artifact.
+
+    Returns artifact data with source metadata so the artifact action endpoint
+    can UPDATE the existing template instead of creating a new one.
+
     Args:
-        canvas_id: Canvas ID (required)
         user_id: User ID (required)
         template_id: ID of template to update (required)
         exercises: List of exercises with name, exercise_id, sets, reps, rir, weight_kg
@@ -659,48 +520,24 @@ def propose_template_update(
         coach_notes: Rationale for changes
         correlation_id: Request correlation ID
         dry_run: If True, return preview without publishing
-        
+
     Returns:
-        SkillResult with published card or preview
+        SkillResult with artifact data or preview
     """
-    if not canvas_id or not user_id:
-        return SkillResult(success=False, error="canvas_id and user_id are required")
-    
+    if not user_id:
+        return SkillResult(success=False, error="user_id is required")
+
     if not template_id:
         return SkillResult(success=False, error="template_id is required for updates")
-    
+
     # Build exercise blocks
     blocks = _build_exercise_blocks(exercises)
-    
+
     if not blocks:
         return SkillResult(success=False, error="No valid exercises provided")
-    
+
     estimated_duration = len(blocks) * 5 + 10
-    
-    # Build the session_plan card with source metadata
-    card = {
-        "type": "session_plan",
-        "lane": "workout",
-        "priority": 90,
-        "meta": {
-            "sourceTemplateId": template_id,  # ← KEY: Enables update path
-            "mode": "update",
-        },
-        "content": {
-            "title": name,
-            "blocks": blocks,
-            "estimated_duration_minutes": estimated_duration,
-            "coach_notes": coach_notes,
-            "mode": "update",
-            "source_template_id": template_id,
-        },
-        "actions": [
-            {"kind": "save_template", "label": "Update Template", "style": "primary", "iconSystemName": "checkmark"},
-            {"kind": "dismiss_plan", "label": "Dismiss", "style": "secondary", "iconSystemName": "xmark"},
-            {"kind": "save_as_new", "label": "Save as New", "style": "ghost", "iconSystemName": "doc.badge.plus"},
-        ],
-    }
-    
+
     # SAFETY GATE: If dry_run, return preview without publishing
     if dry_run:
         logger.info("PROPOSE_TEMPLATE_UPDATE DRY_RUN: template_id='%s' exercises=%d", template_id, len(blocks))
@@ -721,32 +558,25 @@ def propose_template_update(
                 "action_required": "Call propose_template_update with dry_run=False to publish",
             }
         )
-    
-    # Publish via proposeCards
-    logger.info("PROPOSE_TEMPLATE_UPDATE: canvas=%s template_id='%s' exercises=%d", canvas_id, template_id, len(blocks))
-    
-    try:
-        resp = _get_client().propose_cards(
-            canvas_id=canvas_id,
-            cards=[card],
-            user_id=user_id,
-            correlation_id=correlation_id,
-        )
-        
-        success, data, error_details = parse_api_response(resp)
-        if not success:
-            logger.error("PROPOSE_TEMPLATE_UPDATE ERROR: %s", error_details)
-            return SkillResult(success=False, error=str(error_details))
-        
-    except Exception as e:
-        logger.error("PROPOSE_TEMPLATE_UPDATE FAILED: %s", e)
-        return SkillResult(success=False, error=str(e))
-    
+
+    # Return artifact data directly
+    logger.info("PROPOSE_TEMPLATE_UPDATE: template_id='%s' exercises=%d", template_id, len(blocks))
+
     return SkillResult(
         success=True,
         data={
-            "status": "published",
-            "message": f"Template update published",
+            "artifact_type": "session_plan",
+            "content": {
+                "title": name,
+                "blocks": blocks,
+                "estimated_duration_minutes": estimated_duration,
+                "coach_notes": coach_notes,
+                "mode": "update",
+                "source_template_id": template_id,
+            },
+            "actions": ["save_template", "dismiss", "save_as_new"],
+            "status": "proposed",
+            "message": "Template update proposed",
             "mode": "update",
             "source_template_id": template_id,
             "exercises": len(blocks),

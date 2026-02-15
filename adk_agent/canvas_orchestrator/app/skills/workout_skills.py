@@ -40,13 +40,19 @@ MYON_FUNCTIONS_BASE_URL = os.getenv(
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "myon-agent-key-2024")
 
 
+_client = None
+
+
 def _get_client():
-    """Get a CanvasFunctionsClient instance."""
-    from app.libs.tools_canvas.client import CanvasFunctionsClient
-    return CanvasFunctionsClient(
-        base_url=MYON_FUNCTIONS_BASE_URL,
-        api_key=FIREBASE_API_KEY,
-    )
+    """Get or create the singleton CanvasFunctionsClient instance."""
+    global _client
+    if _client is None:
+        from app.libs.tools_canvas.client import CanvasFunctionsClient
+        _client = CanvasFunctionsClient(
+            base_url=MYON_FUNCTIONS_BASE_URL,
+            api_key=FIREBASE_API_KEY,
+        )
+    return _client
 
 
 @dataclass

@@ -80,7 +80,6 @@ def propose_workout(
     
     # Execute with dry_run based on Safety Gate decision
     result = _propose_workout(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         title=title,
         exercises=exercises,
@@ -142,7 +141,6 @@ def propose_routine(
     
     # Execute with dry_run based on Safety Gate decision
     result = _propose_routine(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         name=name,
         frequency=frequency,

@@ -672,12 +672,11 @@ def tool_propose_workout(
         coach_notes: Rationale for the plan
     """
     ctx = get_current_context()
-    
-    if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id in context"}
-    
+
+    if not ctx.user_id:
+        return {"error": "Missing user_id in context"}
+
     result = direct_propose_workout(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         title=title,
         exercises=exercises,
@@ -687,7 +686,7 @@ def tool_propose_workout(
         correlation_id=ctx.correlation_id,
         dry_run=False,  # Always publish - card has accept/dismiss buttons
     )
-    
+
     return result.to_dict()
 
 
@@ -700,9 +699,9 @@ def tool_propose_routine(
 ) -> Dict[str, Any]:
     """
     Create a complete routine with multiple workout days.
-    
+
     The card has save/dismiss buttons - no confirmation needed.
-    
+
     Args:
         name: Routine name (e.g., "Push Pull Legs", "Upper Lower")
         frequency: Times per week (3, 4, 5, 6)
@@ -712,12 +711,11 @@ def tool_propose_routine(
         description: Brief routine description
     """
     ctx = get_current_context()
-    
-    if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id in context"}
-    
+
+    if not ctx.user_id:
+        return {"error": "Missing user_id in context"}
+
     result = direct_propose_routine(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         name=name,
         frequency=frequency,
@@ -726,7 +724,7 @@ def tool_propose_routine(
         correlation_id=ctx.correlation_id,
         dry_run=False,  # Always publish - card has save/dismiss buttons
     )
-    
+
     return result.to_dict()
 
 
@@ -797,23 +795,22 @@ def tool_update_routine(
         6. User clicks "Update Routine" → existing routine/templates are updated
     """
     ctx = get_current_context()
-    
-    if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id in context"}
-    
+
+    if not ctx.user_id:
+        return {"error": "Missing user_id in context"}
+
     result = direct_propose_routine_update(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         routine_id=routine_id,
         workouts=workouts,
         name=name,
         description=description,
         frequency=frequency,
-        routine_name=routine_name,  # Pass for UI display: "Updating: [name]"
+        routine_name=routine_name,
         correlation_id=ctx.correlation_id,
         dry_run=False,
     )
-    
+
     return result.to_dict()
 
 
@@ -826,25 +823,25 @@ def tool_update_template(
 ) -> Dict[str, Any]:
     """
     Update a single workout template with modified exercises.
-    
+
     Use this when:
     - Modifying a standalone template (not part of a routine)
     - Making targeted changes to ONE day of a routine
     - Quick adjustments without rebuilding the entire routine
-    
+
     Example triggers:
         - "Change my Push day to add more chest work"
         - "Update my leg template with more quad exercises"
         - "Improve just the Pull workout"
-    
+
     For routine-wide changes, use tool_update_routine instead.
-    
+
     The card shows "Update Template" button - user confirms the changes.
     UI will indicate this is an update, not a new template.
-    
+
     Args:
         template_id: ID of the template to update (from tool_get_planning_context)
-        
+
         exercises: List of exercises with modifications. Each exercise:
             - name: Exercise name
             - exercise_id: Catalog ID
@@ -852,20 +849,19 @@ def tool_update_template(
             - reps: Target reps (8-12 for hypertrophy)
             - rir: Target RIR for final set
             - weight_kg: Target weight (optional)
-        
+
         name: New template name (optional - keeps existing if not provided)
         coach_notes: Rationale for the changes
-    
+
     Returns:
         Status of the published update proposal
     """
     ctx = get_current_context()
-    
-    if not ctx.canvas_id or not ctx.user_id:
-        return {"error": "Missing canvas_id or user_id in context"}
-    
+
+    if not ctx.user_id:
+        return {"error": "Missing user_id in context"}
+
     result = direct_propose_template_update(
-        canvas_id=ctx.canvas_id,
         user_id=ctx.user_id,
         template_id=template_id,
         exercises=exercises,
@@ -874,7 +870,7 @@ def tool_update_template(
         correlation_id=ctx.correlation_id,
         dry_run=False,
     )
-    
+
     return result.to_dict()
 
 

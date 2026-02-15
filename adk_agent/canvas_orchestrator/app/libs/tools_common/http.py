@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 
 
 @dataclass
@@ -14,6 +15,13 @@ class HttpClient:
     bearer_token: Optional[str] = None
     user_id: Optional[str] = None
     timeout_seconds: int = 30
+    _session: requests.Session = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self._session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         headers: Dict[str, str] = {
@@ -39,12 +47,12 @@ class HttpClient:
 
     def get(self, path: str, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         url = self._url(path)
-        resp = requests.get(url, params=params or {}, headers=self._headers(headers), timeout=self.timeout_seconds)
+        resp = self._session.get(url, params=params or {}, headers=self._headers(headers), timeout=self.timeout_seconds)
         return self._handle_response(resp)
 
     def post(self, path: str, json_body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         url = self._url(path)
-        resp = requests.post(url, json=json_body or {}, headers=self._headers(headers), timeout=self.timeout_seconds)
+        resp = self._session.post(url, json=json_body or {}, headers=self._headers(headers), timeout=self.timeout_seconds)
         return self._handle_response(resp)
 
     @staticmethod
