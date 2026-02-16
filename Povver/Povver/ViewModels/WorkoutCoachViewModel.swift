@@ -12,6 +12,7 @@ final class WorkoutCoachViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isStreaming = false
     @Published var inputText = ""
+    @Published var showingPaywall = false
 
     private(set) var workoutId: String
     let conversationId: String
@@ -131,7 +132,15 @@ final class WorkoutCoachViewModel: ObservableObject {
             }
 
         } catch {
-            updateAgentMessage(id: agentMsgId, text: "Connection error. Try again.", status: .failed)
+            if let streamingError = error as? StreamingError,
+               case .premiumRequired = streamingError {
+                showingPaywall = true
+                messages.removeAll { $0.id == agentMsgId }
+            } else {
+                let description = error.localizedDescription
+                DebugLogger.error(.canvas, "Workout copilot stream failed: \(description)")
+                updateAgentMessage(id: agentMsgId, text: "Connection error. Try again.", status: .failed)
+            }
         }
 
         isStreaming = false

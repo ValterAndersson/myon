@@ -48,6 +48,9 @@ struct WorkoutCoachView: View {
             inputBar
         }
         .background(Color.bg)
+        .sheet(isPresented: $viewModel.showingPaywall) {
+            PaywallView()
+        }
     }
 
     private var header: some View {
