@@ -139,6 +139,7 @@ Navigation entry points use `conversationId` instead of `canvasId`:
 | `ChatService` | Singleton | Chat session management + streaming |
 | `DirectStreamingService` | Singleton | SSE streaming to Agent Engine |
 | `CloudFunctionService` | Class | Firebase Functions HTTP client |
+| `SubscriptionService` | Singleton | StoreKit 2 subscription management: product loading, purchase, entitlement checking, Firestore sync |
 | `ApiClient` | Singleton | Generic HTTP client with auth |
 
 ### Managers
@@ -172,9 +173,23 @@ Navigation entry points use `conversationId` instead of `canvasId`:
 - Returns `AppleSignInResult` with idToken, rawNonce, authorizationCode, fullName, email
 - Stored as `@MainActor private let` on `AuthService` — persists across the sign-in flow to avoid premature deallocation (ASAuthorizationController holds a weak delegate reference)
 
+#### `SubscriptionService`
+- StoreKit 2 singleton managing App Store subscriptions
+- `loadProducts()` — fetches available products from App Store
+- `checkEntitlements()` — iterates `Transaction.currentEntitlements`, derives status, syncs positive entitlements to Firestore (never syncs free/expired to avoid overwriting webhook-set state)
+- `purchase(_ product:)` — generates UUID v5 `appAccountToken` from Firebase UID, passes to `product.purchase(options:)`, verifies, finishes, syncs to Firestore
+- `restorePurchases()` — `AppStore.sync()` then `checkEntitlements()`
+- `isEligibleForTrial(_ product:)` — checks introductory offer eligibility for dynamic CTA text
+- `isPremium` computed property: `subscriptionState.isPremium` (checks `override == "premium"` OR `tier == .premium`)
+- Publishes `subscriptionState: UserSubscriptionState`, `availableProducts`, `isLoading`, `isTrialEligible`, `error`
+- Transaction.updates listener started in `init` — handles renewals, expirations, refunds while app is running
+- `loadOverrideFromFirestore()` — reads `subscription_override` field so `isPremium` reflects admin grants
+- UUID v5 generation uses DNS namespace (RFC 4122) — same constant used in webhook for deterministic matching
+
 #### `DirectStreamingService`
 - Streams to Vertex AI Agent Engine via Firebase Function proxy (`streamAgentNormalized`)
-- Parses SSE events into `StreamEvent` objects
+- **Premium gate**: checks `SubscriptionService.shared.isPremium` before opening SSE connection; throws `StreamingError.premiumRequired` if false
+- Parses SSE events into `StreamEvent` objects (maps `error` JSON field to `content` for uniform downstream handling)
 - Handles markdown sanitization and deduplication
 - Returns `AsyncThrowingStream<StreamEvent, Error>`
 - Parameter `conversationId` passed to backend (also sends `canvasId` for backward compatibility during migration)
@@ -243,6 +258,9 @@ func withRetry<T>(
 | `ActiveWorkout` | In-progress workout | `exercises`, `startTime`, `workoutDuration` |
 | `ActiveWorkoutDoc` | Firestore-synced active state | `userId`, `canvasId`, `state` |
 | `MuscleGroup` | Muscle group enumeration | Used by Exercise model |
+| `SubscriptionTier` | Subscription tier enum | `free`, `premium` |
+| `SubscriptionStatusValue` | Subscription status enum | `free`, `trial`, `active`, `expired`, `gracePeriod` |
+| `UserSubscriptionState` | Aggregated subscription state | `isPremium` computed from override or tier |
 
 ### Canvas Models (`UI/Canvas/Models.swift`)
 
@@ -314,6 +332,8 @@ func withRetry<T>(
 | `RoutinesListView` | `UI/Routines/RoutinesListView.swift` | Routine management |
 | `TemplatesListView` | `UI/Templates/TemplatesListView.swift` | Template management |
 | `ProfileView` | `Views/Tabs/ProfileView.swift` | Profile, preferences, security settings |
+| `PaywallView` | `Views/PaywallView.swift` | Full-screen subscription purchase sheet |
+| `SubscriptionView` | `Views/Settings/SubscriptionView.swift` | Subscription status and management |
 | `LoginView` | `Views/LoginView.swift` | Email + SSO login |
 | `RegisterView` | `Views/RegisterView.swift` | Email + SSO registration |
 
@@ -744,6 +764,7 @@ Povver/Povver/
 │   ├── MuscleGroup.swift
 │   ├── Routine.swift
 │   ├── StreamEvent.swift
+│   ├── SubscriptionStatus.swift   # SubscriptionTier, SubscriptionStatusValue, UserSubscriptionState
 │   ├── User.swift
 │   ├── UserAttributes.swift
 │   ├── Workout.swift
@@ -779,6 +800,7 @@ Povver/Povver/
 │   ├── Idempotency.swift           # Idempotency keys
 │   ├── SessionManager.swift        # Session state
 │   ├── SessionPreWarmer.swift      # Vertex AI session pre-warming
+│   ├── SubscriptionService.swift   # StoreKit 2 subscription management
 │   ├── FocusModeWorkoutService.swift # Active workout API
 │   ├── WorkoutSessionLogger.swift  # On-device event log
 │   ├── TemplateManager.swift       # Template editing
@@ -795,6 +817,7 @@ Povver/Povver/
 │   ├── LoginView.swift             # Email + SSO login
 │   ├── MainTabsView.swift          # Tab navigation
 │   ├── RegisterView.swift          # Email + SSO registration
+│   ├── PaywallView.swift           # Subscription purchase sheet
 │   ├── RootView.swift              # App root (reactive auth nav)
 │   ├── Tabs/
 │   │   └── ProfileView.swift       # Profile & settings
@@ -804,7 +827,8 @@ Povver/Povver/
 │       ├── PasswordChangeView.swift     # Change or set password
 │       ├── ForgotPasswordView.swift     # Password reset flow
 │       ├── LinkedAccountsView.swift     # Link/unlink providers
-│       └── DeleteAccountView.swift      # Account deletion
+│       ├── DeleteAccountView.swift      # Account deletion
+│       └── SubscriptionView.swift       # Subscription status & management
 └── UI/
     ├── Canvas/
     │   ├── Models.swift            # Canvas card models

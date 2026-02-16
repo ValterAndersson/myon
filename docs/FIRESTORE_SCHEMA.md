@@ -514,6 +514,19 @@ Top-level user profile and owner of most subcollections.
   - `apple_authorization_code?: string` — Stored on first Apple Sign-In and refreshed on subsequent sign-ins. Required for Apple token revocation on account deletion (App Store requirement 5.1.1(v)). Written by `AuthService.signInWithApple()` (existing user) and `AuthService.confirmSSOAccountCreation()` (new user). Read by `AuthService.deleteAccount()` before calling `Auth.auth().revokeToken()`.
   - (Historic mirrors) `weightFormat?`, `heightFormat?`, `locale?` (canonical values live in `user_attributes`)
 
+- Subscription fields
+  - `subscription_status?: string` — Current subscription state. Values: `"trial"`, `"active"`, `"expired"`, `"grace_period"`, `"free"`. Set by webhook (authoritative for downgrades) and iOS client (initial purchase/positive entitlements).
+  - `subscription_tier?: string` — Denormalized subscription tier for fast gate checks. Values: `"free"`, `"premium"`. Premium when status is `trial`, `active`, or `grace_period`; free otherwise.
+  - `subscription_product_id?: string` — App Store product identifier (e.g., `"com.povver.premium.monthly"`).
+  - `subscription_original_transaction_id?: string` — App Store original transaction ID, stable across renewals. Used as the unique subscription identifier.
+  - `subscription_app_account_token?: string` — UUID linking App Store purchase to Firebase user. Generated on iOS, sent to App Store at purchase, received in webhook for user matching.
+  - `subscription_expires_at?: Timestamp` — When the current subscription period ends. Null for free tier.
+  - `subscription_auto_renew_enabled?: boolean` — Whether auto-renewal is enabled. From App Store webhook `autoRenewStatus`.
+  - `subscription_in_grace_period?: boolean` — Whether user is in billing retry grace period (still has access despite failed payment).
+  - `subscription_updated_at?: Timestamp` — Last time subscription fields were updated (from webhook or manual override).
+  - `subscription_environment?: string` — App Store environment. Values: `"Sandbox"`, `"Production"`. Used to distinguish test vs. real purchases.
+  - `subscription_override?: string` — Manual override for testing/support. Values: `"premium"` (grants premium access regardless of App Store state), `null` (respect App Store state). Set via admin script `scripts/set_subscription_override.js`.
+
 Subcollections:
 1) user_attributes/{uid}
    - Canonical store for user preferences and fitness profile.
@@ -829,6 +842,20 @@ Subcollections:
      applied (initial) → failed (application error, then retry or manual fix)
      ```
 
+17) subscription_events/{auto-id}
+   - Audit log of App Store Server Notifications. Written by `app-store-webhook.js` on every notification.
+   - Stored under `users/{uid}/subscription_events/{auto-id}` (auto-generated document ID).
+   - Used for debugging subscription issues and reconciliation.
+   - Fields:
+     - `notification_type: string` - App Store notification type (e.g., `"SUBSCRIBED"`, `"DID_RENEW"`, `"EXPIRED"`, `"DID_FAIL_TO_RENEW"`, `"GRACE_PERIOD_EXPIRED"`, `"REFUND"`, `"REVOKE"`, `"DID_CHANGE_RENEWAL_STATUS"`)
+     - `subtype?: string` - App Store notification subtype (e.g., `"GRACE_PERIOD"`)
+     - `subscription_status?: string` - The `subscription_status` value set on the user doc by this event (null if no status change)
+     - `subscription_tier?: string` - The `subscription_tier` value set on the user doc by this event (null if no tier change)
+     - `app_account_token?: string` - UUID linking purchase to user (lowercased)
+     - `original_transaction_id?: string` - App Store original transaction ID
+     - `environment?: string` - `"Sandbox"` or `"Production"`
+     - `created_at: Timestamp` - Server timestamp
+
 ---
 
 ## Global Collections
@@ -1042,6 +1069,7 @@ users/{uid}
   │    ├─ messages/{messageId}
   │    └─ artifacts/{artifactId}
   ├─ agent_sessions/{purpose}
+  ├─ subscription_events/{auto-id}
   └─ canvases/{canvasId} (DEPRECATED)
        ├─ cards/{cardId} (DEPRECATED)
        ├─ up_next/{entryId} (DEPRECATED)
@@ -1060,6 +1088,37 @@ idempotency/{userId:tool:key}
 - WorkoutAnalytics/ExerciseAnalytics keys: `total_sets, total_reps, total_weight, weight_format, avg_reps_per_set, avg_weight_per_set, avg_weight_per_rep, weight_per_muscle_group, weight_per_muscle, reps_per_muscle_group, reps_per_muscle, sets_per_muscle_group, sets_per_muscle`.
 - TemplateAnalytics adds `projected_volume`, `estimated_duration`, and relative stimulus maps.
 - Canvas state: `{ phase, version, purpose, lanes }`; Cards: `{ type, status, lane, content, refs, by, created_at, updated_at }`.
+
+---
+
+## Subscription Gate Check Logic
+
+Premium feature access is determined by `utils/subscription-gate.js`:
+
+```javascript
+// isPremiumUser(userId) returns true if ANY of:
+// 1. subscription_override === 'premium' (admin override for testing/support)
+// 2. subscription_tier === 'premium' (set by webhook based on status transitions)
+```
+
+The gate checks the denormalized `subscription_tier` field, not `status + expires_at`. The webhook is responsible for setting tier correctly based on notification type (e.g., `EXPIRED` → tier=`free`, `DID_RENEW` → tier=`premium`).
+
+**Premium-gated features**:
+- AI coaching chat — all streaming via `streamAgentNormalized` (client gate in `DirectStreamingService` + server gate in `stream-agent-normalized.js`)
+- Post-workout LLM analysis — job enqueueing in `triggers/weekly-analytics.js`
+
+**Free tier features** (not gated):
+- Account creation, profile management
+- Manual workout logging (without AI coaching)
+- Workout history viewing
+- Template/routine browsing (read-only)
+- Weekly stats, analytics rollups, set_facts (Firestore-only aggregations, no LLM cost)
+- Exercise catalog browsing
+
+Used by:
+- `firebase_functions/functions/strengthos/stream-agent-normalized.js` — SSE error `PREMIUM_REQUIRED` for free users
+- `firebase_functions/functions/triggers/weekly-analytics.js` — Skips training analysis job enqueueing for free users
+- `Povver/Povver/Services/DirectStreamingService.swift` — Client-side gate before SSE connection
 
 ---
 

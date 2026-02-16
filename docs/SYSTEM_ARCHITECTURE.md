@@ -5,7 +5,7 @@
 > This document is optimized for LLM/AI consumption. It provides explicit file paths, 
 > complete data schemas, and decision tables to enable accurate code generation without ambiguity.
 >
-> **Last Updated**: 2026-02-15
+> **Last Updated**: 2026-02-16
 > **Branch**: main
 > **Repository Root**: /Users/valterandersson/Documents/Povver
 
@@ -32,6 +32,12 @@
 | **Agent Workout Skills** | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Workout brief + mutation skills |
 | **iOS Workout Coach VM** | `Povver/Povver/ViewModels/WorkoutCoachViewModel.swift` | Workout chat state |
 | **iOS Workout Coach View** | `Povver/Povver/UI/FocusMode/WorkoutCoachView.swift` | Compact gym chat UI |
+| **iOS Subscription Service** | `Povver/Povver/Services/SubscriptionService.swift` | StoreKit 2 purchase/entitlements |
+| **iOS Subscription Models** | `Povver/Povver/Models/SubscriptionStatus.swift` | Tier/status enums, UserSubscriptionState |
+| **iOS Paywall** | `Povver/Povver/Views/PaywallView.swift` | Purchase sheet with trial CTA |
+| **iOS Subscription Settings** | `Povver/Povver/Views/Settings/SubscriptionView.swift` | Subscription management |
+| **Subscription Gate** | `firebase_functions/functions/utils/subscription-gate.js` | `isPremiumUser()` check |
+| **App Store Webhook** | `firebase_functions/functions/subscriptions/app-store-webhook.js` | V2 server notifications |
 | **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
 | **Conversation APIs** | `firebase_functions/functions/conversations/` | Artifact actions |
 | **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |
@@ -902,6 +908,130 @@ See `firebase_functions/firestore.indexes.json` for composite indexes.
 - `workouts` ordered by `end_time desc` (for get-recent-workouts)
 - `messages` ordered by `created_at` (for conversation history)
 - `artifacts` filtered by `status` (for pending proposals)
+
+---
+
+## Subscription System
+
+Povver uses Apple StoreKit 2 for in-app purchases with server-side state management via App Store Server Notifications V2. The client syncs positive entitlements to Firestore; the webhook is authoritative for downgrades (expiration, refund, revocation).
+
+### Architecture
+
+```
+iOS StoreKit 2 (SubscriptionService.swift)
+        │ Purchase with appAccountToken (UUID v5 from Firebase UID)
+        │ Client-side gate in DirectStreamingService
+        ▼
+App Store
+        │ Completes purchase
+        │ Sends V2 Server Notification to webhook
+        ▼
+Firebase: subscriptions/app-store-webhook.js
+        │ Decodes JWS payload (base64; JWS signature verification pending Apple root certs)
+        │ Looks up user by subscription_app_account_token (fallback: original_transaction_id)
+        │ Updates user subscription fields on users/{uid}
+        │ Invalidates profile cache, logs event to subscription_events
+        ▼
+Firestore: users/{uid}
+  {
+    subscription_status: "active",
+    subscription_tier: "premium",
+    subscription_expires_at: ...,
+    subscription_override: null        // admin override for test/beta users
+  }
+        │
+        ▼ (Premium feature requests)
+Firebase: utils/subscription-gate.js
+        │ isPremiumUser(userId): override === 'premium' OR tier === 'premium'
+        ▼
+Premium features granted or denied
+```
+
+### Premium-Gated Features
+
+| Feature | Gate Point | Error Format |
+|---------|------------|--------------|
+| AI coaching chat (all streaming) | `stream-agent-normalized.js` (server) + `DirectStreamingService` (client) | SSE `{ type: 'error', error: { code: 'PREMIUM_REQUIRED' } }` |
+| Post-workout LLM analysis | `triggers/weekly-analytics.js` (job not enqueued) | Silent — free analytics still run |
+
+**Not gated** (free for all users): exercise catalog, manual workout logging, workout history, templates/routines (read-only), weekly_stats, analytics rollups, set_facts.
+
+**Client-side gate**: `DirectStreamingService.streamQuery()` checks `SubscriptionService.shared.isPremium` before opening the SSE connection. If `false`, throws `StreamingError.premiumRequired` which `CanvasViewModel` catches to show the paywall.
+
+**Server-side gate (defense-in-depth)**: `stream-agent-normalized.js` calls `isPremiumUser(userId)` after auth. If `false`, emits an SSE error event with code `PREMIUM_REQUIRED` then closes the stream. `CanvasViewModel` also detects this code in the `.error` event handler.
+
+### Subscription States
+
+| Status | Tier | Description |
+|--------|------|-------------|
+| `"trial"` | `"premium"` | Introductory offer (7-day free trial) |
+| `"active"` | `"premium"` | Paid subscription active |
+| `"grace_period"` | `"premium"` | Payment failed, still has access during billing retry |
+| `"expired"` | `"free"` | Subscription expired, cancelled, refunded, or revoked |
+| `"free"` | `"free"` | Never had subscription or trial ended |
+
+### Override System
+
+The `subscription_override` field allows manual premium access grants for test/beta users:
+- Set to `"premium"`: Grants premium access regardless of App Store state
+- Set to `null` or absent: Respect App Store subscription state
+- Set manually via Firestore console or admin script — never by the app or webhook
+
+**Admin scripts**:
+- `scripts/set_subscription_override.js` - Set/remove override for single user
+
+### App Store Server Notifications V2
+
+Webhook at `subscriptions/app-store-webhook.js` (v2 `onRequest`, no auth middleware — Apple calls directly):
+
+| Notification Type | Subtype | subscription_status | subscription_tier |
+|-------------------|---------|---------------------|-------------------|
+| `SUBSCRIBED` | (offerType=1) | `trial` | `premium` |
+| `SUBSCRIBED` | (else) | `active` | `premium` |
+| `DID_RENEW` | — | `active` | `premium` |
+| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | `grace_period` | `premium` |
+| `DID_FAIL_TO_RENEW` | (else) | `expired` | `free` |
+| `EXPIRED` | any | `expired` | `free` |
+| `GRACE_PERIOD_EXPIRED` | — | `expired` | `free` |
+| `REFUND` | — | `expired` | `free` |
+| `REVOKE` | — | `expired` | `free` |
+| `DID_CHANGE_RENEWAL_STATUS` | — | *(unchanged)* | *(unchanged)* |
+
+`DID_CHANGE_RENEWAL_STATUS` only updates `subscription_auto_renew_enabled`. All events logged to `users/{uid}/subscription_events/{auto-id}` for audit trail.
+
+### User Lookup (Webhook)
+
+`appAccountToken` is a deterministic UUID v5 derived from the Firebase UID using the DNS namespace (RFC 4122). Same algorithm on iOS (`SubscriptionService.generateAppAccountToken`) and server. Apple preserves this token across all transactions and webhook notifications.
+
+1. Query `users` where `subscription_app_account_token == token` (lowercased)
+2. Fallback: query where `subscription_original_transaction_id == txnId`
+
+### Gate Check Logic
+
+See `utils/subscription-gate.js`:
+
+```javascript
+// Premium access = ANY of:
+// 1. subscription_override === 'premium' (admin override)
+// 2. subscription_tier === 'premium' (set by webhook based on status transitions)
+```
+
+The gate checks the denormalized `subscription_tier` field, not `status + expires_at`. The webhook is responsible for setting tier correctly based on status transitions.
+
+### iOS Subscription Components
+
+| File | Purpose |
+|------|---------|
+| `Models/SubscriptionStatus.swift` | `SubscriptionTier`, `SubscriptionStatusValue`, `UserSubscriptionState` |
+| `Services/SubscriptionService.swift` | StoreKit 2 singleton: products, purchase, entitlements, Firestore sync |
+| `Views/PaywallView.swift` | Full-screen purchase sheet with trial CTA and restore |
+| `Views/Settings/SubscriptionView.swift` | Subscription management in profile settings |
+
+### Authority Model
+
+- **Client writes to Firestore** only when StoreKit reports a **positive entitlement** (trial, active, grace period). This prevents the client from overwriting server-set `subscription_tier: "premium"` with stale `"free"` state (e.g., new device, delayed StoreKit sync).
+- **Webhook is authoritative for downgrades** (expiration, cancellation, refund, revocation).
+- **Client is authoritative for initial purchase** (syncs tier, token, transaction ID to Firestore so webhook can find the user).
 
 ---
 

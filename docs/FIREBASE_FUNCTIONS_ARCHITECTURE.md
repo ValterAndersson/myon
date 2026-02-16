@@ -51,6 +51,7 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | **Sessions** | `initializeSession`, `preWarmSession`, `cleanupSessions` | Flexible Auth / Scheduled |
 | **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `completeCurrentSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
 | **Agents** | `invokeAgent`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
+| **Subscriptions** | `appStoreWebhook` | None (Apple calls directly) |
 | **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
 | **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
 
@@ -431,6 +432,44 @@ Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
 
 ---
 
+## Subscription Operations
+
+### App Store Webhook
+
+`appStoreWebhook` handles Apple App Store Server Notifications V2:
+
+**Location**: `subscriptions/app-store-webhook.js`
+**Auth**: None — Apple calls this URL directly with a signed JWS payload. The webhook URL itself serves as access control.
+
+**Input**: `{ signedPayload: string }` (JWS-signed notification from Apple)
+
+**Processing**:
+1. Decodes outer JWS notification (currently base64 decode; production should use `SignedDataVerifier` with Apple root certs)
+2. Decodes `signedTransactionInfo` and `signedRenewalInfo` from inner JWS payloads
+3. Looks up user by `subscription_app_account_token` (lowercased UUID v5), fallback by `subscription_original_transaction_id`
+4. Maps notification type to subscription field updates (see notification mapping in `SYSTEM_ARCHITECTURE.md`)
+5. Updates `users/{uid}` subscription fields
+6. Invalidates profile cache via `invalidateProfileCache(userId)` from `user/get-user.js`
+7. Logs event to `users/{uid}/subscription_events/{auto-id}`
+8. Always returns HTTP 200 (Apple retries non-200s indefinitely)
+
+### Subscription Gate
+
+**Location**: `utils/subscription-gate.js`
+
+**Export**: `isPremiumUser(userId)` → `Promise<boolean>`
+
+**Logic**: Direct Firestore read (not cached — subscription status must be fresh):
+1. `subscription_override === 'premium'` → `true` (admin override)
+2. `subscription_tier === 'premium'` → `true` (active subscription)
+3. Otherwise → `false`
+
+**Used by**:
+- `strengthos/stream-agent-normalized.js` — Premium gate before AI streaming (emits SSE error `PREMIUM_REQUIRED`)
+- `triggers/weekly-analytics.js` — Skips training analysis job enqueueing for free users (free analytics still run)
+
+---
+
 ## Directory Structure
 
 ```
@@ -512,7 +551,10 @@ firebase_functions/functions/
 │       └── reorder_sets_core.js
 ├── strengthos/                 # Agent streaming
 │   ├── progress-reports.js
-│   └── stream-agent-normalized.js  # SSE proxy with artifact detection
+│   └── stream-agent-normalized.js  # SSE proxy with artifact detection + premium gate
+├── subscriptions/              # Subscription management
+│   ├── ARCHITECTURE.md         # Tier 2 module docs
+│   └── app-store-webhook.js    # App Store Server Notifications V2 handler
 ├── templates/                  # Template operations
 │   ├── create-template-from-plan.js
 │   ├── create-template.js
@@ -536,6 +578,7 @@ firebase_functions/functions/
 ├── utils/                      # Shared utilities
 │   ├── plan-to-template-converter.js
 │   ├── response.js             # ok() / fail() response helpers
+│   ├── subscription-gate.js    # isPremiumUser() shared premium check
 │   ├── validation-response.js
 │   └── validators.js
 ├── training/                   # Training analysis endpoints
