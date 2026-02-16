@@ -139,6 +139,14 @@ class DirectStreamingService: ObservableObject {
                         return
                     }
 
+                    // Premium gate: client-side check using cached subscription state.
+                    // Server-side gate in stream-agent-normalized.js provides the authoritative check.
+                    if await !SubscriptionService.shared.isPremium {
+                        AgentPipelineLogger.failRequest(error: "Premium required", afterMs: 0)
+                        continuation.finish(throwing: StreamingError.premiumRequired)
+                        return
+                    }
+
                     let idToken = try await currentUser.getIDToken()
 
                     // Use streamAgentNormalized endpoint
@@ -197,9 +205,13 @@ class DirectStreamingService: ObservableObject {
                                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                                 
                                 // Parse content with proper AnyCodable handling
+                                // For error events, the server sends { "error": { "code": ..., "message": ... } }
+                                // instead of "content", so map "error" into content for uniform downstream handling.
                                 var contentDict: [String: AnyCodable]? = nil
                                 if let rawContent = json["content"] as? [String: Any] {
                                     contentDict = rawContent.mapValues { AnyCodable($0) }
+                                } else if let rawError = json["error"] as? [String: Any] {
+                                    contentDict = rawError.mapValues { AnyCodable($0) }
                                 }
                                 
                                 var metadataDict: [String: AnyCodable]? = nil
@@ -1100,7 +1112,8 @@ enum StreamingError: LocalizedError {
     case deleteSessionFailed
     case invalidURL
     case httpError(statusCode: Int)
-    
+    case premiumRequired
+
     var errorDescription: String? {
         switch self {
         case .notAuthenticated:
@@ -1123,6 +1136,8 @@ enum StreamingError: LocalizedError {
             return "Invalid URL"
         case .httpError(let statusCode):
             return "HTTP error: \(statusCode)"
+        case .premiumRequired:
+            return "Premium subscription required"
         }
     }
 }

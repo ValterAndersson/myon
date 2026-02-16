@@ -105,6 +105,9 @@ struct CanvasScreen: View {
         .fullScreenCover(isPresented: $showFocusMode) {
             FocusModeWorkoutScreen(planBlocks: planBlocksForFocusMode)
         }
+        .sheet(isPresented: $vm.showingPaywall) {
+            PaywallView()
+        }
     }
 }
 

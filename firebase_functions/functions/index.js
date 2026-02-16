@@ -121,6 +121,9 @@ const { getActiveSnapshotLite } = require('./training/context-pack');
 const { getActiveEvents } = require('./training/active-events');
 const { getAnalysisSummary } = require('./training/get-analysis-summary');
 
+// Subscription Operations
+const { appStoreWebhook } = require('./subscriptions/app-store-webhook');
+
 // Firestore Triggers
 const {
   onTemplateCreated,
@@ -322,3 +325,10 @@ exports.getActiveEvents = getActiveEvents;
 
 // Training Analysis (pre-computed insights)
 exports.getAnalysisSummary = getAnalysisSummary;
+
+// ============================================================================
+// Subscription Operations
+// ============================================================================
+
+// App Store webhook (v2 onRequest, NO auth middleware - Apple calls directly)
+exports.appStoreWebhook = appStoreWebhook;

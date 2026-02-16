@@ -115,7 +115,11 @@ See `canvas/ARCHITECTURE.md` for data model, schemas, and examples.
 ### StrengthOS (Vertex AI Agent Engine glue)
 - `createStrengthOSSession`, `listStrengthOSSessions`, `deleteStrengthOSSession`
 - `queryStrengthOS`, `queryStrengthOSv2`
-- `streamAgentNormalized` – SSE stream proxy
+- `streamAgentNormalized` – SSE stream proxy (premium-gated when `workout_id` context present)
+
+### Subscriptions
+- `appStoreWebhook` – App Store Server Notifications handler. Processes subscription events (SUBSCRIBED, DID_RENEW, EXPIRED, etc.), updates user subscription fields, logs to `subscription_events` collection
+- Gate utility: `subscriptions/subscription-gate.js` – Premium access check (override OR active subscription OR grace period)
 
 ### Maintenance
 - `backupExercises` – snapshot `exercises` → `exercises_backup`

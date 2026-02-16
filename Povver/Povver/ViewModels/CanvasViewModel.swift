@@ -90,6 +90,9 @@ final class CanvasViewModel: ObservableObject {
     // Gemini-style thinking process state
     @Published var thinkingState = ThinkingProcessState()
 
+    // Paywall state
+    @Published var showingPaywall: Bool = false
+
     private let repo: CanvasRepositoryProtocol
     private let service: CanvasServiceProtocol
     private var streamTask: Task<Void, Never>?
@@ -407,9 +410,17 @@ final class CanvasViewModel: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Streaming error: \(error.localizedDescription)"
-                    self.showStreamOverlay = false
-                    self.isAgentThinking = false
+                    // Check if this is a premium required error
+                    if let streamingError = error as? StreamingError,
+                       case .premiumRequired = streamingError {
+                        self.showingPaywall = true
+                        self.showStreamOverlay = false
+                        self.isAgentThinking = false
+                    } else {
+                        self.errorMessage = "Streaming error: \(error.localizedDescription)"
+                        self.showStreamOverlay = false
+                        self.isAgentThinking = false
+                    }
                 }
             }
         }
@@ -490,7 +501,13 @@ final class CanvasViewModel: ObservableObject {
             }
             
         case .error:
-            errorMessage = event.displayText
+            // Check for server-side premium gate (defense-in-depth: client gate catches most cases,
+            // but if client cache is stale the server emits PREMIUM_REQUIRED via SSE error event)
+            if let code = event.content?["code"]?.value as? String, code == "PREMIUM_REQUIRED" {
+                showingPaywall = true
+            } else {
+                errorMessage = event.displayText
+            }
             showStreamOverlay = false
             isAgentThinking = false
             

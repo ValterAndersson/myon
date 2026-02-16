@@ -35,4 +35,33 @@ chat:
 inspect:
 	python3 scripts/inspect_canvas.py --user-id $${USER_ID:-$${PIPELINE_USER_ID:-canvas_orchestrator_engine}} --canvas-id $${CANVAS_ID:-$${TEST_CANVAS_ID:-}} --limit $${LIMIT:-10}
 
+# =============================================================================
+# EVAL — Shell Agent quality evaluation
+# =============================================================================
 
+# Run full eval suite (55 cases via SSE → LLM judge scoring)
+eval:
+	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
+	PYTHONPATH=. python3 tests/eval/runner.py
+
+# Run eval for a specific category (easy, moderate, complex, edge, active_workout)
+eval-category:
+	@echo "Usage: make eval-category CAT=edge"
+	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
+	PYTHONPATH=. python3 tests/eval/runner.py --filter category=$${CAT:-easy}
+
+# Run a single eval test case
+eval-single:
+	@echo "Usage: make eval-single ID=easy_001"
+	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
+	PYTHONPATH=. python3 tests/eval/runner.py --id $${ID:-easy_001}
+
+# Analyze latest eval run
+eval-analyze:
+	PYTHONPATH=. python3 tests/eval/analyze.py
+
+# Compare two eval runs
+eval-compare:
+	@echo "Usage: make eval-compare B=eval_20240101_120000 N=eval_20240102_120000"
+	PYTHONPATH=. python3 tests/eval/analyze.py --compare \
+		tests/eval/results/$${B}.jsonl tests/eval/results/$${N}.jsonl

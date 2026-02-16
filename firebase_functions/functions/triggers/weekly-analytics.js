@@ -9,6 +9,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 const AnalyticsWrites = require('../utils/analytics-writes');
+const { isPremiumUser } = require('../utils/subscription-gate');
 
 // Token-safe Training Analytics imports
 const {
@@ -500,22 +501,28 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
 
-      // Enqueue background analysis job
+      // Enqueue background analysis job (premium users only)
       try {
-        await db.collection('training_analysis_jobs').add({
-          type: 'POST_WORKOUT',
-          status: 'queued',
-          priority: 100,
-          payload: {
-            user_id: event.params.userId,
-            workout_id: event.params.workoutId,
-            window_weeks: 4,
-          },
-          attempts: 0,
-          max_attempts: 3,
-          created_at: admin.firestore.FieldValue.serverTimestamp(),
-          updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        const hasPremium = await isPremiumUser(event.params.userId);
+        if (hasPremium) {
+          await db.collection('training_analysis_jobs').add({
+            type: 'POST_WORKOUT',
+            status: 'queued',
+            priority: 100,
+            payload: {
+              user_id: event.params.userId,
+              workout_id: event.params.workoutId,
+              window_weeks: 4,
+            },
+            attempts: 0,
+            max_attempts: 3,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`Enqueued training analysis job for premium user ${event.params.userId}`);
+        } else {
+          console.log(`Skipping training analysis job for free user ${event.params.userId}`);
+        }
       } catch (e) {
         console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
       }
@@ -664,22 +671,28 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
 
-      // Enqueue background analysis job
+      // Enqueue background analysis job (premium users only)
       try {
-        await db.collection('training_analysis_jobs').add({
-          type: 'POST_WORKOUT',
-          status: 'queued',
-          priority: 100,
-          payload: {
-            user_id: event.params.userId,
-            workout_id: event.params.workoutId,
-            window_weeks: 4,
-          },
-          attempts: 0,
-          max_attempts: 3,
-          created_at: admin.firestore.FieldValue.serverTimestamp(),
-          updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        const hasPremium = await isPremiumUser(event.params.userId);
+        if (hasPremium) {
+          await db.collection('training_analysis_jobs').add({
+            type: 'POST_WORKOUT',
+            status: 'queued',
+            priority: 100,
+            payload: {
+              user_id: event.params.userId,
+              workout_id: event.params.workoutId,
+              window_weeks: 4,
+            },
+            attempts: 0,
+            max_attempts: 3,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`Enqueued training analysis job for premium user ${event.params.userId}`);
+        } else {
+          console.log(`Skipping training analysis job for free user ${event.params.userId}`);
+        }
       } catch (e) {
         console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
       }

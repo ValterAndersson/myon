@@ -10,6 +10,7 @@
 		0A37F9012E0FE5C3005FA2D1 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = 0A37F9002E0FE5C3005FA2D1 /* Down */; };
 		0A64B8082F40BD8700A1F819 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 0A64B8072F40BD8700A1F819 /* GoogleSignIn */; };
 		0A64B80A2F40BD8700A1F819 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 0A64B8092F40BD8700A1F819 /* GoogleSignInSwift */; };
+		0A64B8222F4346B600A1F819 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0A64B8212F4346B600A1F819 /* StoreKit.framework */; };
 		0AF8B4DD2DF6F4570037B0F1 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 0AF8B4DC2DF6F4570037B0F1 /* FirebaseAuth */; };
 		0AF8B4DF2DF6F4570037B0F1 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 0AF8B4DE2DF6F4570037B0F1 /* FirebaseFirestore */; };
 		0AF8B4E12DF6F4570037B0F1 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 0AF8B4E02DF6F4570037B0F1 /* FirebaseFunctions */; };
@@ -34,6 +35,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0A64B8212F4346B600A1F819 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		0AF8B48B2DF6E7000037B0F1 /* Povver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Povver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AF8B4982DF6E7020037B0F1 /* PovverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PovverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AF8B4A22DF6E7020037B0F1 /* PovverUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PovverUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -78,6 +80,7 @@
 				0A37F9012E0FE5C3005FA2D1 /* Down in Frameworks */,
 				0AF8B4E12DF6F4570037B0F1 /* FirebaseFunctions in Frameworks */,
 				0A64B80A2F40BD8700A1F819 /* GoogleSignInSwift in Frameworks */,
+				0A64B8222F4346B600A1F819 /* StoreKit.framework in Frameworks */,
 				0AF8B4DD2DF6F4570037B0F1 /* FirebaseAuth in Frameworks */,
 				0AF8B4DF2DF6F4570037B0F1 /* FirebaseFirestore in Frameworks */,
 				0AF8B4E32DF6F4570037B0F1 /* FirebaseCrashlytics in Frameworks */,
@@ -102,12 +105,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0A64B8202F4346B600A1F819 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0A64B8212F4346B600A1F819 /* StoreKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		0AF8B4822DF6E7000037B0F1 = {
 			isa = PBXGroup;
 			children = (
 				0AF8B48D2DF6E7000037B0F1 /* Povver */,
 				0AF8B49B2DF6E7020037B0F1 /* PovverTests */,
 				0AF8B4A52DF6E7020037B0F1 /* PovverUITests */,
+				0A64B8202F4346B600A1F819 /* Frameworks */,
 				0AF8B48C2DF6E7000037B0F1 /* Products */,
 			);
 			sourceTree = "<group>";

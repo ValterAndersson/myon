@@ -5,6 +5,9 @@ import GoogleSignIn
 struct PovverApp: App {
     init() {
         FirebaseConfig.shared.configure()
+
+        // Initialize SubscriptionService to start transaction listener
+        _ = SubscriptionService.shared
     }
 
     var body: some Scene {
@@ -12,6 +15,10 @@ struct PovverApp: App {
             RootView()
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
+                }
+                .task {
+                    // Check subscription status on app launch
+                    await SubscriptionService.shared.checkEntitlements()
                 }
         }
     }

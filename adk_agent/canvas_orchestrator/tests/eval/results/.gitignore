@@ -1,0 +1,5 @@
+# Keep results dir but ignore eval output files (large, ephemeral)
+*.jsonl
+*.json
+!.gitkeep
+!.gitignore

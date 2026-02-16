@@ -91,6 +91,7 @@ const axios = require('axios');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
 const { VERTEX_AI_CONFIG } = require('./config');
+const { isPremiumUser } = require('../utils/subscription-gate');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -890,6 +891,21 @@ async function streamAgentNormalizedHandler(req, res) {
   try {
     // Dual auth: Bearer lane → req.auth.uid, API key lane → X-User-Id header or body
     const userId = req.user?.uid || req.auth?.uid || req.body?.userId || 'anonymous';
+
+    // Premium gate: Check if user has premium access
+    const hasPremium = await isPremiumUser(userId);
+    if (!hasPremium) {
+      sse.write({
+        type: 'error',
+        error: {
+          code: 'PREMIUM_REQUIRED',
+          message: 'Premium subscription required for AI coaching'
+        }
+      });
+      done(false); // no error arg — structured error already sent above
+      return;
+    }
+
     const message = req.body?.message || '';
     const sessionId = req.body?.sessionId || null;
     // Accept both conversationId (new) and canvasId (legacy) during migration

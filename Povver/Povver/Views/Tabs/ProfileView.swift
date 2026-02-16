@@ -292,7 +292,7 @@ struct ProfileView: View {
     
     private var moreSection: some View {
         VStack(spacing: 0) {
-            NavigationLink(destination: SubscriptionPlaceholderView()) {
+            NavigationLink(destination: SubscriptionView()) {
                 ProfileRowLinkContent(
                     icon: "creditcard",
                     title: "Subscription",
@@ -663,26 +663,6 @@ struct ProfileView: View {
 }
 
 // MARK: - Placeholder Views
-
-private struct SubscriptionPlaceholderView: View {
-    var body: some View {
-        VStack(spacing: Space.lg) {
-            Image(systemName: "creditcard")
-                .font(.system(size: 48))
-                .foregroundColor(Color.textTertiary)
-            
-            Text("Subscription")
-                .font(.system(size: 20, weight: .semibold))
-            
-            Text("Manage your subscription plan")
-                .font(.system(size: 14))
-                .foregroundColor(Color.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.bg)
-        .navigationTitle("Subscription")
-    }
-}
 
 private struct DevicesPlaceholderView: View {
     var body: some View {
