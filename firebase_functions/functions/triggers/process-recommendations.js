@@ -5,7 +5,12 @@
  *
  * PURPOSE:
  * Process training analysis insights and weekly reviews into actionable
- * template/routine changes, with optional auto-pilot execution.
+ * recommendations, with optional auto-pilot execution.
+ *
+ * Two scopes:
+ * - Template-scoped (user has activeRoutineId): matches exercises to template sets,
+ *   supports auto-pilot auto-apply.
+ * - Exercise-scoped (no routine): derives baseline from workout data, always pending_review.
  *
  * TRIGGERS:
  * 1. onAnalysisInsightCreated - Firestore trigger on users/{userId}/analysis_insights/{insightId}
@@ -14,8 +19,9 @@
  *
  * DATA FLOW:
  * Analysis Insight/Weekly Review → Filter actionable recommendations →
- * Check premium → Check active routine → Match exercises → Compute changes →
- * Create agent_recommendations doc → If auto-pilot, apply changes
+ * Check premium → Branch on activeRoutineId →
+ *   Template path: Match exercises to templates → Compute changes → Create rec → Auto-apply if enabled
+ *   Exercise path: Load workout data → Compute progression from max weight → Create rec (pending_review)
  *
  * FIRESTORE WRITES:
  * - Creates: users/{uid}/agent_recommendations/{id}
@@ -243,12 +249,20 @@ async function processActionableRecommendations(userId, triggerType, triggerCont
   const autoPilotEnabled = userData.auto_pilot_enabled || false;
   const activeRoutineId = userData.activeRoutineId;
 
-  if (!activeRoutineId) {
-    logger.info(`[processRecommendations] No active routine`, { userId });
-    return;
+  if (activeRoutineId) {
+    await processTemplateScopedRecommendations(db, userId, triggerType, triggerContext, actionable, autoPilotEnabled, activeRoutineId);
+  } else {
+    await processExerciseScopedRecommendations(db, userId, triggerType, triggerContext, actionable);
   }
+}
 
-  // 2. Get routine and templates
+/**
+ * Template-scoped recommendations: user has an active routine with templates.
+ * Matches exercises against template sets and creates template-targeted changes.
+ * Supports auto-pilot (auto-apply to templates).
+ */
+async function processTemplateScopedRecommendations(db, userId, triggerType, triggerContext, actionable, autoPilotEnabled, activeRoutineId) {
+  // 1. Get routine and templates
   const routineDoc = await db.doc(`users/${userId}/routines/${activeRoutineId}`).get();
   if (!routineDoc.exists) {
     logger.warn(`[processRecommendations] Active routine not found`, { userId, activeRoutineId });
@@ -261,7 +275,7 @@ async function processActionableRecommendations(userId, triggerType, triggerCont
     return;
   }
 
-  // 3. Load all templates in parallel and build exercise index
+  // 2. Load all templates in parallel and build exercise index
   const templateSnaps = await Promise.all(
     templateIds.map(tid => db.doc(`users/${userId}/templates/${tid}`).get())
   );
@@ -283,7 +297,7 @@ async function processActionableRecommendations(userId, triggerType, triggerCont
     });
   }
 
-  // 4. Get existing pending recommendations for deduplication
+  // 3. Get existing pending recommendations for deduplication
   const pendingSnap = await db.collection(`users/${userId}/agent_recommendations`)
     .where('state', '==', 'pending_review')
     .get();
@@ -300,7 +314,7 @@ async function processActionableRecommendations(userId, triggerType, triggerCont
     }
   });
 
-  // 5. Process each actionable recommendation
+  // 4. Process each actionable recommendation
   const { FieldValue } = admin.firestore;
   let processedCount = 0;
 
@@ -406,9 +420,200 @@ async function processActionableRecommendations(userId, triggerType, triggerCont
   });
 }
 
+/**
+ * Exercise-scoped recommendations: user has no active routine.
+ * Derives baseline weight from workout data instead of templates.
+ * Always pending_review (can't auto-apply without a template target).
+ */
+async function processExerciseScopedRecommendations(db, userId, triggerType, triggerContext, actionable) {
+  logger.info(`[processRecommendations] No active routine — using exercise-scoped path`, { userId });
+
+  // 1. Build exercise index from workout data
+  // For post_workout: use the triggering workout
+  // For weekly_review: load recent workouts
+  const exerciseIndex = {}; // { exercise_name_lower: { exerciseName, exerciseId, maxWeight } }
+
+  if (triggerType === 'post_workout' && triggerContext.workout_id) {
+    const workoutDoc = await db.doc(`users/${userId}/workouts/${triggerContext.workout_id}`).get();
+    if (workoutDoc.exists) {
+      buildExerciseIndexFromWorkout(workoutDoc.data(), exerciseIndex);
+    }
+  } else {
+    // Weekly review or missing workout_id — load recent workouts (last 14 days)
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const recentSnap = await db.collection(`users/${userId}/workouts`)
+      .where('completed_at', '>=', admin.firestore.Timestamp.fromDate(twoWeeksAgo))
+      .orderBy('completed_at', 'desc')
+      .limit(20)
+      .get();
+
+    recentSnap.forEach(doc => {
+      buildExerciseIndexFromWorkout(doc.data(), exerciseIndex);
+    });
+  }
+
+  if (Object.keys(exerciseIndex).length === 0) {
+    logger.info(`[processRecommendations] No workout exercise data found`, { userId });
+    return;
+  }
+
+  // 2. Get existing pending exercise-scoped recs for deduplication
+  const pendingSnap = await db.collection(`users/${userId}/agent_recommendations`)
+    .where('state', '==', 'pending_review')
+    .where('scope', '==', 'exercise')
+    .get();
+
+  const pendingExercises = new Set();
+  pendingSnap.forEach(doc => {
+    const rec = doc.data();
+    const name = (rec.target?.exercise_name || '').trim().toLowerCase();
+    if (name) pendingExercises.add(name);
+  });
+
+  // 3. Process each actionable recommendation
+  const { FieldValue } = admin.firestore;
+  let processedCount = 0;
+
+  for (const rec of actionable) {
+    const exerciseName = rec.target || '';
+    const key = exerciseName.trim().toLowerCase();
+
+    const exerciseData = exerciseIndex[key];
+    if (!exerciseData) {
+      logger.info(`[processRecommendations] Exercise not found in workout data`, { exerciseName, userId });
+      continue;
+    }
+
+    // Deduplication
+    if (pendingExercises.has(key)) {
+      logger.info(`[processRecommendations] Skipping duplicate exercise-scoped`, { exerciseName });
+      continue;
+    }
+
+    // Compute progression from max working set weight
+    const currentWeight = exerciseData.maxWeight;
+    const newWeight = computeProgressionWeight(currentWeight, rec.type, rec.suggestedWeight);
+
+    if (newWeight === currentWeight || newWeight <= 0) {
+      logger.info(`[processRecommendations] No weight change for exercise-scoped`, { exerciseName, currentWeight });
+      continue;
+    }
+
+    const changes = [{
+      path: 'weight_kg',
+      from: currentWeight,
+      to: newWeight,
+      rationale: `${rec.type}: ${currentWeight}kg → ${newWeight}kg`,
+    }];
+
+    // Exercise-scoped recs are always pending_review (no template to auto-apply to)
+    const recRef = db.collection(`users/${userId}/agent_recommendations`).doc();
+    const now = FieldValue.serverTimestamp();
+
+    const recommendationData = {
+      id: recRef.id,
+      created_at: now,
+      trigger: triggerType,
+      trigger_context: triggerContext,
+      scope: 'exercise',
+      target: {
+        exercise_name: exerciseData.exerciseName,
+        exercise_id: exerciseData.exerciseId || null,
+      },
+      recommendation: {
+        type: rec.type,
+        changes,
+        summary: `${rec.type} for ${exerciseData.exerciseName}`,
+        rationale: rec.rationale,
+        confidence: rec.confidence,
+      },
+      state: 'pending_review',
+      state_history: [{
+        from: null,
+        to: 'pending_review',
+        at: new Date().toISOString(),
+        by: 'agent',
+        note: 'Queued for review (exercise-scoped)',
+      }],
+      applied_by: null,
+    };
+
+    await recRef.set(recommendationData);
+    pendingExercises.add(key);
+    processedCount++;
+
+    logger.info(`[processRecommendations] Created exercise-scoped`, {
+      recommendationId: recRef.id,
+      exerciseName: exerciseData.exerciseName,
+    });
+  }
+
+  logger.info(`[processRecommendations] Complete (exercise-scoped)`, {
+    userId,
+    trigger: triggerType,
+    actionableCount: actionable.length,
+    processedCount,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Build exercise index from a single workout document.
+ * Extracts exercise names and max working set weight for exercise-scoped recommendations.
+ *
+ * @param {Object} workoutData - Workout document data
+ * @param {Object} index - Mutable index to populate: { exercise_name_lower: { exerciseName, exerciseId, maxWeight } }
+ */
+function buildExerciseIndexFromWorkout(workoutData, index) {
+  const exercises = workoutData.exercises || [];
+  for (const ex of exercises) {
+    const name = (ex.name || '').trim();
+    const key = name.toLowerCase();
+    if (!key) continue;
+
+    // Find max working set weight from completed sets
+    const sets = ex.sets || [];
+    let maxWeight = 0;
+    for (const set of sets) {
+      const w = set.weight_kg || set.weight || 0;
+      if (w > maxWeight) maxWeight = w;
+    }
+
+    // Keep the highest weight seen across workouts
+    if (!index[key] || maxWeight > index[key].maxWeight) {
+      index[key] = {
+        exerciseName: name,
+        exerciseId: ex.exercise_id || ex.id || null,
+        maxWeight,
+      };
+    }
+  }
+}
+
+/**
+ * Compute a single progression weight value.
+ * Shared rules for both template-scoped and exercise-scoped paths.
+ *
+ * @param {number} currentWeight - Current weight in kg
+ * @param {string} recommendationType - 'progression' | 'deload' | 'volume_adjust'
+ * @param {number|null} suggestedWeight - Explicit suggestion (optional)
+ * @returns {number} New weight in kg
+ */
+function computeProgressionWeight(currentWeight, recommendationType, suggestedWeight) {
+  if (suggestedWeight !== null && suggestedWeight !== undefined) {
+    return suggestedWeight;
+  }
+  if (recommendationType === 'deload') {
+    return roundToNearest(currentWeight * 0.9, currentWeight > 40 ? 2.5 : 1.25);
+  }
+  const increment = currentWeight > 40 ? 0.025 : 0.05;
+  let newWeight = roundToNearest(currentWeight * (1 + increment), currentWeight > 40 ? 2.5 : 1.25);
+  newWeight = Math.min(newWeight, currentWeight + 5);
+  return newWeight > 0 ? newWeight : 0;
+}
 
 /**
  * Compute progression changes for an exercise.

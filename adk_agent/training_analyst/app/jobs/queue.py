@@ -195,7 +195,10 @@ def lease_job(job_id: str, worker_id: str) -> Optional[Job]:
         })
 
         # Return updated job
+        # Use Firestore doc ID as authoritative — jobs created via .add()
+        # don't have an 'id' field in the document body.
         updated_data = data.copy()
+        updated_data["id"] = job_id
         updated_data["status"] = JobStatus.LEASED.value
         updated_data["lease_owner"] = worker_id
         updated_data["lease_expires_at"] = lease_expires
@@ -312,6 +315,7 @@ def fail_job(
 
         if attempts < max_attempts:
             # Retry with backoff
+            data["id"] = job_id
             job = Job.from_dict(data)
             backoff = job.compute_backoff_seconds()
             run_after = now + timedelta(seconds=backoff)

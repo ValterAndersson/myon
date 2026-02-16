@@ -11,7 +11,8 @@
  * userId derived from req.auth.uid only (never trust client-provided userId).
  *
  * ACTIONS:
- * - accept: Apply changes to template with freshness check, update state to 'applied'
+ * - accept (template-scoped): Apply changes to template with freshness check, state → 'applied'
+ * - accept (exercise-scoped): Acknowledge only (no template mutation), state → 'acknowledged'
  * - reject: Update state to 'rejected'
  *
  * PREMIUM GATE:
@@ -19,7 +20,7 @@
  *
  * FIRESTORE WRITES:
  * - Updates: users/{uid}/agent_recommendations/{id}
- * - Updates: users/{uid}/templates/{id} (if accept action)
+ * - Updates: users/{uid}/templates/{id} (if accept action, template-scoped only)
  *
  * ERROR CODES:
  * - PREMIUM_REQUIRED (403) - User does not have premium access
@@ -188,6 +189,32 @@ async function handleAccept(res, userId, recRef, recommendation, startTime) {
   const target = recommendation.target || {};
   const changes = recommendation.recommendation?.changes || [];
 
+  // Exercise-scoped recommendations: acknowledge only (no template to mutate)
+  if (scope === 'exercise') {
+    await recRef.update({
+      state: 'acknowledged',
+      applied_by: 'user',
+      applied_at: FieldValue.serverTimestamp(),
+      state_history: FieldValue.arrayUnion({
+        from: 'pending_review',
+        to: 'acknowledged',
+        at: new Date().toISOString(),
+        by: 'user',
+        note: 'User acknowledged exercise-scoped recommendation',
+      }),
+    });
+
+    const elapsed = Date.now() - startTime;
+    logger.info('[reviewRecommendation] Exercise-scoped recommendation acknowledged', {
+      userId,
+      recommendationId: recRef.id,
+      exerciseName: target.exercise_name,
+      elapsedMs: elapsed,
+    });
+
+    return ok(res, { status: 'acknowledged' });
+  }
+
   if (scope !== 'template' || !target.template_id) {
     logger.error('[reviewRecommendation] Invalid recommendation scope', {
       userId,
@@ -197,7 +224,7 @@ async function handleAccept(res, userId, recRef, recommendation, startTime) {
     return fail(
       res,
       'INVALID_RECOMMENDATION',
-      'Only template-scoped recommendations are supported',
+      'Only template-scoped and exercise-scoped recommendations are supported',
       null,
       400
     );

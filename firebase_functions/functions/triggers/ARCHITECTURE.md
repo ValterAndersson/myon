@@ -9,7 +9,7 @@ Firestore triggers that react to document lifecycle events. All triggers are v2 
 | `workout-routine-cursor.js` | `onDocumentCreated('users/{userId}/workouts/{workoutId}')` | Updates routine cursor (`last_completed_template_id`, `last_completed_at`) when a workout with `source_routine_id` is archived. Enables O(1) next-workout selection. |
 | `weekly-analytics.js` | Multiple triggers on `users/{userId}/workouts/{workoutId}` | Maintains `weekly_stats`, `analytics_series_exercise`, `analytics_series_muscle` collections. Handles workout created, completed, deleted events. Also exports scheduled `weeklyStatsRecalculation`. |
 | `muscle-volume-calculations.js` | `onTemplateCreated`, `onTemplateUpdated`, `onWorkoutCreated` | Computes template analytics (estimated duration, total sets, muscles) and workout analytics on document creation/update. |
-| `process-recommendations.js` | `onDocumentCreated('users/{userId}/analysis_insights/{insightId}')`, `onDocumentCreated('users/{userId}/weekly_reviews/{reviewId}')` | Translates training analysis outputs into actionable template changes. Creates `agent_recommendations` docs (pending_review or auto-applied). Also exports `expireStaleRecommendations` daily scheduled sweep. |
+| `process-recommendations.js` | `onDocumentCreated('users/{userId}/analysis_insights/{insightId}')`, `onDocumentCreated('users/{userId}/weekly_reviews/{reviewId}')` | Translates training analysis outputs into actionable recommendations. Two paths: **template-scoped** (user has active routine — matches exercises to template sets, supports auto-pilot) and **exercise-scoped** (no routine — derives baseline weight from workout data, always pending_review). Also exports `expireStaleRecommendations` daily scheduled sweep. |
 
 ## Trigger → Collection Mapping
 
@@ -20,8 +20,8 @@ Firestore triggers that react to document lifecycle events. All triggers are v2 
 | `onWorkoutDeleted` | (deleted doc) | `weekly_stats/{weekId}`, `analytics_series_*` (decrements) |
 | `onTemplateCreated/Updated` | `templates/{id}` | `templates/{id}` (analytics field) |
 | `onWorkoutCreated` | `workouts/{id}` | `workouts/{id}` (analytics field) |
-| `onAnalysisInsightCreated` | `analysis_insights/{id}`, `users/{uid}`, `routines/{id}`, `templates/{id}`, `agent_recommendations` | `agent_recommendations/{id}`, `templates/{id}` (if auto-pilot) |
-| `onWeeklyReviewCreated` | `weekly_reviews/{id}`, `users/{uid}`, `routines/{id}`, `templates/{id}`, `agent_recommendations` | `agent_recommendations/{id}`, `templates/{id}` (if auto-pilot) |
+| `onAnalysisInsightCreated` | `analysis_insights/{id}`, `users/{uid}`, `routines/{id}`, `templates/{id}`, `workouts/{id}`, `agent_recommendations` | `agent_recommendations/{id}`, `templates/{id}` (if auto-pilot, template-scoped only) |
+| `onWeeklyReviewCreated` | `weekly_reviews/{id}`, `users/{uid}`, `routines/{id}`, `templates/{id}`, `workouts` (recent, exercise-scoped only), `agent_recommendations` | `agent_recommendations/{id}`, `templates/{id}` (if auto-pilot, template-scoped only) |
 | `expireStaleRecommendations` | `agent_recommendations` (collectionGroup) | `agent_recommendations/{id}` (state → expired) |
 
 ## Key Behaviors

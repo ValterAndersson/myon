@@ -403,7 +403,9 @@ Compact analytics features for LLM/agent consumption. Sublinear data access via 
 
 #### `POST reviewRecommendation`
 
-Accept or reject a pending agent recommendation. On accept, applies changes to the target template after a freshness check.
+Accept or reject a pending agent recommendation. Behavior depends on scope:
+- **Template-scoped**: Apply changes to target template after a freshness check, state → `applied`.
+- **Exercise-scoped**: Acknowledge only (no template mutation), state → `acknowledged`.
 
 **Auth**: Bearer token (v2 onRequest with requireFlexibleAuth)
 
@@ -417,7 +419,7 @@ Accept or reject a pending agent recommendation. On accept, applies changes to t
 }
 ```
 
-**Response (accept)**:
+**Response (accept, template-scoped)**:
 ```javascript
 {
   success: true,
@@ -431,6 +433,14 @@ Accept or reject a pending agent recommendation. On accept, applies changes to t
 }
 ```
 
+**Response (accept, exercise-scoped)**:
+```javascript
+{
+  success: true,
+  data: { status: "acknowledged" }
+}
+```
+
 **Response (reject)**:
 ```javascript
 {
@@ -441,7 +451,7 @@ Accept or reject a pending agent recommendation. On accept, applies changes to t
 
 **Error codes**: `PREMIUM_REQUIRED` (403), `NOT_FOUND` (404), `INVALID_STATE` (409), `STALE_RECOMMENDATION` (409), `INTERNAL_ERROR` (500).
 
-**Freshness check (accept only)**: Before applying, verifies each change's `from` value matches the current template value via `resolvePathValue()`. Returns 409 `STALE_RECOMMENDATION` with mismatch details if the template was edited after the recommendation was created.
+**Freshness check (template-scoped accept only)**: Before applying, verifies each change's `from` value matches the current template value via `resolvePathValue()`. Returns 409 `STALE_RECOMMENDATION` with mismatch details if the template was edited after the recommendation was created. Not applicable to exercise-scoped recommendations.
 
 **Implementation**: `firebase_functions/functions/recommendations/review-recommendation.js`
 

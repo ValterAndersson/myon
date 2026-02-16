@@ -46,21 +46,29 @@ struct AgentRecommendation: Identifiable, Codable {
 struct RecommendationTarget: Codable {
     let templateId: String?
     let routineId: String?
+    let exerciseName: String?
+    let exerciseId: String?
 
     enum CodingKeys: String, CodingKey {
         case templateId = "template_id"
         case routineId = "routine_id"
+        case exerciseName = "exercise_name"
+        case exerciseId = "exercise_id"
     }
 
-    init(templateId: String? = nil, routineId: String? = nil) {
+    init(templateId: String? = nil, routineId: String? = nil, exerciseName: String? = nil, exerciseId: String? = nil) {
         self.templateId = templateId
         self.routineId = routineId
+        self.exerciseName = exerciseName
+        self.exerciseId = exerciseId
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         templateId = try container.decodeIfPresent(String.self, forKey: .templateId)
         routineId = try container.decodeIfPresent(String.self, forKey: .routineId)
+        exerciseName = try container.decodeIfPresent(String.self, forKey: .exerciseName)
+        exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId)
     }
 }
 
