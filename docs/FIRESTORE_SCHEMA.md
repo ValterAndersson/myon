@@ -399,6 +399,52 @@ Compact analytics features for LLM/agent consumption. Sublinear data access via 
 }
 ```
 
+### Recommendation Endpoints
+
+#### `POST reviewRecommendation`
+
+Accept or reject a pending agent recommendation. On accept, applies changes to the target template after a freshness check.
+
+**Auth**: Bearer token (v2 onRequest with requireFlexibleAuth)
+
+**Premium gate**: `isPremiumUser(userId)` — returns 403 `PREMIUM_REQUIRED` if not premium.
+
+**Request**:
+```javascript
+{
+  recommendationId: string,    // Required — agent_recommendations doc ID
+  action: "accept" | "reject"  // Required
+}
+```
+
+**Response (accept)**:
+```javascript
+{
+  success: true,
+  data: {
+    status: "applied",
+    result: {
+      template_id: string,
+      changes_applied: number
+    }
+  }
+}
+```
+
+**Response (reject)**:
+```javascript
+{
+  success: true,
+  data: { status: "rejected" }
+}
+```
+
+**Error codes**: `PREMIUM_REQUIRED` (403), `NOT_FOUND` (404), `INVALID_STATE` (409), `STALE_RECOMMENDATION` (409), `INTERNAL_ERROR` (500).
+
+**Freshness check (accept only)**: Before applying, verifies each change's `from` value matches the current template value via `resolvePathValue()`. Returns 409 `STALE_RECOMMENDATION` with mismatch details if the template was edited after the recommendation was created.
+
+**Implementation**: `firebase_functions/functions/recommendations/review-recommendation.js`
+
 ---
 
 ## Streaming API - SSE Events
@@ -526,6 +572,7 @@ Top-level user profile and owner of most subcollections.
   - `subscription_updated_at?: Timestamp` — Last time subscription fields were updated (from webhook or manual override).
   - `subscription_environment?: string` — App Store environment. Values: `"Sandbox"`, `"Production"`. Used to distinguish test vs. real purchases.
   - `subscription_override?: string` — Manual override for testing/support. Values: `"premium"` (grants premium access regardless of App Store state), `null` (respect App Store state). Set via admin script `scripts/set_subscription_override.js`.
+  - `auto_pilot_enabled?: boolean` — When true, agent recommendations are applied automatically to templates without user review. Default `false`. Premium-only feature; UI toggle in Profile → Preferences. Read by `process-recommendations.js` trigger at execution time.
 
 Subcollections:
 1) user_attributes/{uid}
@@ -793,8 +840,11 @@ Subcollections:
 
 16) agent_recommendations/{recommendationId}
    - Audit log of agent-initiated changes to user training data.
-   - Used by background agents (post_workout_analyst) to log and optionally queue changes.
-   - Supports two modes: auto-pilot (immediate apply) or review (pending approval).
+   - Created by: `triggers/process-recommendations.js` (onAnalysisInsightCreated, onWeeklyReviewCreated) and `agents/apply-progression.js` (direct agent calls).
+   - Reviewed by: `recommendations/review-recommendation.js` (user accept/reject).
+   - Expired by: `expireStaleRecommendations` scheduled function (daily, 7-day TTL).
+   - Supports two modes: auto-pilot (immediate apply via `auto_pilot_enabled`) or review (pending user approval).
+   - iOS listener: `RecommendationRepository.swift` → `RecommendationsViewModel.swift` → bell notification + feed sheet.
    - Fields:
      - `id: string` (document ID)
      - `created_at: Timestamp`

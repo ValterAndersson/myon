@@ -219,7 +219,7 @@ struct ProfileView: View {
     }
     
     // MARK: - Preferences Section
-    
+
     private var preferencesSection: some View {
         VStack(spacing: 0) {
             ProfileRow(
@@ -227,9 +227,9 @@ struct ProfileView: View {
                 title: "Timezone",
                 value: user?.timeZone ?? TimeZone.current.identifier
             )
-            
+
             Divider().padding(.leading, 56)
-            
+
             ProfileRowToggle(
                 icon: "calendar",
                 title: "Week Starts On Monday",
@@ -240,6 +240,21 @@ struct ProfileView: View {
                     }
                 )
             )
+
+            if user?.isPremium == true {
+                Divider().padding(.leading, 56)
+
+                ProfileRowToggle(
+                    icon: "bolt.fill",
+                    title: "Auto-Pilot",
+                    isOn: Binding(
+                        get: { user?.autoPilotEnabled ?? false },
+                        set: { newValue in
+                            Task { await updateAutoPilot(newValue) }
+                        }
+                    )
+                )
+            }
         }
         .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
@@ -639,7 +654,7 @@ struct ProfileView: View {
     
     private func updateWeekStart(_ startsOnMonday: Bool) async {
         guard let userId = authService.currentUser?.uid else { return }
-        
+
         do {
             try await UserRepository.shared.updateUserProfile(
                 userId: userId,
@@ -652,7 +667,18 @@ struct ProfileView: View {
             print("[ProfileView] Failed to update week start: \(error)")
         }
     }
-    
+
+    private func updateAutoPilot(_ enabled: Bool) async {
+        guard let userId = authService.currentUser?.uid else { return }
+
+        do {
+            try await UserRepository.shared.updateAutoPilot(userId: userId, enabled: enabled)
+            user?.autoPilotEnabled = enabled
+        } catch {
+            print("[ProfileView] Failed to update auto-pilot: \(error)")
+        }
+    }
+
     private func logout() {
         do {
             try authService.signOut()

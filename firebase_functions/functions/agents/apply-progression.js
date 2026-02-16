@@ -296,4 +296,11 @@ const applyProgression = onRequest({
   region: 'us-central1',
 }, applyProgressionHandler);
 
-module.exports = { applyProgression, applyProgressionHandler };
+module.exports = {
+  applyProgression,
+  applyProgressionHandler,
+  applyChangesToTarget,
+  setNestedValue,
+  resolvePathValue,
+  applyChangesToObject,
+};

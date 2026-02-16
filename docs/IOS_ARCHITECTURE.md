@@ -83,11 +83,13 @@ RootView observes `AuthService.isAuthenticated` via `.onChange`. When auth state
 
 | Tab | View | Purpose |
 |-----|------|---------|
-| Chat | `ChatHomeEntry` | Session-based chat interface |
-| Routines | `RoutinesListView` | Manage workout routines |
-| Templates | `TemplatesListView` | Manage workout templates |
-| Canvas | `CanvasScreen` | AI-powered planning workspace |
-| Dev (DEBUG) | `ComponentGallery` | UI component testing |
+| Coach | `CoachTabView` | AI coaching with quick actions and recent chats |
+| Train | `TrainTabView` | Start workout from routines/templates |
+| Library | `LibraryView` | Browse exercise library |
+| History | `HistoryView` | Completed workout history |
+| Profile | `ProfileView` | Profile, preferences, subscription, security |
+
+**Global overlay**: `NotificationBell` with pending recommendation count badge, visible across all tabs. Taps open `RecommendationsFeedView` sheet. Only shown for premium users with pending recommendations.
 
 ### Canvas Navigation
 
@@ -140,6 +142,7 @@ Navigation entry points use `conversationId` instead of `canvasId`:
 | `DirectStreamingService` | Singleton | SSE streaming to Agent Engine |
 | `CloudFunctionService` | Class | Firebase Functions HTTP client |
 | `SubscriptionService` | Singleton | StoreKit 2 subscription management: product loading, purchase, entitlement checking, Firestore sync |
+| `RecommendationService` | Enum (static) | Accept/reject recommendations via `ApiClient.shared.postJSON("reviewRecommendation", ...)` |
 | `ApiClient` | Singleton | Generic HTTP client with auth |
 
 ### Managers
@@ -228,6 +231,7 @@ All repositories extend data access with type-safe Firestore operations:
 | `WorkoutRepository` | `users/{id}/workouts` | Completed workout history |
 | `TemplateRepository` | `users/{id}/templates` | Workout templates |
 | `RoutineRepository` | `users/{id}/routines` | Routines (template sequences) |
+| `RecommendationRepository` | `users/{id}/agent_recommendations` | Agent recommendation listener (singleton, Firestore snapshot) |
 | `ExerciseRepository` | `exercises` | Global exercise catalog |
 
 ### `BaseRepository`
@@ -258,6 +262,7 @@ func withRetry<T>(
 | `ActiveWorkout` | In-progress workout | `exercises`, `startTime`, `workoutDuration` |
 | `ActiveWorkoutDoc` | Firestore-synced active state | `userId`, `canvasId`, `state` |
 | `MuscleGroup` | Muscle group enumeration | Used by Exercise model |
+| `AgentRecommendation` | Agent recommendation | `id`, `trigger`, `recommendation`, `state`, `target` — nested: `RecommendationTarget`, `RecommendationDetail`, `RecommendationChange` |
 | `SubscriptionTier` | Subscription tier enum | `free`, `premium` |
 | `SubscriptionStatusValue` | Subscription status enum | `free`, `trial`, `active`, `expired`, `gracePeriod` |
 | `UserSubscriptionState` | Aggregated subscription state | `isPremium` computed from override or tier |
@@ -290,6 +295,7 @@ func withRetry<T>(
 |-----------|-------|------------------|
 | `CanvasViewModel` | `CanvasScreen`, card views | Canvas state, SSE artifact handling, card lifecycle |
 | `RoutinesViewModel` | `RoutinesListView`, detail views | Routine CRUD, active routine management |
+| `RecommendationsViewModel` | `RecommendationsFeedView`, `MainTabsView` (bell) | Pending/recent recommendations, accept/reject actions, premium-gated listener |
 | `ExercisesViewModel` | Exercise search | Exercise catalog fetching |
 
 ### `CanvasViewModel` (Primary)
@@ -332,6 +338,8 @@ func withRetry<T>(
 | `RoutinesListView` | `UI/Routines/RoutinesListView.swift` | Routine management |
 | `TemplatesListView` | `UI/Templates/TemplatesListView.swift` | Template management |
 | `ProfileView` | `Views/Tabs/ProfileView.swift` | Profile, preferences, security settings |
+| `RecommendationsFeedView` | `Views/Recommendations/RecommendationsFeedView.swift` | Sheet listing pending + recent recommendations |
+| `RecommendationCardView` | `Views/Recommendations/RecommendationCardView.swift` | Individual recommendation card with accept/decline |
 | `PaywallView` | `Views/PaywallView.swift` | Full-screen subscription purchase sheet |
 | `SubscriptionView` | `Views/Settings/SubscriptionView.swift` | Subscription status and management |
 | `LoginView` | `Views/LoginView.swift` | Email + SSO login |
@@ -470,6 +478,7 @@ Centralized design tokens for consistency:
 | `PovverButton` | Standard button styles (primary, secondary, destructive) |
 | `MyonText` | Typography component |
 | `SurfaceCard` | Card container with elevation |
+| `NotificationBell` | Bell icon with badge count overlay (used by MainTabsView for recommendations) |
 | `ProfileComponents` | ProfileRow, ProfileRowToggle, ProfileRowLinkContent (shared across settings views) |
 | `AgentPromptBar` | Chat input with send button |
 | `CardActionBar` | Action buttons for cards |
@@ -761,6 +770,7 @@ Povver/Povver/
 │   ├── ChatMessage.swift
 │   ├── Exercise.swift
 │   ├── FocusModeModels.swift
+│   ├── AgentRecommendation.swift  # Recommendation model + nested types
 │   ├── MuscleGroup.swift
 │   ├── Routine.swift
 │   ├── StreamEvent.swift
@@ -773,6 +783,7 @@ Povver/Povver/
 ├── Repositories/
 │   ├── BaseRepository.swift
 │   ├── ExerciseRepository.swift
+│   ├── RecommendationRepository.swift  # Firestore listener for agent_recommendations
 │   ├── retry.swift
 │   ├── RoutineRepository.swift
 │   ├── TemplateRepository.swift
@@ -798,6 +809,7 @@ Povver/Povver/
 │   ├── Errors.swift                # Error types
 │   ├── FirebaseService.swift       # Firestore abstraction
 │   ├── Idempotency.swift           # Idempotency keys
+│   ├── RecommendationService.swift # Accept/reject recommendations via API
 │   ├── SessionManager.swift        # Session state
 │   ├── SessionPreWarmer.swift      # Vertex AI session pre-warming
 │   ├── SubscriptionService.swift   # StoreKit 2 subscription management
@@ -808,6 +820,7 @@ Povver/Povver/
 ├── ViewModels/
 │   ├── CanvasViewModel.swift       # Primary canvas VM
 │   ├── ExercisesViewModel.swift
+│   ├── RecommendationsViewModel.swift  # Recommendation state + accept/reject
 │   └── RoutinesViewModel.swift
 ├── Views/
 │   ├── CanvasScreen.swift          # Main canvas screen
@@ -815,8 +828,11 @@ Povver/Povver/
 │   ├── ChatHomeView.swift          # Chat conversation
 │   ├── ComponentGallery.swift      # Dev component gallery
 │   ├── LoginView.swift             # Email + SSO login
-│   ├── MainTabsView.swift          # Tab navigation
+│   ├── MainTabsView.swift          # Tab navigation + recommendation bell overlay
 │   ├── RegisterView.swift          # Email + SSO registration
+│   ├── Recommendations/
+│   │   ├── RecommendationCardView.swift   # Individual recommendation card
+│   │   └── RecommendationsFeedView.swift  # Recommendation list sheet
 │   ├── PaywallView.swift           # Subscription purchase sheet
 │   ├── RootView.swift              # App root (reactive auth nav)
 │   ├── Tabs/
@@ -867,6 +883,7 @@ Povver/Povver/
     │   ├── FocusModeComponents.swift   # Shared components
     │   └── FocusModeExerciseSearch.swift # Exercise search
     ├── Components/
+    │   ├── NotificationBell.swift      # Bell icon with badge count overlay
     │   ├── PovverButton.swift          # Button styles
     │   ├── MyonText.swift
     │   ├── SurfaceCard.swift

@@ -36,6 +36,10 @@
 | **iOS Subscription Models** | `Povver/Povver/Models/SubscriptionStatus.swift` | Tier/status enums, UserSubscriptionState |
 | **iOS Paywall** | `Povver/Povver/Views/PaywallView.swift` | Purchase sheet with trial CTA |
 | **iOS Subscription Settings** | `Povver/Povver/Views/Settings/SubscriptionView.swift` | Subscription management |
+| **Recommendation Triggers** | `firebase_functions/functions/triggers/process-recommendations.js` | Analysis → recommendation pipeline |
+| **Review Endpoint** | `firebase_functions/functions/recommendations/review-recommendation.js` | Accept/reject recommendations |
+| **iOS Recommendation Model** | `Povver/Povver/Models/AgentRecommendation.swift` | Codable recommendation structs |
+| **iOS Recommendation VM** | `Povver/Povver/ViewModels/RecommendationsViewModel.swift` | Recommendation state + actions |
 | **Subscription Gate** | `firebase_functions/functions/utils/subscription-gate.js` | `isPremiumUser()` check |
 | **App Store Webhook** | `firebase_functions/functions/subscriptions/app-store-webhook.js` | V2 server notifications |
 | **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
@@ -908,6 +912,66 @@ See `firebase_functions/firestore.indexes.json` for composite indexes.
 - `workouts` ordered by `end_time desc` (for get-recent-workouts)
 - `messages` ordered by `created_at` (for conversation history)
 - `artifacts` filtered by `status` (for pending proposals)
+
+---
+
+## Auto-Pilot System
+
+Connects the training analyst pipeline to user-facing recommendations and automated template mutations. The analyst (Python) identifies what needs to change; Firebase Functions translate analysis into specific template changes; the iOS app surfaces recommendations or shows auto-applied changes.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. ANALYSIS (Python — Training Analyst, Cloud Run Jobs)               │
+│    Writes: analysis_insights, weekly_reviews (already implemented)     │
+└──────────────────┬──────────────────────────────────────────────────────┘
+                   │ Firestore trigger (onDocumentCreated)
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. RESOLUTION + APPLICATION (Node.js — Firebase Functions)             │
+│    triggers/process-recommendations.js                                 │
+│    Reads: user prefs (auto_pilot_enabled), active routine, templates   │
+│    Writes: agent_recommendations (+ template if auto-pilot ON)         │
+│    Reuses: applyChangesToTarget from agents/apply-progression.js       │
+└──────────────────┬──────────────────────────────────────────────────────┘
+                   │ Firestore listener (iOS)
+                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. USER REVIEW (Swift — iOS App)                                       │
+│    RecommendationRepository → RecommendationsViewModel → bell + feed   │
+│    Calls: reviewRecommendation endpoint (accept/reject)                │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Analysis triggers | `triggers/process-recommendations.js` | `onAnalysisInsightCreated`, `onWeeklyReviewCreated` — translate analysis into recommendations |
+| Review endpoint | `recommendations/review-recommendation.js` | Accept/reject with freshness check and premium gate |
+| Expiry sweep | `triggers/process-recommendations.js` | `expireStaleRecommendations` — daily, 7-day TTL |
+| Shared mutations | `agents/apply-progression.js` | `applyChangesToTarget`, `resolvePathValue` — reused by triggers and review endpoint |
+| iOS model | `Models/AgentRecommendation.swift` | Codable struct matching `agent_recommendations` schema |
+| iOS listener | `Repositories/RecommendationRepository.swift` | Firestore snapshot listener on `agent_recommendations` |
+| iOS service | `Services/RecommendationService.swift` | HTTP calls to `reviewRecommendation` via `ApiClient` |
+| iOS ViewModel | `ViewModels/RecommendationsViewModel.swift` | Pending/recent state, optimistic UI, premium gate |
+| iOS bell | `UI/Components/NotificationBell.swift` | Badge overlay in `MainTabsView` |
+| iOS feed | `Views/Recommendations/RecommendationsFeedView.swift` | Sheet with pending + recent cards |
+| User preference | `auto_pilot_enabled` on `users/{uid}` | Toggle in Profile → Preferences (premium-only) |
+
+### Progression Rules (Deterministic)
+
+- Weight progression (>40kg): +2.5% rounded to nearest 2.5kg, capped at +5kg/step
+- Weight progression (≤40kg): +5% rounded to nearest 1.25kg, capped at +5kg/step
+- Deload: -10% weight, same rounding rules
+- Safety: min 0kg, no LLM involved in weight computation
+
+### Premium Gates (3 Layers)
+
+1. **Trigger** (`process-recommendations.js`): `isPremiumUser()` prevents template reads and recommendation writes for free users
+2. **Review endpoint** (`review-recommendation.js`): `isPremiumUser()` prevents downgraded users from applying stale recommendations
+3. **iOS UI** (`RecommendationsViewModel`): Only starts Firestore listener for premium users
 
 ---
 

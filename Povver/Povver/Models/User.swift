@@ -17,6 +17,7 @@ struct User: Codable {
     var subscriptionTier: String?      // free | premium
     var subscriptionOverride: String?  // "premium" | nil — admin override for test/beta users
     var subscriptionExpiresAt: Date?
+    var autoPilotEnabled: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -31,6 +32,7 @@ struct User: Codable {
         case subscriptionTier = "subscription_tier"
         case subscriptionOverride = "subscription_override"
         case subscriptionExpiresAt = "subscription_expires_at"
+        case autoPilotEnabled = "auto_pilot_enabled"
     }
 
     /// Returns true if the user has active premium access (via admin override or subscription)

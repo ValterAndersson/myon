@@ -124,6 +124,9 @@ const { getAnalysisSummary } = require('./training/get-analysis-summary');
 // Subscription Operations
 const { appStoreWebhook } = require('./subscriptions/app-store-webhook');
 
+// Recommendation Operations
+const { reviewRecommendation } = require('./recommendations/review-recommendation');
+
 // Firestore Triggers
 const {
   onTemplateCreated,
@@ -140,6 +143,7 @@ const {
   onWorkoutFinalizedForUser
 } = require('./triggers/weekly-analytics');
 const { onWorkoutCreatedUpdateRoutineCursor } = require('./triggers/workout-routine-cursor');
+const { onAnalysisInsightCreated, onWeeklyReviewCreated, expireStaleRecommendations } = require('./triggers/process-recommendations');
 
 // Export all functions as Firebase HTTPS functions
 exports.health = functions.https.onRequest(health);
@@ -207,15 +211,13 @@ exports.normalizeCatalog = functions.https.onRequest((req, res) => withApiKey(no
 exports.listFamilies = functions.https.onRequest((req, res) => withApiKey(listFamilies)(req, res));
 exports.normalizeCatalogPage = functions.https.onRequest((req, res) => withApiKey(normalizeCatalogPage)(req, res));
 
-// Active Workout Operations
-exports.proposeSession = functions.https.onRequest((req, res) => requireFlexibleAuth(proposeSession)(req, res));
-exports.startActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(startActiveWorkout)(req, res));
-exports.getActiveWorkout = functions.https.onRequest((req, res) => requireFlexibleAuth(getActiveWorkout)(req, res));
-// v2 endpoints (already wrapped with requireFlexibleAuth internally via onRequest)
+// Active Workout Operations (all v2 — already wrapped with onRequest + requireFlexibleAuth internally)
+exports.proposeSession = proposeSession;
+exports.startActiveWorkout = startActiveWorkout;
+exports.getActiveWorkout = getActiveWorkout;
 exports.logSet = logSet;
 exports.patchActiveWorkout = patchActiveWorkout;
 exports.autofillExercise = autofillExercise;
-// v2 endpoints (already wrapped with onRequest internally)
 exports.addExercise = addExercise;
 exports.swapExercise = swapExercise;
 exports.completeActiveWorkout = completeActiveWorkout;
@@ -232,6 +234,9 @@ exports.getProgressReports = functions.https.onRequest((req, res) => requireFlex
 
 // Artifact Operations
 exports.artifactAction = artifactAction;
+
+// Recommendation Operations
+exports.reviewRecommendation = reviewRecommendation;
 
 // Canvas Operations
 exports.applyAction = functions.https.onRequest((req, res) => requireFlexibleAuth(applyAction)(req, res));
@@ -267,8 +272,11 @@ exports.onWorkoutDeleted = onWorkoutDeleted;
 exports.onWorkoutCreatedWeekly = onWorkoutCreatedWeekly;
 exports.onWorkoutFinalizedForUser = onWorkoutFinalizedForUser;
 exports.onWorkoutCreatedUpdateRoutineCursor = onWorkoutCreatedUpdateRoutineCursor;
+exports.onAnalysisInsightCreated = onAnalysisInsightCreated;
+exports.onWeeklyReviewCreated = onWeeklyReviewCreated;
 
 // Scheduled Functions
+exports.expireStaleRecommendations = expireStaleRecommendations;
 exports.weeklyStatsRecalculation = weeklyStatsRecalculation;
 exports.analyticsCompactionScheduled = analyticsCompactionScheduled;
 // Guard scheduled export for environments without scheduler helper

@@ -49,7 +49,7 @@ enum MainTab: String, CaseIterable {
 struct MainTabsView: View {
     /// Persisted tab selection with migration support
     @AppStorage("selectedTab") private var selectedTabRaw: String = MainTab.coach.rawValue
-    
+
     /// Computed binding that handles migration from old values
     private var selectedTab: Binding<MainTab> {
         Binding(
@@ -57,6 +57,9 @@ struct MainTabsView: View {
             set: { selectedTabRaw = $0.rawValue }
         )
     }
+
+    @StateObject private var recommendationsVM = RecommendationsViewModel()
+    @State private var showRecommendations = false
 
     var body: some View {
         TabView(selection: selectedTab) {
@@ -96,6 +99,29 @@ struct MainTabsView: View {
             .tag(MainTab.profile)
         }
         .tint(Color.accent)
+        .overlay {
+            // GeometryReader to position bell below the safe area (status bar / Dynamic Island)
+            if recommendationsVM.pendingCount > 0 {
+                GeometryReader { geometry in
+                    HStack {
+                        Spacer()
+                        NotificationBell(badgeCount: recommendationsVM.pendingCount) {
+                            showRecommendations = true
+                        }
+                        .padding(.trailing, Space.lg)
+                    }
+                    .padding(.top, geometry.safeAreaInsets.top + Space.sm)
+                }
+            }
+        }
+        .sheet(isPresented: $showRecommendations) {
+            RecommendationsFeedView(viewModel: recommendationsVM)
+        }
+        .task {
+            if let userId = AuthService.shared.currentUser?.uid {
+                recommendationsVM.startListening(userId: userId)
+            }
+        }
     }
     
     /// Switch to a specific tab programmatically

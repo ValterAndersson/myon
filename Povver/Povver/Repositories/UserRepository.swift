@@ -158,18 +158,26 @@ class UserRepository {
     }
     
     // MARK: - User Preferences
-    
+
     func updateUserPreferences(userId: String, timezone: String? = nil, locale: String? = nil, currency: String? = nil) async throws {
         let userRef = db.collection("users").document(userId)
         let attributesRef = userRef.collection("user_attributes").document(userId)
-        
+
         var updates: [String: Any] = [:]
         if let timezone = timezone { updates["timezone"] = timezone }
         if let locale = locale { updates["locale"] = locale }
         if let currency = currency { updates["currency"] = currency }
         updates["last_updated"] = FieldValue.serverTimestamp()
-        
+
         try await attributesRef.updateData(updates)
+    }
+
+    func updateAutoPilot(userId: String, enabled: Bool) async throws {
+        let userRef = db.collection(collection).document(userId)
+        try await userRef.updateData([
+            "auto_pilot_enabled": enabled,
+            "updated_at": FieldValue.serverTimestamp()
+        ])
     }
 }
 
