@@ -9,7 +9,7 @@ Pure logic modules shared across all Shell Agent lanes. Skills contain the "shar
 | `copilot_skills.py` | FAST | Pattern-matched responses: set completion ("done" → `completeCurrentSet`), shorthand logging ("8 @ 100"), navigation ("next set"), workout control. No LLM needed. |
 | `coach_skills.py` | SLOW (read tools) | Analytics and user data retrieval: `get_training_context`, `get_user_profile`, `search_exercises`, `get_exercise_details`, `get_muscle_group_progress`, `get_muscle_progress`, `get_exercise_progress`, `query_training_sets`, `get_training_analysis` |
 | `planner_skills.py` | SLOW (write tools) | Canvas write operations: `propose_workout`, `propose_routine`, `propose_routine_update`, `propose_template_update`, `get_planning_context` |
-| `workout_skills.py` | SLOW (workout tools) | Active workout operations: `get_workout_state_formatted` (Workout Brief builder), `log_set`, `swap_exercise`, `complete_workout`. Called by workout tool wrappers in `shell/tools.py`. |
+| `workout_skills.py` | SLOW (workout tools) | Active workout operations: `get_workout_state_formatted` (Workout Brief builder), `log_set`, `add_exercise`, `prescribe_set`, `swap_exercise`, `complete_workout`. Called by workout tool wrappers in `shell/tools.py`. |
 | `gated_planner.py` | — (deprecated) | Previously wrapped planner skills with Safety Gate confirmation. Now bypassed — cards have accept/dismiss buttons. |
 | `progression_skills.py` | WORKER | Post-workout progression analysis |
 | `__init__.py` | — | Module exports |
@@ -57,6 +57,8 @@ Called by `agent_engine_app.py` once per Slow Lane request (not per LLM turn). B
 | Skill Function | Client Method | Firebase Endpoint | Auth Pattern |
 |----------------|---------------|-------------------|--------------|
 | `log_set()` | `client.log_set()` | `logSet` | `requireFlexibleAuth` — X-User-Id header |
+| `add_exercise()` | `client.add_exercise()` | `addExercise` | `requireFlexibleAuth` — X-User-Id header |
+| `prescribe_set()` | `client.patch_active_workout()` | `patchActiveWorkout` | `requireFlexibleAuth` — X-User-Id header |
 | `swap_exercise()` | `client.swap_exercise()` | `swapExercise` | `requireFlexibleAuth` — X-User-Id header |
 | `complete_workout()` | `client.complete_active_workout()` | `completeActiveWorkout` | `requireFlexibleAuth` — X-User-Id header |
 | brief: workout | `client.get_active_workout()` | `getActiveWorkout` | `requireFlexibleAuth` — X-User-Id header |

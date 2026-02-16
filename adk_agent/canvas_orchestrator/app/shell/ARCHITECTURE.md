@@ -9,7 +9,7 @@ The Shell Agent is the single agent architecture that routes all user messages t
 | `agent.py` | ShellAgent class: ADK agent definition (gemini-2.5-flash, temp 0.3), before_model/before_tool callbacks for context injection |
 | `router.py` | Lane router: classifies messages into FAST/FUNCTIONAL/SLOW lanes, dispatches to handlers |
 | `context.py` | Per-request context via `ContextVar`. Thread-safe session context (`user_id`, `canvas_id`, `correlation_id`, `workout_mode`, `active_workout_id`, `today`). Required because Vertex AI Agent Engine is concurrent serverless — module globals leak across requests |
-| `tools.py` | ADK `FunctionTool` definitions wrapping skill modules. Tool registry (`all_tools`) consumed by `agent.py`. 18 tools: 10 read + 4 canvas write + 4 workout |
+| `tools.py` | ADK `FunctionTool` definitions wrapping skill modules. Tool registry (`all_tools`) consumed by `agent.py`. 20 tools: 10 read + 4 canvas write + 6 workout |
 | `functional_handler.py` | FUNCTIONAL lane: handles structured intent JSON (`SWAP_EXERCISE`, `ADJUST_LOAD`, etc.) |
 | `planner.py` | SLOW lane planning logic |
 | `critic.py` | Output quality validation |
@@ -34,8 +34,8 @@ When `workout_id` is present in the context prefix, the agent enters workout coa
 
 1. **Context**: `SessionContext.workout_mode = True`, `active_workout_id` set
 2. **Brief injection**: `agent_engine_app.py` front-loads a `[WORKOUT BRIEF]` (~1350 tokens) before the user message in the Slow Lane. Skipped for Fast Lane.
-3. **Tool gating**: 4 workout tools (`tool_log_set`, `tool_swap_exercise`, `tool_complete_workout`, `tool_get_workout_state`) validate `ctx.workout_mode` and return error if called outside workout mode.
-4. **Instruction overlay**: ACTIVE WORKOUT MODE section in `instruction.py` constrains responses to 2 sentences max and provides workout-specific examples.
+3. **Tool gating**: 6 workout tools (`tool_log_set`, `tool_add_exercise`, `tool_prescribe_set`, `tool_swap_exercise`, `tool_complete_workout`, `tool_get_workout_state`) validate `ctx.workout_mode` and return error if called outside workout mode.
+4. **Instruction overlay**: ACTIVE WORKOUT MODE section in `instruction.py` constrains responses to 2 sentences max and provides workout-specific examples (logging, adding exercises, modifying plans, swaps, completion).
 
 ### Context prefix format
 

@@ -736,6 +736,7 @@ Subcollections:
    - Root document fields:
      - `user_id: string`
      - `purpose?: string` (e.g., 'chat', 'planning', 'analysis')
+     - `title?: string | null` — Auto-generated 3-6 word title (set by `stream-agent-normalized.js` via Gemini Flash after first message exchange; null until generated)
      - `created_at, updated_at: Timestamp`
 
    - Subcollections:
@@ -761,9 +762,15 @@ Subcollections:
 
 10) canvases/{canvasId} (DEPRECATED - replaced by conversations)
    - Legacy collaboration surface for planning/active/analysis phases.
+   - Also used as conversation root by `open-canvas.js` (purpose-based canvases).
    - Root document fields:
-     - `state: { phase: 'planning' | 'active' | 'analysis', version: number, purpose: string, lanes: string[], created_at: Timestamp, updated_at: Timestamp }`
-     - `meta: { user_id: string }`
+     - `purpose?: string` — e.g., 'general' (set by `open-canvas.js`)
+     - `status?: string` — 'active' (filterable for recent conversations query)
+     - `lastMessage?: string | null` — Last user message text (set by `stream-agent-normalized.js`)
+     - `title?: string | null` — Auto-generated conversation title (set by `stream-agent-normalized.js` via Gemini Flash after first exchange)
+     - `createdAt, updatedAt: Timestamp`
+     - `state: { phase: 'planning' | 'active' | 'analysis', version: number, purpose: string, lanes: string[], created_at: Timestamp, updated_at: Timestamp }` (legacy)
+     - `meta: { user_id: string }` (legacy)
 
    - Subcollections:
      - cards/{cardId} (DEPRECATED)
@@ -854,10 +861,12 @@ Subcollections:
        - `"plateau_detected"` - Auto-detected plateau
        - `"user_request"` - User asked for adjustment
      - `trigger_context: object` - Additional trigger context (e.g., workout_id, completed_at)
-     - `scope: "template" | "routine"` - Target type
+     - `scope: "template" | "exercise" | "routine"` - Target type
      - `target: object`:
        - `template_id?: string` - If scope is "template"
        - `routine_id?: string` - If scope is "routine"
+       - `exercise_name?: string` - If scope is "exercise" (no routine/template)
+       - `exercise_id?: string` - If scope is "exercise"
      - `recommendation: object`:
        - `type: string` - Recommendation type:
          - `"progression"` - Weight/rep increase
@@ -870,7 +879,8 @@ Subcollections:
        - `confidence: number` - 0-1 confidence score
      - `state: string` - State machine:
        - `"pending_review"` - Waiting for user approval
-       - `"applied"` - Applied (auto-pilot or user-approved)
+       - `"applied"` - Applied (auto-pilot or user-approved, template-scoped)
+       - `"acknowledged"` - User accepted exercise-scoped recommendation (no mutation)
        - `"rejected"` - User rejected
        - `"expired"` - TTL expired
        - `"failed"` - Application failed
@@ -886,7 +896,8 @@ Subcollections:
 
    - State transitions:
      ```
-     pending_review → applied (user approves or auto-apply)
+     pending_review → applied (user approves or auto-apply, template-scoped)
+     pending_review → acknowledged (user accepts exercise-scoped)
      pending_review → rejected (user rejects)
      pending_review → expired (TTL sweep)
      applied (initial) → failed (application error, then retry or manual fix)

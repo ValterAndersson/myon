@@ -99,6 +99,8 @@ iOS: DirectStreamingService.streamQuery()
 Firebase: stream-agent-normalized.js
         │ Writes message to conversations/{id}/messages
         │ Opens SSE to Vertex AI
+        │ (At stream end: fire-and-forget title generation via Gemini Flash
+        │  → writes `title` to canvases/{id} + conversations/{id})
         ▼
 Agent: shell/router.py classifies intent
         │ Routes to Fast/Functional/Slow lane
@@ -264,6 +266,8 @@ Agent: agent_engine_app.py::stream_query()
         ▼
 Agent tools (via workout_skills.py):
         │ tool_log_set → client.log_set → Firebase logSet
+        │ tool_add_exercise → client.add_exercise → Firebase addExercise
+        │ tool_prescribe_set → client.patch_active_workout → Firebase patchActiveWorkout
         │ tool_swap_exercise → search + client.swap_exercise → Firebase swapExercise
         │ tool_complete_workout → client.complete_active_workout → Firebase completeActiveWorkout
         ▼
@@ -281,7 +285,7 @@ iOS: FocusModeWorkoutService receives updated workout state
 - `adk_agent/canvas_orchestrator/app/agent_engine_app.py` ← Workout Brief injection
 - `adk_agent/canvas_orchestrator/app/shell/context.py` ← SessionContext (workout_mode, today)
 - `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` ← Brief builder + mutations
-- `adk_agent/canvas_orchestrator/app/shell/tools.py` ← 4 workout tool wrappers
+- `adk_agent/canvas_orchestrator/app/shell/tools.py` ← 6 workout tool wrappers
 - `adk_agent/canvas_orchestrator/app/shell/instruction.py` ← ACTIVE WORKOUT MODE section
 
 **Design decisions**:
@@ -949,7 +953,7 @@ Connects the training analyst pipeline to user-facing recommendations and automa
 | Component | File | Purpose |
 |-----------|------|---------|
 | Analysis triggers | `triggers/process-recommendations.js` | `onAnalysisInsightCreated`, `onWeeklyReviewCreated` — translate analysis into recommendations |
-| Review endpoint | `recommendations/review-recommendation.js` | Accept/reject with freshness check and premium gate |
+| Review endpoint | `recommendations/review-recommendation.js` | Accept/reject — template-scoped: freshness check + apply; exercise-scoped: acknowledge only |
 | Expiry sweep | `triggers/process-recommendations.js` | `expireStaleRecommendations` — daily, 7-day TTL |
 | Shared mutations | `agents/apply-progression.js` | `applyChangesToTarget`, `resolvePathValue` — reused by triggers and review endpoint |
 | iOS model | `Models/AgentRecommendation.swift` | Codable struct matching `agent_recommendations` schema |
@@ -959,6 +963,19 @@ Connects the training analyst pipeline to user-facing recommendations and automa
 | iOS bell | `UI/Components/NotificationBell.swift` | Badge overlay in `MainTabsView` |
 | iOS feed | `Views/Recommendations/RecommendationsFeedView.swift` | Sheet with pending + recent cards |
 | User preference | `auto_pilot_enabled` on `users/{uid}` | Toggle in Profile → Preferences (premium-only) |
+
+### Recommendation Scopes
+
+| | Template-scoped | Exercise-scoped |
+|---|---|---|
+| **Trigger condition** | User has `activeRoutineId` | No `activeRoutineId` |
+| **Baseline weight** | Template set weights | Max working set weight from workout |
+| **`scope` field** | `"template"` | `"exercise"` |
+| **`target` field** | `{ template_id }` | `{ exercise_name, exercise_id }` |
+| **Auto-apply** | Yes (if `auto_pilot_enabled`) | No (always `pending_review`) |
+| **Accept action** | Apply weight delta to template sets | Acknowledge (no mutation) |
+
+Exercise-scoped recommendations ensure users who log workouts directly (without routines/templates) still receive actionable progression suggestions from analysis insights and weekly reviews.
 
 ### Progression Rules (Deterministic)
 
