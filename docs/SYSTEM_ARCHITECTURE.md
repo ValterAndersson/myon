@@ -842,7 +842,7 @@ adk_agent/canvas_orchestrator/
 
 | Input Pattern | Lane | Model | Latency | Handler |
 |---------------|------|-------|---------|---------|
-| `"done"`, `"8 @ 100"`, `"next set"` | FAST | None | <500ms | `copilot_skills.*` |
+| `"done"`, `"8 @ 100"`, `"next set"` | FAST | None | <500ms | `copilot_skills.*` → `completeCurrentSet` |
 | `{"intent": "SWAP_EXERCISE", ...}` | FUNCTIONAL | Flash | <1s | `functional_handler.py` |
 | `"create a PPL routine"` | SLOW | Flash | 2-5s | `shell/agent.py` |
 | PubSub `workout_completed` | WORKER | Flash | N/A | `post_workout_analyst.py` |

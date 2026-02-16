@@ -115,13 +115,14 @@ class DirectStreamingService: ObservableObject {
         message: String,
         correlationId: String,
         sessionId: String?,
-        workoutId: String? = nil
+        workoutId: String? = nil,
+        timeoutSeconds: Int = 300
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 let streamStartTime = Date()
                 var eventCount = 0
-                
+
                 do {
                     // Start pipeline logging (new focused logger)
                     AgentPipelineLogger.startRequest(
@@ -130,16 +131,16 @@ class DirectStreamingService: ObservableObject {
                         sessionId: sessionId,
                         message: message
                     )
-                    
+
                     // Get Firebase ID token
                     guard let currentUser = AuthService.shared.currentUser else {
                         AgentPipelineLogger.failRequest(error: "Not authenticated", afterMs: 0)
                         continuation.finish(throwing: StreamingError.notAuthenticated)
                         return
                     }
-                    
+
                     let idToken = try await currentUser.getIDToken()
-                    
+
                     // Use streamAgentNormalized endpoint
                     let url = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/streamAgentNormalized")!
                     var request = URLRequest(url: url)
@@ -147,7 +148,7 @@ class DirectStreamingService: ObservableObject {
                     request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    
+
                     let body: [String: Any] = [
                         "userId": userId,
                         "conversationId": conversationId,
@@ -158,9 +159,16 @@ class DirectStreamingService: ObservableObject {
                         "workoutId": workoutId as Any
                     ].compactMapValues { $0 }
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                    
+
                     // Stream the response
                     let (asyncBytes, response) = try await session.bytes(for: request)
+
+                    // Launch timeout task to cancel stream after timeout period
+                    let timeoutTask = Task {
+                        try await Task.sleep(nanoseconds: UInt64(timeoutSeconds) * 1_000_000_000)
+                        session.invalidateAndCancel()
+                    }
+                    defer { timeoutTask.cancel() }
                     
                     guard let httpResponse = response as? HTTPURLResponse else {
                         throw NSError(domain: "DirectStreamingService", code: -1,

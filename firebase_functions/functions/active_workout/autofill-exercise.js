@@ -114,6 +114,17 @@ async function autofillExerciseHandler(req, res) {
           throw { httpCode: 403, code: 'PERMISSION_DENIED', message: 'AI can only update planned sets', details: { set_id: update.set_id } };
         }
 
+        // Validate AI output bounds
+        if (update.reps !== undefined && update.reps !== null && (update.reps < 0 || update.reps > 100)) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid reps (must be 0-100)', details: { reps: update.reps } };
+        }
+        if (update.rir !== undefined && update.rir !== null && (update.rir < 0 || update.rir > 5)) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid RIR (must be 0-5)', details: { rir: update.rir } };
+        }
+        if (update.weight !== undefined && update.weight !== null && update.weight < 0) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid weight (must be >= 0)', details: { weight: update.weight } };
+        }
+
         // Apply updates
         if (update.weight !== undefined) {
           existingSet.weight = update.weight;
@@ -151,8 +162,19 @@ async function autofillExerciseHandler(req, res) {
         allSetIds.add(addition.id);
       }
 
-      // Add new sets
+      // Add new sets with validation
       for (const addition of additions) {
+        // Validate AI output bounds
+        if (addition.reps !== undefined && addition.reps !== null && (addition.reps < 0 || addition.reps > 100)) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid reps (must be 0-100)', details: { reps: addition.reps } };
+        }
+        if (addition.rir !== undefined && addition.rir !== null && (addition.rir < 0 || addition.rir > 5)) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid RIR (must be 0-5)', details: { rir: addition.rir } };
+        }
+        if (addition.weight !== undefined && addition.weight !== null && addition.weight < 0) {
+          throw { httpCode: 400, code: 'INVALID_ARGUMENT', message: 'AI prescribed invalid weight (must be >= 0)', details: { weight: addition.weight } };
+        }
+
         const newSet = {
           id: addition.id,
           set_type: addition.set_type,
@@ -175,8 +197,8 @@ async function autofillExerciseHandler(req, res) {
         };
       });
 
-      // 3h. Recompute totals
-      const totals = computeTotals(updatedExercises);
+      // 3h. Totals computation - autofill only touches planned sets, totals unchanged
+      const totals = workout.totals || computeTotals(updatedExercises);
 
       // 3i. Version increment
       const nextVersion = (workout.version || 0) + 1;

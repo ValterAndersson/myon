@@ -49,7 +49,7 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | **Exercises** | `getExercises`, `getExercise`, `searchExercises`, `upsertExercise`, `approveExercise`, `ensureExerciseExists`, `resolveExercise`, `mergeExercises` | API Key |
 | **Conversations** | `artifactAction` | Flexible Auth |
 | **Sessions** | `initializeSession`, `preWarmSession`, `cleanupSessions` | Flexible Auth / Scheduled |
-| **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
+| **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `completeCurrentSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
 | **Agents** | `invokeAgent`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
 | **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
 | **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
@@ -237,6 +237,7 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 | `startActiveWorkout` | Create active workout document |
 | `getActiveWorkout` | Retrieve current workout state |
 | `logSet` | Log completed set |
+| `completeCurrentSet` | Mark next planned set done (fast lane) |
 | `addExercise` | Add exercise to workout |
 | `swapExercise` | Replace exercise in workout |
 | `completeActiveWorkout` | Finalize and persist workout |
@@ -442,6 +443,7 @@ firebase_functions/functions/
 │   ├── autofill-exercise.js
 │   ├── cancel-active-workout.js
 │   ├── complete-active-workout.js
+│   ├── complete-current-set.js
 │   ├── get-active-workout.js
 │   ├── log-set.js
 │   ├── patch-active-workout.js

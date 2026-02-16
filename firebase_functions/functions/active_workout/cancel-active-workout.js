@@ -72,8 +72,8 @@ async function cancelActiveWorkoutHandler(req, res) {
       if (workoutDoc.exists) {
         tx.update(workoutRef, {
           status: 'cancelled',
-          end_time: new Date(),
-          updated_at: new Date()
+          end_time: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log(`Cancelled workout ${workout_id}`);
       } else {
@@ -86,7 +86,7 @@ async function cancelActiveWorkoutHandler(req, res) {
         tx.set(lockRef, {
           active_workout_id: null,
           status: 'cancelled',
-          updated_at: new Date()
+          updated_at: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log(`Cleared lock for cancelled workout ${workout_id}`);
       }

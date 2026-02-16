@@ -95,7 +95,7 @@ function validateAnalytics(analytics) {
   return { isValid: true };
 }
 
-async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retries = 3) {
+async function updateWeeklyStats(userId, weekId, analytics, increment = 1, workoutId = null, retries = 3) {
   const validation = validateAnalytics(analytics);
   if (!validation.isValid) {
     console.warn(`Invalid analytics for user ${userId}, week ${weekId}: ${validation.error}`);
@@ -130,7 +130,19 @@ async function updateWeeklyStats(userId, weekId, analytics, increment = 1, retri
               hard_sets_per_muscle: {},
               low_rir_sets_per_muscle: {},
               load_per_muscle: {},
+              processed_ids: [],
             };
+
+        // Idempotency check for add path
+        if (workoutId && increment === 1) {
+          const processedIds = data.processed_ids || [];
+          if (processedIds.includes(workoutId)) {
+            console.log(`Workout ${workoutId} already processed for week ${weekId}, skipping`);
+            return;
+          }
+          // Add to processed IDs
+          data.processed_ids = admin.firestore.FieldValue.arrayUnion(workoutId);
+        }
 
         data.workouts += increment;
         data.total_sets += analytics.total_sets * increment;
@@ -365,7 +377,7 @@ exports.onWorkoutCompleted = onDocumentUpdated(
       // Convert Firestore timestamp to ISO string for week calculation
       const endTime = after.end_time.toDate ? after.end_time.toDate().toISOString() : after.end_time;
       const weekId = await getWeekStartForUser(event.params.userId, endTime);
-      const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1);
+      const result = await updateWeeklyStats(event.params.userId, weekId, analytics, 1, event.params.workoutId);
 
       // Also upsert rollups and per-muscle weekly series
       try {
@@ -530,7 +542,7 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
 
       const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
       const weekId = await getWeekStartForUser(event.params.userId, endTime);
-      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, 1);
+      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, 1, event.params.workoutId);
 
       try {
         await AnalyticsWrites.upsertRollup(event.params.userId, weekId, {
@@ -693,7 +705,7 @@ exports.onWorkoutDeleted = onDocumentDeleted(
       // Convert Firestore timestamp to ISO string for week calculation
       const endTime = workout.end_time.toDate ? workout.end_time.toDate().toISOString() : workout.end_time;
       const weekId = await getWeekStartForUser(event.params.userId, endTime);
-      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1);
+      const result = await updateWeeklyStats(event.params.userId, weekId, workout.analytics, -1, event.params.workoutId);
 
       // Roll back rollups and per-muscle weekly series
       try {

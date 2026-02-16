@@ -83,6 +83,7 @@ const { addExercise } = require('./active_workout/add-exercise');
 const { swapExercise } = require('./active_workout/swap-exercise');
 const { completeActiveWorkout } = require('./active_workout/complete-active-workout');
 const { cancelActiveWorkout } = require('./active_workout/cancel-active-workout');
+const { completeCurrentSet } = require('./active_workout/complete-current-set');
 
 // StrengthOS Operations
 const { streamAgentNormalizedHandler } = require('./strengthos/stream-agent-normalized');
@@ -216,6 +217,7 @@ exports.addExercise = addExercise;
 exports.swapExercise = swapExercise;
 exports.completeActiveWorkout = completeActiveWorkout;
 exports.cancelActiveWorkout = cancelActiveWorkout;
+exports.completeCurrentSet = completeCurrentSet;
 
 // StrengthOS Operations
 exports.streamAgentNormalized = onRequestV2(

@@ -66,10 +66,7 @@
 
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
-const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
-
-const db = new FirestoreHelper();
 const admin = require('firebase-admin');
 const AnalyticsCalc = require('../utils/analytics-calculator');
 
@@ -86,10 +83,11 @@ async function completeActiveWorkoutHandler(req, res) {
     const { workout_id } = req.body || {};
     if (!workout_id) return fail(res, 'INVALID_ARGUMENT', 'Missing workout_id', null, 400);
 
-    const parent = `users/${userId}/active_workouts`;
     // Load active doc
-    const active = await db.getDocument(parent, workout_id);
-    if (!active) return fail(res, 'NOT_FOUND', 'Active workout not found', null, 404);
+    const activeRef = firestore.collection('users').doc(userId).collection('active_workouts').doc(workout_id);
+    const activeSnap = await activeRef.get();
+    if (!activeSnap.exists) return fail(res, 'NOT_FOUND', 'Active workout not found', null, 404);
+    const active = activeSnap.data();
 
     // Archive minimal workout (analytics TBD)
     const archiveParent = `users/${userId}/workouts`;
@@ -138,52 +136,71 @@ async function completeActiveWorkoutHandler(req, res) {
       };
     }
 
-    const now = new Date();
-
     // ==========================================================================
-    // ATOMIC BATCH: Archive + Update Status + Clear Lock
+    // ATOMIC TRANSACTION: Archive + Update Status + Clear Lock
     // ==========================================================================
-    const batch = firestore.batch();
-
-    // 1. Create archived workout in workouts collection
     const archiveRef = firestore.collection('users').doc(userId).collection('workouts').doc();
 
-    const archived = {
-      id: archiveRef.id,  // Needed for iOS Workout model decoding
-      user_id: userId,
-      name: active.name || null,
-      source_template_id: active.source_template_id || null,
-      source_routine_id: active.source_routine_id || null,
-      created_at: active.created_at || now,
-      start_time: active.start_time || now,
-      end_time: now,
-      exercises: normalizedExercises,
-      notes: active.notes || null,
-      analytics
-    };
+    const result = await firestore.runTransaction(async (tx) => {
+      const activeRef = firestore.collection('users').doc(userId).collection('active_workouts').doc(workout_id);
+      const lockRef = firestore.collection('users').doc(userId).collection('meta').doc('active_workout_state');
 
-    batch.set(archiveRef, archived);
+      // Read workout inside transaction
+      const workoutSnap = await tx.get(activeRef);
+      if (!workoutSnap.exists) {
+        throw { httpCode: 404, code: 'NOT_FOUND', message: 'Active workout not found' };
+      }
 
-    // 2. Update active workout status to completed
-    const activeRef = firestore.collection('users').doc(userId).collection('active_workouts').doc(workout_id);
-    batch.update(activeRef, {
-      status: 'completed',
-      end_time: now,
-      updated_at: now
+      const currentWorkout = workoutSnap.data();
+
+      // Guard: if already completed, skip
+      if (currentWorkout.status !== 'in_progress') {
+        return { already_completed: true };
+      }
+
+      const now = admin.firestore.FieldValue.serverTimestamp();
+
+      // 1. Create archived workout in workouts collection
+      const archived = {
+        id: archiveRef.id,  // Needed for iOS Workout model decoding
+        user_id: userId,
+        name: active.name || null,
+        source_template_id: active.source_template_id || null,
+        source_routine_id: active.source_routine_id || null,
+        created_at: active.created_at || now,
+        start_time: active.start_time || now,
+        end_time: now,
+        exercises: normalizedExercises,
+        notes: active.notes || null,
+        analytics
+      };
+
+      tx.set(archiveRef, archived);
+
+      // 2. Update active workout status to completed
+      tx.update(activeRef, {
+        status: 'completed',
+        end_time: now,
+        updated_at: now
+      });
+
+      // 3. Clear lock document
+      tx.set(lockRef, {
+        active_workout_id: null,
+        status: 'completed',
+        updated_at: now
+      });
+
+      return { workout_id: archiveRef.id, archived: true };
     });
 
-    // 3. Clear lock document
-    const lockRef = firestore.collection('users').doc(userId).collection('meta').doc('active_workout_state');
-    batch.set(lockRef, {
-      active_workout_id: null,
-      status: 'completed',
-      updated_at: now
-    });
+    if (result.already_completed) {
+      return ok(res, { workout_id: workout_id, archived: false, message: 'Already completed' });
+    }
 
-    await batch.commit();
-    console.log(`Completed workout ${workout_id}, archived as ${archiveRef.id}, lock cleared`);
+    console.log(`Completed workout ${workout_id}, archived as ${result.workout_id}, lock cleared`);
 
-    return ok(res, { workout_id: archiveRef.id, archived: true });
+    return ok(res, result);
   } catch (error) {
     console.error('complete-active-workout error:', error);
     return fail(res, 'INTERNAL', 'Failed to complete active workout', { message: error.message }, 500);

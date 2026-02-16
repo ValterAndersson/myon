@@ -79,10 +79,17 @@ async function compactUserSeries(userId, days = 90) {
   const seriesCol = db.collection('users').doc(userId).collection('analytics_series_exercise');
   const seriesSnap = await seriesCol.get();
   let docsChanged = 0;
-  for (const doc of seriesSnap.docs) {
-    const res = await compactExerciseSeriesDoc(doc.ref, thresholdIso);
-    if (res && res.changed) docsChanged += 1;
+
+  // Process in parallel with concurrency limit of 5
+  const chunks = [];
+  for (let i = 0; i < seriesSnap.docs.length; i += 5) {
+    chunks.push(seriesSnap.docs.slice(i, i + 5));
   }
+  for (const chunk of chunks) {
+    const results = await Promise.all(chunk.map(doc => compactExerciseSeriesDoc(doc.ref, thresholdIso)));
+    docsChanged += results.filter(r => r && r.changed).length;
+  }
+
   return { success: true, docsChanged };
 }
 

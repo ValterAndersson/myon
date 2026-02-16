@@ -260,7 +260,9 @@ final class WorkoutSessionLogger {
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.log(.appBackgrounded)
-            self?.flush()
+            DispatchQueue.global(qos: .utility).async {
+                self?.flush()
+            }
         }
 
         let fg = NotificationCenter.default.addObserver(

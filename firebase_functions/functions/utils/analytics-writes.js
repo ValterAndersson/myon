@@ -140,8 +140,8 @@ async function upsertRollup(userId, periodId, delta, increment = 1) {
       for (const [k, v] of Object.entries(source)) {
         if (typeof v !== 'number') continue;
         const cur = target[k] || 0;
-        const upd = cur + v * sign;
-        if (Math.abs(upd) < 1e-6) {
+        const upd = Math.round((cur + v * sign) * 1000) / 1000;
+        if (upd === 0) {
           delete target[k];
         } else {
           target[k] = upd;

@@ -8,7 +8,7 @@ public struct StreamEvent: Codable {
         case toolRunning = "toolRunning"
         case toolComplete = "toolComplete"
         case message = "message"
-        case agentResponse = "agent_response"
+        case agentResponse = "agentResponse"
         case userPrompt = "user_prompt"
         case userResponse = "user_response"
         case clarificationRequest = "clarification.request"

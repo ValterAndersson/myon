@@ -317,23 +317,14 @@ exports.onWorkoutCreated = onDocumentCreated(
     }
 
     try {
-      // Get exercise data
-      const exerciseIds = workout.exercises.map(ex => ex.exercise_id).filter(Boolean);
-      const exercisePromises = exerciseIds.map(id => 
-        db.collection('exercises').doc(id).get()
-      );
-      const exerciseSnapshots = await Promise.all(exercisePromises);
-      const exercises = exerciseSnapshots
-        .filter(snap => snap.exists)
-        .map(snap => ({ id: snap.id, ...snap.data() }));
-
-      // Calculate analytics
-      const { workoutAnalytics, updatedExercises } = await calculateWorkoutAnalytics(workout, exercises);
+      // Calculate analytics using external calculator
+      const AnalyticsCalc = require('../utils/analytics-calculator');
+      const { workoutAnalytics, updatedExercises } = await AnalyticsCalc.calculateWorkoutAnalytics(workout);
 
       // Persist analytics and updated exercises (merge)
-      await event.data.ref.set({ 
+      await event.data.ref.set({
         analytics: workoutAnalytics,
-        exercises: updatedExercises 
+        exercises: updatedExercises
       }, { merge: true });
 
       console.log(`Workout analytics calculated for ${workoutId}`);

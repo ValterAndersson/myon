@@ -435,8 +435,10 @@ class FocusModeWorkoutService: ObservableObject {
             print("[FocusModeWorkoutService] logSet sync failed: \(error)")
             sessionLog.log(.syncFailed, details: ["op": "logSet", "error": error.localizedDescription])
             FirebaseConfig.shared.recordError(error, context: ["op": "logSet"])
-            self.error = "Sync pending - you can continue"
-            throw error
+            self.error = "Set sync failed - tap to retry"
+            // Don't throw - let user continue workout
+            // Return local totals computed from self.workout
+            return computeLocalTotals()
         }
     }
     
@@ -765,8 +767,14 @@ class FocusModeWorkoutService: ObservableObject {
 
         // Drain any in-flight logSet/patchField calls before completing.
         // Task.sleep yields the MainActor, letting pending defer blocks decrement the counter.
-        while inFlightSyncCount > 0 {
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        var drainAttempts = 0
+        let maxDrainAttempts = 600  // 30 seconds at 50ms intervals
+        while inFlightSyncCount > 0 && drainAttempts < maxDrainAttempts {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            drainAttempts += 1
+        }
+        if inFlightSyncCount > 0 {
+            throw FocusModeError.syncTimeout
         }
 
         let request = CompleteWorkoutRequest(workoutId: workout.id)
@@ -794,6 +802,35 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    /// Compute local totals from self.workout (fallback when sync fails)
+    private func computeLocalTotals() -> WorkoutTotals {
+        guard let workout = workout else {
+            return WorkoutTotals()
+        }
+
+        var totalVolume: Double = 0
+        var completedSets = 0
+        var totalReps = 0
+
+        for exercise in workout.exercises {
+            for set in exercise.sets {
+                if set.isDone {
+                    completedSets += 1
+                    if let weight = set.displayWeight, let reps = set.displayReps {
+                        totalVolume += weight * Double(reps)
+                        totalReps += reps
+                    }
+                }
+            }
+        }
+
+        return WorkoutTotals(
+            sets: completedSets,
+            reps: totalReps,
+            volume: totalVolume
+        )
+    }
+
     /// Update the workout name with optimistic updates and coordinator sync
     func updateWorkoutName(_ name: String) async throws {
         guard let workout = workout else {
@@ -2202,7 +2239,8 @@ enum FocusModeError: LocalizedError {
     case syncFailed(String)
     case autofillFailed(String)
     case invalidResponse
-    
+    case syncTimeout
+
     var errorDescription: String? {
         switch self {
         case .noActiveWorkout:
@@ -2215,6 +2253,8 @@ enum FocusModeError: LocalizedError {
             return "Autofill failed: \(msg)"
         case .invalidResponse:
             return "Invalid response from server"
+        case .syncTimeout:
+            return "Sets still syncing, please try again"
         }
     }
 }

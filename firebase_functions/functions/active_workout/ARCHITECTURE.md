@@ -13,13 +13,14 @@ HTTP endpoints for managing a user's in-progress workout.
 | `patch-active-workout.js` | `patchActiveWorkout` | Edit workout values, add/remove sets (v2, transactional) |
 | `autofill-exercise.js` | `autofillExercise` | AI bulk prescription for a single exercise (v2, transactional) |
 | `add-exercise.js` | `addExercise` | Add exercise to workout (v2, transactional, idempotent) |
-| `swap-exercise.js` | `swapExercise` | Swap exercise in workout (v2, idempotent, stub) |
-| `complete-active-workout.js` | `completeActiveWorkout` | Finish workout, archive to `workouts/` (v2) |
+| `swap-exercise.js` | `swapExercise` | Swap exercise in workout (v2, transactional, idempotent) |
+| `complete-current-set.js` | `completeCurrentSet` | Mark next planned set done (v2, transactional, fast lane) |
+| `complete-active-workout.js` | `completeActiveWorkout` | Finish workout, archive to `workouts/` (v2, transactional) |
 | `cancel-active-workout.js` | `cancelActiveWorkout` | Cancel workout without archiving (v2) |
 
 ## Concurrency Model
 
-All four hot-path mutation endpoints (`logSet`, `patchActiveWorkout`, `addExercise`, `autofillExercise`) use Firestore transactions to prevent lost updates from concurrent requests. The pattern:
+All hot-path mutation endpoints (`logSet`, `patchActiveWorkout`, `addExercise`, `autofillExercise`, `completeCurrentSet`, `swapExercise`, `completeActiveWorkout`) use Firestore transactions to prevent lost updates from concurrent requests. The pattern:
 
 1. **Outside transaction**: method check, auth, schema validation, parse fields, pre-generate `workoutRef` + `eventRef` (no Firestore reads).
 2. **Inside `db.runTransaction()`**: idempotency check → read workout → validate state → compute mutations → increment `version` → write workout + event + idempotency record.
@@ -76,9 +77,29 @@ Shared logic extracted to `../utils/active-workout-helpers.js`:
 - Request: `{ workout_id, instance_id, exercise_id, name?, position?, sets?, idempotency_key }`
 - Response: `{ success, data: { exercise_instance_id, event_id, version } }`
 
-### completeActiveWorkout / cancelActiveWorkout (HTTPS, v2)
+### completeCurrentSet (HTTPS, v2)
 - Auth: flexible
-- Requests: `{ workout_id }`
+- Request: `{ workout_id }`
+- Response: `{ success, data: { exercise_name, set_number, total_sets, weight, reps } }`
+- Finds the first `planned` working/dropset set (defaults `set_type` to `'working'` when unset), marks it `done`, logs `set_done` event.
+- Used by the agent Fast Lane (`copilot_skills.py`) — accepts only `workout_id`, discovers the target set server-side to avoid an extra round-trip.
+
+### swapExercise (HTTPS, v2)
+- Auth: flexible; idempotency_key supported
+- Request: `{ workout_id, from_exercise_id, to_exercise_id, reason? }`
+- Response: `{ success, data: { event_id, version } }`
+- `from_exercise_id` matches on `instance_id` (the stable UUID within the workout, not the catalog `exercise_id`). The agent client (`CanvasFunctionsClient.swap_exercise`) sends `exercise_instance_id` as `from_exercise_id`.
+- Fetches the new exercise name from the `exercises` catalog collection.
+
+### completeActiveWorkout (HTTPS, v2)
+- Auth: flexible
+- Request: `{ workout_id }`
+- Response: `{ success, data: { workout_id, archived } }`
+- Uses transaction with status guard (`status !== 'in_progress'` returns `{ already_completed: true }`) to prevent double-completion.
+
+### cancelActiveWorkout (HTTPS, v2)
+- Auth: flexible
+- Request: `{ workout_id }`
 - Response: `{ success, data: { ... } }`
 
 ## Firestore layout

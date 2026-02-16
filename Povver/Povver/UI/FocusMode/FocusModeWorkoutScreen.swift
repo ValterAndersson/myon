@@ -171,6 +171,7 @@ struct FocusModeWorkoutScreen: View {
             }
             .onDisappear {
                 UIApplication.shared.isIdleTimerDisabled = false
+                stopTimer()
             }
             .task {
                 await startWorkoutIfNeeded()

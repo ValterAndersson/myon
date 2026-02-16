@@ -56,16 +56,34 @@ async function addExerciseHandler(req, res) {
       return fail(res, 'INVALID_ARGUMENT', 'Missing instance_id', null, 400);
     }
 
-    // 2. Process sets outside transaction (pure transformation)
-    const processedSets = (sets || []).map(set => ({
-      id: set.id,
-      set_type: set.set_type || 'working',
-      status: set.status || 'planned',
-      weight: set.target_weight ?? set.weight ?? null,
-      reps: set.target_reps ?? set.reps ?? null,
-      rir: set.target_rir ?? set.rir ?? null,
-      tags: set.tags || {},
-    }));
+    // 2. Process and validate sets outside transaction (pure transformation)
+    const processedSets = [];
+    for (const set of (sets || [])) {
+      const reps = set.target_reps ?? set.reps ?? null;
+      const rir = set.target_rir ?? set.rir ?? null;
+      const weight = set.target_weight ?? set.weight ?? null;
+
+      // Validate bounds
+      if (reps !== null && (reps < 0 || reps > 100)) {
+        return fail(res, 'INVALID_ARGUMENT', 'Reps must be between 0 and 100', { reps }, 400);
+      }
+      if (rir !== null && (rir < 0 || rir > 5)) {
+        return fail(res, 'INVALID_ARGUMENT', 'RIR must be between 0 and 5', { rir }, 400);
+      }
+      if (weight !== null && weight < 0) {
+        return fail(res, 'INVALID_ARGUMENT', 'Weight must be >= 0', { weight }, 400);
+      }
+
+      processedSets.push({
+        id: set.id,
+        set_type: set.set_type || 'working',
+        status: set.status || 'planned',
+        weight,
+        reps,
+        rir,
+        tags: set.tags || {},
+      });
+    }
 
     // 3. Pre-generate refs outside transaction
     const workoutRef = db.doc(`users/${userId}/active_workouts/${workoutId}`);

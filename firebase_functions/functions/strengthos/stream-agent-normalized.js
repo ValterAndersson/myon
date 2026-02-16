@@ -1299,7 +1299,7 @@ async function streamAgentNormalizedHandler(req, res) {
       // Persist agent response to conversation messages for reload
       if (accumulatedAgentText.trim()) {
         messagesRef.add({
-          type: 'agent_response',
+          type: 'agentResponse',
           content: accumulatedAgentText.trim(),
           correlation_id: correlationId || null,
           created_at: admin.firestore.FieldValue.serverTimestamp(),

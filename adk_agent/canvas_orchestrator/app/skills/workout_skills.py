@@ -29,13 +29,14 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 MYON_FUNCTIONS_BASE_URL = os.getenv(
-    "MYON_FUNCTIONS_BASE_URL",
-    "https://us-central1-myon-53d85.cloudfunctions.net"
+    "MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net"
 )
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "myon-agent-key-2024")
 
@@ -48,6 +49,7 @@ def _get_client():
     global _client
     if _client is None:
         from app.libs.tools_canvas.client import CanvasFunctionsClient
+
         _client = CanvasFunctionsClient(
             base_url=MYON_FUNCTIONS_BASE_URL,
             api_key=FIREBASE_API_KEY,
@@ -58,6 +60,7 @@ def _get_client():
 @dataclass
 class WorkoutSkillResult:
     """Result from a workout skill execution."""
+
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
@@ -86,48 +89,53 @@ def get_workout_state_formatted(user_id: str, workout_id: str) -> str:
         client = _get_client()
 
         # Parallel fetch: workout data + daily brief
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             workout_future = executor.submit(client.get_active_workout, user_id)
             analysis_future = executor.submit(
-                client.get_analysis_summary,
-                user_id,
-                sections=["daily_brief"]
+                client.get_analysis_summary, user_id, sections=["daily_brief"]
             )
 
+            # Get workout data first to extract current exercise
             workout_resp = workout_future.result(timeout=10)
-            analysis_resp = analysis_future.result(timeout=10)
 
-        # Extract workout data — handler returns { success, workout: {...} }
-        if not workout_resp.get("success"):
-            logger.warning("get_active_workout failed: %s", workout_resp.get("error"))
-            return ""
+            # Extract workout data — handler returns { success, workout: {...} }
+            if not workout_resp.get("success"):
+                logger.warning("get_active_workout failed: %s", workout_resp.get("error"))
+                return ""
 
-        workout_data = workout_resp.get("workout")
-        if not workout_data:
-            logger.warning("No active workout")
-            return ""
+            workout_data = workout_resp.get("workout")
+            if not workout_data:
+                logger.warning("No active workout")
+                return ""
 
-        # Extract daily brief
-        daily_brief = None
-        if analysis_resp.get("success"):
-            daily_brief = analysis_resp.get("data", {}).get("daily_brief")
-
-        # Find current exercise
-        current_ex_id, current_instance_id = _find_current_exercise(workout_data)
-
-        # Fetch exercise history if we have a current exercise
-        exercise_history = None
-        if current_ex_id:
-            try:
-                ex_resp = client.get_exercise_summary(
+            # Find current exercise and submit exercise history fetch in parallel
+            current_ex_id, current_instance_id = _find_current_exercise(workout_data)
+            exercise_future = None
+            if current_ex_id:
+                exercise_future = executor.submit(
+                    client.get_exercise_summary,
                     user_id=user_id,
                     exercise_id=current_ex_id,
-                    window_weeks=12
+                    window_weeks=12,
                 )
-                if ex_resp.get("success"):
-                    exercise_history = ex_resp.get("data")
-            except Exception as e:
-                logger.debug("Failed to fetch exercise history: %s", e)
+
+            # Wait for remaining futures
+            analysis_resp = analysis_future.result(timeout=10)
+
+            # Extract daily brief
+            daily_brief = None
+            if analysis_resp.get("success"):
+                daily_brief = analysis_resp.get("data", {}).get("daily_brief")
+
+            # Fetch exercise history result if submitted
+            exercise_history = None
+            if exercise_future:
+                try:
+                    ex_resp = exercise_future.result(timeout=10)
+                    if ex_resp.get("success"):
+                        exercise_history = ex_resp.get("data")
+                except Exception as e:
+                    logger.debug("Failed to fetch exercise history: %s", e)
 
         return _format_workout_brief(workout_data, exercise_history, daily_brief)
 
@@ -186,10 +194,7 @@ def _format_workout_brief(
     # totals.sets = completed done sets; count all sets for total
     totals = workout_data.get("totals", {})
     completed_sets = totals.get("sets", 0)
-    total_sets = sum(
-        len(ex.get("sets", []))
-        for ex in workout_data.get("exercises", [])
-    )
+    total_sets = sum(len(ex.get("sets", [])) for ex in workout_data.get("exercises", []))
 
     readiness = "moderate"
     if daily_brief:
@@ -230,21 +235,17 @@ def _format_workout_brief(
                 rir = s.get("rir")
                 rir_str = f" @ RIR {rir}" if rir is not None else ""
                 lines.append(
-                    f"  \u2713 Set {set_num} [{set_id}]:"
-                    f" {weight}kg \u00d7 {reps}{rir_str}"
+                    f"  \u2713 Set {set_num} [{set_id}]:" f" {weight}kg \u00d7 {reps}{rir_str}"
                 )
             elif status == "planned" and not first_planned_shown:
                 # Show first planned set with arrow (next to log)
                 weight = s.get("weight", "?")
                 lines.append(
-                    f"  \u2192 Set {set_num} [{set_id}]:"
-                    f" {weight}kg \u00d7 ? (planned)"
+                    f"  \u2192 Set {set_num} [{set_id}]:" f" {weight}kg \u00d7 ? (planned)"
                 )
                 first_planned_shown = True
             elif status == "planned":
-                lines.append(
-                    f"  \u00b7 Set {set_num} [{set_id}]: planned"
-                )
+                lines.append(f"  \u00b7 Set {set_num} [{set_id}]: planned")
             # skipped sets: omit from brief to save tokens
 
         lines.append("")
@@ -262,15 +263,9 @@ def _format_workout_brief(
             # e1RM trend
             weekly_points = exercise_history.get("weekly_points", [])
             if len(weekly_points) >= 3:
-                e1rms = [
-                    w.get("e1rm_max")
-                    for w in weekly_points[-3:]
-                    if w.get("e1rm_max")
-                ]
+                e1rms = [w.get("e1rm_max") for w in weekly_points[-3:] if w.get("e1rm_max")]
                 if len(e1rms) >= 2:
-                    e1rm_str = "\u2192".join(
-                        [str(int(e)) for e in e1rms]
-                    )
+                    e1rm_str = "\u2192".join([str(int(e)) for e in e1rms])
                     if e1rms[-1] > e1rms[0]:
                         trend = "\u2191"
                     elif e1rms[-1] < e1rms[0]:
@@ -278,8 +273,7 @@ def _format_workout_brief(
                     else:
                         trend = "\u2192"
                     lines.append(
-                        f"History: {', '.join(history_sets)}"
-                        f" | e1RM: {e1rm_str} ({trend})"
+                        f"History: {', '.join(history_sets)}" f" | e1RM: {e1rm_str} ({trend})"
                     )
                 else:
                     lines.append(f"History: {', '.join(history_sets)}")
@@ -334,6 +328,15 @@ def log_set(
                 error=resp.get("error", "Unknown error"),
             )
 
+    except requests.HTTPError as e:
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        error_code = body.get("error", {}).get("code", "UNKNOWN")
+        error_msg = body.get("error", {}).get("message", str(e))
+        return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
     except Exception as e:
         logger.error("log_set error: %s", e)
         return WorkoutSkillResult(
@@ -378,6 +381,15 @@ def swap_exercise(
                 error=resp.get("error", "Unknown error"),
             )
 
+    except requests.HTTPError as e:
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        error_code = body.get("error", {}).get("code", "UNKNOWN")
+        error_msg = body.get("error", {}).get("message", str(e))
+        return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
     except Exception as e:
         logger.error("swap_exercise error: %s", e)
         return WorkoutSkillResult(
@@ -416,6 +428,15 @@ def complete_workout(
                 error=resp.get("error", "Unknown error"),
             )
 
+    except requests.HTTPError as e:
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        error_code = body.get("error", {}).get("code", "UNKNOWN")
+        error_msg = body.get("error", {}).get("message", str(e))
+        return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
     except Exception as e:
         logger.error("complete_workout error: %s", e)
         return WorkoutSkillResult(
