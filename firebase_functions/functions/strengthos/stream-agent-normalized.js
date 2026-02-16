@@ -822,6 +822,40 @@ async function invalidateUserSessions(userId) {
   }
 }
 
+// ============================================================================
+// CONVERSATION TITLE GENERATION (fire-and-forget after first exchange)
+// Uses Gemini 2.0 Flash to produce a short 3-6 word title from the user message.
+// Only runs once per conversation (skips if title already set).
+// ============================================================================
+async function generateConversationTitle(userId, conversationId, userMessage) {
+  const canvasDoc = await db.collection('users').doc(userId)
+    .collection('canvases').doc(conversationId).get();
+  if (canvasDoc.exists && canvasDoc.data()?.title) return;
+
+  const token = await getGcpAuthToken();
+  const projectId = VERTEX_AI_CONFIG.projectId;
+  const location = VERTEX_AI_CONFIG.location;
+  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.0-flash:generateContent`;
+
+  // Truncate to 200 chars — sufficient for title inference, limits token waste and prompt injection surface
+  const messageSample = userMessage.length > 200 ? userMessage.slice(0, 200) : userMessage;
+
+  const resp = await axios.post(url, {
+    contents: [{ role: 'user', parts: [{ text: `Generate a short 3-6 word title summarizing this fitness coaching conversation. Return only the title, no quotes or punctuation. Examples: Push Pull Legs Routine, Weekly Progress Analysis, Upper Body Workout Plan. User message: ${messageSample}` }] }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 20 }
+  }, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 });
+
+  const title = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!title) return;
+
+  const batch = db.batch();
+  batch.update(db.collection('users').doc(userId).collection('canvases').doc(conversationId), { title });
+  batch.set(db.collection('users').doc(userId).collection('conversations').doc(conversationId), { title }, { merge: true });
+  await batch.commit();
+
+  logger.info('[streamAgentNormalized] Generated conversation title', { conversationId, title });
+}
+
 async function streamAgentNormalizedHandler(req, res) {
   // CORS preflight handled by outer middleware when wrapped
   if (req.method !== 'POST') {
@@ -1320,6 +1354,13 @@ async function streamAgentNormalizedHandler(req, res) {
           correlation_id: correlationId || null,
           created_at: admin.firestore.FieldValue.serverTimestamp(),
         }).catch(err => logger.warn('[streamAgentNormalized] agent response persist failed', { error: String(err?.message || err) }));
+      }
+
+      // Generate conversation title (fire-and-forget, only on first exchange)
+      // Skip on failed/empty streams — no point titling a broken conversation
+      if (message && dataChunkCount > 0) {
+        generateConversationTitle(userId, conversationId, message)
+          .catch(err => logger.warn('[streamAgentNormalized] title generation failed', { error: String(err?.message || err) }));
       }
 
       // If no data chunks received, the session is likely corrupted/stale

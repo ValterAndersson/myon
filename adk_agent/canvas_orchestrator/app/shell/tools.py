@@ -153,20 +153,28 @@ def tool_search_exercises(
             Values: "barbell", "dumbbell", "cable", "machine", "bodyweight"
         
         query: Free text search for exercise names.
-        
+            Catalog format is "Name (Equipment)" — e.g., "Deadlift (Barbell)",
+            "Leg Press (Machine)". Search by BASE NAME: query="deadlift",
+            query="bench press", query="leg press".
+            Don't prefix equipment in query — use equipment filter instead.
+            Good: query="deadlift", equipment="barbell"
+            Bad: query="Barbell Deadlift"
+
         limit: Max results (default 15)
-        
+
         fields: Output format. Choose based on need:
             "minimal" - id + name only (smallest, for large searches)
             "lean" - id, name, category, equipment (default, good for planning)
             "full" - all fields (when you need muscles, instructions, etc.)
-    
+
     Returns:
         List of exercises with fields based on 'fields' parameter
-    
+
     Strategy:
         - PPL: movement_type="push" / "pull" / muscle_group="legs"
         - Upper/Lower: muscle_group="chest,back" / muscle_group="legs"
+        - Prefer broad filters over specific names. One search with
+          muscle_group="legs" beats 5 separate name queries.
         - If sparse results, drop filters and proceed with best available
         - Use fields="minimal" for large result sets to save context
     """
@@ -718,6 +726,18 @@ def tool_propose_routine(
 
     if not ctx.user_id:
         return {"error": "Missing user_id in context"}
+
+    # Validate workouts have exercises before calling skill
+    empty_days = [
+        w.get("title", f"Day {i+1}")
+        for i, w in enumerate(workouts)
+        if not w.get("exercises")
+    ]
+    if empty_days:
+        return {
+            "error": f"Workouts missing exercises: {', '.join(empty_days)}. "
+                     "Each workout must have a non-empty exercises array.",
+        }
 
     result = direct_propose_routine(
         user_id=ctx.user_id,

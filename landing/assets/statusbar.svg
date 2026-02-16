@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 393 54">
+  <!-- Background -->
+  <rect width="393" height="54" fill="#f4f5f7"/>
+
+  <!-- Time -->
+  <text x="24" y="36" font-family="-apple-system, SF Pro Text, system-ui, sans-serif" font-size="15" font-weight="600" fill="#000" letter-spacing="-0.3">9:41</text>
+
+  <!-- Dynamic Island -->
+  <rect x="134" y="11" width="125" height="33" rx="16.5" fill="#000"/>
+
+  <!-- Cellular signal — 4 bars -->
+  <rect x="296" y="31" width="3.2" height="5" rx="1" fill="#000"/>
+  <rect x="301" y="28" width="3.2" height="8" rx="1" fill="#000"/>
+  <rect x="306" y="24.5" width="3.2" height="11.5" rx="1" fill="#000"/>
+  <rect x="311" y="21" width="3.2" height="15" rx="1" fill="#000"/>
+
+  <!-- WiFi — 3 arcs + dot (proper SVG arcs) -->
+  <path d="M326.3 31.5 A5.5 5.5 0 0 1 332.7 31.5" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M324.3 28.6 A9 9 0 0 1 334.7 28.6" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M322.3 25.8 A12.5 12.5 0 0 1 336.7 25.8" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="329.5" cy="35.5" r="1.5" fill="#000"/>
+
+  <!-- Battery -->
+  <rect x="345" y="22" width="25" height="12" rx="3.5" fill="none" stroke="#000" stroke-width="1" opacity="0.35"/>
+  <rect x="370.5" y="26" width="1.5" height="4" rx="0.75" fill="#000" opacity="0.35"/>
+  <rect x="347" y="24" width="21" height="8" rx="2" fill="#000"/>
+</svg>

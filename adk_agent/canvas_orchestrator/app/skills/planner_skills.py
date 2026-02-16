@@ -312,12 +312,18 @@ def propose_routine(
 
     # Build workout data with embedded exercises
     workout_summaries = []
+    empty_days = []
 
     for idx, workout in enumerate(workouts):
         title = workout.get("title") or f"Day {idx + 1}"
         exercises = workout.get("exercises") or []
 
         blocks = _build_exercise_blocks(exercises)
+
+        if not blocks:
+            empty_days.append(title)
+            continue
+
         estimated_duration = len(blocks) * 5 + 10
 
         workout_summaries.append({
@@ -327,6 +333,20 @@ def propose_routine(
             "estimated_duration": estimated_duration,
             "exercise_count": len(blocks),
         })
+
+    if not workout_summaries:
+        detail = f" (empty: {', '.join(empty_days)})" if empty_days else ""
+        return SkillResult(
+            success=False,
+            error=f"All workouts have empty exercises{detail}. "
+                  "Provide exercises for each workout day.",
+        )
+
+    if empty_days:
+        logger.warning(
+            "PROPOSE_ROUTINE: skipped %d empty workout(s): %s",
+            len(empty_days), ", ".join(empty_days),
+        )
 
     total_exercises = sum(w.get("exercise_count", 0) for w in workout_summaries)
 

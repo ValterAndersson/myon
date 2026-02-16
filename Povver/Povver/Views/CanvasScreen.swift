@@ -18,6 +18,7 @@ struct CanvasScreen: View {
     @State private var composerExpanded: Bool = true
     @State private var showFocusMode: Bool = false
     @State private var planBlocksForFocusMode: [[String: Any]]? = nil
+    @FocusState private var composerFocused: Bool
     
     private typealias ClarificationPrompt = TimelineClarificationPrompt
 
@@ -44,6 +45,8 @@ struct CanvasScreen: View {
                 hideThinkingEvents: true,  // Hide old thought process - using new ThinkingBubble
                 thinkingState: vm.thinkingState  // Gemini-style thinking process
             )
+            .contentShape(Rectangle())
+            .onTapGesture { composerFocused = false }
             
             composeBar(pendingClarification: pendingClarification)
         }
@@ -161,6 +164,7 @@ extension CanvasScreen {
                 // Full composer
                 HStack(spacing: Space.sm) {
                     TextField(placeholder, text: $composerText, axis: .vertical)
+                        .focused($composerFocused)
                         .lineLimit(1...4)
                         .padding(Space.sm)
                         .background(Color.surface.opacity(0.6))
@@ -183,6 +187,7 @@ extension CanvasScreen {
     private func sendComposerMessage() {
         let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        composerFocused = false
         if let pending = activeClarificationPrompt {
             composerText = ""
             composerExpanded = false  // Collapse after sending

@@ -802,6 +802,18 @@ final class CanvasViewModel: ObservableObject {
                 DebugLogger.error(.canvas, "Failed to log prompt entry: \(error.localizedDescription)")
             }
         }
+
+        // Update canvas root doc with metadata for recent chats listing
+        let canvasRef = db.collection("users").document(userId)
+            .collection("canvases").document(canvasId)
+        canvasRef.updateData([
+            "updatedAt": FieldValue.serverTimestamp(),
+            "lastMessage": String(message.prefix(100))
+        ]) { error in
+            if let error {
+                DebugLogger.error(.canvas, "Failed to update canvas metadata: \(error.localizedDescription)")
+            }
+        }
     }
 
     func clearCards() {

@@ -3,22 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Povver — AI-Powered Strength Coaching</title>
-  <meta name="description" content="An AI coach that learns how you train, analyzes your progress automatically, and gives you real-time guidance. Download Povver for iOS.">
+  <title>Povver — AI Strength Coach & Workout Tracker for iOS</title>
+  <meta name="description" content="An AI coach that analyzes every workout, tracks progressive overload by muscle group, and builds custom programs on demand. 900+ exercises, fast set logging. Free for iOS.">
   <meta name="robots" content="noindex, nofollow">
+  <link rel="canonical" href="https://povver.ai">
+  <meta name="theme-color" content="#0C1117">
+  <meta name="apple-mobile-web-app-title" content="Povver">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 
   <!-- Open Graph -->
-  <meta property="og:title" content="Povver — AI-Powered Strength Coaching">
-  <meta property="og:description" content="An AI coach that learns how you train, analyzes your progress automatically, and gives you real-time guidance.">
+  <meta property="og:title" content="Povver — AI Strength Coach That Learns How You Train">
+  <meta property="og:description" content="Post-workout analysis, progressive overload tracking, conversational coaching, and a fast set-logging grid. 900+ exercises. Free for iOS.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://povver.ai">
   <meta property="og:image" content="https://povver.ai/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:site_name" content="Povver">
+  <meta property="og:locale" content="en_US">
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Povver — AI-Powered Strength Coaching">
-  <meta name="twitter:description" content="An AI coach that learns how you train, analyzes your progress automatically, and gives you real-time guidance.">
+  <meta name="twitter:title" content="Povver — AI Strength Coach That Learns How You Train">
+  <meta name="twitter:description" content="Post-workout analysis, progressive overload tracking, and a fast set-logging grid. 900+ exercises. Free for iOS.">
   <meta name="twitter:image" content="https://povver.ai/assets/og-image.png">
+  <meta name="twitter:image:alt" content="Povver app showing AI coach conversation and workout tracking grid">
 
   <!-- JSON-LD -->
   <script type="application/ld+json">
@@ -26,14 +35,31 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Povver",
-    "operatingSystem": "iOS",
+    "operatingSystem": "iOS 17",
     "applicationCategory": "HealthApplication",
-    "description": "AI-powered strength coaching. Proactive analysis, conversational coaching, and a fast set-logging grid.",
+    "description": "AI-powered strength coaching app that analyzes every workout, tracks progressive overload by muscle group, and builds custom training programs through conversation. 900+ exercises with a fast set-logging grid.",
+    "url": "https://povver.ai",
     "offers": {
       "@type": "Offer",
       "price": "0",
-      "priceCurrency": "USD"
-    }
+      "priceCurrency": "USD",
+      "availability": "https://schema.org/InStock"
+    },
+    "author": {
+      "@type": "Organization",
+      "name": "Povver",
+      "url": "https://povver.ai"
+    },
+    "featureList": [
+      "AI post-workout analysis",
+      "Progressive overload tracking by muscle group",
+      "Conversational AI coaching",
+      "Custom program generation",
+      "Fast set-logging grid",
+      "900+ exercise catalog",
+      "Templates and routines",
+      "Mid-workout exercise swaps"
+    ]
   }
   </script>
 
@@ -50,7 +76,6 @@
       </button>
       <div class="nav-links" id="nav-links">
         <a href="#features" class="nav-link">Features</a>
-        <a href="#how-it-works" class="nav-link">How It Works</a>
         <a href="#download" class="nav-cta">Download</a>
       </div>
     </div>
@@ -62,7 +87,7 @@
       <div class="hero-content">
         <span class="hero-label">AI Fitness Coach for iOS</span>
         <h1 class="hero-title">Strength Training,<br><span class="hero-accent">Coached by AI</span></h1>
-        <p class="hero-subtitle">An AI coach that learns how you train, analyzes your progress automatically, and gives you real-time guidance — without forcing you into a rigid plan.</p>
+        <p class="hero-subtitle">An AI coach that analyzes every workout, tracks your progress by muscle group, and tells you when to add weight. No rigid plans. Just smarter training.</p>
         <a href="#download" class="app-store-badge" aria-label="Download on the App Store">
           <svg viewBox="0 0 120 40" width="150" height="50" role="img" aria-label="Download on the App Store">
             <rect x="0.5" y="0.5" width="119" height="39" rx="5.5" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
@@ -73,8 +98,8 @@
       </div>
       <div class="hero-phone">
         <div class="phone-frame">
-          <div class="phone-screen">
-            <span class="phone-placeholder-text">App Screenshot</span>
+          <div class="phone-screen phone-screen--has-img">
+            <img src="assets/screenshots/coach.png" alt="Povver AI coach conversation" loading="eager">
           </div>
         </div>
       </div>
@@ -94,21 +119,14 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid">
         <div class="feature-content">
-          <span class="feature-label">Proactive Intelligence</span>
           <h2 class="feature-title">Your Coach Works While You Rest</h2>
-          <p class="feature-copy">After every workout, Povver's AI analyzes your performance in the background — flagging PRs, spotting stalls, and recommending when to add weight. Weekly reviews track volume trends, muscle balance, and progression candidates. Daily briefs assess your readiness before you even ask.</p>
-          <p class="feature-copy">The insights are there when you open the app. No dashboard hunting required.</p>
-          <ul class="feature-details">
-            <li>Post-workout analysis runs automatically</li>
-            <li>Weekly reviews generated every Sunday</li>
-            <li>Daily readiness briefs every morning</li>
-            <li>Pre-computed and ready when you chat</li>
-          </ul>
+          <p class="feature-copy">When you finish a workout, Povver's AI breaks down your session. It compares your performance to recent weeks across every muscle group, flags personal records, and spots lifts where you've been stuck at the same weight.</p>
+          <p class="feature-copy">The app tracks progressive overload for you. Instead of digging through old logs trying to remember what you lifted last week, Povver tells you when you're ready to move up.</p>
         </div>
         <div class="feature-screenshot">
           <div class="phone-frame">
             <div class="phone-screen">
-              <span class="phone-placeholder-text">AI Insight Card</span>
+              <span class="phone-placeholder-text">Screenshot coming soon</span>
             </div>
           </div>
         </div>
@@ -119,21 +137,14 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid feature-grid--reverse">
         <div class="feature-content">
-          <span class="feature-label">Conversational Coaching</span>
           <h2 class="feature-title">Ask Anything. Get a Plan in Seconds.</h2>
-          <p class="feature-copy">Want a Push/Pull/Legs routine? Just ask. Need to swap an exercise because the rack is taken? Say so mid-workout. Curious how your bench is progressing? The coach pulls your data and gives you a straight answer.</p>
-          <p class="feature-copy">Real-time coaching between sets — concise, actionable, no lectures.</p>
-          <ul class="feature-details">
-            <li>Creates routines, templates, and workouts</li>
-            <li>Swaps exercises on the fly</li>
-            <li>Answers data questions instantly</li>
-            <li>Mid-workout mode: max 2 sentences</li>
-          </ul>
+          <p class="feature-copy">Tell the coach what you want in plain English. "Build me a 4-day upper/lower split" or "I need a quick leg day with dumbbells only." You get a complete program with exercises, sets, and target weights based on your training history.</p>
+          <p class="feature-copy">During a workout, the coach switches to a faster mode. Swap an exercise because the rack is taken, check your recent numbers on a lift, or ask what weight to use next. Answers stay short because you're resting between sets, not reading essays.</p>
         </div>
         <div class="feature-screenshot">
           <div class="phone-frame">
-            <div class="phone-screen">
-              <span class="phone-placeholder-text">Chat & Routine Card</span>
+            <div class="phone-screen phone-screen--has-img">
+              <img src="assets/screenshots/plan.png" alt="AI-generated workout plan with exercises" loading="lazy">
             </div>
           </div>
         </div>
@@ -144,21 +155,14 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid">
         <div class="feature-content">
-          <span class="feature-label">Fast Logging</span>
           <h2 class="feature-title">A Spreadsheet You Can Take to the Gym</h2>
-          <p class="feature-copy">See every set at once. Edit any cell — weight, reps, RIR — in any order. Batch-apply a change across all remaining sets. No step-through wizards, no forced workflows.</p>
-          <p class="feature-copy">Just a fast, functional grid built for logging between sets. Sub-second input for when you're out of breath and your hands are chalked up.</p>
-          <ul class="feature-details">
-            <li>SET / WEIGHT / REPS / RIR columns</li>
-            <li>Gym-sized tap targets</li>
-            <li>Batch edit: "Remaining" or "All working sets"</li>
-            <li>Warmup, dropset, and failure set types</li>
-          </ul>
+          <p class="feature-copy">Every set laid out in a clean grid. Tap a cell, change the number, move on. Weight, reps, and effort level for every set, editable in any order. Need to apply the same weight across all your working sets? One tap.</p>
+          <p class="feature-copy">Built for speed between sets. Large buttons you can hit with chalky hands, fast number entry, and nothing standing between you and your next set.</p>
         </div>
         <div class="feature-screenshot">
           <div class="phone-frame">
-            <div class="phone-screen">
-              <span class="phone-placeholder-text">Set Grid</span>
+            <div class="phone-screen phone-screen--has-img">
+              <img src="assets/screenshots/grid.png" alt="Set logging grid with weight, reps, and effort" loading="lazy">
             </div>
           </div>
         </div>
@@ -169,21 +173,14 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid feature-grid--reverse">
         <div class="feature-content">
-          <span class="feature-label">Your Workflow</span>
           <h2 class="feature-title">No Plan Required</h2>
-          <p class="feature-copy">Start an empty workout and add exercises as you go. Pick a saved template. Follow your routine's next scheduled session. Or ask the AI to build something on the spot.</p>
-          <p class="feature-copy">Every path is a first-class workflow — not a fallback. Modify anything mid-workout: add exercises, swap movements, reorder the session. The app adapts to you, not the other way around.</p>
-          <ul class="feature-details">
-            <li>Three equal entry points on the Train tab</li>
-            <li>Drag to reorder exercises mid-workout</li>
-            <li>Add or remove exercises anytime</li>
-            <li>Templates are optional, not required</li>
-          </ul>
+          <p class="feature-copy">Open the app and start an empty workout. Add exercises as you go, in whatever order makes sense. Or pick a saved template. Or follow your routine's next session. Or just ask the coach to build something.</p>
+          <p class="feature-copy">Every approach works equally well. You can always add exercises, remove them, or drag to reorder mid-session. Nothing is locked down. The app fits your training style, not the other way around.</p>
         </div>
         <div class="feature-screenshot">
           <div class="phone-frame">
-            <div class="phone-screen">
-              <span class="phone-placeholder-text">Train Tab</span>
+            <div class="phone-screen phone-screen--has-img phone-screen--contain">
+              <img src="assets/screenshots/train.png" alt="Train tab with multiple workout start options" loading="lazy">
             </div>
           </div>
         </div>
@@ -192,60 +189,10 @@
 
   </section>
 
-  <!-- How It Works -->
-  <section class="how-it-works" id="how-it-works">
-    <div class="container">
-      <h2 class="section-title fade-in">How It Works</h2>
-      <div class="steps-grid">
-        <div class="step-card fade-in">
-          <div class="step-number">1</div>
-          <h3 class="step-title">Start Training</h3>
-          <p class="step-copy">Open an empty workout, pick a template, or ask the AI for a plan. No setup required.</p>
-        </div>
-        <div class="step-card fade-in">
-          <div class="step-number">2</div>
-          <h3 class="step-title">Log and Coach</h3>
-          <p class="step-copy">Track sets in a fast grid. Get coaching between sets if you want it. Swap exercises on the fly.</p>
-        </div>
-        <div class="step-card fade-in">
-          <div class="step-number">3</div>
-          <h3 class="step-title">Insights, Automatically</h3>
-          <p class="step-copy">Post-workout analysis, weekly reviews, and daily readiness briefs run in the background. Open the app and your data is already understood.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Highlights Strip -->
+  <!-- Highlights -->
   <section class="highlights fade-in">
-    <div class="container highlights-grid">
-      <div class="highlight">
-        <span class="highlight-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-        </span>
-        <div>
-          <span class="highlight-title">500+ exercises</span>
-          <span class="highlight-desc">Full catalog with smart search</span>
-        </div>
-      </div>
-      <div class="highlight">
-        <span class="highlight-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-        </span>
-        <div>
-          <span class="highlight-title">Always-on analysis</span>
-          <span class="highlight-desc">Insights run after every session</span>
-        </div>
-      </div>
-      <div class="highlight">
-        <span class="highlight-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-        </span>
-        <div>
-          <span class="highlight-title">Zero setup</span>
-          <span class="highlight-desc">Start training on day one</span>
-        </div>
-      </div>
+    <div class="container">
+      <p class="highlights-text">900+ exercises. Analysis after every session. Zero setup.</p>
     </div>
   </section>
 

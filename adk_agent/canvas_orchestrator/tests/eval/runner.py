@@ -152,6 +152,9 @@ def send_prompt(
             else:
                 errors.append(str(err))
 
+        elif evt_type == "done":
+            break
+
     elapsed = time.time() - t0
     full_text = "".join(text_parts).strip()
 

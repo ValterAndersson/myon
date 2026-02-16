@@ -240,6 +240,16 @@ async function searchExercisesHandler(req, res) {
     // Text search if query provided
     if (query) {
       const searchTerm = query.toLowerCase();
+
+      // Strip common equipment prefixes for fuzzy matching.
+      // Catalog uses "Name (Equipment)" format (e.g., "Deadlift (Barbell)"),
+      // but queries often use "Equipment Name" format (e.g., "Barbell Deadlift").
+      const equipmentPrefixes = /^(barbell|dumbbell|cable|machine|ez[- ]?bar|trap[- ]?bar|band|bodyweight|smith[- ]?machine|kettlebell)\s+/i;
+      const strippedTerm = searchTerm.replace(equipmentPrefixes, '').trim();
+
+      // Split query into individual words for multi-word matching
+      const queryWords = searchTerm.split(/\s+/).filter(w => w.length > 1);
+
       exercises = exercises.filter(ex => {
         const name = (ex.name || '').toLowerCase();
         const category = (ex.category || '').toLowerCase();
@@ -252,8 +262,20 @@ async function searchExercisesHandler(req, res) {
         const mistakes = Array.isArray(ex.common_mistakes) ? ex.common_mistakes.join(' ').toLowerCase() : '';
         const programming = Array.isArray(ex.programming_use_cases) ? ex.programming_use_cases.join(' ').toLowerCase() : '';
         const tags = Array.isArray(ex.stimulus_tags) ? ex.stimulus_tags.map(t=>t.toLowerCase()) : [];
+
+        // Combine name + equipment for cross-field matching
+        // e.g., "Deadlift (Barbell)" + "barbell" → "deadlift (barbell) barbell"
+        const nameAndEquipment = name + ' ' + equipmentText;
+
         return (
+          // Direct substring match (original behavior)
           name.includes(searchTerm) ||
+          // Stripped term match (e.g., "barbell deadlift" → "deadlift")
+          (strippedTerm !== searchTerm && name.includes(strippedTerm)) ||
+          // All query words appear in name+equipment combo
+          // e.g., "barbell deadlift" → both "barbell" and "deadlift" in name+equipment
+          (queryWords.length > 1 && queryWords.every(w => nameAndEquipment.includes(w))) ||
+          // Standard field searches
           category.includes(searchTerm) ||
           movementType.includes(searchTerm) ||
           equipmentText.includes(searchTerm) ||

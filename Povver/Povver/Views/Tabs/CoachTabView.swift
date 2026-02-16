@@ -1,30 +1,39 @@
 import SwiftUI
+import FirebaseFirestore
 
 /// Coach Tab - Primary agent interface with quick action buttons
 /// Direct access to different coaching use-cases without mode switching
 struct CoachTabView: View {
     /// Callback to switch to another tab (e.g., Train)
     let switchToTab: (MainTab) -> Void
-    
+
     /// Navigation state for canvas screen
     @State private var navigateToCanvas = false
     @State private var entryContext: String = ""
     @State private var query: String = ""
-    
+    @State private var selectedCanvasId: String? = nil
+    @State private var recentCanvases: [RecentCanvas] = []
+    @State private var showAllConversations = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .center, spacing: Space.xl) {
                 Spacer(minLength: Space.xl)
-                
+
                 // Header
                 header
-                
+
                 // Input bar for free-form questions
                 inputBar
-                
+
+                // Recent chats
+                if !recentCanvases.isEmpty {
+                    recentChatsSection
+                }
+
                 // Quick actions grid
                 quickActionsGrid
-                
+
                 Spacer(minLength: Space.xxl)
             }
             .frame(maxWidth: .infinity)
@@ -36,8 +45,30 @@ struct CoachTabView: View {
         .navigationDestination(isPresented: $navigateToCanvas) {
             canvasDestination
         }
+        .sheet(isPresented: $showAllConversations, onDismiss: {
+            // Navigate after sheet fully dismisses to avoid animation race
+            if selectedCanvasId != nil {
+                navigateToCanvas = true
+            }
+        }) {
+            AllConversationsSheet { canvasId in
+                selectedCanvasId = canvasId
+                entryContext = ""
+                showAllConversations = false
+            }
+        }
         .onAppear {
             preWarmSession()
+            loadRecentCanvases()
+        }
+        .onChange(of: navigateToCanvas) { _, isActive in
+            if !isActive {
+                // User navigated back — clear input state
+                query = ""
+                entryContext = ""
+                selectedCanvasId = nil
+                loadRecentCanvases()
+            }
         }
     }
     
@@ -53,6 +84,7 @@ struct CoachTabView: View {
     
     private var inputBar: some View {
         AgentPromptBar(text: $query, placeholder: "Ask anything") {
+            selectedCanvasId = nil
             entryContext = "freeform:" + query
             navigateToCanvas = true
         }
@@ -72,26 +104,26 @@ struct CoachTabView: View {
             ]
             
             LazyVGrid(columns: columns, alignment: .center, spacing: Space.md) {
-                // Plan program
                 QuickActionCard(title: "Plan program", icon: "calendar.badge.plus") {
+                    selectedCanvasId = nil
                     entryContext = "quick:Plan program"
                     navigateToCanvas = true
                 }
 
-                // Analyze progress
                 QuickActionCard(title: "Analyze progress", icon: "chart.bar") {
+                    selectedCanvasId = nil
                     entryContext = "quick:Analyze progress"
                     navigateToCanvas = true
                 }
 
-                // Create routine
                 QuickActionCard(title: "Create routine", icon: "figure.strengthtraining.traditional") {
+                    selectedCanvasId = nil
                     entryContext = "quick:Create routine"
                     navigateToCanvas = true
                 }
 
-                // Review plan
                 QuickActionCard(title: "Review plan", icon: "doc.text.magnifyingglass") {
+                    selectedCanvasId = nil
                     entryContext = "quick:Review plan"
                     navigateToCanvas = true
                 }
@@ -105,19 +137,84 @@ struct CoachTabView: View {
     @ViewBuilder
     private var canvasDestination: some View {
         if let uid = AuthService.shared.currentUser?.uid {
-            CanvasScreen(
-                userId: uid,
-                canvasId: nil,
-                purpose: "ad_hoc",
-                entryContext: entryContext
-            )
+            if let resumeId = selectedCanvasId {
+                // Resuming an existing conversation
+                CanvasScreen(
+                    userId: uid,
+                    canvasId: resumeId,
+                    purpose: nil,
+                    entryContext: nil
+                )
+            } else {
+                // Starting a new conversation
+                CanvasScreen(
+                    userId: uid,
+                    canvasId: nil,
+                    purpose: "ad_hoc",
+                    entryContext: entryContext
+                )
+            }
         } else {
             EmptyState(title: "Not signed in", message: "Login to view canvas.")
         }
     }
     
+    // MARK: - Recent Chats
+
+    private var recentChatsSection: some View {
+        VStack(alignment: .leading, spacing: Space.md) {
+            PovverText("Recent", style: .subheadline, color: Color.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: Space.sm) {
+                ForEach(recentCanvases.prefix(3)) { canvas in
+                    Button {
+                        selectedCanvasId = canvas.id
+                        entryContext = ""
+                        navigateToCanvas = true
+                    } label: {
+                        SurfaceCard(padding: InsetsToken.all(Space.md)) {
+                            HStack(spacing: Space.md) {
+                                VStack(alignment: .leading, spacing: Space.xs) {
+                                    PovverText(
+                                        canvas.title ?? canvas.lastMessage ?? "General chat",
+                                        style: .subheadline,
+                                        lineLimit: 1
+                                    )
+                                    if let date = canvas.updatedAt ?? canvas.createdAt {
+                                        PovverText(
+                                            date.relativeDescription,
+                                            style: .caption,
+                                            color: Color.textSecondary
+                                        )
+                                    }
+                                }
+                                Spacer()
+                                Icon("chevron.right", size: .md, color: Color.textSecondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+
+            Button {
+                showAllConversations = true
+            } label: {
+                HStack {
+                    Spacer()
+                    PovverText("See all", style: .subheadline, color: Color.accent)
+                    Spacer()
+                }
+                .padding(.vertical, Space.sm)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .frame(maxWidth: 680)
+    }
+
     // MARK: - Helpers
-    
+
     private func preWarmSession() {
         guard let uid = AuthService.shared.currentUser?.uid else { return }
         Task { @MainActor in
@@ -128,7 +225,72 @@ struct CoachTabView: View {
             )
         }
     }
-    
+
+    private func loadRecentCanvases() {
+        guard let uid = AuthService.shared.currentUser?.uid else { return }
+        let db = Firestore.firestore()
+        db.collection("users").document(uid).collection("canvases")
+            .whereField("status", isEqualTo: "active")
+            .order(by: "updatedAt", descending: true)
+            .limit(to: 5)
+            .getDocuments { snapshot, error in
+                guard let docs = snapshot?.documents, error == nil else { return }
+                let canvases: [RecentCanvas] = docs.compactMap { doc in
+                    let data = doc.data()
+                    let title = data["title"] as? String
+                    let lastMessage = data["lastMessage"] as? String
+                    let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue()
+                    let createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
+                    // Skip canvases that have never been messaged
+                    guard lastMessage != nil || updatedAt != nil else { return nil }
+                    return RecentCanvas(
+                        id: doc.documentID,
+                        title: title,
+                        lastMessage: lastMessage,
+                        updatedAt: updatedAt,
+                        createdAt: createdAt
+                    )
+                }
+                DispatchQueue.main.async {
+                    self.recentCanvases = canvases
+                }
+            }
+    }
+}
+
+// MARK: - Recent Canvas Model
+
+private struct RecentCanvas: Identifiable {
+    let id: String
+    let title: String?
+    let lastMessage: String?
+    let updatedAt: Date?
+    let createdAt: Date?
+}
+
+// MARK: - Relative Date Formatting
+
+private extension Date {
+    var relativeDescription: String {
+        let now = Date()
+        let interval = now.timeIntervalSince(self)
+
+        if interval < 60 { return "Just now" }
+        if interval < 3600 {
+            let mins = Int(interval / 60)
+            return "\(mins)m ago"
+        }
+        if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "\(hours)h ago"
+        }
+        let days = Int(interval / 86400)
+        if days == 1 { return "Yesterday" }
+        if days < 7 { return "\(days)d ago" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter.string(from: self)
+    }
 }
 
 #if DEBUG

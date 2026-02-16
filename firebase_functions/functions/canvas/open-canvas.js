@@ -60,6 +60,9 @@ async function createCanvas(userId, purpose) {
   await canvasDoc.set({
     purpose: purpose || 'general',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastMessage: null,
+    title: null,
     status: 'active'
   });
   
