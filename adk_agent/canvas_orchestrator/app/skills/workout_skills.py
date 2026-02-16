@@ -399,6 +399,166 @@ def swap_exercise(
         )
 
 
+def add_exercise(
+    user_id: str,
+    workout_id: str,
+    exercise_id: str,
+    name: str,
+    sets: list,
+) -> WorkoutSkillResult:
+    """Add an exercise to the active workout with planned sets."""
+    try:
+        import uuid
+
+        client = _get_client()
+        instance_id = f"ex-{uuid.uuid4().hex[:12]}"
+
+        resp = client.add_exercise(
+            user_id=user_id,
+            workout_id=workout_id,
+            instance_id=instance_id,
+            exercise_id=exercise_id,
+            name=name,
+            sets=sets,
+        )
+
+        if resp.get("success") or resp.get("event_id"):
+            return WorkoutSkillResult(
+                success=True,
+                message=f"Added {name} with {len(sets)} sets",
+                data={"instance_id": instance_id},
+            )
+        elif resp.get("duplicate"):
+            return WorkoutSkillResult(
+                success=True,
+                message="Exercise already added (duplicate)",
+            )
+        else:
+            return WorkoutSkillResult(
+                success=False,
+                message="Failed to add exercise",
+                error=resp.get("error", "Unknown error"),
+            )
+
+    except requests.HTTPError as e:
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        error_code = body.get("error", {}).get("code", "UNKNOWN")
+        error_msg = body.get("error", {}).get("message", str(e))
+        return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
+    except Exception as e:
+        logger.error("add_exercise error: %s", e)
+        return WorkoutSkillResult(
+            success=False,
+            message="Failed to add exercise",
+            error=str(e),
+        )
+
+
+def prescribe_set(
+    user_id: str,
+    workout_id: str,
+    exercise_instance_id: str,
+    set_id: str,
+    weight_kg: Optional[float] = None,
+    reps: Optional[int] = None,
+    rir: Optional[int] = None,
+) -> WorkoutSkillResult:
+    """Modify planned values (weight, reps, rir) on a planned set."""
+    try:
+        ops = []
+        if weight_kg is not None:
+            ops.append({
+                "op": "set_field",
+                "target": {
+                    "exercise_instance_id": exercise_instance_id,
+                    "set_id": set_id,
+                },
+                "field": "weight",
+                "value": weight_kg,
+            })
+        if reps is not None:
+            ops.append({
+                "op": "set_field",
+                "target": {
+                    "exercise_instance_id": exercise_instance_id,
+                    "set_id": set_id,
+                },
+                "field": "reps",
+                "value": reps,
+            })
+        if rir is not None:
+            ops.append({
+                "op": "set_field",
+                "target": {
+                    "exercise_instance_id": exercise_instance_id,
+                    "set_id": set_id,
+                },
+                "field": "rir",
+                "value": rir,
+            })
+
+        if not ops:
+            return WorkoutSkillResult(
+                success=False,
+                message="No values to update",
+                error="Provide at least one of weight_kg, reps, or rir",
+            )
+
+        client = _get_client()
+        resp = client.patch_active_workout(
+            user_id=user_id,
+            workout_id=workout_id,
+            ops=ops,
+            cause="user_ai_action",
+            ai_scope={"exercise_instance_id": exercise_instance_id},
+        )
+
+        if resp.get("success"):
+            parts = []
+            if weight_kg is not None:
+                parts.append(f"{weight_kg}kg")
+            if reps is not None:
+                parts.append(f"{reps} reps")
+            if rir is not None:
+                parts.append(f"RIR {rir}")
+            return WorkoutSkillResult(
+                success=True,
+                message=f"Updated: {', '.join(parts)}",
+            )
+        elif resp.get("duplicate"):
+            return WorkoutSkillResult(
+                success=True,
+                message="Already updated (duplicate)",
+            )
+        else:
+            return WorkoutSkillResult(
+                success=False,
+                message="Failed to update set",
+                error=resp.get("error", "Unknown error"),
+            )
+
+    except requests.HTTPError as e:
+        body = {}
+        try:
+            body = e.response.json()
+        except Exception:
+            pass
+        error_code = body.get("error", {}).get("code", "UNKNOWN")
+        error_msg = body.get("error", {}).get("message", str(e))
+        return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
+    except Exception as e:
+        logger.error("prescribe_set error: %s", e)
+        return WorkoutSkillResult(
+            success=False,
+            message="Failed to update set",
+            error=str(e),
+        )
+
+
 def complete_workout(
     user_id: str,
     workout_id: str,
@@ -449,6 +609,8 @@ def complete_workout(
 __all__ = [
     "get_workout_state_formatted",
     "log_set",
+    "add_exercise",
+    "prescribe_set",
     "swap_exercise",
     "complete_workout",
     "WorkoutSkillResult",

@@ -25,9 +25,11 @@ from google.adk.tools import FunctionTool
 
 # Import context from contextvars-based context module
 from app.shell.context import (
+    MAX_SEARCH_CALLS,
     SessionContext,
     get_current_context,
     get_current_message,
+    increment_search_count,
     set_current_context,
 )
 
@@ -76,6 +78,8 @@ from app.skills.planner_skills import (
 # Workout skills - active workout execution (LLM-directed)
 from app.skills.workout_skills import (
     log_set as workout_log_set,
+    add_exercise as workout_add_exercise,
+    prescribe_set as workout_prescribe_set,
     swap_exercise as workout_swap_exercise,
     complete_workout as workout_complete,
     get_workout_state_formatted,
@@ -107,8 +111,10 @@ def tool_get_training_context() -> Dict[str, Any]:
 def tool_get_user_profile() -> Dict[str, Any]:
     """
     Get user's fitness profile: goals, experience level, equipment.
-    
-    Use this to personalize recommendations.
+
+    Use this for general profile questions.
+    NOTE: When building workouts or routines, use tool_get_planning_context instead —
+    it includes the profile PLUS active routine, templates, and recent workouts.
     """
     ctx = get_current_context()
     
@@ -178,6 +184,16 @@ def tool_search_exercises(
         - If sparse results, drop filters and proceed with best available
         - Use fields="minimal" for large result sets to save context
     """
+    call_num = increment_search_count()
+    if call_num > MAX_SEARCH_CALLS:
+        return {
+            "error": (
+                f"Search limit reached ({MAX_SEARCH_CALLS} calls). "
+                "Use the exercises you already have to build the workout/routine now. "
+                "Call tool_propose_workout or tool_propose_routine with your selections."
+            ),
+        }
+
     result = search_exercises(
         muscle_group=muscle_group,
         movement_type=movement_type,
@@ -944,6 +960,103 @@ def tool_log_set(
     return result.to_dict()
 
 
+def tool_add_exercise(
+    *,
+    exercise_id: str,
+    name: str,
+    sets: int = 3,
+    reps: int = 10,
+    weight_kg: Optional[float] = None,
+    rir: Optional[int] = 2,
+) -> Dict[str, Any]:
+    """
+    Add a new exercise to the active workout with planned sets.
+
+    Use when the user wants to add an exercise mid-workout.
+    The exercise must exist in the catalog — use tool_search_exercises first
+    to find the exercise_id and name.
+
+    Args:
+        exercise_id: Catalog exercise ID (from tool_search_exercises)
+        name: Exercise name in catalog format "Name (Equipment)"
+        sets: Number of planned sets (default 3)
+        reps: Target reps per set (default 10)
+        weight_kg: Target weight in kg (optional — omit if unknown)
+        rir: Target RIR for each set (default 2)
+
+    Returns:
+        Success with the new exercise instance_id, or error
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    import uuid
+
+    planned_sets = [
+        {
+            "id": f"set-{uuid.uuid4().hex[:8]}",
+            "reps": reps,
+            "weight": weight_kg,
+            "rir": rir,
+        }
+        for _ in range(sets)
+    ]
+
+    result = workout_add_exercise(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+        exercise_id=exercise_id,
+        name=name,
+        sets=planned_sets,
+    )
+    return result.to_dict()
+
+
+def tool_prescribe_set(
+    *,
+    exercise_instance_id: str,
+    set_id: str,
+    weight_kg: Optional[float] = None,
+    reps: Optional[int] = None,
+    rir: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Update planned values (weight, reps, rir) on a planned set.
+
+    Use when the user asks to change the prescribed weight, reps, or RIR
+    for an exercise's planned sets. Only works on planned (not done) sets.
+
+    Call this once per set that needs changing. Get set IDs from the Workout Brief.
+
+    Args:
+        exercise_instance_id: Exercise instance ID from the brief (e.g., "ex-abc123")
+        set_id: Set ID from the brief (e.g., "set-003")
+        weight_kg: New target weight in kg (optional)
+        reps: New target reps (optional)
+        rir: New target RIR (optional)
+
+    Returns:
+        Success message or error
+    """
+    ctx = get_current_context()
+
+    if not ctx.workout_mode:
+        return {"error": "Not in active workout mode"}
+
+    result = workout_prescribe_set(
+        user_id=ctx.user_id,
+        workout_id=ctx.active_workout_id,
+        exercise_instance_id=exercise_instance_id,
+        set_id=set_id,
+        weight_kg=weight_kg,
+        reps=reps,
+        rir=rir,
+    )
+    return result.to_dict()
+
+
 def tool_swap_exercise(
     *,
     exercise_instance_id: str,
@@ -1065,6 +1178,8 @@ all_tools = [
 
     # Workout tools - Active workout execution (workout_mode only)
     FunctionTool(func=tool_log_set),
+    FunctionTool(func=tool_add_exercise),
+    FunctionTool(func=tool_prescribe_set),
     FunctionTool(func=tool_swap_exercise),
     FunctionTool(func=tool_complete_workout),
     FunctionTool(func=tool_get_workout_state),
@@ -1097,6 +1212,8 @@ __all__ = [
     "tool_update_template",
     # Workout tools - Active workout execution
     "tool_log_set",
+    "tool_add_exercise",
+    "tool_prescribe_set",
     "tool_swap_exercise",
     "tool_complete_workout",
     "tool_get_workout_state",

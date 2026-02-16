@@ -769,6 +769,81 @@ class CanvasFunctionsClient:
             headers={"X-User-Id": user_id},
         )
 
+    def add_exercise(
+        self,
+        user_id: str,
+        workout_id: str,
+        instance_id: str,
+        exercise_id: str,
+        name: str,
+        sets: list,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Add an exercise to an active workout.
+
+        Args:
+            instance_id: Client-generated UUID for the exercise instance
+            exercise_id: Catalog exercise ID
+            name: Display name (e.g., "Deadlift (Barbell)")
+            sets: List of planned sets, each with {id, weight, reps, rir}
+        """
+        import uuid
+        processed_sets = [
+            {
+                "id": s.get("id", str(uuid.uuid4())[:8]),
+                "set_type": "working",
+                "status": "planned",
+                "weight": s.get("weight"),
+                "reps": s.get("reps"),
+                "rir": s.get("rir"),
+                "tags": {},
+            }
+            for s in sets
+        ]
+        return self._http.post(
+            "addExercise",
+            {
+                "workout_id": workout_id,
+                "instance_id": instance_id,
+                "exercise_id": exercise_id,
+                "name": name,
+                "sets": processed_sets,
+                "idempotency_key": idempotency_key or str(uuid.uuid4()),
+            },
+            headers={"X-User-Id": user_id},
+        )
+
+    def patch_active_workout(
+        self,
+        user_id: str,
+        workout_id: str,
+        ops: list,
+        cause: str = "user_ai_action",
+        ai_scope: Optional[Dict[str, str]] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Patch an active workout (set_field, add_set).
+
+        Args:
+            ops: List of operations, each with {op, target, field, value}
+            cause: "user_manual" or "user_ai_action"
+            ai_scope: Required for user_ai_action — {exercise_instance_id}
+        """
+        import uuid
+        body: Dict[str, Any] = {
+            "workout_id": workout_id,
+            "ops": ops,
+            "cause": cause,
+            "idempotency_key": idempotency_key or str(uuid.uuid4()),
+        }
+        if ai_scope:
+            body["ai_scope"] = ai_scope
+        return self._http.post(
+            "patchActiveWorkout",
+            body,
+            headers={"X-User-Id": user_id},
+        )
+
     def complete_active_workout(self, user_id: str, workout_id: str) -> Dict[str, Any]:
         """Complete an active workout and archive it."""
         return self._http.post(
