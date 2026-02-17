@@ -326,11 +326,18 @@ Return JSON matching this schema EXACTLY:
     {
       "type": "progression | deload | swap | volume_adjust",
       "target": "exercise name or muscle group name FROM THE INPUT",
-      "action": "human-readable next-step suggestion",
+      "action": "concise next-step suggestion with specific numbers",
+      "reasoning": "1-2 sentences: what data you evaluated, why this recommendation follows",
+      "signals": ["e1RM stable at 125kg for 3 weeks", "avg RIR 2.0 across sets"],
       "confidence": 0.0-1.0
     }
   ]
 }
+
+For each recommendation:
+- "action" must include specific numbers (weights, reps, percentages) from the input
+- "reasoning" explains the logic chain: which metrics you compared, what threshold was met, why this change
+- "signals" lists the 2-4 key data points that support this recommendation, each as a short phrase with numbers
 
 Detection rules:
 - PR: this session's e1RM exceeds the highest e1rm_max in exercise_series

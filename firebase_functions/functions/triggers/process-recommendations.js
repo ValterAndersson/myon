@@ -66,6 +66,8 @@ const onAnalysisInsightCreated = onDocumentCreated(
           target: rec.target,
           suggestedWeight: rec.suggested_weight ?? null,
           rationale: rec.action || 'Auto-generated from post-workout analysis',
+          reasoning: rec.reasoning || '',
+          signals: rec.signals || [],
           confidence: rec.confidence,
         }));
 
@@ -119,6 +121,8 @@ const onWeeklyReviewCreated = onDocumentCreated(
           target: pc.exercise_name,
           suggestedWeight: pc.suggested_weight ?? null,
           rationale: pc.rationale || 'Auto-generated from weekly review',
+          reasoning: pc.reasoning || '',
+          signals: pc.signals || [],
           confidence: pc.confidence || 0.8,
         })),
         ...stalledExercises.map(se => ({
@@ -126,6 +130,8 @@ const onWeeklyReviewCreated = onDocumentCreated(
           target: se.exercise_name,
           suggestedWeight: null,
           rationale: se.rationale || 'Stall detected — deload recommended',
+          reasoning: se.reasoning || '',
+          signals: se.signals || [],
           confidence: 0.7,
         })),
       ];
@@ -328,6 +334,10 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
       continue;
     }
 
+    // Look up template name
+    const templateSnap = templateSnaps.find(s => s.exists && s.id === exerciseData.templateId);
+    const templateName = templateSnap ? (templateSnap.data().name || null) : null;
+
     // Deduplication check
     const pendingKey = `${exerciseData.templateId}:${exerciseData.exerciseIndex}`;
     if (pendingExercises.has(pendingKey)) {
@@ -353,13 +363,18 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
       trigger: triggerType,
       trigger_context: triggerContext,
       scope: 'template',
-      target: { template_id: exerciseData.templateId },
+      target: {
+        template_id: exerciseData.templateId,
+        template_name: templateName || null,
+        routine_id: activeRoutineId,
+      },
       recommendation: {
         type: rec.type,
         changes,
-        summary: `${rec.type} for ${exerciseName}`,
-        rationale: rec.rationale,
+        summary: buildSummary(rec, 'template', state, changes[0] || null, templateName),
+        rationale: buildRationale(rec, 'template', state, templateName),
         confidence: rec.confidence,
+        signals: rec.signals || [],
       },
       state,
       state_history: [{
@@ -523,9 +538,10 @@ async function processExerciseScopedRecommendations(db, userId, triggerType, tri
       recommendation: {
         type: rec.type,
         changes,
-        summary: `${rec.type} for ${exerciseData.exerciseName}`,
-        rationale: rec.rationale,
+        summary: buildSummary(rec, 'exercise', 'pending_review', changes[0] || null, null),
+        rationale: buildRationale(rec, 'exercise', 'pending_review', null),
         confidence: rec.confidence,
+        signals: rec.signals || [],
       },
       state: 'pending_review',
       state_history: [{
@@ -616,6 +632,68 @@ function computeProgressionWeight(currentWeight, recommendationType, suggestedWe
 }
 
 /**
+ * Build contextual summary based on scope, state, and change data.
+ * Replaces the terse `${rec.type} for ${exerciseName}` template.
+ *
+ * @param {Object} rec - The recommendation { type, target, ... }
+ * @param {string} scope - 'template' | 'exercise'
+ * @param {string} state - 'applied' | 'pending_review'
+ * @param {Object|null} change - First change object { from, to } (or null)
+ * @param {string|null} templateName - Human-readable template name
+ * @returns {string} Contextual summary
+ */
+function buildSummary(rec, scope, state, change, templateName) {
+  const name = rec.target || '';
+  const from = change ? change.from : null;
+  const to = change ? change.to : null;
+
+  if (scope === 'template' && state === 'applied') {
+    if (rec.type === 'progression' && from != null) return `Applied: ${name} ${from}kg → ${to}kg`;
+    if (rec.type === 'deload' && to != null) return `Reduced ${name} to ${to}kg`;
+    return `Applied ${rec.type} for ${name}`;
+  }
+  if (scope === 'template' && state === 'pending_review') {
+    if (rec.type === 'progression' && to != null) return `Try ${to}kg on ${name}`;
+    if (rec.type === 'deload' && to != null) return `Consider reducing ${name} to ${to}kg`;
+    return `${rec.type} for ${name}`;
+  }
+  if (scope === 'exercise') {
+    if (rec.type === 'progression' && to != null) return `Ready to progress ${name} to ${to}kg`;
+    if (rec.type === 'deload' && to != null) return `${name}: consider a lighter session at ${to}kg`;
+    return `${rec.type} for ${name}`;
+  }
+  return `${rec.type} for ${name}`;  // fallback
+}
+
+/**
+ * Build contextual rationale from analyzer reasoning and signals.
+ *
+ * @param {Object} rec - The recommendation { reasoning, signals, rationale, ... }
+ * @param {string} scope - 'template' | 'exercise'
+ * @param {string} state - 'applied' | 'pending_review'
+ * @param {string|null} templateName - Human-readable template name
+ * @returns {string} Contextual rationale
+ */
+function buildRationale(rec, scope, state, templateName) {
+  const reasoning = rec.reasoning || rec.rationale || '';
+  const signals = (rec.signals || []).join('. ');
+
+  if (scope === 'template' && state === 'applied') {
+    return `${reasoning}${templateName ? ` Updated in ${templateName}.` : ''}`;
+  }
+  if (scope === 'template' && state === 'pending_review') {
+    const prefix = signals ? `${signals}. ` : '';
+    const suffix = templateName ? ` Accepting updates ${templateName}.` : '';
+    return `${prefix}${reasoning}${suffix}`;
+  }
+  if (scope === 'exercise') {
+    const prefix = signals ? `${signals}. ` : '';
+    return `${prefix}${reasoning} Use this in your next workout or add it to a template.`;
+  }
+  return reasoning;
+}
+
+/**
  * Compute progression changes for an exercise.
  *
  * Rules (deterministic, not LLM):
@@ -672,4 +750,10 @@ module.exports = {
   onAnalysisInsightCreated,
   onWeeklyReviewCreated,
   expireStaleRecommendations,
+  // Exported for testing
+  buildSummary,
+  buildRationale,
+  computeProgressionChanges,
+  computeProgressionWeight,
+  roundToNearest,
 };

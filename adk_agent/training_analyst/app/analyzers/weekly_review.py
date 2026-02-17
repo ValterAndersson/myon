@@ -358,6 +358,8 @@ Return JSON matching this schema EXACTLY:
       "current_weight": 100,
       "suggested_weight": 102.5,
       "rationale": "Evidence from the data",
+      "reasoning": "why this candidate qualifies for progression",
+      "signals": ["e1rm_slope: +0.8 kg/week over 6 weeks", "consistent RIR 1.5-2.0"],
       "confidence": 0.0-1.0
     }
   ],
@@ -367,10 +369,16 @@ Return JSON matching this schema EXACTLY:
       "exercise_name": "from input",
       "weeks_stalled": 5,
       "suggested_action": "deload | swap | vary_rep_range",
-      "rationale": "Evidence from the data"
+      "rationale": "Evidence from the data",
+      "reasoning": "why this exercise is stalled and why this action is suggested",
+      "signals": ["e1RM flat at 65kg for 5 weeks", "avg RIR 1.5 (not an effort issue)"]
     }
   ]
 }
+
+For progression_candidates and stalled_exercises:
+- "reasoning" explains the logic chain: which metrics triggered this, why the suggestion follows
+- "signals" lists 2-4 key data points supporting the assessment, each a short phrase with numbers
 
 Detection rules:
 - training_load: Compute from the most recent week's rollup. vs_last_week compares rollups[0] to rollups[1].

@@ -35,6 +35,23 @@ struct User: Codable {
         case autoPilotEnabled = "auto_pilot_enabled"
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        email = try container.decode(String.self, forKey: .email)
+        provider = try container.decode(String.self, forKey: .provider)
+        uid = try container.decode(String.self, forKey: .uid)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        weekStartsOnMonday = try container.decodeIfPresent(Bool.self, forKey: .weekStartsOnMonday) ?? true
+        timeZone = try container.decodeIfPresent(String.self, forKey: .timeZone)
+        appleAuthorizationCode = try container.decodeIfPresent(String.self, forKey: .appleAuthorizationCode)
+        subscriptionStatus = try container.decodeIfPresent(String.self, forKey: .subscriptionStatus)
+        subscriptionTier = try container.decodeIfPresent(String.self, forKey: .subscriptionTier)
+        subscriptionOverride = try container.decodeIfPresent(String.self, forKey: .subscriptionOverride)
+        subscriptionExpiresAt = try container.decodeIfPresent(Date.self, forKey: .subscriptionExpiresAt)
+        autoPilotEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoPilotEnabled) ?? false
+    }
+
     /// Returns true if the user has active premium access (via admin override or subscription)
     var isPremium: Bool {
         if subscriptionOverride == "premium" { return true }

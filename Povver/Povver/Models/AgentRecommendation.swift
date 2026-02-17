@@ -48,19 +48,22 @@ struct RecommendationTarget: Codable {
     let routineId: String?
     let exerciseName: String?
     let exerciseId: String?
+    let templateName: String?
 
     enum CodingKeys: String, CodingKey {
         case templateId = "template_id"
         case routineId = "routine_id"
         case exerciseName = "exercise_name"
         case exerciseId = "exercise_id"
+        case templateName = "template_name"
     }
 
-    init(templateId: String? = nil, routineId: String? = nil, exerciseName: String? = nil, exerciseId: String? = nil) {
+    init(templateId: String? = nil, routineId: String? = nil, exerciseName: String? = nil, exerciseId: String? = nil, templateName: String? = nil) {
         self.templateId = templateId
         self.routineId = routineId
         self.exerciseName = exerciseName
         self.exerciseId = exerciseId
+        self.templateName = templateName
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +72,7 @@ struct RecommendationTarget: Codable {
         routineId = try container.decodeIfPresent(String.self, forKey: .routineId)
         exerciseName = try container.decodeIfPresent(String.self, forKey: .exerciseName)
         exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId)
+        templateName = try container.decodeIfPresent(String.self, forKey: .templateName)
     }
 }
 
@@ -78,13 +82,15 @@ struct RecommendationDetail: Codable {
     let summary: String
     let rationale: String?
     let confidence: Double
+    let signals: [String]
 
-    init(type: String = "unknown", changes: [RecommendationChange] = [], summary: String = "", rationale: String? = nil, confidence: Double = 0) {
+    init(type: String = "unknown", changes: [RecommendationChange] = [], summary: String = "", rationale: String? = nil, confidence: Double = 0, signals: [String] = []) {
         self.type = type
         self.changes = changes
         self.summary = summary
         self.rationale = rationale
         self.confidence = confidence
+        self.signals = signals
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +100,7 @@ struct RecommendationDetail: Codable {
         summary = try container.decodeIfPresent(String.self, forKey: .summary) ?? ""
         rationale = try container.decodeIfPresent(String.self, forKey: .rationale)
         confidence = try container.decodeIfPresent(Double.self, forKey: .confidence) ?? 0
+        signals = try container.decodeIfPresent([String].self, forKey: .signals) ?? []
     }
 }
 

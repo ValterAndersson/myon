@@ -14,6 +14,8 @@ state leakage between requests in coach_agent.py and planner_agent.py.
 from __future__ import annotations
 
 import re
+import threading
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Optional
@@ -25,15 +27,29 @@ from typing import Optional
 
 # Session context for the current request
 _session_context_var: ContextVar[Optional["SessionContext"]] = ContextVar(
-    "session_context", 
+    "session_context",
     default=None
 )
 
 # User message for the current request (for Safety Gate checks)
 _message_context_var: ContextVar[str] = ContextVar(
-    "message_context", 
+    "message_context",
     default=""
 )
+
+# =============================================================================
+# SEARCH CALL COUNTER — module-level dict keyed by correlation_id
+#
+# ContextVars don't work for this because ADK's _before_tool_callback creates
+# a fresh context for each tool invocation. A module-level dict keyed by
+# (user_id, correlation_id) provides proper per-request isolation while being
+# visible across all tool calls in the same request.
+# =============================================================================
+_search_counts: dict = {}  # (user_id, corr_id) -> {"count": int, "ts": float}
+_search_counts_lock = threading.Lock()
+_SEARCH_COUNTS_MAX_SIZE = 200  # Evict oldest entries above this size
+
+MAX_SEARCH_CALLS = 6
 
 
 def set_current_context(ctx: "SessionContext", message: str = "") -> None:
@@ -84,14 +100,66 @@ def get_current_message() -> str:
     return _message_context_var.get()
 
 
+def _search_count_key() -> Optional[tuple]:
+    """Build a dict key from the current request context."""
+    ctx = _session_context_var.get()
+    if ctx is None or not ctx.user_id:
+        return None
+    return (ctx.user_id, ctx.correlation_id or ctx.conversation_id)
+
+
+def increment_search_count() -> int:
+    """
+    Increment and return the search call count for the current request.
+
+    Uses a module-level dict keyed by (user_id, correlation_id) because
+    ADK's before_tool_callback creates a fresh ContextVar scope per tool call,
+    making ContextVar-based counters ineffective.
+
+    Returns:
+        Updated count after increment
+    """
+    key = _search_count_key()
+    if key is None:
+        return 1
+    with _search_counts_lock:
+        entry = _search_counts.get(key)
+        if entry is None:
+            entry = {"count": 0, "ts": time.monotonic()}
+            _search_counts[key] = entry
+        entry["count"] += 1
+        entry["ts"] = time.monotonic()
+        # Evict oldest entries if dict grows too large
+        if len(_search_counts) > _SEARCH_COUNTS_MAX_SIZE:
+            oldest = sorted(_search_counts, key=lambda k: _search_counts[k]["ts"])
+            for old_key in oldest[: len(_search_counts) - _SEARCH_COUNTS_MAX_SIZE]:
+                del _search_counts[old_key]
+        return entry["count"]
+
+
+def get_search_count() -> int:
+    """Get current search call count for this request."""
+    key = _search_count_key()
+    if key is None:
+        return 0
+    with _search_counts_lock:
+        entry = _search_counts.get(key)
+        return entry["count"] if entry else 0
+
+
 def clear_current_context() -> None:
     """
     Clear the context after request completion.
-    
+
     Optional cleanup - contextvars automatically reset per-task in asyncio.
     """
+    key = _search_count_key()
     _session_context_var.set(None)
     _message_context_var.set("")
+    # Clean up search counter for this request
+    if key:
+        with _search_counts_lock:
+            _search_counts.pop(key, None)
 
 
 @dataclass(frozen=True)  # Immutable
@@ -197,4 +265,7 @@ __all__ = [
     "get_current_context",
     "get_current_message",
     "clear_current_context",
+    "increment_search_count",
+    "get_search_count",
+    "MAX_SEARCH_CALLS",
 ]
