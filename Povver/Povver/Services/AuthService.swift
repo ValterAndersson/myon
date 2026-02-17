@@ -21,6 +21,8 @@ class AuthService: ObservableObject {
 
             if let user = user {
                 FirebaseConfig.shared.setUserForCrashlytics(user.uid)
+                AnalyticsService.shared.setUserId(user.uid)
+                FirebaseConfig.shared.setUserForAnalytics(user.uid)
                 Task {
                     try? await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: user.uid)
                 }
@@ -37,6 +39,7 @@ class AuthService: ObservableObject {
             email: email,
             provider: AuthProvider.email.firestoreValue
         )
+        AnalyticsService.shared.signupCompleted(provider: "email")
         try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: result.user.uid)
         try await DeviceManager.shared.registerCurrentDevice(for: result.user.uid)
     }
@@ -121,6 +124,7 @@ class AuthService: ObservableObject {
             name: name,
             appleAuthCode: appleAuthCode
         )
+        AnalyticsService.shared.signupCompleted(provider: provider.firestoreValue)
         try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: userId)
         try await DeviceManager.shared.registerCurrentDevice(for: userId)
     }

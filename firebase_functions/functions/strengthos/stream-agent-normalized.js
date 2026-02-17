@@ -946,6 +946,7 @@ async function streamAgentNormalizedHandler(req, res) {
     const conversationId = req.body?.conversationId || req.body?.canvasId;
     const correlationId = req.body?.correlationId || null;
     const workoutId = req.body?.workoutId || null;
+    const streamStartTime = Date.now();
 
     if (!conversationId) {
       sse.write({ type: 'error', error: 'conversationId is required' });
@@ -1091,6 +1092,7 @@ async function streamAgentNormalizedHandler(req, res) {
     let hasEmittedThinkingEvent = false;
     let lineCount = 0;
     let dataChunkCount = 0;
+    let artifactCount = 0;
     let accumulatedAgentText = ''; // Full agent text for conversation persistence
     
     // === RESET AGENT STATE FOR NEW STREAM ===
@@ -1209,6 +1211,7 @@ async function streamAgentNormalizedHandler(req, res) {
               // If tool response contains artifact_type, emit as artifact SSE event
               // and persist to Firestore for reload + action handling
               if (parsedResponse && parsedResponse.artifact_type) {
+                artifactCount++;
                 logger.info('[streamAgentNormalized] Artifact detected', {
                   tool: name,
                   artifact_type: parsedResponse.artifact_type,
@@ -1385,7 +1388,17 @@ async function streamAgentNormalizedHandler(req, res) {
         
         sse.write({ type: 'error', error: 'Session expired. Please try again.' });
       }
-      
+
+      logger.info('stream_completed', {
+        event: 'stream_completed',
+        user_id: userId,
+        conversation_id: conversationId,
+        latency_ms: Date.now() - streamStartTime,
+        had_artifact: artifactCount > 0,
+        artifact_count: artifactCount,
+        data_chunks: dataChunkCount,
+      });
+
       done(true);
     });
 

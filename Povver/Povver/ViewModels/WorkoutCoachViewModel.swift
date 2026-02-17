@@ -35,6 +35,10 @@ final class WorkoutCoachViewModel: ObservableObject {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
 
+        if messages.isEmpty {
+            AnalyticsService.shared.workoutCoachOpened()
+        }
+
         inputText = ""
 
         let userMsg = ChatMessage(

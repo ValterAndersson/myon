@@ -22,6 +22,7 @@
  * Called by: Apple App Store Server → webhook URL configured in App Store Connect
  */
 const { onRequest } = require('firebase-functions/v2/https');
+const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
 
 const db = admin.firestore();
@@ -40,7 +41,10 @@ function decodeJWSPayload(signedPayload) {
     if (parts.length !== 3) throw new Error('Invalid JWS format');
     return JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
   } catch (error) {
-    console.error('Failed to decode JWS payload:', error);
+    logger.error('jws_decode_failed', {
+      event: 'jws_decode_failed',
+      error: String(error?.message || error),
+    });
     return null;
   }
 }
@@ -156,7 +160,10 @@ function buildSubscriptionUpdate(notificationType, subtype, transactionInfo, ren
     }
 
     default:
-      console.warn('Unhandled notification type:', notificationType);
+      logger.warn('subscription_unhandled_type', {
+        event: 'subscription_unhandled_type',
+        notification_type: notificationType,
+      });
       return null;
   }
 }
@@ -187,7 +194,9 @@ async function handleAppStoreWebhook(req, res) {
 
     const { signedPayload } = req.body || {};
     if (!signedPayload) {
-      console.error('Missing signedPayload in request body');
+      logger.error('subscription_missing_payload', {
+        event: 'subscription_missing_payload',
+      });
       return res.status(200).json({ ok: true });
     }
 
@@ -200,7 +209,11 @@ async function handleAppStoreWebhook(req, res) {
     }
 
     const { notificationType, subtype, data } = notification;
-    console.log(`App Store webhook: ${notificationType}${subtype ? '/' + subtype : ''}`);
+    logger.info('subscription_event_received', {
+      event: 'subscription_event_received',
+      notification_type: notificationType,
+      subtype: subtype || null,
+    });
 
     // Decode signedTransactionInfo (appAccountToken lives here, not in data)
     let transactionInfo = null;
@@ -222,7 +235,11 @@ async function handleAppStoreWebhook(req, res) {
     // Find user
     const userLookup = await findUser(appAccountToken, originalTransactionId);
     if (!userLookup) {
-      console.warn('User not found:', { appAccountToken, originalTransactionId });
+      logger.warn('subscription_user_not_found', {
+        event: 'subscription_user_not_found',
+        app_account_token: appAccountToken ? '***' : null,
+        has_transaction_id: !!originalTransactionId,
+      });
       return res.status(200).json({ ok: true });
     }
 
@@ -244,7 +261,14 @@ async function handleAppStoreWebhook(req, res) {
 
     // Update user doc
     await userRef.update(update);
-    console.log(`Updated subscription for ${userId}: ${update.subscription_status || '(no status change)'}`);
+    logger.info('subscription_updated', {
+      event: 'subscription_updated',
+      notification_type: notificationType,
+      subtype: subtype || null,
+      user_id: userId,
+      status: update.subscription_status || null,
+      tier: update.subscription_tier || null,
+    });
 
     // Invalidate profile cache
     await invalidateProfileCacheSafe(userId);
@@ -263,7 +287,10 @@ async function handleAppStoreWebhook(req, res) {
 
     return res.status(200).json({ ok: true });
   } catch (error) {
-    console.error('App Store webhook error:', error);
+    logger.error('subscription_webhook_error', {
+      event: 'subscription_webhook_error',
+      error: String(error?.message || error),
+    });
     // Always return 200 — Apple retries non-200s indefinitely
     return res.status(200).json({ ok: true });
   }

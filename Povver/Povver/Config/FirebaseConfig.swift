@@ -2,6 +2,7 @@ import Foundation
 import FirebaseCore
 import FirebaseFirestore
 import FirebaseCrashlytics
+import FirebaseAnalytics
 
 class FirebaseConfig {
     static let shared = FirebaseConfig()
@@ -19,6 +20,11 @@ class FirebaseConfig {
     /// Call after authentication to tag crash reports with the current user.
     func setUserForCrashlytics(_ userId: String) {
         Crashlytics.crashlytics().setUserID(userId)
+    }
+
+    /// Call after authentication to set user ID for analytics attribution.
+    func setUserForAnalytics(_ userId: String) {
+        Analytics.setUserID(userId)
     }
 
     /// Log non-fatal errors to Crashlytics for field diagnostics.

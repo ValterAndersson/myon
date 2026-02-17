@@ -116,10 +116,11 @@ final class CanvasViewModel: ObservableObject {
     func start(userId: String, canvasId: String) {
         streamTask?.cancel()
         let startTime = Date()
-        
+
         // Start session logging
         SessionLogger.shared.startSession(userId: userId, canvasId: canvasId)
         SessionLogger.shared.log(.canvas, .info, "Canvas start BEGIN (existing canvas)", context: ["canvas_id": canvasId])
+        AnalyticsService.shared.conversationStarted(entryPoint: "existing_canvas")
         
         streamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -212,10 +213,11 @@ final class CanvasViewModel: ObservableObject {
     func start(userId: String, purpose: String) {
         streamTask?.cancel()
         let startTime = Date()
-        
+
         // Start session logging
         SessionLogger.shared.startSession(userId: userId)
         SessionLogger.shared.log(.canvas, .info, "Canvas start BEGIN (new canvas)", context: ["purpose": purpose])
+        AnalyticsService.shared.conversationStarted(entryPoint: purpose)
         
         streamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -320,6 +322,9 @@ final class CanvasViewModel: ObservableObject {
                 } else {
                     errorMessage = err.message
                 }
+            } else {
+                // Log analytics after successful action dispatch
+                AnalyticsService.shared.artifactAction(action: type, artifactType: "canvas_action")
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -328,6 +333,7 @@ final class CanvasViewModel: ObservableObject {
 
     func startSSEStream(userId: String, canvasId: String, message: String, correlationId: String) {
         DebugLogger.log(.canvas, "SSE stream BEGIN: corr=\(correlationId) sessionId=\(currentSessionId ?? "nil")")
+        AnalyticsService.shared.messageSent(messageLength: message.count)
         sseStreamTask?.cancel()
         sseStreamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -413,10 +419,12 @@ final class CanvasViewModel: ObservableObject {
                     // Check if this is a premium required error
                     if let streamingError = error as? StreamingError,
                        case .premiumRequired = streamingError {
+                        AnalyticsService.shared.paywallShown(trigger: "streaming_premium_gate")
                         self.showingPaywall = true
                         self.showStreamOverlay = false
                         self.isAgentThinking = false
                     } else {
+                        AnalyticsService.shared.streamingError(errorCode: error.localizedDescription)
                         self.errorMessage = "Streaming error: \(error.localizedDescription)"
                         self.showStreamOverlay = false
                         self.isAgentThinking = false
@@ -504,6 +512,7 @@ final class CanvasViewModel: ObservableObject {
             // Check for server-side premium gate (defense-in-depth: client gate catches most cases,
             // but if client cache is stale the server emits PREMIUM_REQUIRED via SSE error event)
             if let code = event.content?["code"]?.value as? String, code == "PREMIUM_REQUIRED" {
+                AnalyticsService.shared.paywallShown(trigger: "server_premium_gate")
                 showingPaywall = true
             } else {
                 errorMessage = event.displayText
@@ -567,6 +576,7 @@ final class CanvasViewModel: ObservableObject {
             ) {
                 cards.append(card)
                 streamEvents.append(event)
+                AnalyticsService.shared.artifactReceived(artifactType: artifactType)
                 DebugLogger.log(.canvas, "Artifact card added: type=\(artifactType) id=\(card.id)")
             }
 

@@ -92,10 +92,12 @@ class AgentEngineApp(AdkApp):
         """
         Full 4-Lane Pipeline: Router → Fast/Functional/Slow → Critic
         """
+        start_time = time.time()
+
         from app.shell.context import SessionContext, set_current_context
         from app.shell.router import route_request, execute_fast_lane, Lane
         from app.shell.planner import generate_plan, should_generate_plan
-        
+
         routing = None
         plan = None
         
@@ -266,9 +268,22 @@ class AgentEngineApp(AdkApp):
                                       critic_result.error_messages)
                     elif critic_result.findings:
                         logger.info("CRITIC: %d warnings (passed)", len(critic_result.findings))
-                        
+
             except Exception as e:
                 logger.debug("Critic error: %s", e)
+
+        # === STRUCTURED LOG: Request completion ===
+        try:
+            logger.info(json.dumps({
+                "event": "agent_request_completed",
+                "lane": routing.lane.value if routing and hasattr(routing.lane, "value") else str(routing.lane) if routing else "unknown",
+                "intent": routing.intent if routing else None,
+                "workout_mode": ctx.workout_mode if 'ctx' in dir() else False,
+                "latency_ms": int((time.time() - start_time) * 1000),
+                "user_id": ctx.user_id if 'ctx' in dir() else None,
+            }))
+        except Exception:
+            pass
     
     def _format_fast_lane_response(self, result: dict, intent: str) -> dict:
         """Format fast lane result as ADK-compatible streaming response."""

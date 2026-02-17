@@ -45,6 +45,8 @@ class RecommendationsViewModel: ObservableObject {
         pending.removeAll { $0.id == id }
         pendingCount = pending.count
 
+        AnalyticsService.shared.recommendationAction(action: "accept", type: recommendation.recommendation.type)
+
         Task {
             do {
                 let response = try await RecommendationService.review(
@@ -70,6 +72,8 @@ class RecommendationsViewModel: ObservableObject {
         // Optimistic removal
         pending.removeAll { $0.id == id }
         pendingCount = pending.count
+
+        AnalyticsService.shared.recommendationAction(action: "reject", type: recommendation.recommendation.type)
 
         Task {
             do {

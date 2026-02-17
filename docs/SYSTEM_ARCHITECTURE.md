@@ -1132,3 +1132,69 @@ The gate checks the denormalized `subscription_tier` field, not `status + expire
 2. Update schemas if needed
 3. Add to FIRESTORE_SCHEMA.md if new collection/field
 4. Consider which agent(s) need tool access
+
+---
+
+## Monitoring & Analytics
+
+### iOS — Firebase Analytics (GA4)
+
+Firebase Analytics is enabled via `IS_ANALYTICS_ENABLED` in `GoogleService-Info.plist`. All events are fired through `AnalyticsService.swift`, a singleton wrapper around `Analytics.logEvent()` that provides typed methods to prevent typos.
+
+**Debug verification**: Enable Analytics debug mode in Xcode scheme → Arguments → `-FIRAnalyticsDebugEnabled`. Events print to console in DEBUG builds (`[Analytics]` prefix).
+
+**Event Taxonomy**:
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `app_opened` | — | `PovverApp.swift` on launch |
+| `signup_completed` | `provider` | `AuthService.signUp`, `confirmSSOAccountCreation` |
+| `conversation_started` | `entry_point` | `CanvasViewModel.start()` |
+| `message_sent` | `message_length` | `CanvasViewModel.startSSEStream()` |
+| `artifact_received` | `artifact_type` | `CanvasViewModel.handleIncomingStreamEvent` (.artifact) |
+| `artifact_action` | `action`, `artifact_type` | `CanvasViewModel.applyAction()` |
+| `workout_started` | `source` (routine/template/freeform) | `FocusModeWorkoutService.startWorkout()` |
+| `workout_completed` | `duration_min`, `exercise_count`, `set_count` | `FocusModeWorkoutService.completeWorkout()` |
+| `workout_cancelled` | `duration_min` | `FocusModeWorkoutService.cancelWorkout()` |
+| `workout_coach_opened` | — | `WorkoutCoachViewModel.send()` (first message) |
+| `paywall_shown` | `trigger` | `CanvasViewModel` (premium gate catch / SSE error) |
+| `trial_started` | — | `SubscriptionService.purchase()` |
+| `subscription_purchased` | `product_id` | `SubscriptionService.purchase()` |
+| `recommendation_action` | `action`, `type` | `RecommendationsViewModel.accept/reject()` |
+| `streaming_error` | `error_code` | `CanvasViewModel.startSSEStream()` (error catch) |
+
+**Milestone events** (fire once per install via UserDefaults guard): `first_message_sent`, `first_artifact_received`, `first_workout_completed`. These fire automatically inside `messageSent()`, `artifactReceived()`, and `workoutCompleted()`.
+
+**User identity**: `Analytics.setUserID()` is called in `AuthService`'s auth state listener alongside Crashlytics.
+
+### Server-Side — Structured Cloud Logging
+
+All server-side logs use structured JSON with an `event` field for Cloud Logging filter queries.
+
+**Firebase Functions**:
+
+| Event | File | Filter | Key Fields |
+|-------|------|--------|------------|
+| `stream_completed` | `stream-agent-normalized.js` | `jsonPayload.event="stream_completed"` | `latency_ms`, `user_id`, `conversation_id`, `artifact_count`, `data_chunks` |
+| `subscription_event_received` | `app-store-webhook.js` | `jsonPayload.event="subscription_event_received"` | `notification_type`, `subtype` |
+| `subscription_updated` | `app-store-webhook.js` | `jsonPayload.event="subscription_updated"` | `user_id`, `status`, `tier` |
+
+**Python Agent** (`adk_agent/canvas_orchestrator/`):
+
+| Event | File | Filter | Key Fields |
+|-------|------|--------|------------|
+| `agent_request_completed` | `agent_engine_app.py` | `jsonPayload.event="agent_request_completed"` | `lane`, `intent`, `workout_mode`, `latency_ms`, `user_id` |
+| `tool_called` | `shell/tools.py` | `jsonPayload.event="tool_called"` | `tool`, `success`, `latency_ms`, `error` |
+
+The `@timed_tool` decorator on all tool functions in `tools.py` provides per-tool latency tracking.
+
+### Cloud Monitoring (Manual Setup)
+
+**Log-based metrics** (configure in Cloud Console):
+- `stream_latency_ms`: Distribution on `jsonPayload.latency_ms` from `stream_completed` events
+- `tool_latency_ms`: Distribution on `jsonPayload.latency_ms` from `tool_called` events, grouped by `jsonPayload.tool`
+- `agent_request_latency_ms`: Distribution from `agent_request_completed` events, grouped by `jsonPayload.lane`
+
+**Dashboards**:
+- **Product Health** (Firebase Console / GA4): Activation funnel, WAU, subscription funnel, retention cohorts
+- **System Health** (Cloud Monitoring): Stream latency by lane, tool latency, error rates, function invocations

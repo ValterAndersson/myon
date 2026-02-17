@@ -18,7 +18,10 @@ The tools defined here wrap skill functions with ADK-compatible signatures.
 
 from __future__ import annotations
 
+import functools
+import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from google.adk.tools import FunctionTool
@@ -28,7 +31,6 @@ from app.shell.context import (
     MAX_SEARCH_CALLS,
     SessionContext,
     get_current_context,
-    get_current_message,
     increment_search_count,
     set_current_context,
 )
@@ -37,15 +39,16 @@ from app.shell.context import (
 def set_tool_context(ctx: SessionContext, message: str) -> None:
     """
     Set the context for tool execution.
-    
+
     This is called by agent callbacks before tool/model calls.
     Alias for set_current_context for semantic clarity in agent.py.
-    
+
     Args:
         ctx: SessionContext with user_id, canvas_id, etc.
         message: Raw message (for reference in tools)
     """
     set_current_context(ctx, message)
+
 
 # =============================================================================
 # IMPORTS FROM PURE SKILLS (NO LEGACY AGENTS)
@@ -88,11 +91,38 @@ from app.skills.workout_skills import (
 logger = logging.getLogger(__name__)
 
 
+def timed_tool(func):
+    """Decorator that logs structured JSON after each tool call with timing."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        try:
+            result = func(*args, **kwargs)
+            logger.info(json.dumps({
+                "event": "tool_called",
+                "tool": func.__name__,
+                "success": True,
+                "latency_ms": int((time.time() - start) * 1000),
+            }))
+            return result
+        except Exception as e:
+            logger.info(json.dumps({
+                "event": "tool_called",
+                "tool": func.__name__,
+                "success": False,
+                "latency_ms": int((time.time() - start) * 1000),
+                "error": str(e),
+            }))
+            raise
+    return wrapper
+
+
 # =============================================================================
 # READ TOOLS (Analytics & User Data)
 # Note: user_id is NOT exposed to LLM - retrieved from context vars.
 # =============================================================================
 
+@timed_tool
 def tool_get_training_context() -> Dict[str, Any]:
     """
     Get the user's training context: active routine, templates, schedule.
@@ -108,6 +138,7 @@ def tool_get_training_context() -> Dict[str, Any]:
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_user_profile() -> Dict[str, Any]:
     """
     Get user's fitness profile: goals, experience level, equipment.
@@ -125,6 +156,7 @@ def tool_get_user_profile() -> Dict[str, Any]:
     return result.to_dict()
 
 
+@timed_tool
 def tool_search_exercises(
     *,
     muscle_group: Optional[str] = None,
@@ -206,6 +238,7 @@ def tool_search_exercises(
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_exercise_details(*, exercise_id: str) -> Dict[str, Any]:
     """
     Get detailed information about a specific exercise.
@@ -216,6 +249,7 @@ def tool_get_exercise_details(*, exercise_id: str) -> Dict[str, Any]:
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_planning_context() -> Dict[str, Any]:
     """
     Get complete planning context in one call.
@@ -279,6 +313,7 @@ def tool_get_planning_context() -> Dict[str, Any]:
 # These tools use bounded, paginated endpoints that prevent agent timeouts.
 # =============================================================================
 
+@timed_tool
 def tool_get_muscle_group_progress(
     *,
     muscle_group: str,
@@ -352,6 +387,7 @@ def tool_get_muscle_group_progress(
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_muscle_progress(
     *,
     muscle: str,
@@ -417,6 +453,7 @@ def tool_get_muscle_progress(
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_exercise_progress(
     *,
     exercise_id: Optional[str] = None,
@@ -499,6 +536,7 @@ def tool_get_exercise_progress(
     return result.to_dict()
 
 
+@timed_tool
 def tool_query_training_sets(
     *,
     muscle_group: Optional[str] = None,
@@ -605,6 +643,7 @@ def tool_query_training_sets(
 # PRE-COMPUTED ANALYSIS TOOL (consolidated)
 # =============================================================================
 
+@timed_tool
 def tool_get_training_analysis(
     *,
     sections: Optional[List[str]] = None,
@@ -669,6 +708,7 @@ def tool_get_training_analysis(
 # Note: user_id and canvas_id are retrieved from context vars.
 # =============================================================================
 
+@timed_tool
 def tool_propose_workout(
     *,
     title: str,
@@ -717,6 +757,7 @@ def tool_propose_workout(
     return result.to_dict()
 
 
+@timed_tool
 def tool_propose_routine(
     *,
     name: str,
@@ -773,6 +814,7 @@ def tool_propose_routine(
 # These tools PROPOSE updates - user confirms via canvas UI.
 # =============================================================================
 
+@timed_tool
 def tool_update_routine(
     *,
     routine_id: str,
@@ -854,6 +896,7 @@ def tool_update_routine(
     return result.to_dict()
 
 
+@timed_tool
 def tool_update_template(
     *,
     template_id: str,
@@ -919,6 +962,7 @@ def tool_update_template(
 # These tools are only available when workout_mode=True in context.
 # =============================================================================
 
+@timed_tool
 def tool_log_set(
     *,
     exercise_instance_id: str,
@@ -960,6 +1004,7 @@ def tool_log_set(
     return result.to_dict()
 
 
+@timed_tool
 def tool_add_exercise(
     *,
     exercise_id: str,
@@ -1014,6 +1059,7 @@ def tool_add_exercise(
     return result.to_dict()
 
 
+@timed_tool
 def tool_prescribe_set(
     *,
     exercise_instance_id: str,
@@ -1057,6 +1103,7 @@ def tool_prescribe_set(
     return result.to_dict()
 
 
+@timed_tool
 def tool_swap_exercise(
     *,
     exercise_instance_id: str,
@@ -1103,6 +1150,7 @@ def tool_swap_exercise(
     return result.to_dict()
 
 
+@timed_tool
 def tool_complete_workout() -> Dict[str, Any]:
     """
     Complete the active workout and archive it.
@@ -1124,6 +1172,7 @@ def tool_complete_workout() -> Dict[str, Any]:
     return result.to_dict()
 
 
+@timed_tool
 def tool_get_workout_state() -> Dict[str, Any]:
     """
     Get current workout state (refresh the brief).

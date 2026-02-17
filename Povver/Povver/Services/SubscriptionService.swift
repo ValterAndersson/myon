@@ -144,6 +144,10 @@ class SubscriptionService: ObservableObject {
                 updateState(from: transaction)
                 await transaction.finish()
                 await syncToFirestore()
+                AnalyticsService.shared.subscriptionPurchased(productId: product.id)
+                if self.subscriptionState.status == .trial {
+                    AnalyticsService.shared.trialStarted()
+                }
                 isLoading = false
                 return true
 

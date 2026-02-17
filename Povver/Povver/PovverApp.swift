@@ -5,6 +5,7 @@ import GoogleSignIn
 struct PovverApp: App {
     init() {
         FirebaseConfig.shared.configure()
+        AnalyticsService.shared.appOpened()
 
         // Initialize SubscriptionService to start transaction listener
         _ = SubscriptionService.shared
