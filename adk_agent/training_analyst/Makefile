@@ -3,7 +3,8 @@
 
 .PHONY: help install test worker-local watchdog-local scheduler-local \
         docker-push deploy-worker deploy-watchdog deploy-scheduler \
-        trigger-worker trigger-watchdog trigger-scheduler deploy
+        trigger-worker trigger-watchdog trigger-scheduler deploy \
+        eval eval-category eval-single eval-analyze eval-compare
 
 # Configuration
 PROJECT_ID ?= myon-53d85
@@ -22,6 +23,13 @@ help:
 	@echo "  make worker-local    - Run worker locally"
 	@echo "  make watchdog-local  - Run watchdog locally"
 	@echo "  make scheduler-local - Run scheduler locally"
+	@echo ""
+	@echo "Eval Suite:"
+	@echo "  make eval            - Run all eval tests"
+	@echo "  make eval-category CAT=<category> - Run specific category"
+	@echo "  make eval-single ID=<id> - Run single test case"
+	@echo "  make eval-analyze    - Analyze eval results"
+	@echo "  make eval-compare -B <baseline> -N <new> - Compare two runs"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-push     - Build and push to GCR (via Cloud Build)"
@@ -42,6 +50,22 @@ install:
 # Run tests
 test:
 	python -m pytest tests/ -v
+
+# Eval suite
+eval:
+	python -m tests.eval.runner
+
+eval-category:
+	python -m tests.eval.runner --filter category=$(CAT)
+
+eval-single:
+	python -m tests.eval.runner --id $(ID)
+
+eval-analyze:
+	python -m tests.eval.analyze
+
+eval-compare:
+	python -m tests.eval.analyze --compare -B $(B) -N $(N)
 
 # Run worker locally
 worker-local:
