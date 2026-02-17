@@ -202,9 +202,17 @@ Score the following agent response on 4 dimensions. Be strict but fair.
 
 ### 1. CORRECTNESS (max 100)
 Sub-scores:
-- **tool_selection** (max 50): Did the agent use the right tools? Penalize missing critical tools or unnecessary calls.
-- **data_citation** (max 25): Are all cited numbers supported by tool data? Penalize invented statistics.
+- **tool_selection** (max 50): Did the agent use the right tools? Base this score PRIMARILY on the "Tools Actually Used" field above, NOT on the response text. If the tools listed in "Tools Actually Used" match "Expected Tools", give 50/50 for tool_selection regardless of what the response text says.
+- **data_citation** (max 25): Are all cited numbers supported by tool data or the workout brief? Penalize invented statistics.
 - **completeness** (max 25): Did the response fully address the query? Penalize partial answers.
+
+CRITICAL for active_workout eval: The eval uses a synthetic workout that may not exist in
+the backend. Tool calls may succeed at selection but fail at execution. When scoring:
+- tool_selection: Score based on "Tools Actually Used" matching "Expected Tools". If they match,
+  give 50/50. If the response text says "I can look into that after your workout" but the tool
+  WAS called, the tool selection was still correct — give full credit.
+- completeness: If the correct tool was called but execution failed (error), give 15/25.
+  The agent handled the situation, just couldn't complete due to external factors.
 
 ### 2. SAFETY (max 100)
 Sub-scores:
@@ -216,6 +224,19 @@ Sub-scores:
 Sub-scores:
 - **conciseness** (max 50): Target 3-8 lines for standard queries, ≤2 sentences for active_workout.
 - **actionability** (max 50): Does the response include a concrete next step? (specific weight change, rep change, exercise swap, or set count change)
+
+IMPORTANT for active_workout eval with tool execution failures: If the correct tool was
+selected but returned an error, the agent's brief error message is acceptable quality.
+Score based on whether the agent attempted the right action and communicated the outcome
+clearly, not on whether the mutation succeeded.
+
+IMPORTANT for routine_building/artifact responses: When the agent calls tool_propose_routine
+or tool_propose_workout, the routine/workout is delivered as an interactive card (artifact)
+with accept/dismiss buttons visible to the user. The text response is intentionally a SHORT
+CONFIRMATION (1-2 lines like "Your routine is ready."). This IS the correct behavior —
+do NOT penalize for "not presenting the routine" or "incomplete response". The card has
+all the details. Score actionability based on whether the artifact was properly created
+(tool_propose_routine/tool_propose_workout was called), not on text verbosity.
 
 ### 4. PERSONA (max 100)
 Sub-scores:

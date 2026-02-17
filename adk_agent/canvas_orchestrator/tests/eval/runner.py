@@ -43,7 +43,10 @@ import requests
 # Ensure parent packages are importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from tests.eval.test_cases import ALL_CASES, TestCase, get_cases
+from tests.eval.test_cases import (
+    ALL_CASES, TestCase, get_cases,
+    SAMPLE_WORKOUT_BRIEF, LATE_WORKOUT_BRIEF,
+)
 from tests.eval.judge import JudgeResult, score_response
 
 # ---------------------------------------------------------------------------
@@ -182,18 +185,26 @@ def run_single_case(
 
     Returns a result dict with response data and judge scores.
     """
-    # For active workout cases, prepend the workout brief to the message.
-    # Do NOT send a fake workoutId — that triggers workout state lookup in the
-    # Firebase function. The brief is injected directly into the message text.
+    # For active workout cases, prepend the workout brief to the message
+    # AND send a workoutId to activate workout mode in the context prefix.
+    # The workoutId is a synthetic ID — no matching Firestore doc exists.
+    # This means:
+    #   - workout_mode=True (tool gate checks pass)
+    #   - get_workout_state_formatted() fails silently (no Firestore doc)
+    #   - The sample brief in the message text provides workout context
+    #   - Tool calls will attempt execution but fail at Firebase level
+    #     (the judge evaluates tool SELECTION, not execution success)
     message = case.query
+    workout_id = None
     if case.workout_brief:
         message = f"{case.workout_brief}\n{case.query}"
+        workout_id = "eval-test-workout"
 
     # Send to agent (retry on transient errors with backoff)
     max_retries = 2
     response = None
     for attempt in range(max_retries + 1):
-        response = send_prompt(message)
+        response = send_prompt(message, workout_id=workout_id)
         # Retry if no text and errors (transient Vertex AI 400/401s)
         if response["text"] or not response["errors"] or attempt == max_retries:
             break

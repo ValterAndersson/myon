@@ -1,5 +1,5 @@
 """
-Shell Agent Eval Test Cases — 93 cases across 9 categories.
+Shell Agent Eval Test Cases — 108 cases across 9 categories.
 
 Each case defines a user query and expected behavior for automated scoring.
 Cases are designed to test generalizable agent behavior — none should be
@@ -10,7 +10,8 @@ Categories:
 - MODERATE (15): Date reasoning or multi-step tool selection
 - COMPLEX (10): Multi-tool, ambiguity, or boundary cases
 - EDGE (8): No data, adversarial, or boundary conditions
-- ACTIVE_WORKOUT (10): 2-sentence constraint with workout brief
+- ACTIVE_WORKOUT (25): 2-sentence constraint with workout brief (untested tools,
+  natural language variations, mid-workout boundaries, weight advice)
 - SCIENCE (10): Evidence-based reasoning
 - PERIODIZATION (8): Programming structure
 - ANALYSIS (10): Deep data interpretation
@@ -39,7 +40,7 @@ class TestCase:
 # =============================================================================
 
 SAMPLE_WORKOUT_BRIEF = """[WORKOUT BRIEF]
-Workout: Push Day | Started: 14:32 | Sets: 6/18
+Workout: Push Day | Started: 14:32 | Sets: 2/17
 
 1. Bench Press (Barbell) [ex-bench-001] ← CURRENT
    ✓ Set 1: 100kg × 8 @ RIR 2
@@ -75,6 +76,46 @@ Workout: Push Day | Started: 14:32 | Sets: 6/18
    ○ Set 1 [set-fp-001]: 12.5kg × 15 planned
    ○ Set 2 [set-fp-002]: 12.5kg × 15 planned
    History: 12.5×15, 12.5×14, 10×15
+"""
+
+# Late-stage workout brief: 14/18 sets done, on the last exercise before curls.
+LATE_WORKOUT_BRIEF = """[WORKOUT BRIEF]
+Workout: Pull Day | Started: 15:10 | Sets: 14/17
+
+1. Barbell Row (Barbell) [ex-row-001]
+   ✓ Set 1: 80kg × 8 @ RIR 2
+   ✓ Set 2: 80kg × 8 @ RIR 1
+   ✓ Set 3: 80kg × 7 @ RIR 1
+   History: 80×8, 77.5×8, 77.5×8
+
+2. Lat Pulldown (Cable) [ex-lat-002]
+   ✓ Set 1: 65kg × 10 @ RIR 2
+   ✓ Set 2: 65kg × 10 @ RIR 2
+   ✓ Set 3: 65kg × 9 @ RIR 1
+   History: 65×10, 62.5×10, 60×10
+
+3. Seated Cable Row (Cable) [ex-scr-003]
+   ✓ Set 1: 55kg × 12 @ RIR 2
+   ✓ Set 2: 55kg × 11 @ RIR 1
+   ✓ Set 3: 55kg × 11 @ RIR 1
+   History: 55×12, 52.5×12, 52.5×11
+
+4. Face Pull (Cable) [ex-fp-004]
+   ✓ Set 1: 15kg × 15 @ RIR 2
+   ✓ Set 2: 15kg × 14 @ RIR 1
+   ✓ Set 3: 15kg × 13 @ RIR 1
+   History: 15×15, 12.5×15, 12.5×14
+
+5. Bicep Curl (Dumbbell) [ex-curl-005] ← CURRENT
+   ✓ Set 1: 14kg × 10 @ RIR 2
+   ✓ Set 2: 14kg × 10 @ RIR 1
+   → Set 3 [set-curl-003]: 14kg × 10 planned
+   History: 14×10, 12×12, 12×12
+
+6. Hammer Curl (Dumbbell) [ex-ham-006]
+   ○ Set 1 [set-ham-001]: 12kg × 12 planned
+   ○ Set 2 [set-ham-002]: 12kg × 12 planned
+   History: 12×12, 12×11, 10×12
 """
 
 # =============================================================================
@@ -607,7 +648,7 @@ EDGE_CASES = [
 ]
 
 # =============================================================================
-# ACTIVE_WORKOUT (10): 2-sentence constraint with workout brief
+# ACTIVE_WORKOUT (25): 2-sentence constraint with workout brief
 # =============================================================================
 
 ACTIVE_WORKOUT_CASES = [
@@ -718,6 +759,184 @@ ACTIVE_WORKOUT_CASES = [
         gold_standard="Acknowledges skip. Brief response. ≤2 sentences.",
         workout_brief=SAMPLE_WORKOUT_BRIEF,
         tags=["skip", "exercise_management"],
+    ),
+    # --- Untested tools (5 cases) ---
+    TestCase(
+        id="workout_011",
+        query="add some face pulls",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Face Pull is already exercise #6 in the workout brief. "
+                          "Agent should recognize this and tell the user. ≤2 sentences.",
+        gold_standard="'Face Pulls are already in your workout.' ≤2 sentences. "
+                       "No search needed — exercise visible in brief.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["add_exercise", "brief_reading", "dedup"],
+    ),
+    TestCase(
+        id="workout_012",
+        query="throw in 3 sets of hammer curls at 14kg",
+        category="active_workout",
+        expected_tools=["tool_search_exercises", "tool_add_exercise"],
+        expected_behavior="Searches 'hammer curl' → adds exercise with sets=3, weight_kg=14. "
+                          "If search fails, tells user exercise couldn't be found.",
+        gold_standard="Searches for hammer curl, then calls tool_add_exercise with sets=3 and "
+                       "weight_kg=14. Confirms or explains search failure. ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["add_exercise", "search", "parameterized"],
+    ),
+    TestCase(
+        id="workout_013",
+        query="make the next set 95kg",
+        category="active_workout",
+        expected_tools=["tool_prescribe_set"],
+        expected_behavior="Prescribes weight_kg=95 on set-bench-003 (next planned set on "
+                          "current exercise, Bench Press).",
+        gold_standard="Calls tool_prescribe_set with set_id=set-bench-003 and weight_kg=95. "
+                       "Confirms in ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["prescribe_set", "weight_change"],
+    ),
+    TestCase(
+        id="workout_014",
+        query="change cable flys to 4 sets of 15",
+        category="active_workout",
+        expected_tools=["tool_prescribe_set"],
+        expected_behavior="Prescribes reps=15 on all 3 planned cable fly sets (set-fly-001, "
+                          "set-fly-002, set-fly-003). May need multiple prescribe_set calls.",
+        gold_standard="Calls tool_prescribe_set on cable fly sets with reps=15. May also add "
+                       "a 4th set via tool_add_exercise or prescribe_set. ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["prescribe_set", "rep_change", "multi_set"],
+    ),
+    TestCase(
+        id="workout_015",
+        query="where am I in my workout?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Answers from brief directly: 2/17 sets done, currently on Bench Press, "
+                          "2 sets remaining on current exercise. No tool call needed.",
+        gold_standard="Reports workout position from brief (2/17 sets done, on Bench Press). "
+                       "≤2 sentences. No tool calls.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["workout_state", "brief_reading", "no_tools"],
+    ),
+    # --- Natural language variations (4 cases) ---
+    TestCase(
+        id="workout_016",
+        query="10 reps, 85kg, felt like RIR 1",
+        category="active_workout",
+        expected_tools=["tool_log_set"],
+        expected_behavior="Parses reps=10, weight_kg=85, rir=1. Logs on current exercise "
+                          "(Bench Press) next planned set (set-bench-003).",
+        gold_standard="Logs set with reps=10, weight_kg=85, rir=1. Confirms in ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["log_set", "natural_language", "rir"],
+    ),
+    TestCase(
+        id="workout_017",
+        query="same as last set",
+        category="active_workout",
+        expected_tools=["tool_log_set"],
+        expected_behavior="Repeats last logged values from brief (100kg × 8 @ RIR 2). "
+                          "Logs on set-bench-003.",
+        gold_standard="Logs 100kg × 8 (matching last completed set from brief). ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["log_set", "natural_language", "repeat"],
+    ),
+    TestCase(
+        id="workout_018",
+        query="just did 6",
+        category="active_workout",
+        expected_tools=["tool_log_set"],
+        expected_behavior="Parses reps=6, infers weight from planned (100kg). "
+                          "Logs on set-bench-003.",
+        gold_standard="Logs 6 reps at 100kg (weight from planned set). ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["log_set", "natural_language", "minimal_input"],
+    ),
+    TestCase(
+        id="workout_019",
+        query="finished, wrap it up",
+        category="active_workout",
+        expected_tools=["tool_complete_workout"],
+        expected_behavior="Natural variation of 'I'm done'. Completes the workout.",
+        gold_standard="Calls tool_complete_workout. Brief confirmation. ≤2 sentences.",
+        workout_brief=LATE_WORKOUT_BRIEF,
+        tags=["complete", "workout_end", "natural_language"],
+    ),
+    # --- Mid-workout boundaries (3 cases) ---
+    TestCase(
+        id="workout_020",
+        query="how's my chest volume looking this week?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Defers analytics mid-workout. Should NOT run analysis tools.",
+        gold_standard="'I can check that after your workout.' ≤2 sentences. Does not call "
+                       "any analysis tools.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["boundary", "defer_analytics", "no_tools"],
+    ),
+    TestCase(
+        id="workout_021",
+        query="analyze my training balance",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Defers deep analytics mid-workout. Not the time for analysis.",
+        gold_standard="'Let's look at that after your session.' ≤2 sentences. No analysis "
+                       "tool calls.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["boundary", "defer_analytics", "no_tools"],
+    ),
+    TestCase(
+        id="workout_022",
+        query="should I add an extra set of bench?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Answer from workout brief context — you still have 2 planned sets "
+                          "of bench remaining. Advise based on the data available in the brief. "
+                          "Do NOT defer this to after the workout.",
+        gold_standard="Uses brief context to advise. 'You still have 2 sets of bench left. "
+                       "Complete those first, then see how you feel.' ≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["coaching", "volume_decision", "no_tools"],
+    ),
+    # --- Weight advice & coaching (3 cases) ---
+    TestCase(
+        id="workout_023",
+        query="can I go heavier on incline?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Uses History line from brief (32×10, 30×10, 30×10). Trend is up. "
+                          "Advises based on progression history.",
+        gold_standard="References history showing jump to 32kg. 'History shows you jumped "
+                       "to 32kg last session — see how that goes before adding more.' "
+                       "≤2 sentences.",
+        workout_brief=SAMPLE_WORKOUT_BRIEF,
+        tags=["weight_advice", "brief_reading", "no_tools"],
+    ),
+    TestCase(
+        id="workout_024",
+        query="how many sets do I have left?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="Reads brief: 14/17 done, 3 remaining (1 bicep curl + "
+                          "2 hammer curls). ≤2 sentences.",
+        gold_standard="Reports 3 sets remaining from brief (14/17). ≤2 sentences.",
+        workout_brief=LATE_WORKOUT_BRIEF,
+        tags=["workout_state", "brief_reading", "no_tools"],
+    ),
+    TestCase(
+        id="workout_025",
+        query="I'm gassed, should I cut it short?",
+        category="active_workout",
+        expected_tools=[],
+        expected_behavior="14/17 sets done — most work is complete. Brief coaching response: "
+                          "push through or reduce remaining sets.",
+        gold_standard="Notes 3 sets from done, all curls. 'Push through or drop to 1 set "
+                       "each if you need to.' ≤2 sentences.",
+        workout_brief=LATE_WORKOUT_BRIEF,
+        tags=["coaching", "fatigue", "brief_reading", "no_tools"],
     ),
 ]
 
