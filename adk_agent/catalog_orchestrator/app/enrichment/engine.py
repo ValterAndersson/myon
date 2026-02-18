@@ -613,6 +613,115 @@ def enrich_all_missing_fields(
 # HOLISTIC ENRICHMENT
 # =============================================================================
 
+# Content fields that should always be present on a complete exercise.
+# Used to auto-detect missing content and pass explicit hints to the LLM.
+REQUIRED_CONTENT_FIELDS = [
+    "description",
+    "execution_notes",
+    "common_mistakes",
+    "suitability_notes",
+    "programming_use_cases",
+    "stimulus_tags",
+]
+
+
+def _detect_missing_content_fields(exercise: Dict[str, Any]) -> List[str]:
+    """Detect which content fields are missing or empty on the exercise."""
+    missing = []
+    for field in REQUIRED_CONTENT_FIELDS:
+        value = exercise.get(field)
+        if not value:
+            missing.append(field)
+        elif isinstance(value, list) and len(value) == 0:
+            missing.append(field)
+        elif isinstance(value, str) and len(value.strip()) < 10:
+            missing.append(field)
+    return missing
+
+
+# Patterns that indicate style violations needing rewrite
+_NUMBERED_PREFIX = re.compile(r'^\d+[\.\)]\s')
+_STEP_PREFIX = re.compile(r'^step\s*\d+', re.I)
+_BOLD_MARKER = re.compile(r'\*\*')
+_BULLET_MARKER = re.compile(r'^[-\u2022*]\s+')
+_FIRST_PERSON = re.compile(r'\b(I recommend|I suggest|we should|my advice)\b', re.I)
+_THIRD_PERSON_SUBJ = re.compile(
+    r'^(the lifter|the athlete|the user|one should)',
+    re.I,
+)
+
+
+def _detect_style_violations(exercise: Dict[str, Any]) -> List[str]:
+    """Detect content that exists but violates the style guide.
+
+    Returns a list of human-readable issue descriptions to feed as
+    reviewer hints so the LLM knows what to fix.
+    """
+    issues = []
+
+    for field_name in ("execution_notes", "common_mistakes",
+                       "suitability_notes", "programming_use_cases"):
+        items = exercise.get(field_name, [])
+        if not isinstance(items, list):
+            continue
+
+        for item in items:
+            if not isinstance(item, str):
+                continue
+
+            if _NUMBERED_PREFIX.match(item) or _STEP_PREFIX.match(item):
+                issues.append(
+                    f"{field_name} has numbered/step prefixes — rewrite as plain cues"
+                )
+                break
+            if _BOLD_MARKER.search(item):
+                issues.append(
+                    f"{field_name} has **bold** markdown — rewrite as plain text"
+                )
+                break
+            if _BULLET_MARKER.match(item):
+                issues.append(
+                    f"{field_name} has bullet markers — rewrite as plain cues"
+                )
+                break
+
+        # Voice violations in execution_notes
+        if field_name == "execution_notes":
+            for item in items:
+                if not isinstance(item, str):
+                    continue
+                if _FIRST_PERSON.search(item):
+                    issues.append(
+                        "execution_notes uses first person voice — "
+                        "rewrite in second person imperative"
+                    )
+                    break
+                if _THIRD_PERSON_SUBJ.match(item):
+                    issues.append(
+                        "execution_notes uses third person ('The lifter...') — "
+                        "rewrite in second person imperative"
+                    )
+                    break
+
+        # Vague/terse items
+        short_count = sum(
+            1 for item in items
+            if isinstance(item, str) and len(item.split()) < 4
+        )
+        if short_count >= 2:
+            issues.append(
+                f"{field_name} has {short_count} items that are too vague/short — "
+                f"rewrite with specific, actionable detail"
+            )
+
+    # Description check
+    desc = exercise.get("description", "")
+    if isinstance(desc, str) and 0 < len(desc) < 50:
+        issues.append("description is too short — expand to 100-250 characters")
+
+    return issues
+
+
 # Fields that are LOCKED and should never be modified by enrichment
 LOCKED_FIELDS = {
     "name",
@@ -710,6 +819,18 @@ HOLISTIC_ENRICHMENT_SCHEMA = {
                     "type": "array",
                     "items": {"type": "string"},
                 },
+                "suitability_notes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "programming_use_cases": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "muscles.category": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
         },
         "reasoning": {"type": "string"},
@@ -777,8 +898,32 @@ def enrich_exercise_holistic(
     
     client = llm_client or get_llm_client()
     exercise_id = exercise.get("id", exercise.get("doc_id", "unknown"))
-    
+
     try:
+        # Auto-detect missing content fields and style violations
+        auto_hints = []
+
+        missing_fields = _detect_missing_content_fields(exercise)
+        if missing_fields:
+            auto_hints.append(
+                "Missing content fields that MUST be generated: "
+                + ", ".join(missing_fields)
+            )
+
+        style_issues = _detect_style_violations(exercise)
+        if style_issues:
+            auto_hints.append(
+                "Style guide violations that MUST be fixed:\n"
+                + "\n".join(f"- {issue}" for issue in style_issues)
+            )
+
+        if auto_hints:
+            auto_hint_text = "\n\n".join(auto_hints)
+            if reviewer_hint:
+                reviewer_hint = f"{reviewer_hint}\n\n{auto_hint_text}"
+            else:
+                reviewer_hint = auto_hint_text
+
         # Build the prompt
         prompt = _build_holistic_enrichment_prompt(exercise, reviewer_hint)
         
@@ -867,6 +1012,7 @@ def _build_holistic_enrichment_prompt(
         INSTRUCTIONS_GUIDANCE,
         MUSCLE_MAPPING_GUIDANCE,
         CONTENT_FORMAT_RULES,
+        CONTENT_STYLE_GUIDE,
     )
 
     # Get a golden example for reference
@@ -885,6 +1031,8 @@ def _build_holistic_enrichment_prompt(
 {MUSCLE_MAPPING_GUIDANCE}
 
 {CONTENT_FORMAT_RULES}
+
+{CONTENT_STYLE_GUIDE}
 
 {CANONICAL_ENUM_VALUES}
 
@@ -933,33 +1081,62 @@ other issues or decide the flagged issue isn't actually a problem.
    - equipment, category, description
    - execution_notes, common_mistakes, suitability_notes
    - programming_use_cases, stimulus_tags
-3. Follow the "If it ain't broke, don't fix it" principle
+3. Follow the "If it ain't broke, don't fix it" principle FOR CONTENT THAT IS ALREADY GOOD
 4. Only make changes that would actually help a user
 
-### Priority Fields to Generate (if missing)
+### When to UPDATE existing content (override "don't fix")
 
-Check these fields and ADD them if they're missing or empty:
+Even if content exists, REWRITE IT if any of these apply:
+- **Style guide violation**: wrong voice (first/third person in execution_notes),
+  numbered prefixes, markdown formatting, bullet markers
+- **Too vague**: items under 6 words that lack actionable detail ("Bad form", "Too heavy")
+- **Too verbose**: paragraph-style items over 30 words that should be concise cues
+- **Missing fields**: any content array field is empty or absent — ALWAYS generate it
 
-1. **description** - A concise 1-2 sentence description of what the exercise is and its primary purpose/benefits
+These are quality issues, not preference changes. Fix them.
+
+### Priority Fields to Generate or Fix
+
+Check ALL of these fields. If missing/empty, GENERATE them. If present but violating
+the style guide above, REWRITE them:
+
+1. **execution_notes** - 3-6 concise cues in second person imperative voice
+   Example: `["Keep your knees tracking over your toes", "Brace your core before the lift"]`
+
+2. **common_mistakes** - 2-5 descriptive gerund phrases of common errors
+   Example: `["Rounding the lower back at the bottom", "Using momentum instead of control"]`
+
+3. **description** - A concise 1-2 sentence description (100-250 characters)
    Example: `"A fundamental lower body compound exercise that builds strength in the quadriceps and glutes while improving core stability."`
 
-2. **muscles.contribution** - Map of muscle name to decimal contribution (0.0-1.0), must sum to ~1.0
-   Example: `{"quadriceps": 0.45, "glutes": 0.35, "hamstrings": 0.20}`
+4. **suitability_notes** - 2-4 third person declarative statements
+   Example: `["Requires good hip and ankle mobility.", "Machine guidance makes it beginner-friendly."]`
 
-3. **stimulus_tags** - 4-6 training stimulus tags in Title Case
-   Example: `["Hypertrophy", "Compound Movement", "Strength", "Core Engagement"]`
-
-4. **programming_use_cases** - 3-5 complete sentences about when to use this exercise
+5. **programming_use_cases** - 3-5 complete sentences ending with periods
    Example: `["Primary compound movement for leg-focused strength programs.", ...]`
 
-5. **suitability_notes** - 2-4 notes about who this exercise is suitable for
-   Example: `["Excellent for building posterior chain strength.", "Requires good hip mobility."]`
+6. **stimulus_tags** - 4-6 training stimulus tags in Title Case
+   Example: `["Hypertrophy", "Compound Movement", "Strength", "Core Engagement"]`
 
-6. **category** - Must be one of: compound, isolation, cardio, mobility, core
-   If currently "exercise", change it to "compound" or "isolation" as appropriate
+7. **muscles.contribution** - Map of muscle name to decimal contribution (0.0-1.0), must sum to ~1.0
+   Example: `{"quadriceps": 0.45, "glutes": 0.35, "hamstrings": 0.20}`
 
-7. **muscles.primary** - If empty, add 1-3 primary muscles (use lowercase, spaces not underscores)
-   Example: `["quadriceps", "gluteus maximus"]` NOT `["Quadriceps", "gluteus_maximus"]`
+8. **category** - Must be one of: compound, isolation, cardio, mobility, core
+
+9. **muscles.primary** - If empty, add 1-3 primary muscles (lowercase, spaces not underscores)
+
+### IMPORTANT: Generate ALL Missing Content
+
+Before writing your response, check which content fields are present in the exercise.
+If ANY of these fields are missing or empty, you MUST include them in your changes:
+- execution_notes (3-6 items)
+- common_mistakes (2-5 items)
+- suitability_notes (2-4 items)
+- programming_use_cases (3-5 items)
+- description
+- stimulus_tags (4-6 items)
+
+Do NOT skip missing content fields. Every exercise needs all of these.
 
 ### Response Format
 
@@ -970,10 +1147,13 @@ Respond with a JSON object:
   "reasoning": "Brief explanation of what you found and what you're changing",
   "confidence": "high" | "medium" | "low",
   "changes": {
-    "muscles.contribution": {"muscle name": 0.XX, ...},
-    "stimulus_tags": ["Tag1", "Tag2", ...],
-    "programming_use_cases": ["Sentence 1.", "Sentence 2.", ...],
+    "execution_notes": ["Cue 1", "Cue 2", ...],
+    "common_mistakes": ["Mistake 1", "Mistake 2", ...],
     "suitability_notes": ["Note 1.", "Note 2.", ...],
+    "programming_use_cases": ["Sentence 1.", "Sentence 2.", ...],
+    "description": "...",
+    "stimulus_tags": ["Tag1", "Tag2", ...],
+    "muscles.contribution": {"muscle name": 0.XX, ...},
     "category": "compound",
     ...
   }

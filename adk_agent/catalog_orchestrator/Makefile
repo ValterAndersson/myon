@@ -5,7 +5,8 @@
 .PHONY: help install dev test lint format clean run deploy \
         worker worker-local watchdog-local \
         docker-build docker-push deploy-worker deploy-review deploy-cleanup deploy-watchdog \
-        deploy-jobs trigger-worker trigger-watchdog
+        deploy-jobs trigger-worker trigger-watchdog \
+        eval eval-filter eval-id eval-no-judge
 
 # Configuration (override with: make deploy-worker PROJECT_ID=my-project REGION=us-central1)
 PROJECT_ID ?= myon-53d85
@@ -47,6 +48,12 @@ help:
 	@echo "  make deploy-watchdog - Deploy watchdog job to Cloud Run"
 	@echo "  make trigger-worker  - Trigger worker execution"
 	@echo "  make trigger-watchdog - Trigger watchdog execution"
+	@echo ""
+	@echo "Eval (Content Quality):"
+	@echo "  make eval          - Run full eval suite (enrichment + LLM judge)"
+	@echo "  make eval-filter FILTER=category=fix  - Filter by category or tags"
+	@echo "  make eval-id ID=gen_001               - Run single test case"
+	@echo "  make eval-no-judge - Deterministic checks only (no LLM judge)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make clean         - Clean build artifacts"
@@ -106,6 +113,28 @@ clean:
 	find . -type f -name "*.pyc" -delete
 	rm -rf .pytest_cache
 	rm -rf dist build *.egg-info
+
+# =============================================================================
+# EVAL PIPELINE (content quality scoring)
+# =============================================================================
+
+# Run full eval suite (enrichment + LLM judge)
+eval:
+	python3 tests/eval/runner.py
+
+# Filter by category (generate, fix, preserve) or tags
+eval-filter:
+	@echo "Usage: make eval-filter FILTER=category=fix"
+	python3 tests/eval/runner.py --filter $(FILTER)
+
+# Run a single test case by ID
+eval-id:
+	@echo "Usage: make eval-id ID=gen_001"
+	python3 tests/eval/runner.py --id $(ID)
+
+# Run eval with deterministic checks only (no LLM judge, faster)
+eval-no-judge:
+	python3 tests/eval/runner.py --no-judge
 
 # =============================================================================
 # FIREBASE EMULATOR (LOCAL TESTING)

@@ -31,6 +31,13 @@ Before suggesting any change, ask yourself:
 
 If the answer to #1 is "not really" → LEAVE IT ALONE.
 
+**EXCEPTION — ALWAYS generate missing content:**
+If a content field is empty or absent (execution_notes, common_mistakes,
+suitability_notes, programming_use_cases, description, stimulus_tags),
+you MUST generate it. Missing content is always a quality gap that needs filling.
+This is not a preference change — it's filling a gap that directly impacts
+the user experience.
+
 ---
 
 ## When NOT to Make Changes
@@ -211,6 +218,102 @@ execution_notes: [
   delts->deltoid, abs->rectus abdominis, hams->hamstrings, pecs->pectoralis major
 """
 
+CONTENT_STYLE_GUIDE = """
+## Content Style Guide (STRICT — follow for every content field)
+
+Every exercise in the catalog should read as if the same coach wrote it.
+This means consistent sentence structure, voice, length, and level of detail
+across all exercises. Apply these rules per field.
+
+### execution_notes (array of strings)
+PURPOSE: Actionable cues a user reads mid-set or while setting up.
+VOICE: Second person imperative ("Keep...", "Drive...", "Brace...").
+STRUCTURE: Each item is ONE concise cue. Start with an action verb.
+LENGTH: 8-20 words per item. 3-6 items total.
+SCOPE: Cover setup, the main movement, and breathing/bracing.
+DO NOT: Describe the exercise history, benefits, or theory.
+DO NOT: Combine multiple cues into one item.
+
+Good:
+- "Keep your knees tracking over your toes throughout the movement"
+- "Brace your core before initiating the lift"
+- "Lower the weight under control for a 2-3 second eccentric"
+
+Bad:
+- "This exercise targets the chest and triceps" (describes benefits, not a cue)
+- "Keep your back straight and breathe out and push through your heels" (multiple cues merged)
+- "Slowly lower" (too vague, no specific guidance)
+
+### common_mistakes (array of strings)
+PURPOSE: Quick-scan list of errors to watch for.
+VOICE: Third person descriptive, gerund phrase or noun phrase.
+STRUCTURE: Describe WHAT goes wrong, not the correction.
+LENGTH: 6-15 words per item. 2-5 items total.
+DO NOT: Write corrections ("instead, do X"). The cue is the mistake itself.
+DO NOT: Use "you" — these are labels, not instructions.
+
+Good:
+- "Rounding the lower back at the bottom of the lift"
+- "Flaring elbows out to 90 degrees"
+- "Using momentum instead of controlled movement"
+
+Bad:
+- "You should not round your back" (instruction, not a mistake description)
+- "Bad form" (too vague)
+- "Rounding back" (too terse — add enough context to be specific)
+
+### suitability_notes (array of strings)
+PURPOSE: Who benefits, prerequisites, and cautions.
+VOICE: Third person declarative. Neutral, factual.
+STRUCTURE: Each item is one complete statement about suitability.
+LENGTH: 8-20 words per item. 2-4 items total.
+INCLUDE: At least one positive note and one prerequisite or caution if applicable.
+DO NOT: Use "you" or imperative voice.
+
+Good:
+- "Requires good hip and ankle mobility for full range of motion"
+- "Machine guidance makes this accessible for beginners"
+- "May aggravate existing lower back issues at heavy loads"
+
+Bad:
+- "Good exercise" (no specific information)
+- "You need good mobility" (wrong voice — use third person)
+
+### programming_use_cases (array of strings)
+PURPOSE: When and why a coach would program this exercise.
+VOICE: Third person declarative. Each item is a complete sentence ending with a period.
+STRUCTURE: Describe a specific programming context, not generic praise.
+LENGTH: 10-20 words per item. 3-5 items total.
+DO NOT: Start every item with the same word. Vary sentence openers.
+
+Good:
+- "Primary compound movement for leg-focused strength programs."
+- "Effective as a finisher at the end of push workouts."
+- "Builds foundational pressing strength for intermediate lifters."
+
+Bad:
+- "Good for legs" (too vague, not a sentence)
+- "Great exercise for building muscle." (generic, applies to anything)
+- "Use this in your workout." (empty advice)
+
+### description (string)
+PURPOSE: One-line summary of what the exercise is and its key benefit.
+VOICE: Third person declarative.
+STRUCTURE: 1-2 sentences. First sentence names the movement pattern.
+  Second sentence (optional) states the primary training benefit.
+LENGTH: 100-250 characters total.
+DO NOT: Repeat the exercise name at the start.
+DO NOT: List muscles (that's what the muscles fields are for).
+
+Good:
+- "A hip hinge movement that emphasizes the hamstrings and glutes while teaching proper posterior chain engagement essential for athletic performance."
+- "An isolation exercise targeting the triceps through cable resistance, providing constant tension throughout the full range of motion."
+
+Bad:
+- "This is a good exercise." (empty)
+- "Bench Press is a pressing movement that works the chest." (repeats name, generic)
+"""
+
 FAMILY_EXPANSION_GUIDANCE = """
 ## Family Expansion Assessment
 
@@ -307,6 +410,7 @@ __all__ = [
     "INSTRUCTIONS_GUIDANCE",
     "MUSCLE_MAPPING_GUIDANCE",
     "CONTENT_FORMAT_RULES",
+    "CONTENT_STYLE_GUIDE",
     "FAMILY_EXPANSION_GUIDANCE",
     "build_reasoning_prompt",
 ]
