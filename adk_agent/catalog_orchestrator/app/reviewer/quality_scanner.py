@@ -31,7 +31,7 @@ from app.enrichment.llm_client import get_llm_client, LLMClient
 logger = logging.getLogger(__name__)
 
 # Version for tracking which scanner version reviewed an exercise
-SCANNER_VERSION = "1.0"
+SCANNER_VERSION = "2.0"
 
 # Heuristic thresholds
 HEURISTIC_PASS_SCORE = 0.85  # Score for exercises passing all heuristic checks
@@ -212,6 +212,19 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     muscles_category = muscles.get("category") or []
     if not muscles_category:
         return None  # Needs LLM — missing muscle category
+
+    # Check 13: Content completeness — all content array fields must be present
+    suitability_notes = exercise.get("suitability_notes") or []
+    programming_use_cases = exercise.get("programming_use_cases") or []
+    stimulus_tags = exercise.get("stimulus_tags") or []
+    if not suitability_notes or not programming_use_cases or not stimulus_tags:
+        return None  # Needs LLM — missing content fields
+
+    # Check 14: Style guide compliance — voice consistency and content quality
+    from app.enrichment.engine import _detect_style_violations
+    style_issues = _detect_style_violations(exercise)
+    if style_issues:
+        return None  # Needs LLM — style guide violations
 
     # All checks passed - this is a good exercise
     return QualityScanResult(

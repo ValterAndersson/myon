@@ -163,7 +163,15 @@ def filter_exercises_for_review(
         scanner_version = review_meta.get("scanner_version")
 
         if scanner_version:
-            # Tier 1 has scanned this exercise - check the flag
+            # Tier 1 has scanned this exercise — check if scan is current
+            from app.reviewer.quality_scanner import SCANNER_VERSION
+            if scanner_version != SCANNER_VERSION:
+                # Outdated scan — needs re-scan with current scanner
+                needs_review.append(ex)
+                not_scanned += 1
+                continue
+
+            # Current scan — check the flag
             needs_full_review = review_meta.get("needs_full_review", False)
             needs_retry = review_meta.get("needs_retry", False)
             if needs_full_review or needs_retry:
