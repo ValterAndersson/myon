@@ -336,6 +336,11 @@ Return JSON matching this schema EXACTLY:
 
 For each recommendation:
 - "action" must include specific numbers (weights, reps, percentages) from the input
+- "action" MUST include a specific target weight (e.g., "Try 102.5kg next session")
+- Progression: +2.5% for compounds (>40kg), +5% for isolation, rounded to 2.5kg or 1.25kg
+- If rounding gives no change, bump by one step (2.5kg or 1.25kg). Cap at +5kg.
+- For swap suggestions, estimate the new exercise weight from the original:
+  BB→DB = 37% per hand, compound→isolation = 30%, incline = 82% of flat.
 - "reasoning" explains the logic chain: which metrics you compared, what threshold was met, why this change
 - "signals" lists the 2-4 key data points that support this recommendation, each as a short phrase with numbers
 
@@ -345,5 +350,12 @@ Detection rules:
 - stall: e1rm_max flat (±2%) across 3+ weeks in exercise_series
 - volume_drop: this week's total_sets < 70% of rollup average
 - overreach: avg_rir < 1.0 across multiple exercises while volume is high
+
+Stall → recommendation mapping:
+A "stall" flag does NOT automatically mean volume_adjust or swap.
+- avg RIR ≥ 2 → type: "progression". The user has capacity to lift more.
+  Recommend a small weight increase (+2.5% compounds, +5% isolation).
+- avg RIR < 2 → type: "deload" or "swap". The user is near failure
+  at this weight and still not progressing. Consider deload or swap.
 
 Output limits: 2-4 highlights, 0-3 flags, 1-3 recommendations"""

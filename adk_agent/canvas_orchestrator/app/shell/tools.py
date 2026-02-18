@@ -277,16 +277,20 @@ def tool_get_planning_context() -> Dict[str, Any]:
             - total_volume: Total weight moved (kg)
             - exercises: Title-level exercise list (NOT full set data)
                 Format: [{ name: "Bench Press", sets: 4 }, ...]
-            
+
             WHAT THIS PROVIDES:
             - Exercise names from recent workouts
             - Working set count per exercise
             - Enough to answer "What exercises did I do last workout?"
-            
+
             WHAT THIS DOES NOT PROVIDE:
             - Individual set details (reps, weight, RIR)
             - Rep ranges or intensity metrics
             - For set-level drilldown, use tool_query_training_sets instead
+
+        strengthSummary: User's top exercises by e1RM (from recent workouts).
+            Each: { id, name, weight, reps, e1rm }. Use for weight estimation
+            when prescribing exercises the user hasn't done (see WEIGHT PRESCRIPTION).
     
     WHEN TO USE:
         - "What should I do today?" → check nextWorkout.template

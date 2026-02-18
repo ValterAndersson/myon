@@ -44,6 +44,124 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # Analyzer caller — calls LLM directly without Firestore
 # ---------------------------------------------------------------------------
 
+ANALYZER_MODEL = "gemini-2.5-pro"
+ANALYZER_PROJECT = "myon-53d85"
+ANALYZER_LOCATION = "us-central1"
+
+# Token cache — gcloud tokens last 60 min, refresh at 50 min
+_token_cache: Dict[str, Any] = {"token": None, "expires_at": 0}
+
+
+def _get_gcloud_token() -> str:
+    """Get GCP access token from gcloud CLI user credentials.
+
+    Caches token for 50 minutes (gcloud tokens expire at 60 min).
+    Uses gcloud CLI instead of SA key because the SA key lacks
+    aiplatform.endpoints.predict permission.
+    """
+    import subprocess
+
+    now = time.time()
+    if _token_cache["token"] and now < _token_cache["expires_at"]:
+        return _token_cache["token"]
+
+    result = subprocess.run(
+        ["gcloud", "auth", "print-access-token"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        _token_cache["token"] = result.stdout.strip()
+        _token_cache["expires_at"] = now + 3000  # 50 min
+        return _token_cache["token"]
+    raise RuntimeError("Cannot obtain GCP access token. Run: gcloud auth login")
+
+
+def _call_analyzer_llm(system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    """Call analyzer LLM via Vertex AI REST API with gcloud user credentials.
+
+    Retries once on timeout/5xx errors.
+    """
+    import re
+    import requests as req
+
+    url = (
+        f"https://{ANALYZER_LOCATION}-aiplatform.googleapis.com/v1/"
+        f"projects/{ANALYZER_PROJECT}/locations/{ANALYZER_LOCATION}/"
+        f"publishers/google/models/{ANALYZER_MODEL}:generateContent"
+    )
+
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": system_prompt.strip()}]},
+            {"role": "user", "parts": [{"text": user_prompt.strip()}]},
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    last_err = None
+    for attempt in range(2):
+        try:
+            token = _get_gcloud_token()
+            resp = req.post(
+                url, json=payload,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=(10, 90),  # (connect, read) timeouts
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except (req.exceptions.Timeout, req.exceptions.ConnectionError) as e:
+            last_err = e
+            if attempt == 0:
+                # Retry once after brief pause
+                time.sleep(3)
+                _token_cache["token"] = None  # Force token refresh
+                continue
+            raise
+        except req.exceptions.HTTPError as e:
+            if resp.status_code >= 500 and attempt == 0:
+                last_err = e
+                time.sleep(3)
+                continue
+            raise
+    else:
+        raise last_err
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise ValueError("Analyzer LLM returned no candidates")
+
+    # Check for truncation
+    finish_reason = candidates[0].get("finishReason", "")
+    if finish_reason == "MAX_TOKENS":
+        raise ValueError("Analyzer response truncated (MAX_TOKENS)")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text = ""
+    for part in parts:
+        if part.get("thought"):
+            continue
+        if "text" in part:
+            text += part["text"]
+
+    text = text.strip()
+    if not text:
+        raise ValueError("Analyzer LLM returned empty text")
+
+    # Strip markdown fences if present
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+
+    return json.loads(text)
+
+
 def call_analyzer(
     analyzer_type: str,
     training_data: Dict[str, Any],
@@ -51,38 +169,25 @@ def call_analyzer(
     """
     Call the analyzer LLM directly with synthetic training data.
 
-    Imports the analyzer class but uses its call_llm method directly
-    rather than the full analyze() flow (which requires Firestore).
+    Uses Vertex AI REST API with gcloud user credentials (the SA key
+    lacks aiplatform.endpoints.predict permission). Extracts the system
+    prompt from the analyzer class but bypasses Firestore entirely.
 
     Returns the parsed LLM response dict.
     """
-    from app.analyzers.base import BaseAnalyzer
-    from app.config import MODEL_PRO
-
-    analyzer = BaseAnalyzer(MODEL_PRO)
-
     if analyzer_type == "post_workout":
         from app.analyzers.post_workout import PostWorkoutAnalyzer
         pw = PostWorkoutAnalyzer()
         system_prompt = pw._get_system_prompt()
-        required_keys = ["summary", "highlights", "flags", "recommendations"]
     elif analyzer_type == "weekly_review":
         from app.analyzers.weekly_review import WeeklyReviewAnalyzer
         wr = WeeklyReviewAnalyzer()
         system_prompt = wr._get_system_prompt()
-        required_keys = [
-            "summary", "training_load", "muscle_balance", "exercise_trends",
-        ]
     else:
         raise ValueError(f"Unknown analyzer type: {analyzer_type}")
 
     user_prompt = json.dumps(training_data, indent=2, default=str)
-
-    result = analyzer.call_llm(
-        system_prompt, user_prompt,
-        required_keys=required_keys,
-    )
-    return result
+    return _call_analyzer_llm(system_prompt, user_prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -105,12 +210,15 @@ def compute_progression_weight(
     """
     if suggested_weight is not None:
         return suggested_weight
-    if rec_type == "deload":
+    if rec_type in ("deload", "swap"):
         step = 2.5 if current_weight > 40 else 1.25
         return round_to_nearest(current_weight * 0.9, step)
     increment = 0.025 if current_weight > 40 else 0.05
     step = 2.5 if current_weight > 40 else 1.25
     new_weight = round_to_nearest(current_weight * (1 + increment), step)
+    # If rounding killed the increment, bump by one step
+    if new_weight <= current_weight:
+        new_weight = current_weight + step
     new_weight = min(new_weight, current_weight + 5)
     return new_weight if new_weight > 0 else 0
 
@@ -127,7 +235,10 @@ def compute_changes_for_template(
     """
     ex_key = exercise_name.strip().lower()
     for idx, ex in enumerate(template_exercises):
-        if ex.get("name", "").strip().lower() == ex_key:
+        tmpl_name = ex.get("name", "").strip().lower()
+        # Fuzzy match: exact or substring in either direction
+        # (LLM may return "Bench Press" vs template's "Bench Press (Barbell)")
+        if tmpl_name == ex_key or ex_key in tmpl_name or tmpl_name in ex_key:
             changes = []
             for set_idx, s in enumerate(ex.get("sets", [])):
                 current = s.get("weight_kg", 0)
@@ -157,26 +268,36 @@ def build_summary(
     from_val = change.get("from") if change else None
     to_val = change.get("to") if change else None
     rec_type = rec.get("type", "")
+    is_rep_change = change and change.get("path") == "reps"
+    unit = "reps" if is_rep_change else "kg"
 
     if scope == "template" and state == "applied":
         if rec_type == "progression" and from_val is not None:
-            return f"Applied: {name} {from_val}kg -> {to_val}kg"
+            return f"Applied: {name} {from_val}{unit} -> {to_val}{unit}"
         if rec_type == "deload" and to_val is not None:
-            return f"Reduced {name} to {to_val}kg"
+            return f"Reduced {name} to {to_val}{unit}"
+        if rec_type == "volume_adjust":
+            return f"Volume adjustment applied for {name}"
         return f"Applied {rec_type} for {name}"
 
     if scope == "template" and state == "pending_review":
         if rec_type == "progression" and to_val is not None:
-            return f"Try {to_val}kg on {name}"
+            return f"Try {to_val} {unit} on {name}" if is_rep_change else f"Try {to_val}kg on {name}"
         if rec_type == "deload" and to_val is not None:
-            return f"Consider reducing {name} to {to_val}kg"
+            return f"Consider reducing {name} to {to_val}{unit}"
+        if rec_type == "volume_adjust":
+            return f"Consider adjusting {name} volume"
         return f"{rec_type} for {name}"
 
     if scope == "exercise":
         if rec_type == "progression" and to_val is not None:
+            if is_rep_change:
+                return f"Ready to progress {name}: try {to_val} reps"
             return f"Ready to progress {name} to {to_val}kg"
         if rec_type == "deload" and to_val is not None:
-            return f"{name}: consider a lighter session at {to_val}kg"
+            return f"{name}: consider a lighter session at {to_val}{unit}"
+        if rec_type == "volume_adjust":
+            return f"{name}: volume may need attention"
         return f"{rec_type} for {name}"
 
     return f"{rec_type} for {name}"
@@ -217,10 +338,15 @@ def simulate_recommendation_processing(
     analyzer_output: Dict[str, Any],
     user_state: Dict[str, Any],
     analyzer_type: str,
+    training_data: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Simulate the full recommendation processing pipeline.
     Python port of processActionableRecommendations from process-recommendations.js.
+
+    Args:
+        training_data: Original test case training_data (needed for exercise-scoped
+            cases where we look up current weight from workout exercises).
 
     Returns list of final recommendation documents (the `agent_recommendations` shape).
     """
@@ -237,7 +363,7 @@ def simulate_recommendation_processing(
         for rec in recs:
             conf = rec.get("confidence", 0)
             rtype = rec.get("type", "")
-            if conf >= 0.7 and rtype in ("progression", "deload", "volume_adjust"):
+            if conf >= 0.7 and rtype in ("progression", "deload", "swap", "volume_adjust"):
                 actionable.append({
                     "type": rtype,
                     "target": rec.get("target", ""),
@@ -259,15 +385,46 @@ def simulate_recommendation_processing(
                 "confidence": pc.get("confidence", 0.8),
             })
         for se in analyzer_output.get("stalled_exercises", []):
-            if se.get("suggested_action") == "deload":
+            action = se.get("suggested_action", "deload").lower()
+            # Map stall actions to recommendation types
+            if action in ("deload", "swap"):
+                rtype = "deload"
+            elif action in ("increase_weight", "progress", "progression",
+                            "increase weight", "increase_load"):
+                rtype = "progression"
+            else:
+                rtype = "volume_adjust"
+            actionable.append({
+                "type": rtype,
+                "target": se.get("exercise_name", ""),
+                "suggestedWeight": None,
+                "rationale": se.get("rationale", ""),
+                "reasoning": se.get("reasoning", ""),
+                "signals": se.get("signals", []),
+                "confidence": 0.7,
+            })
+        # Extract volume recommendations from muscle_balance
+        for mb in analyzer_output.get("muscle_balance", []):
+            status = mb.get("status", "")
+            if status in ("undertrained", "overtrained"):
+                group = mb.get("muscle_group", "")
+                sets = mb.get("weekly_sets", 0)
+                trend = mb.get("trend", "stable")
                 actionable.append({
-                    "type": "deload",
-                    "target": se.get("exercise_name", ""),
+                    "type": "volume_adjust",
+                    "target": group,
                     "suggestedWeight": None,
-                    "rationale": se.get("rationale", ""),
-                    "reasoning": se.get("reasoning", ""),
-                    "signals": se.get("signals", []),
-                    "confidence": 0.7,
+                    "rationale": f"{group} at {sets} sets/week ({status})",
+                    "reasoning": (
+                        f"{group} is {status} at {sets} sets/week. "
+                        f"{'Consider adding more direct work.' if status == 'undertrained' else 'Consider reducing volume to allow recovery.'}"
+                    ),
+                    "signals": [
+                        f"{group}: {sets} sets/week",
+                        f"status: {status}",
+                        f"trend: {trend}",
+                    ],
+                    "confidence": 0.75,
                 })
 
     if not actionable:
@@ -281,6 +438,39 @@ def simulate_recommendation_processing(
     for rec in actionable:
         exercise_name = rec["target"]
 
+        # Volume adjustments don't need weight changes — they're observational
+        if rec["type"] == "volume_adjust":
+            changes = [{
+                "path": "volume",
+                "from": None,
+                "to": None,
+                "rationale": rec.get("rationale", ""),
+            }]
+            first_change = changes[0]
+            summary = build_summary(rec, scope, state, first_change, template_name)
+            rationale = build_rationale(rec, scope, state, template_name)
+
+            rec_doc = {
+                "scope": scope,
+                "state": state,
+                "target": {
+                    "template_id": user_state.get("template_id"),
+                    "template_name": template_name,
+                    "routine_id": user_state.get("activeRoutineId"),
+                    "exercise_name": exercise_name if scope == "exercise" else None,
+                },
+                "recommendation": {
+                    "type": rec["type"],
+                    "changes": changes,
+                    "summary": summary,
+                    "rationale": rationale,
+                    "confidence": rec["confidence"],
+                    "signals": rec.get("signals", []),
+                },
+            }
+            results.append(rec_doc)
+            continue
+
         # Compute changes
         if has_routine and template_exercises:
             ex_idx, changes = compute_changes_for_template(
@@ -290,32 +480,55 @@ def simulate_recommendation_processing(
             if not changes:
                 continue
         else:
-            # Exercise-scoped: derive from workout data
+            # Exercise-scoped: derive from original training data workout
+            td = training_data or {}
             workout_exercises = (
-                analyzer_output.get("workout", {}).get("exercises", [])
+                td.get("workout", {}).get("exercises", [])
             )
             current_weight = 0
+            ex_key = exercise_name.strip().lower()
             for wex in workout_exercises:
-                if (wex.get("name", "").strip().lower()
-                        == exercise_name.strip().lower()):
+                wex_name = wex.get("name", "").strip().lower()
+                # Fuzzy match: exact or substring in either direction
+                if wex_name == ex_key or ex_key in wex_name or wex_name in ex_key:
                     current_weight = wex.get("top_weight_kg", 0) or 0
                     break
 
             if current_weight <= 0:
-                continue
+                # Bodyweight exercise: produce rep-based change instead
+                matched_ex = None
+                for wex in workout_exercises:
+                    wex_name = wex.get("name", "").strip().lower()
+                    if wex_name == ex_key or ex_key in wex_name or wex_name in ex_key:
+                        matched_ex = wex
+                        break
+                if matched_ex:
+                    current_reps = int(matched_ex.get("rep_range", "0") or "0")
+                    if current_reps > 0:
+                        new_reps = current_reps + 2
+                        changes = [{
+                            "path": "reps",
+                            "from": current_reps,
+                            "to": new_reps,
+                            "rationale": f"{rec['type']}: {current_reps} -> {new_reps} reps",
+                        }]
+                    else:
+                        continue
+                else:
+                    continue
+            else:
+                new_weight = compute_progression_weight(
+                    current_weight, rec["type"], rec.get("suggestedWeight"),
+                )
+                if new_weight == current_weight or new_weight <= 0:
+                    continue
 
-            new_weight = compute_progression_weight(
-                current_weight, rec["type"], rec.get("suggestedWeight"),
-            )
-            if new_weight == current_weight or new_weight <= 0:
-                continue
-
-            changes = [{
-                "path": "weight_kg",
-                "from": current_weight,
-                "to": new_weight,
-                "rationale": f"{rec['type']}: {current_weight}kg -> {new_weight}kg",
-            }]
+                changes = [{
+                    "path": "weight_kg",
+                    "from": current_weight,
+                    "to": new_weight,
+                    "rationale": f"{rec['type']}: {current_weight}kg -> {new_weight}kg",
+                }]
 
         first_change = changes[0] if changes else None
         summary = build_summary(rec, scope, state, first_change, template_name)
@@ -374,6 +587,7 @@ def run_single_case(
     try:
         rec_docs = simulate_recommendation_processing(
             analyzer_output, case.user_state, case.analyzer_type,
+            training_data=case.training_data,
         )
     except Exception as e:
         elapsed = time.time() - t0
@@ -389,7 +603,7 @@ def run_single_case(
 
     # 3. Score with judge
     judge_result = None
-    if not skip_judge and rec_docs:
+    if rec_docs and not skip_judge:
         try:
             judge_result = score_recommendation(
                 test_case=case,
@@ -402,7 +616,16 @@ def run_single_case(
                 overall_score=0,
                 deterministic_issues=[f"Judge error: {e}"],
             )
-    elif not rec_docs and not case.tags or "skip" not in case.tags:
+    elif rec_docs and skip_judge:
+        # Deterministic checks only (no LLM judge)
+        from tests.eval.judge import run_deterministic_checks
+        det_issues, det_penalty = run_deterministic_checks(rec_docs, case)
+        judge_result = JudgeResult(
+            test_id=case.id,
+            overall_score=max(0, 80 - det_penalty),
+            deterministic_issues=det_issues,
+        )
+    elif not rec_docs and (not case.tags or "skip" not in case.tags):
         # No recommendations produced (might be expected for some cases)
         if case.expected_signals:
             judge_result = JudgeResult(

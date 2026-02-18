@@ -368,7 +368,7 @@ Return JSON matching this schema EXACTLY:
       "exercise_id": "from input",
       "exercise_name": "from input",
       "weeks_stalled": 5,
-      "suggested_action": "deload | swap | vary_rep_range",
+      "suggested_action": "increase_weight | deload | swap | vary_rep_range",
       "rationale": "Evidence from the data",
       "reasoning": "why this exercise is stalled and why this action is suggested",
       "signals": ["e1RM flat at 65kg for 5 weeks", "avg RIR 1.5 (not an effort issue)"]
@@ -389,8 +389,14 @@ Detection rules:
   - plateaued: e1rm_slope within ±0.25 kg/week for 4+ data points
   - declining: e1rm_slope < -0.5 kg/week
 - progression_candidates: ONLY exercises with improving trend AND confidence > 0.7 AND at least 4 weeks of data.
-  - Suggest 2.5% increase for compounds (exercises with load_max > 40kg), 5% for isolation.
+  - current_weight = load_max from most recent week in exercise series
+  - suggested_weight = +2.5% for compounds (>40kg), +5% for isolation
+    Round to 2.5kg or 1.25kg. If rounding kills increment, bump one step. Cap +5kg.
 - stalled_exercises: ONLY exercises plateaued or declining for 4+ consecutive weeks with data.
-  - deload: if volume is high but e1RM flat
-  - swap: if stalled > 6 weeks
-  - vary_rep_range: if stuck in same rep range every week"""
+  Choose suggested_action by weighing RIR and stall duration together:
+  - increase_weight: avg RIR ≥ 2 AND stalled < 6 weeks (user has room to push)
+  - deload: avg RIR < 2 OR stalled ≥ 4 weeks at low RIR (fatigue-limited)
+  - swap: stalled > 6 weeks despite previous changes
+  - vary_rep_range: if stuck in same rep range every week with RIR ≥ 2
+For swap recommendations:
+  - Estimate replacement weight: BB→DB = 37% per hand, same-muscle different movement = 80%."""

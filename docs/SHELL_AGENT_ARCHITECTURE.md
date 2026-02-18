@@ -136,7 +136,7 @@ adk_agent/canvas_orchestrator/
 │   │   ├── __init__.py
 │   │   ├── context.py            # Per-request SessionContext (immutable)
 │   │   ├── router.py             # 4-Lane routing with route_request()
-│   │   ├── instruction.py        # Unified Coach + Planner voice
+│   │   ├── instruction.py        # Unified Coach + Planner voice (includes WEIGHT PRESCRIPTION)
 │   │   ├── agent.py              # ShellAgent (gemini-2.5-flash)
 │   │   ├── tools.py              # Tool definitions from pure skills
 │   │   ├── planner.py            # Intent-specific tool planning
@@ -993,7 +993,7 @@ python workers/post_workout_analyst.py \
 | 2026-01-03 | ContextVars hardening for Vertex Agent Engine |
 | 2026-01-03 | **Production Integration Documentation**: Added Vertex AI runtime section, ContextVars deep-dive, iOS protocol multiplexing, Monitor Lane schema, comprehensive verification checklist |
 | 2026-01-04 | **Token-Safe Analytics v2**: Removed `tool_get_analytics_features` and `tool_get_recent_workouts` from agent tools. Replaced with bounded, paginated endpoints: `tool_get_muscle_group_progress`, `tool_get_muscle_progress`, `tool_get_exercise_progress`, and `tool_query_training_sets` (drilldown only). All summaries guaranteed under 15KB. |
-| 2026-02-14 | **Pre-computed Analysis + Instruction Rewrite**: Consolidated 3 pre-computed tools (`tool_get_recent_insights`, `tool_get_daily_brief`, `tool_get_latest_weekly_review`) + `tool_get_coaching_context` into single `tool_get_training_analysis`. Switched Slow Lane model from `gemini-2.5-flash` to `gemini-2.5-flash` (temp 0.3, thinking enabled). Rewrote system instruction from 190→140 lines: principles over rules, removed schema duplication, added 7 rich examples with Think/Tool/Response chains. Added hallucination guardrails via data-claim principles and no-data examples. Increased streaming timeout to 300s/180s. |
+| 2026-02-14 | **Pre-computed Analysis + Instruction Rewrite**: Consolidated 3 pre-computed tools (`tool_get_recent_insights`, `tool_get_daily_brief`, `tool_get_latest_weekly_review`) + `tool_get_coaching_context` into single `tool_get_training_analysis`. Switched Slow Lane model from `gemini-2.5-pro` to `gemini-2.5-flash` (temp 0.3, thinking enabled). Rewrote system instruction from 190→140 lines: principles over rules, removed schema duplication, added 7 rich examples with Think/Tool/Response chains. Added hallucination guardrails via data-claim principles and no-data examples. Increased streaming timeout to 300s/180s. |
 | 2026-02-15 | **Canvas → Conversations Migration**: Changed context prefix from `canvas_id=X` to `conversation_id=X`. Planner skills (`propose_workout`, `propose_routine`, `propose_routine_update`, `propose_template_update`) now return artifact data directly in SkillResult.data with keys: `artifact_type`, `content`, `actions`, `status`. Removed `CanvasFunctionsClient` methods `propose_cards()`, `bootstrap_canvas()`, `emit_event()`. Removed `canvas_id` parameter from tool validation (now only checks `user_id`). Added HTTP connection pooling via `HttpClient` with `requests.Session()` and `HTTPAdapter(pool_connections=10, pool_maxsize=20)`. Changed `workout_skills.py` client to singleton pattern. |
 
 ---

@@ -225,6 +225,7 @@ iOS App → Firebase Function → Vertex AI Agent Engine
 - Workout history
 - Active routine information
 - Exercise catalog access
+- `strengthSummary`: Top 15 exercises by e1RM, derived from recent workouts (zero extra Firestore reads). Each entry: `{ id, name, weight, reps, e1rm }`. Used by the agent to estimate weights for exercises the user hasn't done.
 
 ---
 

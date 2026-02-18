@@ -150,6 +150,17 @@ def run_deterministic_checks(
             # Try to extract from summary
             pass
 
+        # Weight presence in progression/deload changes
+        if test_case.expected_rec_type in ("progression", "deload"):
+            for change in rec.get("changes", []):
+                if change.get("to") is None or change.get("to") == 0:
+                    issues.append(
+                        f"{prefix}Missing target weight in "
+                        f"{test_case.expected_rec_type} recommendation"
+                    )
+                    penalties["missing_target_weight"] = 10
+                    break
+
         # Confidence in valid range
         confidence = rec.get("confidence", 0)
         if confidence < 0.7 or confidence > 1.0:
@@ -158,16 +169,18 @@ def run_deterministic_checks(
             )
             penalties["confidence_range"] = 5
 
-        # Changes have valid from/to
-        for change in rec.get("changes", []):
-            if change.get("from") is None or change.get("to") is None:
-                issues.append(f"{prefix}Change missing from/to values")
-                penalties["invalid_change"] = 5
-                break
-            if change["from"] == change["to"]:
-                issues.append(f"{prefix}Change from==to ({change['from']})")
-                penalties["noop_change"] = 5
-                break
+        # Changes have valid from/to (skip for volume_adjust which uses None)
+        rec_type = rec.get("type", "")
+        if rec_type != "volume_adjust":
+            for change in rec.get("changes", []):
+                if change.get("from") is None or change.get("to") is None:
+                    issues.append(f"{prefix}Change missing from/to values")
+                    penalties["invalid_change"] = 5
+                    break
+                if change["from"] == change["to"]:
+                    issues.append(f"{prefix}Change from==to ({change['from']})")
+                    penalties["noop_change"] = 5
+                    break
 
     total_penalty = min(sum(penalties.values()), 30)
     return issues, total_penalty
@@ -284,16 +297,41 @@ def _build_judge_prompt(
     analyzer_output: Dict,
 ) -> str:
     """Build the LLM judge prompt."""
-    # Summarize training data for context
+    # Summarize training data with actual numbers so judge can verify grounding
     td = test_case.training_data
+    exercise_details = []
+    for ex in td.get("workout", {}).get("exercises", []):
+        detail = {"name": ex.get("name")}
+        if ex.get("top_weight_kg"):
+            detail["weight_kg"] = ex["top_weight_kg"]
+        if ex.get("rep_range"):
+            detail["reps"] = ex["rep_range"]
+        if ex.get("avg_rir") is not None:
+            detail["avg_rir"] = ex["avg_rir"]
+        if ex.get("e1rm"):
+            detail["e1rm"] = ex["e1rm"]
+        if ex.get("working_sets"):
+            detail["sets"] = ex["working_sets"]
+        exercise_details.append(detail)
+
+    series_details = []
+    for s in td.get("exercise_series", []):
+        weeks = s.get("weeks", [])
+        sdetail = {
+            "exercise": s.get("exercise_name"),
+            "weeks_of_data": len(weeks),
+        }
+        if weeks:
+            latest = weeks[-1]
+            sdetail["latest_e1rm"] = latest.get("e1rm_max")
+            sdetail["latest_load"] = latest.get("load_max")
+            sdetail["latest_avg_rir"] = latest.get("avg_rir")
+        series_details.append(sdetail)
+
     data_summary = {
-        "exercises_in_workout": [
-            ex.get("name") for ex in td.get("workout", {}).get("exercises", [])
-        ],
+        "exercises_in_workout": exercise_details,
         "rollup_weeks": len(td.get("recent_rollups", [])),
-        "series_exercises": [
-            s.get("exercise_name") for s in td.get("exercise_series", [])
-        ],
+        "exercise_series": series_details,
     }
 
     return JUDGE_PROMPT_TEMPLATE.format(

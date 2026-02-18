@@ -26,7 +26,8 @@
  * │   │   activeRoutine: { name, template_ids, cursor },                   │ │
  * │   │   nextWorkout: { templateId, templateIndex, template },            │ │
  * │   │   templates: [{ id, name, analytics, exerciseCount }],             │ │
- * │   │   recentWorkoutsSummary: [{ id, end_time, total_volume }]          │ │
+ * │   │   recentWorkoutsSummary: [{ id, end_time, total_volume }],         │ │
+ * │   │   strengthSummary: [{ id, name, weight, reps, e1rm }]             │ │
  * │   │ }                                                                   │ │
  * │   └─────────────────────────────────────────────────────────────────────┘ │
  * └────────────────────────────────────────────────────────────────────────────┘
@@ -64,6 +65,54 @@ const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
 
 const firestore = admin.firestore();
+
+/**
+ * Compute strength summary from recent workouts (no extra Firestore reads).
+ * Extracts per-exercise max performance (best e1RM) from workout data already fetched.
+ * Returns top 15 exercises sorted by e1RM descending (~0.5KB).
+ *
+ * @param {Array} workouts - recentWorkoutsSummary array with exercises[].sets[]
+ * @returns {Array<{id, name, weight, reps, e1rm}>}
+ */
+function buildStrengthSummary(workouts) {
+  const exercises = new Map();
+
+  for (const w of workouts) {
+    for (const ex of (w.exercises || [])) {
+      const id = ex.exercise_id;
+      if (!id) continue;
+
+      let bestE1rm = 0, maxWeight = 0, bestReps = 0;
+      for (const s of (ex.sets || [])) {
+        const wt = s.weight_kg || 0;
+        const reps = s.reps || 0;
+        if (wt <= 0) continue;
+        if (wt > maxWeight) { maxWeight = wt; bestReps = reps; }
+        if (reps > 0 && reps <= 12) {
+          bestE1rm = Math.max(bestE1rm, wt * (1 + reps / 30));
+        }
+      }
+
+      if (maxWeight <= 0) continue;
+      const prev = exercises.get(id);
+      if (!prev || bestE1rm > (prev.e1rm || 0)) {
+        exercises.set(id, {
+          name: ex.name,
+          weight: maxWeight,
+          reps: bestReps,
+          e1rm: Math.round(bestE1rm * 10) / 10 || null,
+        });
+      }
+    }
+  }
+
+  return Array.from(exercises.entries())
+    .map(([id, d]) => ({ id, ...d }))
+    .filter(e => e.e1rm > 0)
+    .sort((a, b) => b.e1rm - a.e1rm)
+    .slice(0, 15);
+}
+
 async function getPlanningContextHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
   const callerUid = req.auth?.uid || req.body?.userId || req.query?.userId;
@@ -235,6 +284,9 @@ async function getPlanningContextHandler(req, res) {
         };
       });
     }
+
+    // 6. Compute strength summary from workout data (no extra reads)
+    result.strengthSummary = buildStrengthSummary(result.recentWorkoutsSummary || []);
 
     return ok(res, result);
 
