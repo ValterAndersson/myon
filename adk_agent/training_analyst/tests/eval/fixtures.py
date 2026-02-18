@@ -182,6 +182,17 @@ def build_progression_ready(
         data["_confidence_hint"] = confidence_override
     if pr_hit:
         data["_pr_hit"] = True
+        # Rebuild series with improving e1RM to actually show a PR
+        data["exercise_series"] = [_build_exercise_series(
+            exercise_name=exercise_name,
+            exercise_id=exercise_id,
+            weeks=weeks,
+            base_weight=current_weight,
+            base_reps=reps,
+            avg_rir=avg_rir,
+            e1rm_trend="improving",
+            e1rm_slope=2.0,  # Strong upward trend for PR
+        )]
     return data
 
 

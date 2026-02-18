@@ -201,7 +201,7 @@ struct AllConversationsSheet: View {
                 isLoading = false
             }
         } catch {
-            print("[AllConversationsSheet] Failed to load: \(error)")
+            DebugLogger.error(.firestore, "[AllConversationsSheet] loadConversations failed: \(error.localizedDescription)")
             await MainActor.run { isLoading = false }
         }
     }
@@ -232,7 +232,7 @@ struct AllConversationsSheet: View {
                 isLoadingMore = false
             }
         } catch {
-            print("[AllConversationsSheet] Failed to load more: \(error)")
+            DebugLogger.error(.firestore, "[AllConversationsSheet] loadMore failed: \(error.localizedDescription)")
             await MainActor.run { isLoadingMore = false }
         }
     }

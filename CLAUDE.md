@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Sub-Agent Configuration
 
-When spawning sub-agents via the Task tool, always pass `model: "sonnet"`. The default haiku model is not available in this environment.
+When spawning sub-agents via the Task tool, always pass `model: "sonnet"` (Sonnet 4.6). The default haiku model is not available in this environment.
 
 ## Agent Working Protocol
 
@@ -41,6 +41,38 @@ Before writing any code, execute these steps in order:
 - **Swift** (iOS): Follow existing patterns. Models use `Codable` with `decodeIfPresent` + defaults for resilience. Use `@DocumentID` for Firestore doc IDs.
 - **All languages**: Functions should be modular. Names should be descriptive. Patterns should be simple. Annotate complex or security-critical sections with structured comments explaining *what* and *why* (not change history).
 
+### Layer-Specific Conventions
+
+These conventions address recurring inconsistencies found across the codebase. Follow them for all new code and when modifying existing files.
+
+#### Firebase Functions
+
+- **Responses**: Always use `ok(res, data)` / `fail(res, code, message, details, httpStatus)` from `utils/response.js`. Never use raw `res.status().json()`.
+- **Logging**: Use `const { logger } = require("firebase-functions");` — never `console.log/error`. Include context: `logger.info("[functionName] action", { userId, resourceId })`.
+- **Auth — userId derivation**: In bearer-lane endpoints (`requireFlexibleAuth`), derive userId from `req.auth.uid` only. Never fall back to `req.body.userId` or `req.query.userId` — that path is for API-key-lane (`withApiKey`) only.
+- **Timestamps**: Use `admin.firestore.FieldValue.serverTimestamp()` for Firestore writes (`created_at`, `updated_at`). Use ISO strings (`new Date().toISOString()`) only for state history arrays or immediate-use values. Never store raw `new Date()` objects.
+- **Transactions**: Any read-then-write to Firestore must be inside a `runTransaction`. Reads outside the transaction followed by writes inside it are a race condition. Structured errors from transactions: `throw { httpCode: 404, code: "NOT_FOUND", message: "..." }`.
+- **Input validation**: Validate request parameters before any business logic. Prefer Zod schemas (see `log-set.js`) for structured input. At minimum, check required fields and return `fail()` with `INVALID_ARGUMENT`.
+- **v2 function pattern**: Self-contained with `onRequest` from `firebase-functions/v2/https`, auth middleware built-in, exported directly from handler file (`exports.fn = fn;`).
+
+#### Python (Agent System)
+
+- **Logging**: Use `logger = logging.getLogger(__name__)` at module level. Use structured JSON for production events: `logger.info(json.dumps({"event": "...", "key": "value"}))`. Reserve `logger.debug()` for development-only output.
+- **Exception handling**: Never use bare `except:`. Always catch specific exceptions. Return `SkillResult(success=False, error=...)` for business logic failures; raise exceptions for infrastructure/config errors.
+- **Type hints**: Required on all public function signatures (arguments and return type).
+- **Request state**: Use `ContextVar` for per-request state — never module-level globals. Module-level singletons (clients, config) are acceptable when they are stateless.
+- **Imports**: Order: `from __future__ import annotations`, stdlib, third-party, local. Use `from __future__ import annotations` in all files.
+
+#### Swift (iOS)
+
+- **MVVM boundary**: All business logic, data fetching, and state mutations belong in ViewModels. Views handle only layout and forwarding user events. If a View file exceeds ~300 lines, that is a signal to extract logic into a ViewModel.
+- **Task lifecycle**: Store `Task` references and cancel them in `.onDisappear`, or use the `.task { }` modifier (which auto-cancels). Never create fire-and-forget `Task { }` blocks in Views.
+- **Error surfacing**: Every ViewModel that performs async work must expose `@Published var errorMessage: String?` for the View to display.
+- **Singleton observation**: Use `@ObservedObject` for `.shared` singletons (they are owned elsewhere). Use `@StateObject` only when the View creates and owns the object.
+- **Design tokens**: Always use `Space.*` for spacing, `Color.*` tokens for colors, and `TypographyToken.*` for fonts. No hardcoded numeric spacing, color literals, or `.system(size:)` font calls.
+- **Listener cleanup**: Store `ListenerRegistration` references from Firestore snapshot listeners and call `.remove()` in a cleanup method or `deinit`.
+- **Naming**: `*Screen` for full-screen navigation destinations, `*View` for reusable components, `*Service` for external API/Firebase interactions, `*Manager` for internal state management, `*Repository` for data access.
+
 ### Documentation Updates (Three Tiers)
 
 When modifying code, update **all affected tiers**. All documentation describes **how the system works now** — not a changelog. Exception: major architectural shifts should be noted briefly for strategic awareness.
@@ -63,26 +95,6 @@ Do not annotate trivial code.
 ### Finishing a Task
 
 End every task with a clean commit. The codebase must be in a stable, buildable state after your changes.
-
----
-
-## Project Overview
-
-Povver (formerly MYON) is an AI-powered fitness coaching platform. Three layers, Firestore as source of truth:
-
-```
-iOS App (SwiftUI) ──HTTP/SSE──> Firebase Functions (Node.js) ──HTTP──> Agent System (Python/Vertex AI)
-       │                              │                                       │
-       └──── Firestore Listeners ─────┴──────── Firestore Reads/Writes ──────┘
-```
-
-| Layer | Path | Runtime |
-|-------|------|---------|
-| iOS App | `Povver/Povver/` | SwiftUI, MVVM |
-| Firebase Functions | `firebase_functions/functions/` | Node.js 22, us-central1 |
-| Agent System | `adk_agent/catalog_orchestrator/` | Python, Vertex AI Agent Engine |
-| Admin Dashboard | `admin/catalog_dashboard/` | Python/Flask |
-| Utility Scripts | `scripts/` | Node.js |
 
 ---
 
@@ -173,84 +185,6 @@ node scripts/backfill_analysis_jobs.js # backfill training analysis (post-workou
 
 ---
 
-## Architecture Reference
-
-### iOS (Povver/Povver/)
-
-MVVM: Views → ViewModels → Services/Repositories → Firebase SDK.
-
-- **Entry**: `PovverApp.swift` → `RootView.swift` → `MainTabsView.swift` (tabs: Coach, Train, Routines, Templates)
-- **Chat system**: Primary AI interaction surface. `CanvasViewModel` manages SSE streaming, artifact rendering, and conversation state. Artifacts (workout plans, routines, analysis) arrive via SSE events and render inline using card components (`SessionPlanCard`, `RoutineSummaryCard`, etc.).
-- **Streaming**: `DirectStreamingService` opens SSE via `streamAgentNormalized` Firebase Function proxy to Vertex AI. Artifact events are emitted when agent tools return `artifact_type` data.
-- **Models**: `Codable` structs with `decodeIfPresent` + sensible defaults. Use `@DocumentID` for Firestore doc IDs.
-- **Design tokens**: `UI/DesignSystem/Tokens.swift` — spacing, radius, typography, colors.
-
-### Firebase Functions (firebase_functions/functions/)
-
-All functions exported from `index.js`. Two patterns for wrapping handlers:
-
-**v1** (most endpoints): Wrapped in `index.js` with auth middleware:
-```javascript
-// Service lane — userId from req.body/query (trusted agent calls)
-exports.getUser = functions.https.onRequest((req, res) => withApiKey(getUser)(req, res));
-// Bearer lane — userId from req.auth.uid ONLY (iOS app calls)
-exports.artifactAction = functions.https.onRequest((req, res) => requireFlexibleAuth(artifactAction)(req, res));
-```
-
-**v2** (newer endpoints): Self-contained with `onRequest` from `firebase-functions/v2/https`, auth middleware built-in. Exported directly: `exports.logSet = logSet;`
-
-**When adding a new endpoint:**
-1. Create handler file in the appropriate domain directory
-2. Choose auth lane: `withApiKey` (service-only) or `requireFlexibleAuth` (iOS + service)
-3. Use `ok(res, data)` / `fail(res, code, message, details, httpStatus)` from `utils/response.js`
-4. Export in `index.js` with the correct middleware wrapper
-5. For v2 functions, wrap internally and export directly
-
-**Key patterns:**
-- `stream-agent-normalized.js` handles SSE streaming, artifact detection, and message persistence to `conversations/{id}/messages` and `conversations/{id}/artifacts`
-- `artifacts/artifact-action.js` handles artifact lifecycle (accept, dismiss, save_routine, start_workout)
-- Auth security: Bearer-lane endpoints **never** trust client-provided userId — always derive from `req.auth.uid`
-
-### Agent System — 4-Lane Shell Agent
-
-The old multi-agent architecture (CoachAgent, PlannerAgent) is **deprecated** (`_archived/`). All code uses the Shell Agent.
-
-| Lane | Trigger Pattern | Model | Latency | Handler |
-|------|----------------|-------|---------|---------|
-| FAST | `"done"`, `"8 @ 100"`, `"next set"` | None | <500ms | `copilot_skills.*` |
-| FUNCTIONAL | `{"intent": "SWAP_EXERCISE", ...}` | Flash | <1s | `functional_handler.py` |
-| SLOW | `"create a PPL routine"` | Pro | 2-5s | `shell/agent.py` |
-| WORKER | PubSub `workout_completed` | Pro | async | `post_workout_analyst.py` |
-
-- **Entry**: `app/agent_engine_app.py` → `app/shell/router.py` (lane selection) → lane handler
-- **Skills** (`app/skills/`): Pure logic modules shared across all lanes. This is the "shared brain."
-- **Context**: Thread-safe `ContextVar` per request — **required** because Vertex AI Agent Engine is concurrent serverless. Module-level globals would leak user data across requests.
-- **Security**: `user_id` always from authenticated request context, never from LLM output.
-
-### Catalog Orchestrator
-
-Automated catalog curation via Cloud Run Jobs: quality audits, gap analysis, LLM enrichment, duplicate detection. Uses `gemini-2.5-flash` by default. Job queue in Firestore (`catalog_jobs` collection). See `adk_agent/catalog_orchestrator/Makefile` for all targets.
-
----
-
-## Key Firestore Collections
-
-| Collection | Purpose |
-|------------|---------|
-| `users/{uid}/conversations/{id}/messages` | Conversation history (user prompts, agent responses, artifact refs) |
-| `users/{uid}/conversations/{id}/artifacts` | Proposed artifacts from agent (plans, routines, analysis) |
-| `users/{uid}/agent_sessions/{purpose}` | Vertex AI session references for reuse |
-| `users/{uid}/routines/{id}` | Ordered template sequences with cursor tracking |
-| `users/{uid}/templates/{id}` | Reusable workout plans |
-| `users/{uid}/active_workouts/{id}` | In-progress workouts |
-| `users/{uid}/workouts/{id}` | Completed workout history |
-| `exercises` | Global exercise catalog |
-| `catalog_jobs` | Catalog orchestrator job queue |
-
-Full schema with field-level detail: `docs/FIRESTORE_SCHEMA.md`
-
----
-
 ## Cross-Stack Checklist
 
 When adding a new field or data shape, update across all affected layers:
@@ -272,9 +206,7 @@ When adding a new field or data shape, update across all affected layers:
 | `adk_agent/canvas_orchestrator/_archived/` | Shell Agent (`app/shell/`) |
 | `canvas/apply-action.js` and all `canvas/*.js` | Artifacts via `stream-agent-normalized.js` + `artifacts/artifact-action.js` |
 | `CanvasRepository.swift` | Artifacts from SSE events in `CanvasViewModel` |
-| `PendingAgentInvoke.swift` | Dead code — removed |
-| `routines/create-routine.js` | `routines/create-routine-from-draft.js` |
 | `routines/update-routine.js` | `routines/patch-routine.js` |
 | `templates/update-template.js` | `templates/patch-template.js` |
-| Field `templateIds` | `template_ids` |
-| Field `weight` | `weight_kg` |
+| Field `templateIds` | `template_ids` (snake_case everywhere) |
+| Field `weight` in workout sets | `weight_kg` (templates still use `weight` as a prescription value) |

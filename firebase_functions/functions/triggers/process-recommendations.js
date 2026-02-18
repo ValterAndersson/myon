@@ -626,7 +626,10 @@ function computeProgressionWeight(currentWeight, recommendationType, suggestedWe
     return roundToNearest(currentWeight * 0.9, currentWeight > 40 ? 2.5 : 1.25);
   }
   const increment = currentWeight > 40 ? 0.025 : 0.05;
-  let newWeight = roundToNearest(currentWeight * (1 + increment), currentWeight > 40 ? 2.5 : 1.25);
+  const step = currentWeight > 40 ? 2.5 : 1.25;
+  let newWeight = roundToNearest(currentWeight * (1 + increment), step);
+  // If rounding killed the increment, bump by one step
+  if (newWeight <= currentWeight) newWeight = currentWeight + step;
   newWeight = Math.min(newWeight, currentWeight + 5);
   return newWeight > 0 ? newWeight : 0;
 }
@@ -722,7 +725,10 @@ function computeProgressionChanges(exerciseData, recommendationType, suggestedWe
       newWeight = roundToNearest(currentWeight * 0.9, currentWeight > 40 ? 2.5 : 1.25);
     } else {
       const increment = currentWeight > 40 ? 0.025 : 0.05;
-      newWeight = roundToNearest(currentWeight * (1 + increment), currentWeight > 40 ? 2.5 : 1.25);
+      const step = currentWeight > 40 ? 2.5 : 1.25;
+      newWeight = roundToNearest(currentWeight * (1 + increment), step);
+      // If rounding killed the increment, bump by one step
+      if (newWeight <= currentWeight) newWeight = currentWeight + step;
       newWeight = Math.min(newWeight, currentWeight + 5);
     }
 

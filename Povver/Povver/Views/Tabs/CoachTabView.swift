@@ -234,6 +234,9 @@ struct CoachTabView: View {
             .order(by: "updatedAt", descending: true)
             .limit(to: 5)
             .getDocuments { snapshot, error in
+                if let error = error {
+                    DebugLogger.error(.firestore, "[CoachTabView] loadRecentCanvases failed: \(error.localizedDescription)")
+                }
                 guard let docs = snapshot?.documents, error == nil else { return }
                 let canvases: [RecentCanvas] = docs.compactMap { doc in
                     let data = doc.data()

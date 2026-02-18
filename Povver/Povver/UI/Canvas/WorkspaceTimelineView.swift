@@ -943,11 +943,17 @@ struct WorkspaceTimelineView: View {
                 continue
             }
             
-            // Agent response - flush steps and add response
+            // Agent response - flush steps and merge consecutive responses.
+            // Backend emits two persisted event types per agent turn:
+            //   - type "message" (text_delta): incremental streaming chunks
+            //   - type "agentResponse" (text_commit): authoritative sentence-boundary commits
+            // Both get persisted as workspace_entries. Without merging, each renders
+            // as a separate chat bubble. We merge them into a single entry here.
             if eventType == .agentResponse || eventType == .message {
                 let text = entry.event.content?["text"]?.value as? String ?? ""
                 guard !text.isEmpty else { continue }
-                
+                let isDelta = eventType == .message
+
                 // Flush pending steps as completed track
                 if !activeSteps.isEmpty {
                     let trackEvent = createStepTrackEvent(steps: activeSteps, isComplete: true, timestamp: entry.createdAt)
@@ -955,12 +961,62 @@ struct WorkspaceTimelineView: View {
                     activeSteps = []
                     sessionStartTime = nil
                 }
-                
-                // Deduplicate
-                if let last = result.last,
-                   normalizedText(for: entry) == normalizedText(for: last) {
+
+                // Merge with previous agent response if consecutive
+                if let lastIdx = result.indices.last,
+                   let lastType = result[lastIdx].event.eventType,
+                   (lastType == .agentResponse || lastType == .message) {
+                    let existingText = result[lastIdx].event.content?["text"]?.value as? String ?? ""
+                    let prevIsDelta = lastType == .message
+
+                    let mergedText: String
+                    if isDelta {
+                        // Incoming is a text_delta chunk — concatenate directly (no separator)
+                        mergedText = existingText + text
+                    } else {
+                        // Incoming is a text_commit (authoritative segment).
+                        // If accumulated text already contains this commit, skip it.
+                        if existingText.contains(text) {
+                            continue
+                        }
+                        if prevIsDelta {
+                            // Prior entries were deltas; the commit is the authoritative
+                            // version of text that was already streamed as deltas.
+                            // Check if existing delta text is a prefix of the commit.
+                            let trimmedExisting = existingText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let trimmedCommit = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if trimmedCommit.hasPrefix(trimmedExisting) || trimmedExisting.hasPrefix(trimmedCommit) {
+                                // Commit supersedes deltas — use the longer of the two
+                                mergedText = trimmedCommit.count >= trimmedExisting.count ? text : existingText
+                            } else {
+                                // Deltas and commit diverged (multi-segment), concatenate
+                                mergedText = existingText + text
+                            }
+                        } else {
+                            // Commit after commit — distinct segments, separate with newlines
+                            mergedText = existingText + "\n\n" + text
+                        }
+                    }
+
+                    // Replace with merged event (keep agentResponse type for display)
+                    let mergedContent: [String: AnyCodable] = [
+                        "text": AnyCodable(mergedText)
+                    ]
+                    let mergedStreamEvent = StreamEvent(
+                        type: isDelta ? result[lastIdx].event.type : "agentResponse",
+                        agent: result[lastIdx].event.agent,
+                        content: mergedContent,
+                        timestamp: result[lastIdx].event.timestamp,
+                        metadata: result[lastIdx].event.metadata
+                    )
+                    result[lastIdx] = WorkspaceEvent(
+                        id: result[lastIdx].id,
+                        event: mergedStreamEvent,
+                        createdAt: result[lastIdx].createdAt
+                    )
                     continue
                 }
+
                 result.append(entry)
                 continue
             }
@@ -1282,6 +1338,7 @@ struct WorkspaceTimelineView: View {
         }
         return entry.event.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
     
     private func synthesizeThought(thinking: WorkspaceEvent, thought: WorkspaceEvent) -> WorkspaceEvent {
         let start = (thinking.event.metadata?["start_time"]?.value as? Double)
