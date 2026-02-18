@@ -38,6 +38,9 @@ struct RootView: View {
                 flow = .login
             }
         }
+        .onChange(of: flow) { _, newFlow in
+            AnalyticsService.shared.screenViewed(String(describing: newFlow))
+        }
         // Pre-warm agent session after successful auth
         .onChange(of: flow) { _, newFlow in
             if newFlow == .main, let uid = authService.currentUser?.uid {

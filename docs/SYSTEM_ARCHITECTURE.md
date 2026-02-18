@@ -1149,21 +1149,27 @@ Firebase Analytics is enabled via `IS_ANALYTICS_ENABLED` in `GoogleService-Info.
 |-----------|-----------|-----------|
 | `app_opened` | — | `PovverApp.swift` on launch |
 | `signup_completed` | `provider` | `AuthService.signUp`, `confirmSSOAccountCreation` |
+| `tab_viewed` | `tab` | `MainTabsView` on tab switch |
+| `screen_viewed` | `screen` | `RootView` on flow change (login/register/main) |
 | `conversation_started` | `entry_point` | `CanvasViewModel.start()` |
 | `message_sent` | `message_length` | `CanvasViewModel.startSSEStream()` |
 | `artifact_received` | `artifact_type` | `CanvasViewModel.handleIncomingStreamEvent` (.artifact) |
 | `artifact_action` | `action`, `artifact_type` | `CanvasViewModel.applyAction()` |
-| `workout_started` | `source` (routine/template/freeform) | `FocusModeWorkoutService.startWorkout()` |
-| `workout_completed` | `duration_min`, `exercise_count`, `set_count` | `FocusModeWorkoutService.completeWorkout()` |
-| `workout_cancelled` | `duration_min` | `FocusModeWorkoutService.cancelWorkout()` |
+| `workout_started` | `source`, `workout_id` | `FocusModeWorkoutService.startWorkout()` |
+| `workout_completed` | `duration_min`, `exercise_count`, `set_count`, `workout_id` | `FocusModeWorkoutService.completeWorkout()` |
+| `workout_cancelled` | `duration_min`, `workout_id` | `FocusModeWorkoutService.cancelWorkout()` |
 | `workout_coach_opened` | — | `WorkoutCoachViewModel.send()` (first message) |
 | `paywall_shown` | `trigger` | `CanvasViewModel` (premium gate catch / SSE error) |
 | `trial_started` | — | `SubscriptionService.purchase()` |
 | `subscription_purchased` | `product_id` | `SubscriptionService.purchase()` |
-| `recommendation_action` | `action`, `type` | `RecommendationsViewModel.accept/reject()` |
+| `recommendation_action` | `action`, `type` | `RecommendationsViewModel.accept/reject()` (after server confirmation) |
 | `streaming_error` | `error_code` | `CanvasViewModel.startSSEStream()` (error catch) |
 
+**Workout event correlation**: All workout lifecycle events (`workout_started`, `workout_completed`, `workout_cancelled`) share a `workout_id` parameter so you can join start → completion rates by source (routine vs. template vs. freeform).
+
 **Milestone events** (fire once per install via UserDefaults guard): `first_message_sent`, `first_artifact_received`, `first_workout_completed`. These fire automatically inside `messageSent()`, `artifactReceived()`, and `workoutCompleted()`.
+
+**Funnel tracking**: `screen_viewed` tracks auth flow transitions (login → register → main). `tab_viewed` tracks which tabs users visit and in what order. Combined with `conversation_started`, `message_sent`, `artifact_received`, and `artifact_action`, this gives a full activation funnel: app open → signup → first conversation → first artifact → first accepted plan.
 
 **User identity**: `Analytics.setUserID()` is called in `AuthService`'s auth state listener alongside Crashlytics.
 
@@ -1175,7 +1181,7 @@ All server-side logs use structured JSON with an `event` field for Cloud Logging
 
 | Event | File | Filter | Key Fields |
 |-------|------|--------|------------|
-| `stream_completed` | `stream-agent-normalized.js` | `jsonPayload.event="stream_completed"` | `latency_ms`, `user_id`, `conversation_id`, `artifact_count`, `data_chunks` |
+| `stream_completed` | `stream-agent-normalized.js` | `jsonPayload.event="stream_completed"` | `success`, `latency_ms`, `user_id`, `conversation_id`, `artifact_count`, `data_chunks` |
 | `subscription_event_received` | `app-store-webhook.js` | `jsonPayload.event="subscription_event_received"` | `notification_type`, `subtype` |
 | `subscription_updated` | `app-store-webhook.js` | `jsonPayload.event="subscription_updated"` | `user_id`, `status`, `tier` |
 
@@ -1191,7 +1197,7 @@ The `@timed_tool` decorator on all tool functions in `tools.py` provides per-too
 ### Cloud Monitoring (Manual Setup)
 
 **Log-based metrics** (configure in Cloud Console):
-- `stream_latency_ms`: Distribution on `jsonPayload.latency_ms` from `stream_completed` events
+- `stream_latency_ms`: Distribution on `jsonPayload.latency_ms` from `stream_completed` events (filter `jsonPayload.success=true` to exclude failed streams)
 - `tool_latency_ms`: Distribution on `jsonPayload.latency_ms` from `tool_called` events, grouped by `jsonPayload.tool`
 - `agent_request_latency_ms`: Distribution from `agent_request_completed` events, grouped by `jsonPayload.lane`
 

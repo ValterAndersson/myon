@@ -45,7 +45,7 @@ class RecommendationsViewModel: ObservableObject {
         pending.removeAll { $0.id == id }
         pendingCount = pending.count
 
-        AnalyticsService.shared.recommendationAction(action: "accept", type: recommendation.recommendation.type)
+        let recType = recommendation.recommendation.type
 
         Task {
             do {
@@ -55,8 +55,9 @@ class RecommendationsViewModel: ObservableObject {
                 )
                 if !response.success {
                     handleServerError(response.error)
+                } else {
+                    AnalyticsService.shared.recommendationAction(action: "accept", type: recType)
                 }
-                // On success, Firestore listener will update state
             } catch {
                 handleThrownError(error)
             }
@@ -73,7 +74,7 @@ class RecommendationsViewModel: ObservableObject {
         pending.removeAll { $0.id == id }
         pendingCount = pending.count
 
-        AnalyticsService.shared.recommendationAction(action: "reject", type: recommendation.recommendation.type)
+        let recType = recommendation.recommendation.type
 
         Task {
             do {
@@ -83,6 +84,8 @@ class RecommendationsViewModel: ObservableObject {
                 )
                 if !response.success {
                     handleServerError(response.error)
+                } else {
+                    AnalyticsService.shared.recommendationAction(action: "reject", type: recType)
                 }
             } catch {
                 handleThrownError(error)

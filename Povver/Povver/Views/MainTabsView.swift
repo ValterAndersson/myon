@@ -59,7 +59,15 @@ struct MainTabsView: View {
     }
 
     @StateObject private var recommendationsVM = RecommendationsViewModel()
+    @StateObject private var workoutService = FocusModeWorkoutService.shared
     @State private var showRecommendations = false
+    @State private var bannerElapsedTime: TimeInterval = 0
+    @State private var bannerTimer: Timer? = nil
+
+    /// Whether the floating workout banner should be visible
+    private var showWorkoutBanner: Bool {
+        workoutService.workout != nil && MainTab.migrate(from: selectedTabRaw) != .train
+    }
 
     var body: some View {
         TabView(selection: selectedTab) {
@@ -114,8 +122,36 @@ struct MainTabsView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if showWorkoutBanner {
+                FloatingWorkoutBanner(
+                    workoutName: workoutService.workout?.name ?? "Workout",
+                    elapsedTime: bannerElapsedTime,
+                    onTap: { selectedTabRaw = MainTab.train.rawValue }
+                )
+                .padding(.horizontal, Space.md)
+                .padding(.bottom, 52) // Above tab bar
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showWorkoutBanner)
+        .onChange(of: showWorkoutBanner) { _, visible in
+            if visible {
+                startBannerTimer()
+            } else {
+                stopBannerTimer()
+            }
+        }
+        .onAppear {
+            if showWorkoutBanner {
+                startBannerTimer()
+            }
+        }
         .sheet(isPresented: $showRecommendations) {
             RecommendationsFeedView(viewModel: recommendationsVM)
+        }
+        .onChange(of: selectedTabRaw) { _, newTab in
+            AnalyticsService.shared.tabViewed(newTab)
         }
         .task {
             if let userId = AuthService.shared.currentUser?.uid {
@@ -128,6 +164,29 @@ struct MainTabsView: View {
     /// Used by Coach tab to navigate to Train tab
     private func switchToTab(_ tab: MainTab) {
         selectedTabRaw = tab.rawValue
+    }
+
+    // MARK: - Banner Timer
+
+    private func startBannerTimer() {
+        stopBannerTimer()
+        updateBannerElapsed()
+        bannerTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                updateBannerElapsed()
+            }
+        }
+    }
+
+    private func stopBannerTimer() {
+        bannerTimer?.invalidate()
+        bannerTimer = nil
+    }
+
+    private func updateBannerElapsed() {
+        if let startTime = workoutService.workout?.startTime {
+            bannerElapsedTime = Date().timeIntervalSince(startTime)
+        }
     }
 }
 

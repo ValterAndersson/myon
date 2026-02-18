@@ -323,8 +323,8 @@ final class CanvasViewModel: ObservableObject {
                     errorMessage = err.message
                 }
             } else {
-                // Log analytics after successful action dispatch
-                AnalyticsService.shared.artifactAction(action: type, artifactType: "canvas_action")
+                let cardType = cards.first(where: { $0.id == cardId })?.type.rawValue ?? "unknown"
+                AnalyticsService.shared.artifactAction(action: type, artifactType: cardType)
             }
         } catch {
             errorMessage = error.localizedDescription

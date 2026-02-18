@@ -374,7 +374,7 @@ class FocusModeWorkoutService: ObservableObject {
         } else {
             source = "freeform"
         }
-        AnalyticsService.shared.workoutStarted(source: source)
+        AnalyticsService.shared.workoutStarted(source: source, workoutId: parsedWorkout.id)
 
         return parsedWorkout
     }
@@ -761,7 +761,7 @@ class FocusModeWorkoutService: ObservableObject {
         if response.success {
             sessionLog.end(outcome: .workoutCancelled)
             let durationMin = Int(Date().timeIntervalSince(workout.startTime) / 60)
-            AnalyticsService.shared.workoutCancelled(durationMin: durationMin)
+            AnalyticsService.shared.workoutCancelled(durationMin: durationMin, workoutId: workout.id)
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
@@ -807,7 +807,7 @@ class FocusModeWorkoutService: ObservableObject {
             let durationMin = Int(Date().timeIntervalSince(workout.startTime) / 60)
             let exerciseCount = workout.exercises.count
             let setCount = workout.exercises.reduce(0) { $0 + $1.sets.filter { $0.isDone }.count }
-            AnalyticsService.shared.workoutCompleted(durationMin: durationMin, exerciseCount: exerciseCount, setCount: setCount)
+            AnalyticsService.shared.workoutCompleted(durationMin: durationMin, exerciseCount: exerciseCount, setCount: setCount, workoutId: archivedId)
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil

@@ -100,7 +100,8 @@ class AgentEngineApp(AdkApp):
 
         routing = None
         plan = None
-        
+        ctx = None
+
         # === SECURITY BOUNDARY: Context from authenticated request ===
         # user_id is derived from the authenticated Vertex AI request, NOT from LLM output.
         # All downstream tool calls retrieve user_id via get_current_context() (contextvars).
@@ -131,10 +132,11 @@ class AgentEngineApp(AdkApp):
         # === 3. FAST LANE: Direct skill execution ===
         if routing and routing.lane == Lane.FAST:
             logger.info("FAST LANE: %s → %s", message[:30], routing.intent)
-            
+
             try:
                 result = execute_fast_lane(routing, message, ctx)
                 yield self._format_fast_lane_response(result, routing.intent)
+                self._log_request_completed(start_time, routing, ctx)
                 return
             except Exception as e:
                 logger.error("Fast lane error: %s - falling back to Slow", e)
@@ -172,6 +174,7 @@ class AgentEngineApp(AdkApp):
                     )
                 
                 yield self._format_functional_lane_response(result, routing.intent)
+                self._log_request_completed(start_time, routing, ctx)
                 return
             except Exception as e:
                 logger.error("Functional lane error: %s - falling back to Slow", e)
@@ -272,19 +275,27 @@ class AgentEngineApp(AdkApp):
             except Exception as e:
                 logger.debug("Critic error: %s", e)
 
-        # === STRUCTURED LOG: Request completion ===
+        self._log_request_completed(start_time, routing, ctx)
+
+    def _log_request_completed(self, start_time, routing, ctx):
+        """Emit structured completion log for all lanes."""
         try:
+            lane = "unknown"
+            if routing and hasattr(routing.lane, "value"):
+                lane = routing.lane.value
+            elif routing:
+                lane = str(routing.lane)
             logger.info(json.dumps({
                 "event": "agent_request_completed",
-                "lane": routing.lane.value if routing and hasattr(routing.lane, "value") else str(routing.lane) if routing else "unknown",
+                "lane": lane,
                 "intent": routing.intent if routing else None,
-                "workout_mode": ctx.workout_mode if 'ctx' in dir() else False,
+                "workout_mode": ctx.workout_mode if ctx else False,
                 "latency_ms": int((time.time() - start_time) * 1000),
-                "user_id": ctx.user_id if 'ctx' in dir() else None,
+                "user_id": ctx.user_id if ctx else None,
             }))
         except Exception:
             pass
-    
+
     def _format_fast_lane_response(self, result: dict, intent: str) -> dict:
         """Format fast lane result as ADK-compatible streaming response."""
         skill_result = result.get("result", {})

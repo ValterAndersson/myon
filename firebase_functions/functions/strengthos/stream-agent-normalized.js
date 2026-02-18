@@ -1391,6 +1391,7 @@ async function streamAgentNormalizedHandler(req, res) {
 
       logger.info('stream_completed', {
         event: 'stream_completed',
+        success: dataChunkCount > 0,
         user_id: userId,
         conversation_id: conversationId,
         latency_ms: Date.now() - streamStartTime,

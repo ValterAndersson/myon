@@ -23,6 +23,16 @@ final class AnalyticsService {
         log("signup_completed", params: ["provider": provider])
     }
 
+    // MARK: - Navigation (funnel tracking)
+
+    func tabViewed(_ tab: String) {
+        log("tab_viewed", params: ["tab": tab])
+    }
+
+    func screenViewed(_ screen: String) {
+        log("screen_viewed", params: ["screen": screen])
+    }
+
     // MARK: - Conversation
 
     func conversationStarted(entryPoint: String) {
@@ -47,21 +57,22 @@ final class AnalyticsService {
 
     // MARK: - Workouts
 
-    func workoutStarted(source: String) {
-        log("workout_started", params: ["source": source])
+    func workoutStarted(source: String, workoutId: String) {
+        log("workout_started", params: ["source": source, "workout_id": workoutId])
     }
 
-    func workoutCompleted(durationMin: Int, exerciseCount: Int, setCount: Int) {
+    func workoutCompleted(durationMin: Int, exerciseCount: Int, setCount: Int, workoutId: String) {
         log("workout_completed", params: [
             "duration_min": durationMin,
             "exercise_count": exerciseCount,
             "set_count": setCount,
+            "workout_id": workoutId,
         ])
         logOnce("first_workout_completed")
     }
 
-    func workoutCancelled(durationMin: Int) {
-        log("workout_cancelled", params: ["duration_min": durationMin])
+    func workoutCancelled(durationMin: Int, workoutId: String) {
+        log("workout_cancelled", params: ["duration_min": durationMin, "workout_id": workoutId])
     }
 
     func workoutCoachOpened() {
