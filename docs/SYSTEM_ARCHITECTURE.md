@@ -346,10 +346,11 @@ The conversation system is a lightweight replacement for the previous canvas arc
 ### Artifact Lifecycle
 
 1. **Creation**: Agent tool returns artifact data in SkillResult
-2. **Delivery**: Agent emits SSE event `{type: "artifact", data: {...}, artifactId: "..."}`
-3. **Display**: iOS receives SSE event, converts to CanvasCardModel, renders inline
-4. **Persistence** (optional): iOS may write to `conversations/{id}/artifacts/{artifactId}` for later retrieval
-5. **Action**: User taps Accept/Dismiss → calls `artifactAction` endpoint → updates artifact status + executes side effects
+2. **Pre-ID**: `stream-agent-normalized.js` pre-generates a Firestore artifact doc ID via `artifactsRef.doc()` before SSE emission
+3. **Delivery**: SSE event `{type: "artifact", artifact_id: "pre-generated-id", data: {...}}`
+4. **Display**: iOS extracts `artifact_id`, converts to `CanvasCardModel` with artifact provenance in `CardMeta` (`artifactId`, `conversationId`). The `artifact_id` becomes stable card identity.
+5. **Persistence**: `stream-agent-normalized.js` writes artifact to Firestore with the pre-generated ID via `set()`
+6. **Action**: User taps Accept/Save/Dismiss → iOS routes through `AgentsApi.artifactAction()` using `CardMeta.artifactId` + `conversationId`. Falls back to legacy `applyAction` when `artifactId` is absent.
 
 ### SSE Event Types
 

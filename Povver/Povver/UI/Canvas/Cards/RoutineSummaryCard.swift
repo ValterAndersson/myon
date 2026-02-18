@@ -354,13 +354,18 @@ public struct RoutineSummaryCard: View {
     }
     
     private func getExercisesFromLinkedCard(_ workout: RoutineWorkoutSummary) -> [PlanExercise] {
+        // Prefer inline blocks from artifact (SSE path embeds exercises directly)
+        if let blocks = workout.blocks, !blocks.isEmpty {
+            return blocks
+        }
+
         // Try to find the linked session_plan card by cardId
         if let cardId = workout.cardId,
            let linkedCard = allCards.first(where: { $0.id == cardId }),
            case .sessionPlan(let exercises) = linkedCard.data {
             return exercises
         }
-        
+
         // Fallback: look for a session_plan card with matching title
         if let matchingCard = allCards.first(where: { card in
             if case .sessionPlan = card.data,
@@ -371,7 +376,7 @@ public struct RoutineSummaryCard: View {
         }), case .sessionPlan(let exercises) = matchingCard.data {
             return exercises
         }
-        
+
         return []
     }
     

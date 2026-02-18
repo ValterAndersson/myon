@@ -849,7 +849,9 @@ async function generateConversationTitle(userId, conversationId, userMessage) {
   if (!title) return;
 
   const batch = db.batch();
-  batch.update(db.collection('users').doc(userId).collection('canvases').doc(conversationId), { title });
+  if (canvasDoc.exists) {
+    batch.update(db.collection('users').doc(userId).collection('canvases').doc(conversationId), { title });
+  }
   batch.set(db.collection('users').doc(userId).collection('conversations').doc(conversationId), { title }, { merge: true });
   await batch.commit();
 
@@ -1217,10 +1219,14 @@ async function streamAgentNormalizedHandler(req, res) {
                   artifact_type: parsedResponse.artifact_type,
                 });
 
+                // Pre-generate Firestore artifact ID so iOS can reference it for actions
+                const artifactDocRef = artifactsRef.doc();
+
                 // Emit artifact to iOS IMMEDIATELY via SSE (before async Firestore write)
                 // Uses sse.write() to route through transformToIOSEvent for proper iOS format
                 sse.write({
                   type: 'artifact',
+                  artifact_id: artifactDocRef.id,
                   artifact_type: parsedResponse.artifact_type,
                   content: parsedResponse.content || {},
                   actions: parsedResponse.actions || [],
@@ -1237,13 +1243,13 @@ async function streamAgentNormalizedHandler(req, res) {
                   created_at: admin.firestore.FieldValue.serverTimestamp(),
                 };
 
-                artifactsRef.add(artifactData)
-                  .then(docRef => {
+                artifactDocRef.set(artifactData)
+                  .then(() => {
                     // Persist a message reference for conversation history
                     messagesRef.add({
                       type: 'artifact',
                       artifact_type: parsedResponse.artifact_type,
-                      artifact_id: docRef.id,
+                      artifact_id: artifactDocRef.id,
                       correlation_id: correlationId || null,
                       created_at: admin.firestore.FieldValue.serverTimestamp(),
                     }).catch(err => logger.warn('[streamAgentNormalized] artifact message ref failed', { error: String(err?.message || err) }));

@@ -563,6 +563,7 @@ final class CanvasViewModel: ObservableObject {
             // Build a CanvasCardModel from artifact SSE event data
             guard let artifactType = event.content?["artifact_type"]?.value as? String else { break }
 
+            let artifactId = event.content?["artifact_id"]?.value as? String
             let artifactContent = event.content?["artifact_content"]?.value as? [String: Any] ?? [:]
             let actionsRaw = event.content?["actions"]?.value as? [Any] ?? []
             let actionStrings = actionsRaw.compactMap { $0 as? String }
@@ -572,12 +573,13 @@ final class CanvasViewModel: ObservableObject {
                 type: artifactType,
                 content: artifactContent,
                 actions: actionStrings,
-                status: status
+                status: status,
+                artifactId: artifactId
             ) {
                 cards.append(card)
                 streamEvents.append(event)
                 AnalyticsService.shared.artifactReceived(artifactType: artifactType)
-                DebugLogger.log(.canvas, "Artifact card added: type=\(artifactType) id=\(card.id)")
+                DebugLogger.log(.canvas, "Artifact card added: type=\(artifactType) id=\(card.id) artifactId=\(artifactId ?? "nil")")
             }
 
         case .card, .heartbeat:
@@ -612,11 +614,14 @@ final class CanvasViewModel: ObservableObject {
 
     /// Converts an artifact SSE event into a CanvasCardModel for inline display.
     /// Uses JSON round-trip to leverage existing Codable decoders (PlanExercise, RoutineSummaryData, etc.)
+    /// When artifactId is provided (from pre-generated Firestore doc ID), it becomes the card's stable identity
+    /// and is stored in CardMeta for artifact action routing.
     private func buildCardFromArtifact(
         type: String,
         content: [String: Any],
         actions: [String],
-        status: String
+        status: String,
+        artifactId: String? = nil
     ) -> CanvasCardModel? {
         let cardStatus = CardStatus(rawValue: status) ?? .proposed
         let cardActions = actions.map { action -> CardAction in
@@ -639,6 +644,12 @@ final class CanvasViewModel: ObservableObject {
             return CardAction(kind: action, label: label, style: style)
         }
 
+        // Use artifactId as stable card identity when available
+        let cardId = artifactId ?? UUID().uuidString
+        let artifactMeta = { (notes: String?) -> CardMeta in
+            CardMeta(notes: notes, artifactId: artifactId, conversationId: self.canvasId)
+        }
+
         switch type {
         case "session_plan":
             let title = content["title"] as? String ?? "Workout"
@@ -653,14 +664,14 @@ final class CanvasViewModel: ObservableObject {
             }
 
             return CanvasCardModel(
-                id: UUID().uuidString,
+                id: cardId,
                 type: .session_plan,
                 status: cardStatus,
                 lane: .workout,
                 title: title,
                 data: .sessionPlan(exercises: exercises),
                 actions: cardActions,
-                meta: CardMeta(notes: coachNotes),
+                meta: artifactMeta(coachNotes),
                 publishedAt: Date()
             )
 
@@ -684,13 +695,14 @@ final class CanvasViewModel: ObservableObject {
             )
 
             return CanvasCardModel(
-                id: UUID().uuidString,
+                id: cardId,
                 type: .routine_summary,
                 status: cardStatus,
                 lane: .workout,
                 title: name,
                 data: .routineSummary(routineData),
                 actions: cardActions,
+                meta: artifactMeta(nil),
                 publishedAt: Date()
             )
 
@@ -698,13 +710,14 @@ final class CanvasViewModel: ObservableObject {
             if let jsonData = try? JSONSerialization.data(withJSONObject: content),
                let decoded = try? JSONDecoder().decode(AnalysisSummaryData.self, from: jsonData) {
                 return CanvasCardModel(
-                    id: UUID().uuidString,
+                    id: cardId,
                     type: .analysis_summary,
                     status: cardStatus,
                     lane: .analysis,
                     title: decoded.headline,
                     data: .analysisSummary(decoded),
                     actions: cardActions,
+                    meta: artifactMeta(nil),
                     publishedAt: Date()
                 )
             }
@@ -714,13 +727,14 @@ final class CanvasViewModel: ObservableObject {
             if let jsonData = try? JSONSerialization.data(withJSONObject: content),
                let decoded = try? JSONDecoder().decode(VisualizationSpec.self, from: jsonData) {
                 return CanvasCardModel(
-                    id: UUID().uuidString,
+                    id: cardId,
                     type: .visualization,
                     status: cardStatus,
                     lane: .analysis,
                     title: decoded.title,
                     data: .visualization(spec: decoded),
                     actions: cardActions,
+                    meta: artifactMeta(nil),
                     publishedAt: Date()
                 )
             }

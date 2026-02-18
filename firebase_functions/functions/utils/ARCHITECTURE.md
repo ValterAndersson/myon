@@ -18,7 +18,7 @@ Shared helpers used across Firebase Function endpoints. These provide consistent
 | `analytics-writes.js` | Analytics series write operations: batch updates to `analytics_series_exercise`, `analytics_series_muscle` |
 | `analytics-calculator.js` | Analytics computation: e1RM, volume, set classification |
 | `muscle-taxonomy.js` | Canonical muscle groups and muscles with stable IDs, catalog-to-canonical mapping |
-| `workout-seed-mapper.js` | Maps seed data into workout document format |
+| `workout-seed-mapper.js` | Maps seed data into workout document format. `planBlocksToExercises` resolves exercise names via catalog lookup with `block.name` fallback, and normalizes set types via `inferSetType()` (handles agent `type: "warmup"` → `set_type: "warmup"`). |
 | `caps.js` | Server-enforced caps for training analytics v2 (limits, max bytes, max weeks) |
 
 ## Key Exports

@@ -737,7 +737,9 @@ def tool_propose_workout(
             - sets: Number of working sets (3-4)
             - reps: Target reps (8-12 for hypertrophy)
             - rir: Target RIR for final set
-            - weight_kg: Target weight (optional)
+            - weight_kg: Target weight in kg. REQUIRED for all resistance
+              exercises — never omit. Estimate from strengthSummary if
+              no direct history.
         focus: Brief goal description
         duration_minutes: Estimated duration
         coach_notes: Rationale for the plan
@@ -935,7 +937,9 @@ def tool_update_template(
             - sets: Number of working sets (3-4)
             - reps: Target reps (8-12 for hypertrophy)
             - rir: Target RIR for final set
-            - weight_kg: Target weight (optional)
+            - weight_kg: Target weight in kg. REQUIRED for all
+              resistance exercises — never omit. Estimate from
+              strengthSummary if no direct history.
 
         name: New template name (optional - keeps existing if not provided)
         coach_notes: Rationale for the changes

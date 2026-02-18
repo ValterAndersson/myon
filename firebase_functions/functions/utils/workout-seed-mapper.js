@@ -128,17 +128,17 @@ async function planBlocksToExercises(blocks) {
   return blocks.map((block, position) => ({
     instance_id: uuidv4(),
     exercise_id: block.exercise_id,
-    name: nameMap[block.exercise_id] || block.exercise_id, // Fallback to ID
+    name: nameMap[block.exercise_id] || block.name || block.exercise_id, // Prefer catalog name, then agent-provided name, then ID
     position,
     sets: (block.sets || []).map(s => {
       // Unwrap target wrapper if present
       const target = s.target || s;
       // Destructure to omit target from output
       const { target: _ignored, ...setRest } = s;
-      
+
       return {
         id: uuidv4(),
-        set_type: setRest.set_type || target.set_type || 'working',
+        set_type: setRest.set_type || target.set_type || inferSetType(setRest.type) || 'working',
         weight: validateWeight(target.weight),
         reps: validateReps(target.reps),
         rir: validateRir(target.rir),

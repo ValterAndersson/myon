@@ -63,7 +63,7 @@ public struct PlanSet: Identifiable, Equatable, Codable {
     public var actualRir: Int?
     
     enum CodingKeys: String, CodingKey {
-        case id, type, reps, weight, rir
+        case id, type, reps, weight, rir, target
         case isLinkedToBase = "is_linked_to_base"
         case isCompleted = "is_completed"
         case actualReps = "actual_reps"
@@ -95,30 +95,40 @@ public struct PlanSet: Identifiable, Equatable, Codable {
         self.actualRir = actualRir
     }
     
-    // Flexible decoding: handle weight_kg or weight
+    // Flexible decoding: handle weight_kg or weight, with target wrapper fallback
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        
+
         // Try id first, generate if missing
         if let decodedId = try container.decodeIfPresent(String.self, forKey: .id) {
             id = decodedId
         } else {
             id = UUID().uuidString
         }
-        
+
         type = try container.decodeIfPresent(SetType.self, forKey: .type)
-        reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 8
-        
-        // Handle both "weight" and "weight_kg" keys
-        if let w = try container.decodeIfPresent(Double.self, forKey: .weight) {
+
+        // Try target wrapper for values nested inside "target": {reps, rir, weight}
+        // Agent emits sets as {id, type, target: {reps, rir, weight}}
+        let targetContainer = try? container.nestedContainer(keyedBy: CodingKeys.self, forKey: .target)
+
+        reps = (try? container.decode(Int.self, forKey: .reps))
+            ?? (try? targetContainer?.decode(Int.self, forKey: .reps))
+            ?? 8
+
+        // Weight: direct → target → weight_kg alternate key
+        if let w = try? container.decodeIfPresent(Double.self, forKey: .weight) {
+            weight = w
+        } else if let w = try? targetContainer?.decodeIfPresent(Double.self, forKey: .weight) {
             weight = w
         } else {
-            // Try alternate key via additional container
-            let altContainer = try decoder.container(keyedBy: AlternateSetKeys.self)
-            weight = try altContainer.decodeIfPresent(Double.self, forKey: .weightKg)
+            let altContainer = try? decoder.container(keyedBy: AlternateSetKeys.self)
+            weight = try? altContainer?.decodeIfPresent(Double.self, forKey: .weightKg)
         }
-        
-        rir = try container.decodeIfPresent(Int.self, forKey: .rir)
+
+        rir = (try? container.decodeIfPresent(Int.self, forKey: .rir))
+            ?? (try? targetContainer?.decodeIfPresent(Int.self, forKey: .rir))
+
         // Default linked to base for working sets, unlinked for warm-ups
         let decodedType = type
         let decodedLinked = try container.decodeIfPresent(Bool.self, forKey: .isLinkedToBase)
@@ -129,6 +139,20 @@ public struct PlanSet: Identifiable, Equatable, Codable {
         actualRir = try container.decodeIfPresent(Int.self, forKey: .actualRir)
     }
     
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(type, forKey: .type)
+        try container.encode(reps, forKey: .reps)
+        try container.encodeIfPresent(weight, forKey: .weight)
+        try container.encodeIfPresent(rir, forKey: .rir)
+        try container.encode(isLinkedToBase, forKey: .isLinkedToBase)
+        try container.encodeIfPresent(isCompleted, forKey: .isCompleted)
+        try container.encodeIfPresent(actualReps, forKey: .actualReps)
+        try container.encodeIfPresent(actualWeight, forKey: .actualWeight)
+        try container.encodeIfPresent(actualRir, forKey: .actualRir)
+    }
+
     private enum AlternateSetKeys: String, CodingKey {
         case weightKg = "weight_kg"
     }
@@ -313,21 +337,27 @@ public struct CardMeta: Equatable, Codable {
     public let pinned: Bool?
     public let dismissible: Bool?
     public let notes: String?  // Coach narrative caption for plan cards
-    
+    public let artifactId: String?       // Firestore artifact doc ID (for artifact-sourced cards)
+    public let conversationId: String?   // Conversation/canvas ID (for artifact action routing)
+
     enum CodingKeys: String, CodingKey {
         case context
         case groupId = "group_id"
         case pinned
         case dismissible
         case notes
+        case artifactId = "artifact_id"
+        case conversationId = "conversation_id"
     }
-    
-    public init(context: String? = nil, groupId: String? = nil, pinned: Bool? = nil, dismissible: Bool? = nil, notes: String? = nil) {
+
+    public init(context: String? = nil, groupId: String? = nil, pinned: Bool? = nil, dismissible: Bool? = nil, notes: String? = nil, artifactId: String? = nil, conversationId: String? = nil) {
         self.context = context
         self.groupId = groupId
         self.pinned = pinned
         self.dismissible = dismissible
         self.notes = notes
+        self.artifactId = artifactId
+        self.conversationId = conversationId
     }
 }
 
@@ -409,15 +439,16 @@ public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
     public let estimatedDuration: Int?
     public let exerciseCount: Int?
     public let muscleGroups: [String]?
-    
+    public let blocks: [PlanExercise]?  // Inline exercises from artifact (SSE path)
+
     enum CodingKeys: String, CodingKey {
-        case id, day, title
+        case id, day, title, blocks
         case cardId = "card_id"
         case estimatedDuration = "estimated_duration"
         case exerciseCount = "exercise_count"
         case muscleGroups = "muscle_groups"
     }
-    
+
     public init(
         id: String = UUID().uuidString,
         day: Int,
@@ -425,7 +456,8 @@ public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
         cardId: String? = nil,
         estimatedDuration: Int? = nil,
         exerciseCount: Int? = nil,
-        muscleGroups: [String]? = nil
+        muscleGroups: [String]? = nil,
+        blocks: [PlanExercise]? = nil
     ) {
         self.id = id
         self.day = day
@@ -434,8 +466,9 @@ public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
         self.estimatedDuration = estimatedDuration
         self.exerciseCount = exerciseCount
         self.muscleGroups = muscleGroups
+        self.blocks = blocks
     }
-    
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         day = try container.decode(Int.self, forKey: .day)
@@ -444,6 +477,7 @@ public struct RoutineWorkoutSummary: Identifiable, Equatable, Codable {
         estimatedDuration = try container.decodeIfPresent(Int.self, forKey: .estimatedDuration)
         exerciseCount = try container.decodeIfPresent(Int.self, forKey: .exerciseCount)
         muscleGroups = try container.decodeIfPresent([String].self, forKey: .muscleGroups)
+        blocks = try? container.decodeIfPresent([PlanExercise].self, forKey: .blocks)
         // Use cardId as id if available, derive stable fallback from day to prevent edit loss on re-parse
         id = cardId ?? "workout-day\(day)"
     }

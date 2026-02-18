@@ -75,9 +75,28 @@ text              → SmallContentCard
 list_card         → ListCardWithExpandableOptions
 ```
 
+## Key Model Details
+
+### PlanSet Decoding
+
+`PlanSet` (in `Models.swift`) supports two set formats:
+1. **Flat**: `{ reps, rir, weight }` at top level (template/legacy format)
+2. **Target-wrapped**: `{ target: { reps, rir, weight } }` (agent artifact format)
+
+The custom decoder tries the flat path first, then falls back to unwrapping the `target` object. This ensures both agent-emitted artifacts and template-sourced data decode correctly.
+
+### RoutineWorkoutSummary
+
+Has an optional `blocks: [PlanExercise]?` field for inline exercises from SSE artifacts. When present, `RoutineSummaryCard.getExercisesFromLinkedCard()` prefers inline blocks over linked card lookup (the canvas-era pattern).
+
+### CardMeta Artifact Provenance
+
+`CardMeta` includes `artifactId` and `conversationId` fields populated when cards originate from SSE artifact events. These enable `CanvasScreen` to route actions (save_routine, accept, dismiss) through `AgentsApi.artifactAction()` instead of the legacy `applyAction` canvas reducer.
+
 ## Cross-References
 
 - Card type schemas: `firebase_functions/functions/canvas/schemas/card_types/`
 - Canvas ViewModel: `Povver/Povver/ViewModels/CanvasViewModel.swift`
 - Canvas Screen: `Povver/Povver/Views/CanvasScreen.swift`
 - Design tokens: `Povver/Povver/UI/DesignSystem/Tokens.swift`
+- Artifact action endpoint: `firebase_functions/functions/artifacts/artifact-action.js`

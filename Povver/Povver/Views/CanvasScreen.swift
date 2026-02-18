@@ -272,11 +272,18 @@ extension CanvasScreen {
                 }
             // MARK: - Plan Card Actions
             case "accept_plan", "start":
+                // Accept artifact via AgentsApi if artifact-sourced, else fallback to legacy applyAction
+                if let artifactId = card.meta?.artifactId,
+                   let conversationId = card.meta?.conversationId ?? vm.canvasId ?? canvasId,
+                   let uid = AuthService.shared.currentUser?.uid {
+                    Task { _ = try? await AgentsApi.artifactAction(userId: uid, conversationId: conversationId, artifactId: artifactId, action: "accept") }
+                } else if let cid = vm.canvasId ?? canvasId {
+                    Task { await vm.applyAction(canvasId: cid, type: "ACCEPT_PROPOSAL", cardId: card.id) }
+                }
+
                 // P1 Fix: Call startActiveWorkout with plan BEFORE presenting Focus Mode
                 // This ensures server-side normalization/validation of plan data
-                if let cid = vm.canvasId ?? canvasId {
-                    Task { await vm.applyAction(canvasId: cid, type: "ACCEPT_PROPOSAL", cardId: card.id) }
-                    
+                if let _ = vm.canvasId ?? canvasId {
                     // Parse plan exercises and start workout via backend
                     if let exercisesJson = action.payload?["exercises_json"],
                        let data = exercisesJson.data(using: .utf8),
@@ -404,15 +411,40 @@ extension CanvasScreen {
                 
             // MARK: - Routine Draft Actions
             case "save_routine":
-                // Save routine and templates from draft
-                // No toast with undo - save is a permanent action
-                if let cid = vm.canvasId ?? canvasId {
+                // Save routine and templates from draft via artifact action if available
+                if let artifactId = card.meta?.artifactId,
+                   let conversationId = card.meta?.conversationId ?? vm.canvasId ?? canvasId,
+                   let uid = AuthService.shared.currentUser?.uid {
+                    Task {
+                        do {
+                            _ = try await AgentsApi.artifactAction(userId: uid, conversationId: conversationId, artifactId: artifactId, action: "save_routine")
+                            await MainActor.run {
+                                if let idx = vm.cards.firstIndex(where: { $0.id == card.id }) {
+                                    vm.cards[idx] = CanvasCardModel(
+                                        id: card.id, type: card.type, status: .accepted, lane: card.lane,
+                                        title: card.title, subtitle: card.subtitle, data: card.data,
+                                        width: card.width, actions: card.actions, menuItems: card.menuItems,
+                                        meta: card.meta, publishedAt: card.publishedAt
+                                    )
+                                }
+                            }
+                        } catch {
+                            print("[CanvasScreen] save_routine failed: \(error)")
+                            await MainActor.run { vm.errorMessage = "Failed to save routine: \(error.localizedDescription)" }
+                        }
+                    }
+                } else if let cid = vm.canvasId ?? canvasId {
                     Task { await vm.applyAction(canvasId: cid, type: "SAVE_ROUTINE", cardId: card.id) }
                 }
             case "dismiss_draft":
-                // Dismiss entire routine draft (marks all cards rejected)
-                // No toast with undo - user explicitly chose to dismiss
-                if let cid = vm.canvasId ?? canvasId {
+                // Dismiss entire routine draft via artifact action if available
+                if let artifactId = card.meta?.artifactId,
+                   let conversationId = card.meta?.conversationId ?? vm.canvasId ?? canvasId,
+                   let uid = AuthService.shared.currentUser?.uid {
+                    Task { _ = try? await AgentsApi.artifactAction(userId: uid, conversationId: conversationId, artifactId: artifactId, action: "dismiss") }
+                    // Remove card from local state
+                    vm.cards.removeAll { $0.id == card.id }
+                } else if let cid = vm.canvasId ?? canvasId {
                     Task { await vm.applyAction(canvasId: cid, type: "DISMISS_DRAFT", cardId: card.id) }
                 }
             case "pin_draft":

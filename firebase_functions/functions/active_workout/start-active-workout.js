@@ -126,7 +126,21 @@ async function startActiveWorkoutHandler(req, res) {
           console.log(`Lock pointed to missing workout ${lockData.active_workout_id}, clearing`);
           // Will be overwritten below when we create new workout
         } else if (existingDoc.data().status === 'in_progress') {
-          if (!forceNew) {
+          // Auto-cancel stale workouts (> 6 hours old)
+          const STALE_MS = 6 * 60 * 60 * 1000;
+          const startTime = existingDoc.data().start_time;
+          const startMs = startTime?.toMillis ? startTime.toMillis() : (startTime ? new Date(startTime).getTime() : 0);
+          const isStale = startMs > 0 && (Date.now() - startMs > STALE_MS);
+
+          if (isStale) {
+            console.log(`Auto-cancelling stale workout ${existingDoc.id} (age: ${Math.round((Date.now() - startMs) / 3600000)}h)`);
+            tx.update(existingRef, {
+              status: 'cancelled',
+              end_time: admin.firestore.FieldValue.serverTimestamp(),
+              updated_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            // Fall through to create new workout
+          } else if (!forceNew) {
             // Return existing workout (resume)
             const existingWorkout = { id: existingDoc.id, ...existingDoc.data() };
             console.log(`Returning existing in_progress workout ${existingDoc.id}`);
@@ -136,14 +150,14 @@ async function startActiveWorkoutHandler(req, res) {
               workout: existingWorkout,
               resumed: true
             };
+          } else {
+            // force_new=true: cancel existing before creating new
+            console.log(`force_new=true, cancelling existing workout ${existingDoc.id}`);
+            tx.update(existingRef, {
+              status: 'cancelled',
+              updated_at: admin.firestore.FieldValue.serverTimestamp()
+            });
           }
-
-          // force_new=true: cancel existing before creating new
-          console.log(`force_new=true, cancelling existing workout ${existingDoc.id}`);
-          tx.update(existingRef, {
-            status: 'cancelled',
-            updated_at: admin.firestore.FieldValue.serverTimestamp()
-          });
         }
         // If doc exists but status != in_progress, just proceed to create new
       }

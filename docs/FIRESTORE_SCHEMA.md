@@ -196,7 +196,7 @@ Optimized bootstrap + session initialization in one call. Preferred over separat
 
 #### `POST startActiveWorkout`
 
-Initialize workout from template. Creates active_workout document.
+Initialize workout from template. Creates active_workout document. Auto-cancels stale workouts older than 6 hours.
 
 **Auth**: Bearer token
 
@@ -223,6 +223,8 @@ Initialize workout from template. Creates active_workout document.
   totals: { sets: 0, reps: 0, volume: 0 }
 }
 ```
+
+**Stale workout handling**: When an existing `in_progress` workout is found, if its `start_time` is older than 6 hours it is auto-cancelled (`status: 'cancelled'`, `end_time` set) and a new workout is created. Non-stale workouts are resumed unless `force_new: true`.
 
 ---
 
@@ -927,6 +929,59 @@ Subcollections:
      - `environment?: string` - `"Sandbox"` or `"Production"`
      - `created_at: Timestamp` - Server timestamp
 
+18) set_facts/{setId}
+   - Denormalized per-set performance records. One document per completed set across all workouts.
+   - Document ID: deterministic composite key `{workoutId}_{exerciseId}_{setIndex}`.
+   - Written by: `training/set-facts-generator.js` via `writeSetFactsInChunks()`, called from `workouts/upsert-workout.js` (imports) and `triggers/weekly-analytics.js` (workout completion).
+   - Read by: `training/query-sets.js` (querySets, aggregateSets), `training/series-endpoints.js` (getExerciseSummary for fuzzy name→ID resolution), iOS `ExercisePerformanceSheet`.
+   - Fields:
+     - Identity:
+       - `set_id: string` (document ID, format: `{workoutId}_{exerciseId}_{setIndex}`)
+       - `user_id: string`
+       - `workout_id: string`
+       - `workout_end_time: Timestamp`
+       - `workout_date: string` (YYYY-MM-DD, used for date-range queries)
+       - `exercise_id: string` (reference to `exercises/{id}`)
+       - `exercise_name: string`
+       - `set_index: number`
+     - Set performance:
+       - `reps: number`
+       - `weight_kg: number` (normalized to kg regardless of user preference)
+       - `rir: number | null` (reps in reserve, 0-5)
+       - `rpe: number | null` (rate of perceived exertion)
+       - `is_warmup: boolean`
+       - `is_failure: boolean`
+       - `volume: number` (reps × weight_kg)
+     - Strength proxy:
+       - `e1rm: number | null` (Epley formula, only for reps ≤ 12)
+       - `e1rm_formula: string | null` ('epley' when e1rm is computed, null otherwise)
+       - `e1rm_confidence: number | null` (0-1, higher for lower rep ranges)
+     - Classification:
+       - `equipment: string` (from exercise catalog)
+       - `movement_pattern: string` (from exercise catalog)
+       - `is_isolation: boolean`
+       - `side: string` ('bilateral' or unilateral side)
+     - Attribution maps (fractional credit per muscle/group):
+       - `muscle_group_contrib: { [group]: number }` (contribution weights, sum ≈ 1.0)
+       - `muscle_contrib: { [muscle]: number }`
+       - `effective_volume_by_group: { [group]: number }` (volume × contribution)
+       - `effective_volume_by_muscle: { [muscle]: number }`
+       - `hard_set_credit_by_group: { [group]: number }` (hard_set_credit × contribution)
+       - `hard_set_credit_by_muscle: { [muscle]: number }`
+     - Filter arrays (for Firestore array-contains queries):
+       - `muscle_group_keys: string[]`
+       - `muscle_keys: string[]`
+     - Internal:
+       - `hard_set_credit: number` (0-1; 1.0 for failure/RIR≤2, 0.5 for RIR 3-4, 0.75 for unknown RIR working sets, 0 for warmups)
+     - Timestamps:
+       - `created_at, updated_at: Timestamp`
+
+   - Query patterns:
+     - Per-exercise history: `where('exercise_id', '==', id).where('is_warmup', '==', false).orderBy('workout_date', 'desc')` (requires composite index)
+     - Date range: `where('workout_date', '>=', start).where('workout_date', '<=', end).orderBy('workout_date')`
+     - Muscle group filter: `where('muscle_group_keys', 'array-contains', group)`
+     - Aggregation: `aggregateSets` groups by exercise_id or muscle_group with sum/avg/max aggregations
+
 ---
 
 ## Global Collections
@@ -1142,6 +1197,7 @@ users/{uid}
   │    └─ artifacts/{artifactId}
   ├─ agent_sessions/{purpose}
   ├─ subscription_events/{auto-id}
+  ├─ set_facts/{setId}
   └─ canvases/{canvasId} (DEPRECATED)
        ├─ cards/{cardId} (DEPRECATED)
        ├─ up_next/{entryId} (DEPRECATED)

@@ -47,6 +47,7 @@ Shared logic extracted to `../utils/active-workout-helpers.js`:
 - Request: `{ "plan"?: object }`
 - Response: `{ success, data: { workout_id, workout, resumed } }`
 - Initializes `version: 1` on new workout documents
+- **Stale workout auto-cancel**: Before resuming an existing `in_progress` workout, checks if `start_time` is older than 6 hours. If stale, auto-cancels (sets `status: 'cancelled'`, `end_time`) and creates a fresh workout instead of resuming. Handles both Firestore `Timestamp` objects (`.toMillis()`) and plain date strings.
 
 ### getActiveWorkout (HTTPS)
 - Auth: flexible

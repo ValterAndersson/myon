@@ -14,6 +14,7 @@ persistence. The agent never writes cards/artifacts to Firestore directly.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -101,6 +102,13 @@ def _build_exercise_blocks(exercises: List[Dict[str, Any]]) -> List[Dict[str, An
                 weight = float(weight)
             except (TypeError, ValueError):
                 weight = None
+
+        if weight is None:
+            logger.warning(json.dumps({
+                "event": "missing_weight",
+                "exercise": name,
+                "exercise_id": exercise_id,
+            }))
         
         category = ex.get("category", "").lower()
         is_compound = category == "compound" or idx < 2
