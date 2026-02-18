@@ -1007,6 +1007,7 @@ Notes:
 
 - `workouts` collection group: index on `end_time` (ascending) for time-range queries and active user discovery.
 - `analytics_rollups` collection group: index on `updated_at` (descending) for recent rollups.
+- `set_facts` subcollection: composite index on `(exercise_id ASC, is_warmup ASC, workout_date DESC)` — used by `ExercisePerformanceSheet` (iOS) to query per-exercise performance history. Required for the query `exercise_id == X, is_warmup == false, order by workout_date desc`.
 - Series collections are typically point-lookups by document id; no composite indexes required initially.
 
 ---

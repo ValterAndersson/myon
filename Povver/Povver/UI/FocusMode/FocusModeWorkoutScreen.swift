@@ -141,8 +141,7 @@ struct FocusModeWorkoutScreen: View {
     var body: some View {
         mainContent
             .navigationBarHidden(true)
-            .toolbar(service.workout != nil ? .hidden : .visible, for: .tabBar)
-            .interactiveDismissDisabled(service.workout != nil)
+            .toolbar(.visible, for: .tabBar)
             .onChange(of: screenMode) { _, newMode in
                 listEditMode = newMode.isReordering ? .active : .inactive
             }
@@ -272,6 +271,19 @@ struct FocusModeWorkoutScreen: View {
                 onDismiss: {
                     activeSheet = nil
                 }
+            )
+        case .exerciseDetail(let exerciseId, let exerciseName):
+            ExerciseDetailSheet(
+                exerciseId: exerciseId,
+                exerciseName: exerciseName,
+                onDismiss: { activeSheet = nil }
+            )
+            .presentationDetents([.medium, .large])
+        case .exercisePerformance(let exerciseId, let exerciseName):
+            ExercisePerformanceSheet(
+                exerciseId: exerciseId,
+                exerciseName: exerciseName,
+                onDismiss: { activeSheet = nil }
             )
         case .setTypePicker, .moreActions:
             // Handled in FocusModeSetGrid
@@ -700,7 +712,9 @@ struct FocusModeWorkoutScreen: View {
                                     },
                                     onRemoveSet: { setId in removeSet(exerciseId: exercise.instanceId, setId: setId) },
                                     onRemoveExercise: { removeExercise(exerciseId: exercise.instanceId) },
-                                    onAutofill: { autofillExercise(exercise.instanceId) }
+                                    onAutofill: { autofillExercise(exercise.instanceId) },
+                                    onShowDetails: { presentSheet(.exerciseDetail(exerciseId: exercise.exerciseId, exerciseName: exercise.name)) },
+                                    onShowPerformance: { presentSheet(.exercisePerformance(exerciseId: exercise.exerciseId, exerciseName: exercise.name)) }
                                 )
                             }
                             .padding(.top, Space.md)
@@ -1441,13 +1455,15 @@ struct FocusModeExerciseSectionNew: View {
     let exercise: FocusModeExercise
     let isActive: Bool
     @Binding var screenMode: FocusModeScreenMode
-    
+
     let onLogSet: (String, String, Double?, Int, Int?) -> Void
     let onPatchField: (String, String, String, Any) -> Void
     let onAddSet: () -> Void
     let onRemoveSet: (String) -> Void
     let onRemoveExercise: () -> Void
     let onAutofill: () -> Void
+    var onShowDetails: (() -> Void)? = nil
+    var onShowPerformance: (() -> Void)? = nil
     
     @State private var showRemoveConfirmation = false
     
@@ -1572,6 +1588,16 @@ struct FocusModeExerciseSectionNew: View {
             Menu {
                 Button { onAutofill() } label: {
                     Label("Auto-fill Sets", systemImage: "sparkles")
+                }
+                if let onShowDetails {
+                    Button { onShowDetails() } label: {
+                        Label("Exercise Info", systemImage: "info.circle")
+                    }
+                }
+                if let onShowPerformance {
+                    Button { onShowPerformance() } label: {
+                        Label("Performance", systemImage: "chart.line.uptrend.xyaxis")
+                    }
                 }
                 Button(role: .destructive) {
                     showRemoveConfirmation = true

@@ -8,12 +8,16 @@ Focus Mode is the active workout UI. It provides a distraction-free interface fo
 |------|---------|
 | `FocusModeWorkoutScreen.swift` | Main workout screen: exercise list, hero header, scroll tracking, finish/discard flow, exercise reordering. Contains `FocusModeExerciseSection`, `FocusModeExerciseSectionNew`, `WorkoutAlertsModifier`, `WorkoutCompletionSummary`. |
 | `FocusModeSetGrid.swift` | Set grid for logging reps, weight, and RIR per exercise. Contains `FocusModeEditingDock` (inline editor with stepper/keyboard/RIR pills), `FocusModeEditScope` enum (this/remaining/all). |
-| `FocusModeComponents.swift` | Shared UI components: `WorkoutHero`, `TimerPill`, `SwipeToDeleteRow`, `WarmupDivider`, `ExerciseCardContainer`, `CoachButton`, `ReorderModeBanner`, `ActionRail`. |
+| `FocusModeComponents.swift` | Shared UI components: `WorkoutHero`, `TimerPill`, `SwipeToDeleteRow`, `WarmupDivider`, `ExerciseCardContainer`, `CoachButton`, `ReorderModeBanner`, `ActionRail`. Also contains `FocusModeActiveSheet` enum (centralized sheet state machine). |
 | `FocusModeExerciseSearch.swift` | Exercise search for adding/swapping exercises mid-workout. |
+| `ExercisePerformanceSheet.swift` | In-workout exercise performance history. Queries `set_facts` for the given exercise and shows recent sessions grouped by date with summary stats (best e1RM, last weight/reps). Requires Firestore composite index — see FIRESTORE_SCHEMA.md. |
+| `WorkoutCoachView.swift` | AI copilot chat sheet for in-workout coaching. |
 
 ## Entry Point
 
-Navigation enters Focus Mode from `CanvasViewModel.startWorkout(from:)` or the Routines tab. The screen is presented modally. Tab bar is hidden while a workout is active to prevent accidental navigation.
+Navigation enters Focus Mode via two paths:
+1. **TrainTabView** (primary): `FocusModeWorkoutScreen` is embedded inline in the Train tab. The tab bar remains visible during workouts so users can browse other tabs. A `FloatingWorkoutBanner` overlay on `MainTabsView` shows the workout name and elapsed time on non-Train tabs, tapping it returns to the Train tab.
+2. **CanvasScreen** (secondary): Presented as a `.fullScreenCover` when starting a workout from a chat-generated plan. In this context `dismiss()` correctly closes the cover on discard/complete.
 
 ## Key Relationships
 
@@ -93,6 +97,16 @@ Completed sets have:
 - Subtle success-tinted row background (`Color.success.opacity(0.06)`)
 - Filled circle indicator (`Color.success.opacity(0.15)` fill + green stroke)
 - Green checkmark and text color
+
+### Exercise Ellipsis Menu Sheets
+
+The exercise ellipsis menu (in `FocusModeExerciseSectionNew`) provides contextual actions:
+- **Auto-fill Sets** — pre-fills set values from history
+- **Exercise Info** — opens `ExerciseDetailSheet` (from `UI/Canvas/Cards/`) via `.exerciseDetail` sheet case
+- **Performance** — opens `ExercisePerformanceSheet` via `.exercisePerformance` sheet case
+- **Remove Exercise** — destructive, with confirmation dialog
+
+Both sheet actions use the centralized `FocusModeActiveSheet` enum and the `presentSheet()` helper, which safely exits editing/reorder mode before presenting. Callbacks (`onShowDetails`, `onShowPerformance`) are optional on `FocusModeExerciseSectionNew` for backwards compatibility.
 
 ### WorkoutAlertsModifier
 

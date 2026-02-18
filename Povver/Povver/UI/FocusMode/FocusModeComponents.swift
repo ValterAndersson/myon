@@ -47,7 +47,9 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
     case finishWorkout
     case setTypePicker(exerciseId: String, setId: String)
     case moreActions(exerciseId: String)
-    
+    case exerciseDetail(exerciseId: String?, exerciseName: String)
+    case exercisePerformance(exerciseId: String, exerciseName: String)
+
     var id: String {
         switch self {
         case .coach: return "coach"
@@ -56,6 +58,8 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
         case .finishWorkout: return "finishWorkout"
         case .setTypePicker(let exId, let setId): return "setTypePicker-\(exId)-\(setId)"
         case .moreActions(let exId): return "moreActions-\(exId)"
+        case .exerciseDetail(let exId, _): return "exerciseDetail-\(exId ?? "nil")"
+        case .exercisePerformance(let exId, _): return "exercisePerformance-\(exId)"
         }
     }
 }
