@@ -49,10 +49,11 @@ class QualityScanResult:
     exercise_id: str
     exercise_name: str
     quality_score: float
-    issue_type: str  # "none", "missing_fields", "naming", "complex"
+    issue_type: str  # "none", "missing_fields", "naming", "complex", "content_style"
     needs_full_review: bool
     scan_method: str  # "heuristic" or "llm"
     details: Optional[str] = None
+    needs_enrichment_only: bool = False  # True = skip Pro review, enrich directly
 
 
 @dataclass
@@ -64,12 +65,17 @@ class QualityScanBatchResult:
     needs_full_review: int = 0
     results: List[QualityScanResult] = field(default_factory=list)
 
+    @property
+    def needs_enrichment_only(self) -> int:
+        return sum(1 for r in self.results if r.needs_enrichment_only)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_scanned": self.total_scanned,
             "heuristic_passed": self.heuristic_passed,
             "llm_scanned": self.llm_scanned,
             "needs_full_review": self.needs_full_review,
+            "needs_enrichment_only": self.needs_enrichment_only,
             "by_issue_type": self._count_by_issue_type(),
         }
 
@@ -213,18 +219,41 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     if not muscles_category:
         return None  # Needs LLM — missing muscle category
 
+    # Checks 13-14: Content completeness and style guide compliance.
+    # These are content-only issues that can be fixed by enrichment alone
+    # (no need for expensive Pro review to decide what to do).
+    content_issues = []
+
     # Check 13: Content completeness — all content array fields must be present
     suitability_notes = exercise.get("suitability_notes") or []
     programming_use_cases = exercise.get("programming_use_cases") or []
     stimulus_tags = exercise.get("stimulus_tags") or []
-    if not suitability_notes or not programming_use_cases or not stimulus_tags:
-        return None  # Needs LLM — missing content fields
+    if not suitability_notes:
+        content_issues.append("missing suitability_notes")
+    if not programming_use_cases:
+        content_issues.append("missing programming_use_cases")
+    if not stimulus_tags:
+        content_issues.append("missing stimulus_tags")
 
     # Check 14: Style guide compliance — voice consistency and content quality
     from app.enrichment.engine import _detect_style_violations
     style_issues = _detect_style_violations(exercise)
     if style_issues:
-        return None  # Needs LLM — style guide violations
+        content_issues.extend(style_issues)
+
+    if content_issues:
+        # Exercise is structurally sound but has content/style issues.
+        # Route to enrichment directly — skip Pro review.
+        return QualityScanResult(
+            exercise_id=exercise_id,
+            exercise_name=name,
+            quality_score=0.70,
+            issue_type="content_style",
+            needs_full_review=False,  # Do NOT send to Pro review
+            needs_enrichment_only=True,  # Send directly to enrichment
+            scan_method="heuristic",
+            details="; ".join(content_issues[:5]),
+        )
 
     # All checks passed - this is a good exercise
     return QualityScanResult(
@@ -586,6 +615,7 @@ def save_scan_results(
             update_data = {
                 "review_metadata.quality_score": result.quality_score,
                 "review_metadata.needs_full_review": result.needs_full_review,
+                "review_metadata.needs_enrichment_only": result.needs_enrichment_only,
                 "review_metadata.last_scanned_at": now,
                 "review_metadata.scanner_version": SCANNER_VERSION,
                 "review_metadata.issue_type": result.issue_type,

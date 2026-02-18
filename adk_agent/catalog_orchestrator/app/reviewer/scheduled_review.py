@@ -153,6 +153,7 @@ def filter_exercises_for_review(
 
     needs_review = []
     skipped_not_flagged = 0
+    skipped_enrichment_only = 0
     skipped_high_quality = 0
     not_scanned = 0
 
@@ -171,10 +172,16 @@ def filter_exercises_for_review(
                 not_scanned += 1
                 continue
 
-            # Current scan — check the flag
+            # Current scan — check the flags
             needs_full_review = review_meta.get("needs_full_review", False)
             needs_retry = review_meta.get("needs_retry", False)
-            if needs_full_review or needs_retry:
+            enrichment_only = review_meta.get("needs_enrichment_only", False)
+
+            if enrichment_only and not needs_full_review:
+                # Content/style issues only — handled by Tier 1 enrichment jobs,
+                # no need for expensive Pro review.
+                skipped_enrichment_only += 1
+            elif needs_full_review or needs_retry:
                 needs_review.append(ex)
             else:
                 skipped_not_flagged += 1
@@ -194,10 +201,12 @@ def filter_exercises_for_review(
 
     logger.info(
         "Filtered for full review: %d need review (%d not scanned by Tier 1), "
-        "%d skipped (not flagged), %d skipped (high quality), %d total",
+        "%d skipped (not flagged), %d skipped (enrichment-only), "
+        "%d skipped (high quality), %d total",
         len(needs_review),
         not_scanned,
         skipped_not_flagged,
+        skipped_enrichment_only,
         skipped_high_quality,
         len(exercises),
     )

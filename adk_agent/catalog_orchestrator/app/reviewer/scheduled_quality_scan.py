@@ -6,10 +6,15 @@ This is the first tier of the multi-tier review pipeline:
 2. Applies heuristic pre-filter (no LLM cost)
 3. Scans remaining with Flash LLM
 4. Saves quality scores and flags to Firestore
-5. Creates simple ENRICH jobs for missing_fields issues
+5. Creates ENRICH jobs for exercises with enrichable issues:
+   - missing_fields: missing content arrays (from LLM scan)
+   - content_style: style violations or missing content (from heuristic checks 13-14)
 
 Exercises flagged with needs_full_review=true are handled by
 the Tier 2 full review (scheduled_review.py with Pro model).
+
+Exercises flagged with needs_enrichment_only=true bypass Pro review
+entirely and get enrichment jobs created here (Flash model only).
 
 Usage:
     python -m app.reviewer.scheduled_quality_scan --dry-run
@@ -113,18 +118,23 @@ def fetch_exercises_for_scan(
     return exercises
 
 
-def create_enrich_jobs_for_missing_fields(
+def create_enrich_jobs_from_scan(
     results: List[QualityScanResult],
     exercises: List[Dict[str, Any]],
     dry_run: bool = True,
     max_jobs: int = 100,
 ) -> Dict[str, Any]:
     """
-    Create simple ENRICH jobs for exercises with missing_fields issue.
+    Create ENRICH jobs for exercises that need enrichment.
 
-    These will be executed by the worker using Flash model.
+    Covers two issue types:
+    - missing_fields: exercises missing content arrays (from LLM scan)
+    - content_style: exercises with style violations or missing content (from heuristic)
+
+    Both use Flash model via the enrichment worker — no Pro review needed.
+    Deduplicates against pending jobs to avoid double-queuing.
     """
-    from app.jobs.queue import create_job
+    from app.jobs.queue import create_job, find_pending_jobs_batch
 
     # Build exercise lookup
     exercise_lookup: Dict[str, Dict[str, Any]] = {}
@@ -133,15 +143,30 @@ def create_enrich_jobs_for_missing_fields(
         if ex_id:
             exercise_lookup[ex_id] = ex
 
+    # Filter to enrichment-eligible results
+    enrichable = [
+        r for r in results
+        if r.issue_type in ("missing_fields", "content_style")
+        or r.needs_enrichment_only
+    ]
+
+    if not enrichable:
+        return {"total_jobs": 0, "dry_run": dry_run, "skipped_duplicate": 0, "jobs": []}
+
+    # Deduplicate: skip exercises that already have a pending enrichment job
+    candidate_ids = [r.exercise_id for r in enrichable if r.exercise_id]
+    already_pending = find_pending_jobs_batch(JobType.CATALOG_ENRICH_FIELD, candidate_ids)
+    skipped_duplicate = 0
+
     jobs_created = []
     total_jobs = 0
 
-    for result in results:
+    for result in enrichable:
         if total_jobs >= max_jobs:
             break
 
-        # Only create jobs for missing_fields issues (simple enrichment)
-        if result.issue_type != "missing_fields":
+        if result.exercise_id in already_pending:
+            skipped_duplicate += 1
             continue
 
         ex_data = exercise_lookup.get(result.exercise_id, {})
@@ -164,9 +189,11 @@ def create_enrich_jobs_for_missing_fields(
                     mode="apply",
                     exercise_doc_ids=[result.exercise_id],
                     enrichment_spec={
-                        "type": "fill_missing_fields",
+                        "type": "enrich_content",
                         "source": "quality_scanner",
+                        "issue_type": result.issue_type,
                         "quality_score": result.quality_score,
+                        "details": result.details,
                     },
                 )
                 job_info["job_id"] = job.id
@@ -180,9 +207,13 @@ def create_enrich_jobs_for_missing_fields(
 
         jobs_created.append(job_info)
 
+    if skipped_duplicate:
+        logger.info("Skipped %d exercises with pending enrichment jobs", skipped_duplicate)
+
     return {
         "total_jobs": total_jobs,
         "dry_run": dry_run,
+        "skipped_duplicate": skipped_duplicate,
         "jobs": jobs_created,
     }
 
@@ -239,10 +270,10 @@ def run_quality_scan(
     # Save results to Firestore
     save_result = save_scan_results(db, scan_result.results, dry_run=dry_run)
 
-    # Create ENRICH jobs for missing_fields
-    job_result = {"total_jobs": 0, "dry_run": dry_run, "jobs": []}
+    # Create ENRICH jobs for enrichable exercises (missing_fields + content_style)
+    job_result = {"total_jobs": 0, "dry_run": dry_run, "skipped_duplicate": 0, "jobs": []}
     if create_jobs:
-        job_result = create_enrich_jobs_for_missing_fields(
+        job_result = create_enrich_jobs_from_scan(
             scan_result.results,
             exercises,
             dry_run=dry_run,
@@ -263,6 +294,7 @@ def run_quality_scan(
             "heuristic_passed": scan_result.heuristic_passed,
             "llm_scanned": scan_result.llm_scanned,
             "needs_full_review": scan_result.needs_full_review,
+            "needs_enrichment_only": scan_result.needs_enrichment_only,
             "by_issue_type": scan_result._count_by_issue_type(),
         },
         "save": {
@@ -276,12 +308,15 @@ def run_quality_scan(
     }
 
     logger.info(
-        "Quality scan complete: %d scanned (%d heuristic, %d LLM), %d need full review, %d jobs in %.1fs",
+        "Quality scan complete: %d scanned (%d heuristic, %d LLM), "
+        "%d need full review, %d enrichment-only, %d jobs (%d skipped dup) in %.1fs",
         scan_result.total_scanned,
         scan_result.heuristic_passed,
         scan_result.llm_scanned,
         scan_result.needs_full_review,
+        scan_result.needs_enrichment_only,
         job_result["total_jobs"],
+        job_result.get("skipped_duplicate", 0),
         duration_secs,
     )
 
