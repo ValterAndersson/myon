@@ -90,9 +90,11 @@ def get_workout_state_formatted(user_id: str, workout_id: str) -> str:
 
         # Parallel fetch: workout data + daily brief
         with ThreadPoolExecutor(max_workers=3) as executor:
-            workout_future = executor.submit(client.get_active_workout, user_id)
+            workout_future = executor.submit(
+                client.get_active_workout, user_id, workout_id=workout_id
+            )
             analysis_future = executor.submit(
-                client.get_analysis_summary, user_id, sections=["daily_brief"]
+                client.get_analysis_summary, user_id, sections=["weekly_review"]
             )
 
             # Get workout data first to extract current exercise
@@ -122,10 +124,10 @@ def get_workout_state_formatted(user_id: str, workout_id: str) -> str:
             # Wait for remaining futures
             analysis_resp = analysis_future.result(timeout=10)
 
-            # Extract daily brief
-            daily_brief = None
+            # Extract weekly review for readiness derivation
+            weekly_review = None
             if analysis_resp.get("success"):
-                daily_brief = analysis_resp.get("data", {}).get("daily_brief")
+                weekly_review = analysis_resp.get("data", {}).get("weekly_review")
 
             # Fetch exercise history result if submitted
             exercise_history = None
@@ -137,7 +139,7 @@ def get_workout_state_formatted(user_id: str, workout_id: str) -> str:
                 except Exception as e:
                     logger.debug("Failed to fetch exercise history: %s", e)
 
-        return _format_workout_brief(workout_data, exercise_history, daily_brief)
+        return _format_workout_brief(workout_data, exercise_history, weekly_review)
 
     except Exception as e:
         logger.error("get_workout_state_formatted error: %s", e)
@@ -165,7 +167,7 @@ def _find_current_exercise(
 def _format_workout_brief(
     workout_data: Dict[str, Any],
     exercise_history: Optional[Dict[str, Any]],
-    daily_brief: Optional[Dict[str, Any]],
+    weekly_review: Optional[Dict[str, Any]],
 ) -> str:
     """
     Format workout brief as compact text for LLM context.
@@ -196,9 +198,30 @@ def _format_workout_brief(
     completed_sets = totals.get("sets", 0)
     total_sets = sum(len(ex.get("sets", [])) for ex in workout_data.get("exercises", []))
 
+    # Derive readiness from weekly review muscle_balance data
     readiness = "moderate"
-    if daily_brief:
-        readiness = daily_brief.get("readiness", "moderate")
+    fatigued_groups = []
+    if weekly_review:
+        muscle_balance = weekly_review.get("muscle_balance", [])
+        overtrained_count = sum(
+            1 for mb in muscle_balance if mb.get("status") == "overtrained"
+        )
+        if overtrained_count == 0:
+            readiness = "fresh"
+        elif overtrained_count <= 2:
+            readiness = "moderate"
+            fatigued_groups = [
+                mb.get("muscle_group", "?")
+                for mb in muscle_balance
+                if mb.get("status") == "overtrained"
+            ]
+        else:
+            readiness = "fatigued"
+            fatigued_groups = [
+                mb.get("muscle_group", "?")
+                for mb in muscle_balance
+                if mb.get("status") == "overtrained"
+            ]
 
     lines.append(
         f"{workout_name} | Started {start_time}"
@@ -281,11 +304,11 @@ def _format_workout_brief(
                 lines.append(f"History: {', '.join(history_sets)}")
             lines.append("")
 
-    # Readiness summary
-    if daily_brief:
-        readiness_summary = daily_brief.get("readiness_summary", "")
-        if readiness_summary:
-            lines.append(f"Readiness: {readiness} \u2014 {readiness_summary}")
+    # Readiness summary (derived from weekly review muscle balance)
+    if weekly_review:
+        if fatigued_groups:
+            groups_str = ", ".join(fatigued_groups)
+            lines.append(f"Readiness: {readiness} \u2014 {groups_str} building fatigue")
         else:
             lines.append(f"Readiness: {readiness}")
 

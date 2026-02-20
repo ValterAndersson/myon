@@ -108,7 +108,11 @@ def schedule_weekly_reviews():
 
 
 def run_scheduler():
-    """Run scheduler - creates daily and weekly jobs."""
+    """Run scheduler - creates weekly jobs.
+
+    Daily brief scheduling removed 2026-02-20: readiness data is now derived
+    from weekly review muscle_balance in the workout brief builder.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
@@ -116,11 +120,9 @@ def run_scheduler():
 
     logger.info("Starting scheduler")
 
-    daily_result = schedule_daily_briefs()
     weekly_result = schedule_weekly_reviews()
 
     results = {
-        **daily_result,
         **weekly_result,
     }
 
