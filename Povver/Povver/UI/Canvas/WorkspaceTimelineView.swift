@@ -654,7 +654,7 @@ struct WorkspaceTimelineView: View {
                 // Insert thinking bubble right after the last user message
                 let thinkingTimestamp = lastUserMessageTimestamp?.addingTimeInterval(0.001) ?? Date()
                 let thinkingItem = TimelineItem(
-                    id: "thinking-bubble-\(thinkingTimestamp.timeIntervalSince1970)",
+                    id: "thinking-bubble-\(thinkingState.sessionId)",
                     timestamp: thinkingTimestamp,
                     kind: .thinkingBubble
                 )

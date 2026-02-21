@@ -352,7 +352,7 @@ func withRetry<T>(
 | `CanvasGridView` | Masonry grid layout for cards |
 | `CardContainer` | Universal card wrapper with header/actions |
 | `CardHeader` | Title, subtitle, status badge |
-| `ThoughtTrackView` | Agent thinking/tool visualization |
+| `ThinkingBubble` | Gemini-style collapsible thinking process with live progress |
 | `WorkoutRailView` | Horizontal workout exercise rail |
 | `WorkspaceTimelineView` | Workspace events timeline |
 | `StreamOverlay` | Streaming state overlay |
@@ -851,7 +851,7 @@ Povver/Povver/
     │   ├── CanvasGridView.swift    # Masonry layout
     │   ├── CardContainer.swift     # Card wrapper
     │   ├── CardHeader.swift
-    │   ├── ThoughtTrackView.swift  # Agent thoughts
+    │   ├── ThinkingBubble.swift     # Agent thinking bubble
     │   ├── WorkoutRailView.swift
     │   ├── WorkspaceTimelineView.swift
     │   ├── Charts/                 # Chart components

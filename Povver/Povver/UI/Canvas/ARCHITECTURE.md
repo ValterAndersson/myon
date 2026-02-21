@@ -17,7 +17,7 @@ The Canvas is the primary AI interaction surface. It displays agent-proposed car
 | `PinnedRailView.swift` | Pinned cards rail |
 | `WorkoutRailView.swift` | Horizontal exercise rail for workout cards |
 | `WorkspaceTimelineView.swift` | Timeline of workspace events |
-| `ThinkingBubble.swift` | Agent thinking/tool execution visualization |
+| `ThinkingBubble.swift` | Gemini-style collapsible thinking bubble with live progress and elapsed timer |
 
 ### Cards (`Cards/`)
 

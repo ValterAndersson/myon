@@ -373,6 +373,7 @@ final class CanvasViewModel: ObservableObject {
                     } else if Date().timeIntervalSince(lastMeaningfulEventTime) > streamTimeoutSeconds {
                         AppLogger.shared.info(.app, "Stream timeout - only heartbeats for \(streamTimeoutSeconds)s")
                         await MainActor.run {
+                            self.thinkingState.complete()
                             self.currentAgentStatus = "Request timed out"
                             self.showStreamOverlay = false
                             self.isAgentThinking = false
@@ -394,12 +395,14 @@ final class CanvasViewModel: ObservableObject {
                 if !receivedDoneEvent {
                     AppLogger.shared.info(.app, "Stream ended without done event - cleaning up")
                     await MainActor.run {
+                        self.thinkingState.complete()
                         self.showStreamOverlay = false
                         self.isAgentThinking = false
                     }
                 }
             } catch {
                 await MainActor.run {
+                    self.thinkingState.complete()
                     // Check if this is a premium required error
                     if let streamingError = error as? StreamingError,
                        case .premiumRequired = streamingError {

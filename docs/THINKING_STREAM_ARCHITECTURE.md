@@ -162,33 +162,28 @@ The `_debug` object provides detailed information for Xcode logging:
 
 ### ✅ Completed - iOS (Single Source of Truth)
 
-1. **`ThoughtTrackView.swift`** - Updated to use server text
-   - Uses `event.content["text"]` directly for toolRunning/toolComplete
+1. **`ThinkingProcessState.swift`** - Unified state for thinking UI
+   - Groups tools into semantic phases (Planning → Gathering → Building → Finalizing)
+   - Uses `event.content["text"]` from server for tool display names
    - Falls back to `humanReadableToolName()` only for legacy tools without `_display`
-   - Simplified: removed `formatToolArgs()` and `formatToolResult()` usage
+   - Tracks live elapsed time, step progress (from planner's `suggested_tools`), and active tool detail
+   - Session-scoped `sessionId` for stable SwiftUI identity in timeline
 
-2. **`CanvasViewModel.swift`** - Updated to use server text
-   - Uses `event.displayText` directly for toolRunning/toolComplete events
-   - Uses `event.content["phase"]` to advance progress state
-   - Falls back to `humanReadableToolName()` only for legacy tools without `_display`
+2. **`ThinkingBubble.swift`** - Gemini-style collapsible UI
+   - Collapsed header shows active tool label, step progress ("Step 2 of 5"), and elapsed time
+   - Expanded view shows phase-level steps (3-4 rows) with checkmarks and durations
+   - No per-tool breakdown — keeps the UI clean and scannable
 
-3. **`AgentProgressState.swift`** - Enhanced with server-driven phases
-   - Added new `analyzing` stage for analysis agent
-   - Added `Stage.from(phaseString:)` to parse server phase strings
-   - Added `advance(toPhase:)` method for server-driven stage transitions
-   - Retains `advance(with toolName:)` as fallback for legacy tools
+3. **`CanvasViewModel.swift`** - Forwards all SSE events to ThinkingProcessState
+   - Calls `thinkingState.complete()` on all stream cleanup paths (timeout, error, no-done-event)
 
 ### 🔲 Future Cleanup (After Deployment Verification)
 
-Once the backend changes are deployed and verified working, these legacy mappings 
+Once the backend changes are deployed and verified working, these legacy mappings
 can be fully removed (currently kept as fallbacks):
 
-1. **`ThoughtTrackView.swift`** - `humanReadableToolName()` (~35 lines)
-2. **`CanvasViewModel.swift`** - `humanReadableToolName()` (~15 lines)
-3. **`AgentProgressState.swift`** - `stage(for toolName:)` (~25 lines)
-4. **`DirectStreamingService.swift`** - Legacy mappings (~130 lines)
-
-**Potential removal after verification:** ~200 lines
+1. **`ThinkingProcessState.swift`** - `humanReadableToolName()` (~6 lines)
+2. **`DirectStreamingService.swift`** - Legacy mappings (~130 lines)
 
 ### Backwards Compatibility
 

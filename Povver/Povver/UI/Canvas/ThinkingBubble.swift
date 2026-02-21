@@ -9,10 +9,10 @@ import SwiftUI
 // Replaces ThoughtTrackView, LiveThoughtTrackView, and StreamOverlay.
 //
 // UX:
-// - Collapsed by default: One line showing current phase or "Show thinking"
+// - Collapsed by default: One line showing active tool or phase
 // - Tap to expand/collapse
+// - Live elapsed timer and step progress while active
 // - Animated sparkle icon while in progress
-// - Auto-collapses when complete
 //
 // USAGE:
 //   ThinkingBubble(state: viewModel.thinkingState)
@@ -23,7 +23,7 @@ import SwiftUI
 
 struct ThinkingBubble: View {
     @ObservedObject var state: ThinkingProcessState
-    
+
     var body: some View {
         if state.steps.isEmpty {
             EmptyView()
@@ -31,7 +31,7 @@ struct ThinkingBubble: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Header - always visible
                 headerButton
-                
+
                 // Expanded content
                 if state.isExpanded {
                     expandedContent
@@ -40,11 +40,12 @@ struct ThinkingBubble: View {
             }
             .padding(.vertical, Space.sm)
             .animation(.easeInOut(duration: 0.25), value: state.isExpanded)
+            .animation(.easeInOut(duration: 0.2), value: state.steps.count)
         }
     }
-    
+
     // MARK: - Header Button
-    
+
     private var headerButton: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -54,21 +55,20 @@ struct ThinkingBubble: View {
             HStack(spacing: Space.sm) {
                 // Animated sparkle icon
                 SparkleIcon(isAnimating: state.isActive)
-                
-                // Summary text
+
+                // Summary text (active tool label, phase name, or completion summary)
                 Text(state.summaryText)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(Color.textPrimary)
-                
+                    .lineLimit(1)
+
                 Spacer()
-                
-                // Duration (when complete)
-                if state.isComplete && state.totalDurationMs > 0 {
-                    Text(state.totalDurationText)
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.textSecondary)
+
+                // Progress or elapsed time
+                if state.isActive {
+                    progressLabel
                 }
-                
+
                 // Chevron
                 Image(systemName: state.isExpanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .medium))
@@ -83,9 +83,25 @@ struct ThinkingBubble: View {
         }
         .buttonStyle(PlainButtonStyle())
     }
-    
+
+    /// Shows "Step X of Y" when planner ran, otherwise just elapsed time
+    private var progressLabel: some View {
+        Group {
+            if let total = state.totalExpectedSteps, total > 0 {
+                let currentStep = min(state.completedSteps + 1, total)
+                Text("Step \(currentStep) of \(total)")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.textSecondary)
+            } else if state.elapsedSeconds > 0 {
+                Text("\(state.elapsedSeconds)s")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.textSecondary)
+            }
+        }
+    }
+
     // MARK: - Expanded Content
-    
+
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Vertical line connecting to steps
@@ -95,11 +111,11 @@ struct ThinkingBubble: View {
                     .fill(Color.separatorLine)
                     .frame(width: 1)
                     .padding(.leading, Space.lg + 6)  // Align with sparkle center
-                
-                // Steps
+
+                // Steps (phase-level only, no per-tool breakdown)
                 VStack(alignment: .leading, spacing: Space.xs) {
                     ForEach(state.steps) { step in
-                        StepRow(step: step, isLast: step.id == state.steps.last?.id)
+                        StepRow(step: step)
                     }
                 }
                 .padding(.leading, Space.md)
@@ -113,77 +129,68 @@ struct ThinkingBubble: View {
 
 private struct StepRow: View {
     let step: ThinkingStep
-    let isLast: Bool
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            // Main step header
-            HStack(alignment: .top, spacing: Space.sm) {
-                // Status indicator
-                statusIcon
-                    .frame(width: 16, height: 16)
-                
-                // Content
-                VStack(alignment: .leading, spacing: 2) {
-                    // Title with phase styling
-                    Text(step.title)
-                        .font(.system(size: 13, weight: step.status == .active ? .semibold : .medium))
-                        .foregroundColor(titleColor)
-                        .italic(step.status == .active)
-                    
-                    // Show tool count summary if we have tool results
-                    if !step.toolResults.isEmpty {
-                        let completedCount = step.toolResults.filter { $0.isComplete }.count
-                        Text("\(completedCount) of \(step.toolResults.count) steps completed")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.textSecondary.opacity(0.7))
-                    } else if let detail = step.detail {
-                        // Fallback to detail if no tool results
-                        Text(detail)
-                            .font(.system(size: 12))
-                            .foregroundColor(Color.textSecondary)
-                            .lineLimit(2)
-                    }
-                }
-                
-                Spacer()
-                
-                // Duration (if complete)
-                if let durationText = step.durationText {
-                    Text(durationText)
+        HStack(alignment: .top, spacing: Space.sm) {
+            // Status indicator
+            statusIcon
+                .frame(width: 16, height: 16)
+
+            // Content
+            VStack(alignment: .leading, spacing: 2) {
+                // Title with phase styling
+                Text(step.title)
+                    .font(.system(size: 13, weight: step.status == .active ? .semibold : .medium))
+                    .foregroundColor(titleColor)
+
+                // Subtitle: tool count summary or detail text
+                if let subtitle = stepSubtitle {
+                    Text(subtitle)
                         .font(.system(size: 11))
                         .foregroundColor(Color.textSecondary.opacity(0.7))
+                        .lineLimit(1)
                 }
             }
-            
-            // Tool results history (expanded view showing all tools)
-            if !step.toolResults.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(step.toolResults) { toolResult in
-                        ToolResultRow(toolResult: toolResult)
-                    }
-                }
-                .padding(.leading, Space.lg + Space.sm)  // Indent under the step
+
+            Spacer()
+
+            // Duration (if complete)
+            if let durationText = step.durationText {
+                Text(durationText)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color.textSecondary.opacity(0.7))
             }
         }
         .padding(.vertical, Space.xxs)
     }
-    
+
+    /// Concise subtitle — tool count or detail, not per-tool breakdown
+    private var stepSubtitle: String? {
+        if !step.toolResults.isEmpty {
+            let completedCount = step.toolResults.filter { $0.isComplete }.count
+            if completedCount == step.toolResults.count && completedCount > 0 {
+                return "\(completedCount) steps completed"
+            }
+            return "\(completedCount) of \(step.toolResults.count) steps completed"
+        }
+        return step.detail
+    }
+
     private var statusIcon: some View {
         Group {
             switch step.status {
             case .pending:
                 Circle()
                     .stroke(Color.textSecondary.opacity(0.3), lineWidth: 1.5)
-                    
+
             case .active:
                 ActiveIndicator()
-                
+
             case .complete:
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.green)
-                
+
             case .error:
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
@@ -191,7 +198,7 @@ private struct StepRow: View {
             }
         }
     }
-    
+
     private var titleColor: Color {
         switch step.status {
         case .pending:
@@ -206,57 +213,11 @@ private struct StepRow: View {
     }
 }
 
-// MARK: - Tool Result Row
-
-private struct ToolResultRow: View {
-    let toolResult: ToolResult
-    
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            // Status dot
-            Circle()
-                .fill(toolResult.isComplete ? Color.green.opacity(0.7) : Color.accent.opacity(0.5))
-                .frame(width: 6, height: 6)
-            
-            // Tool name
-            Text(toolResult.displayName)
-                .font(.system(size: 11))
-                .foregroundColor(Color.textSecondary)
-            
-            // Arrow and result (if complete)
-            if let result = toolResult.result, !result.isEmpty {
-                Text("→")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.textSecondary.opacity(0.5))
-                
-                Text(result)
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.textSecondary.opacity(0.8))
-                    .lineLimit(1)
-            } else if !toolResult.isComplete {
-                // Show spinner for in-progress tools
-                ProgressView()
-                    .scaleEffect(0.5)
-            }
-            
-            Spacer()
-            
-            // Duration
-            if let durationMs = toolResult.durationMs {
-                Text(String(format: "%.1fs", Double(durationMs) / 1000.0))
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.textSecondary.opacity(0.5))
-            }
-        }
-        .padding(.vertical, 1)
-    }
-}
-
 // MARK: - Active Indicator (Spinning)
 
 private struct ActiveIndicator: View {
     @State private var isAnimating = false
-    
+
     var body: some View {
         Circle()
             .trim(from: 0, to: 0.7)
@@ -274,10 +235,10 @@ private struct ActiveIndicator: View {
 
 private struct SparkleIcon: View {
     let isAnimating: Bool
-    
+
     @State private var scale: CGFloat = 1.0
     @State private var rotation: Double = 0
-    
+
     var body: some View {
         Image(systemName: "sparkle")
             .font(.system(size: 14, weight: .medium))
@@ -297,7 +258,7 @@ private struct SparkleIcon: View {
                 }
             }
     }
-    
+
     private func startAnimation() {
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
             scale = 1.15
@@ -306,7 +267,7 @@ private struct SparkleIcon: View {
             rotation = 360
         }
     }
-    
+
     private func stopAnimation() {
         withAnimation(.easeOut(duration: 0.3)) {
             scale = 1.0
@@ -326,7 +287,7 @@ struct ThinkingBubble_Previews: PreviewProvider {
                 // Can't call @MainActor methods in preview directly
                 return state
             }())
-            
+
             Spacer()
         }
         .padding()
