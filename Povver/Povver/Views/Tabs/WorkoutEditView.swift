@@ -133,7 +133,7 @@ struct WorkoutEditView: View {
                     type: SetType(rawValue: set.type) ?? .working,
                     reps: set.reps,
                     weight: set.weight > 0 ? set.weight : nil,
-                    rir: set.rir > 0 ? set.rir : nil,
+                    rir: set.rir,
                     isCompleted: set.isCompleted
                 )
             }
@@ -159,7 +159,7 @@ struct WorkoutEditView: View {
                     UpsertSet(
                         id: set.id,
                         reps: set.reps,
-                        rir: set.rir ?? 0,
+                        rir: set.rir,
                         type: set.type?.rawValue ?? "working",
                         weightKg: set.weight ?? 0,
                         isCompleted: set.isCompleted ?? true

@@ -114,8 +114,8 @@ async function patchTemplateHandler(req, res) {
           if (typeof set.reps !== 'number') {
             return fail(res, 'INVALID_ARGUMENT', `Exercise ${i} set ${j} missing reps`, null, 400);
           }
-          if (typeof set.rir !== 'number') {
-            return fail(res, 'INVALID_ARGUMENT', `Exercise ${i} set ${j} missing rir`, null, 400);
+          if (set.rir !== null && set.rir !== undefined && typeof set.rir !== 'number') {
+            return fail(res, 'INVALID_ARGUMENT', `Exercise ${i} set ${j} rir must be number or null`, null, 400);
           }
           // weight can be null (bodyweight exercises)
           if (set.weight !== null && set.weight !== undefined && typeof set.weight !== 'number') {

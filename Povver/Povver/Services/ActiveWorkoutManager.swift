@@ -268,7 +268,7 @@ class ActiveWorkoutManager: ObservableObject {
     }
     
     // MARK: - Set Management (Performance Optimized)
-    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int = 0, type: String = "Working Set") {
+    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int? = nil, type: String = "Working Set") {
         guard var workout = activeWorkout else { return }
         guard let idx = workout.exercises.firstIndex(where: { $0.id == toExerciseId }) else { return }
         

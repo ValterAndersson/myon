@@ -63,13 +63,13 @@ extension WorkoutExerciseSet {
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
             weight: formatWeight(weight),
             reps: "\(reps)",
-            rir: rir > 0 ? "\(rir)" : nil,
+            rir: indicator == .warmup ? nil : rir.map { "\($0)" },
             setTypeIndicator: indicator,
             isActive: false,
             isCompleted: isCompleted
         )
     }
-    
+
     private func setTypeIndicator(from type: String) -> SetCellModel.SetTypeIndicator? {
         let lowercased = type.lowercased()
         if lowercased.contains("warm") {
@@ -81,7 +81,7 @@ extension WorkoutExerciseSet {
         }
         return nil
     }
-    
+
     private func formatWeight(_ weight: Double) -> String {
         // Unitless - SetTable will add unit in header
         if weight.truncatingRemainder(dividingBy: 1) == 0 {
@@ -130,7 +130,7 @@ extension WorkoutTemplateSet {
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
             weight: formatWeight(weight),
             reps: "\(reps)",
-            rir: rir > 0 ? "\(rir)" : nil,
+            rir: indicator == .warmup ? nil : rir.map { "\($0)" },
             setTypeIndicator: indicator,
             isActive: false,
             isCompleted: false

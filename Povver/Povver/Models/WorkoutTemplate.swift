@@ -178,11 +178,11 @@ struct WorkoutTemplateExercise: Codable, Identifiable, Equatable {
 struct WorkoutTemplateSet: Codable, Identifiable, Equatable {
     let id: String // Unique for this set
     var reps: Int
-    var rir: Int
+    var rir: Int? // nil means not recorded (e.g. warmups)
     var type: String
     var weight: Double
     var duration: Int?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case reps
@@ -191,9 +191,9 @@ struct WorkoutTemplateSet: Codable, Identifiable, Equatable {
         case weight
         case duration
     }
-    
+
     // Memberwise init for backward compatibility
-    init(id: String, reps: Int, rir: Int, type: String, weight: Double, duration: Int? = nil) {
+    init(id: String, reps: Int, rir: Int?, type: String, weight: Double, duration: Int? = nil) {
         self.id = id
         self.reps = reps
         self.rir = rir
@@ -201,13 +201,13 @@ struct WorkoutTemplateSet: Codable, Identifiable, Equatable {
         self.weight = weight
         self.duration = duration
     }
-    
+
     // Lenient decoder for API responses
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         self.reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 0
-        self.rir = try container.decodeIfPresent(Int.self, forKey: .rir) ?? 2
+        self.rir = try container.decodeIfPresent(Int.self, forKey: .rir)
         self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? "working"
         self.weight = try container.decodeIfPresent(Double.self, forKey: .weight) ?? 0
         self.duration = try container.decodeIfPresent(Int.self, forKey: .duration)

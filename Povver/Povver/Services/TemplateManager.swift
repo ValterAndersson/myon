@@ -45,13 +45,18 @@ class TemplateManager: ObservableObject {
             // Build patch with current state — server recomputes analytics via Firestore trigger
             let exercises: [[String: Any]] = template.exercises.map { ex in
                 let sets: [[String: Any]] = ex.sets.map { set in
-                    [
-                        "id": set.id,
-                        "reps": set.reps,
-                        "rir": set.rir,
-                        "type": set.type,
-                        "weight": set.weight
-                    ]
+                    {
+                        var d: [String: Any] = [
+                            "id": set.id,
+                            "reps": set.reps,
+                            "type": set.type,
+                            "weight": set.weight
+                        ]
+                        if let rir = set.rir {
+                            d["rir"] = rir
+                        }
+                        return d
+                    }()
                 }
                 var exDict: [String: Any] = [
                     "id": ex.id,
@@ -154,7 +159,7 @@ class TemplateManager: ObservableObject {
     }
     
     // MARK: - Set Management
-    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int = 2, type: String = "working") {
+    func addSet(toExerciseId: String, reps: Int = 0, weight: Double = 0, rir: Int? = 2, type: String = "working") {
         guard var template = currentTemplate else { return }
         guard let idx = template.exercises.firstIndex(where: { $0.id == toExerciseId }) else { return }
         
@@ -226,7 +231,7 @@ class TemplateManager: ObservableObject {
         }
     }
     
-    func updateSetRir(exerciseId: String, setId: String, rir: Int) {
+    func updateSetRir(exerciseId: String, setId: String, rir: Int?) {
         guard var template = currentTemplate else { return }
         guard let exIdx = template.exercises.firstIndex(where: { $0.id == exerciseId }) else { return }
         if let setIdx = template.exercises[exIdx].sets.firstIndex(where: { $0.id == setId }) {

@@ -325,7 +325,7 @@ extension CanvasScreen {
                                     WorkoutTemplateSet(
                                         id: s.id,
                                         reps: s.reps,
-                                        rir: s.rir ?? 2,
+                                        rir: s.rir,
                                         type: s.type?.rawValue ?? "working",
                                         weight: s.weight ?? 0
                                     )

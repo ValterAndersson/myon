@@ -22,7 +22,7 @@ struct ActiveExercise: Codable, Identifiable, Equatable {
 struct ActiveSet: Codable, Identifiable, Equatable {
     let id: String // Unique for this set
     var reps: Int
-    var rir: Int
+    var rir: Int? // nil means not recorded (e.g. warmups)
     var type: String // "Warm-up", "Working Set", etc.
     var weight: Double
     var isCompleted: Bool = false // Track completion state

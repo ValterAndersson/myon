@@ -134,11 +134,11 @@ struct WorkoutExercise: Codable, Identifiable {
 struct WorkoutExerciseSet: Codable, Identifiable {
     let id: String
     var reps: Int
-    var rir: Int // Reps in Reserve
+    var rir: Int? // Reps in Reserve — nil means not recorded (e.g. warmups)
     var type: String // "warmup", "working", "dropset", etc.
     var weight: Double // Changed to match Firestore weight_kg
     var isCompleted: Bool // Track completion state
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case reps
@@ -147,9 +147,9 @@ struct WorkoutExerciseSet: Codable, Identifiable {
         case weight = "weight_kg"
         case isCompleted = "is_completed"
     }
-    
+
     // Memberwise init for backward compatibility
-    init(id: String, reps: Int, rir: Int, type: String, weight: Double, isCompleted: Bool) {
+    init(id: String, reps: Int, rir: Int?, type: String, weight: Double, isCompleted: Bool) {
         self.id = id
         self.reps = reps
         self.rir = rir
@@ -157,12 +157,12 @@ struct WorkoutExerciseSet: Codable, Identifiable {
         self.weight = weight
         self.isCompleted = isCompleted
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         self.reps = try container.decodeIfPresent(Int.self, forKey: .reps) ?? 0
-        self.rir = try container.decodeIfPresent(Int.self, forKey: .rir) ?? 0
+        self.rir = try container.decodeIfPresent(Int.self, forKey: .rir)
         self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? "working"  // Match backend format
         self.weight = try container.decodeIfPresent(Double.self, forKey: .weight) ?? 0
         self.isCompleted = try container.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? true
@@ -372,7 +372,7 @@ struct UpsertExercise: Encodable {
 struct UpsertSet: Encodable {
     let id: String
     let reps: Int
-    let rir: Int
+    let rir: Int?
     let type: String
     let weightKg: Double
     let isCompleted: Bool

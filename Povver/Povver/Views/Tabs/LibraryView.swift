@@ -534,20 +534,21 @@ struct ExercisesListView: View {
     }
     
     // MARK: - Exercise List
-    
+
     private var exerciseList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Results count
-                HStack {
+                // Sort chips + results count
+                HStack(spacing: Space.sm) {
+                    sortChips
+                    Spacer()
                     Text("\(filteredExercises.count) exercises")
                         .font(.system(size: 13))
                         .foregroundColor(Color.textTertiary)
-                    Spacer()
                 }
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, Space.sm)
-                
+
                 ForEach(filteredExercises) { exercise in
                     LibraryExerciseRow(
                         exercise: exercise,
@@ -555,7 +556,7 @@ struct ExercisesListView: View {
                             showingExerciseDetail = exercise
                         }
                     )
-                    
+
                     Divider()
                         .padding(.leading, Space.md)
                 }
@@ -563,9 +564,30 @@ struct ExercisesListView: View {
             .padding(.bottom, Space.xl)
         }
     }
-    
+
+    // MARK: - Sort Chips
+
+    private var sortChips: some View {
+        HStack(spacing: 6) {
+            ForEach(ExerciseSortOption.allCases, id: \.self) { option in
+                Button {
+                    viewModel.setSortOption(option)
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(size: 12, weight: viewModel.sortOption == option ? .semibold : .medium))
+                        .foregroundColor(viewModel.sortOption == option ? .textInverse : Color.textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(viewModel.sortOption == option ? Color.accent : Color.surfaceElevated)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+
     // MARK: - Loading View
-    
+
     private var loadingView: some View {
         VStack {
             Spacer()
@@ -1003,16 +1025,18 @@ struct TemplateDetailView: View {
         if exercisesChanged() {
             let templateExercises: [[String: Any]] = planExercises.enumerated().map { index, planEx in
                 let sets: [[String: Any]] = planEx.sets.map { set in
-                    let rir: Int = set.rir ?? 2
                     let type: String = set.type?.rawValue ?? "working"
                     let weight: Double = set.weight ?? 0
-                    return [
+                    var setDict: [String: Any] = [
                         "id": set.id,
                         "reps": set.reps,
-                        "rir": rir,
                         "type": type,
                         "weight": weight
                     ]
+                    if let rir = set.rir {
+                        setDict["rir"] = rir
+                    }
+                    return setDict
                 }
                 return [
                     "id": planEx.id,

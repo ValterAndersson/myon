@@ -102,7 +102,7 @@ async function completeActiveWorkoutHandler(req, res) {
       sets: (ex.sets || []).map(s => ({
         id: s.id || null,
         reps: typeof s.reps === 'number' ? s.reps : 0,
-        rir: typeof s.rir === 'number' ? s.rir : 0,
+        rir: typeof s.rir === 'number' ? s.rir : null,
         type: s.set_type || s.type || 'working',
         weight_kg: typeof s.weight === 'number' ? s.weight : (typeof s.weight_kg === 'number' ? s.weight_kg : 0),
         is_completed: s.status === 'done',

@@ -631,7 +631,7 @@ Subcollections:
            sets: Array<{
              id?: string,
              reps: number,
-             rir: number,
+             rir: number | null,  // null = not recorded (e.g. warmups); 0 = zero reps in reserve
              type?: string,
              weight_kg: number,
              is_completed?: boolean
@@ -676,7 +676,7 @@ Subcollections:
            id?: string, // per-template unique
            exercise_id: string, // reference to master `exercises/{id}`
            position: number,
-           sets: Array<{ id?: string, reps: number, rir: number, type?: string, weight: number, duration?: number }>,
+           sets: Array<{ id?: string, reps: number, rir: number | null, type?: string, weight: number, duration?: number }>,
            rest_between_sets?: number
          }>`
      - `analytics?: TemplateAnalytics` (computed server-side for AI-created/updated templates)
@@ -992,6 +992,22 @@ Subcollections:
      - Muscle group filter: `where('muscle_group_keys', 'array-contains', group)`
      - Aggregation: `aggregateSets` groups by exercise_id or muscle_group with sum/avg/max aggregations
 
+19) exercise_usage_stats/{exerciseId}
+   - Pre-computed per-exercise usage statistics for client-side sorting (recency, frequency).
+   - Document ID: exercise ID from the `exercises` catalog.
+   - Written by: `triggers/weekly-analytics.js` (`updateExerciseUsageStats`) on workout completion/creation/deletion. Backfilled by `scripts/backfill_exercise_usage_stats.js`.
+   - Read by: iOS `ExerciseRepository.fetchUsageStats()` for exercise list sorting.
+   - Security: Owner read, no client writes (`allow write: if false` in firestore.rules). All writes via admin SDK.
+   - Fields:
+     - `exercise_id: string` (matches document ID and `exercises/{id}`)
+     - `exercise_name: string` (denormalized for debugging; not used in sort logic)
+     - `last_workout_date: string` (YYYY-MM-DD, most recent workout containing this exercise)
+     - `workout_count: number` (total completed workouts containing this exercise)
+     - `last_processed_workout_id: string` (idempotency guard — prevents double-increment under trigger retries)
+     - `updated_at: Timestamp`
+   - Query patterns:
+     - Full collection read: iOS fetches all docs for the user to build a lookup map (typically 30-80 docs, small documents)
+
 ---
 
 ## Global Collections
@@ -1081,7 +1097,8 @@ Notes:
 
 - `users/{uid}/conversations/**`: read allowed to the authenticated owner; writes to `messages` allowed by owner; writes to `artifacts` disallowed directly (managed by agent via Functions).
 - `users/{uid}/canvases/**` (DEPRECATED): read allowed to the authenticated owner; writes are disallowed directly (single-writer via Functions only). All canvas mutations flow through HTTPS endpoints (e.g., `applyAction`, `proposeCards`, `bootstrapCanvas`).
-- Other user subcollections under `users/{uid}`: read/write allowed to the authenticated owner (excluding `canvases` and `artifacts`). This includes `workouts`, `weekly_stats`, `templates`, `routines`, `user_attributes`, `linked_devices`, `progress_reports`, `active_workouts`, `agent_sessions`, and analytics collections under `analytics_*` prefixes.
+- `users/{uid}/exercise_usage_stats/**`: read allowed to the authenticated owner; writes disallowed directly (admin SDK only via triggers and backfill scripts).
+- Other user subcollections under `users/{uid}`: read/write allowed to the authenticated owner (excluding `canvases`, `artifacts`, and `exercise_usage_stats`). This includes `workouts`, `weekly_stats`, `templates`, `routines`, `user_attributes`, `linked_devices`, `progress_reports`, `active_workouts`, `agent_sessions`, and analytics collections under `analytics_*` prefixes.
 - Admin/agents: Function-layer auth (API keys, service accounts) mediates privileged writes.
 - Analytics: lives under `users/{uid}/analytics_*` and inherits owner read/write. Backend Functions (triggers/HTTPS) write these docs on behalf of the user.
 
@@ -1208,6 +1225,7 @@ users/{uid}
   ├─ agent_sessions/{purpose}
   ├─ subscription_events/{auto-id}
   ├─ set_facts/{setId}
+  ├─ exercise_usage_stats/{exerciseId}
   └─ canvases/{canvasId} (DEPRECATED)
        ├─ cards/{cardId} (DEPRECATED)
        ├─ up_next/{entryId} (DEPRECATED)

@@ -94,7 +94,7 @@ function normalizeExercises(rawExercises, defaultCompleted = true) {
       return {
         id: s.id || null,
         reps: typeof s.reps === 'number' ? s.reps : 0,
-        rir: typeof s.rir === 'number' ? s.rir : 0,
+        rir: typeof s.rir === 'number' ? s.rir : null,
         type: s.type || 'working set',
         weight_kg: typeof weightKg === 'number' ? weightKg : 0,
         is_completed: s.is_completed !== undefined ? !!s.is_completed : !!defaultCompleted,
