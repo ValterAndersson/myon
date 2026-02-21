@@ -876,16 +876,26 @@ Subcollections:
      - `scope: "template" | "exercise" | "routine"` - Target type
      - `target: object`:
        - `template_id?: string` - If scope is "template"
-       - `routine_id?: string` - If scope is "routine"
+       - `template_name?: string` - Human-readable template name (template scope)
+       - `routine_id?: string` - If scope is "template" or "routine"
        - `exercise_name?: string` - If scope is "exercise" (no routine/template)
        - `exercise_id?: string` - If scope is "exercise"
+       - `muscle_group?: string` - If scope is "routine" (muscle_balance recommendations)
      - `recommendation: object`:
        - `type: string` - Recommendation type:
-         - `"progression"` - Weight/rep increase
+         - `"progression"` - Weight increase (user hit target reps with low RIR)
+         - `"rep_progression"` - Rep increase (double progression: build reps before adding weight)
+         - `"intensity_adjust"` - RIR tuning (adjust target RIR)
          - `"deload"` - Weight reduction
          - `"volume_adjustment"` - Sets/reps change
          - `"exercise_swap"` - Replace exercise
+         - `"muscle_balance"` - Muscle group volume imbalance (informational, scope: routine)
+       - `suggested_weight?: number` - Explicit weight suggestion from analyzer (for progression/deload)
+       - `target_reps?: number` - Target rep count from analyzer (for rep_progression, 1-30)
+       - `target_rir?: number` - Target RIR from analyzer (for intensity_adjust, 0-5)
        - `changes: Array<{ path: string, from: any, to: any, rationale?: string }>`
+         - `path` values: `exercises[i].sets[j].weight_kg`, `exercises[i].sets[j].target_reps`, `exercises[i].sets[j].target_rir`, or exercise-scoped `weight_kg`, `target_reps`, `target_rir`
+         - `from: null` for exercise-scoped reps/RIR (no template baseline) and new fields being added
        - `summary: string` - Human-readable summary
        - `rationale?: string` - Full explanation
        - `confidence: number` - 0-1 confidence score

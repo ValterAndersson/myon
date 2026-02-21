@@ -35,19 +35,28 @@ struct RecommendationCardView: View {
                 Text(rationale)
                     .font(.system(size: 13))
                     .foregroundColor(Color.textSecondary)
-                    .lineLimit(3)
+                    .lineLimit(10)
             }
 
-            // Changes preview
+            // Changes preview — show up to 3 changes
             if !recommendation.recommendation.changes.isEmpty {
-                let change = recommendation.recommendation.changes[0]
-                Text(change.rationale ?? changeDescription(change))
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(Color.textSecondary)
-                    .padding(.horizontal, Space.sm)
-                    .padding(.vertical, 4)
-                    .background(Color.bg)
-                    .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+                let displayChanges = Array(recommendation.recommendation.changes.prefix(3))
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(displayChanges.enumerated()), id: \.offset) { _, change in
+                        Text(changeDescription(change))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                            .foregroundColor(Color.textSecondary)
+                    }
+                    if recommendation.recommendation.changes.count > 3 {
+                        Text("+ \(recommendation.recommendation.changes.count - 3) more")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color.textTertiary)
+                    }
+                }
+                .padding(.horizontal, Space.sm)
+                .padding(.vertical, 4)
+                .background(Color.bg)
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
             }
 
             // Actions or status
@@ -73,7 +82,7 @@ struct RecommendationCardView: View {
                                     .scaleEffect(0.7)
                                     .tint(.white)
                             }
-                            Text("Accept")
+                            Text(acceptButtonText)
                                 .font(.system(size: 14, weight: .semibold))
                         }
                         .foregroundColor(.white)
@@ -95,11 +104,30 @@ struct RecommendationCardView: View {
                         .foregroundColor(Color.textSecondary)
                 }
                 .padding(.top, Space.xs)
+            } else if recommendation.state == "acknowledged" {
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundColor(Color.textTertiary)
+                        .font(.system(size: 14))
+                    Text("Noted")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.textSecondary)
+                }
+                .padding(.top, Space.xs)
             }
         }
         .padding(Space.md)
         .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+    }
+
+    /// "Got it" for exercise/routine scoped recs, "Accept" for template-scoped
+    private var acceptButtonText: String {
+        let scope = recommendation.scope
+        if scope == "exercise" || scope == "routine" {
+            return "Got it"
+        }
+        return "Accept"
     }
 
     private var triggerLabel: String {
@@ -118,18 +146,69 @@ struct RecommendationCardView: View {
         return "\(Int(interval / 86400))d ago"
     }
 
+    /// Path-aware change description — reads the path string to determine formatting
     private func changeDescription(_ change: RecommendationChange) -> String {
-        let from = formatValue(change.from)
-        let to = formatValue(change.to)
-        return "\(from) → \(to)"
+        let path = change.path
+        let from = change.from
+        let to = change.to
+
+        if path.contains("weight_kg") {
+            let fromStr = formatWeight(from)
+            let toStr = formatWeight(to)
+            return "\(fromStr) \u{2192} \(toStr)"
+        }
+
+        if path.contains("target_reps") || path.hasSuffix(".reps") {
+            let toStr = formatNumeric(to)
+            if isNull(from) {
+                return "\u{2192} \(toStr) reps"
+            }
+            let fromStr = formatNumeric(from)
+            return "\(fromStr) \u{2192} \(toStr) reps"
+        }
+
+        if path.contains("target_rir") || path.hasSuffix(".rir") {
+            let toStr = formatNumeric(to)
+            if isNull(from) {
+                return "RIR \u{2192} \(toStr)"
+            }
+            let fromStr = formatNumeric(from)
+            return "RIR \(fromStr) \u{2192} \(toStr)"
+        }
+
+        // Fallback
+        let fromStr = formatGeneric(from)
+        let toStr = formatGeneric(to)
+        return "\(fromStr) \u{2192} \(toStr)"
     }
 
-    private func formatValue(_ value: AnyCodable) -> String {
+    private func isNull(_ value: AnyCodable) -> Bool {
+        return value.value is NSNull
+    }
+
+    private func formatWeight(_ value: AnyCodable) -> String {
         switch value.value {
         case let n as Int: return "\(n)kg"
-        case let n as Double: return String(format: "%.1fkg", n)
+        case let n as Double: return String(format: n.truncatingRemainder(dividingBy: 1) == 0 ? "%.0fkg" : "%.1fkg", n)
+        default: return "\u{2014}"
+        }
+    }
+
+    private func formatNumeric(_ value: AnyCodable) -> String {
+        switch value.value {
+        case let n as Int: return "\(n)"
+        case let n as Double: return String(format: n.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", n)
         case let s as String: return s
-        default: return "—"
+        default: return "\u{2014}"
+        }
+    }
+
+    private func formatGeneric(_ value: AnyCodable) -> String {
+        switch value.value {
+        case let n as Int: return "\(n)"
+        case let n as Double: return String(format: "%.1f", n)
+        case let s as String: return s
+        default: return "\u{2014}"
         }
     }
 }

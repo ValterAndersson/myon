@@ -215,6 +215,32 @@ async function handleAccept(res, userId, recRef, recommendation, startTime) {
     return ok(res, { status: 'acknowledged' });
   }
 
+  // Routine-scoped recommendations (e.g., muscle_balance): acknowledge only, no template mutation
+  if (scope === 'routine') {
+    await recRef.update({
+      state: 'acknowledged',
+      applied_by: 'user',
+      applied_at: FieldValue.serverTimestamp(),
+      state_history: FieldValue.arrayUnion({
+        from: 'pending_review',
+        to: 'acknowledged',
+        at: new Date().toISOString(),
+        by: 'user',
+        note: 'User acknowledged routine-scoped recommendation',
+      }),
+    });
+
+    const elapsed = Date.now() - startTime;
+    logger.info('[reviewRecommendation] Routine-scoped recommendation acknowledged', {
+      userId,
+      recommendationId: recRef.id,
+      muscleGroup: target.muscle_group,
+      elapsedMs: elapsed,
+    });
+
+    return ok(res, { status: 'acknowledged' });
+  }
+
   if (scope !== 'template' || !target.template_id) {
     logger.error('[reviewRecommendation] Invalid recommendation scope', {
       userId,
@@ -224,7 +250,7 @@ async function handleAccept(res, userId, recRef, recommendation, startTime) {
     return fail(
       res,
       'INVALID_RECOMMENDATION',
-      'Only template-scoped and exercise-scoped recommendations are supported',
+      'Unsupported recommendation scope',
       null,
       400
     );
@@ -328,6 +354,9 @@ function checkStaleness(currentTemplate, changes) {
   const mismatches = [];
 
   for (const change of changes) {
+    // New field being added — no baseline to check against
+    if (change.from === null) continue;
+
     const currentValue = resolvePathValue(currentTemplate, change.path);
 
     // Compare current value with expected 'from' value

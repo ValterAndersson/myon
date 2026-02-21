@@ -967,23 +967,36 @@ Connects the training analyst pipeline to user-facing recommendations and automa
 
 ### Recommendation Scopes
 
-| | Template-scoped | Exercise-scoped |
-|---|---|---|
-| **Trigger condition** | User has `activeRoutineId` | No `activeRoutineId` |
-| **Baseline weight** | Template set weights | Max working set weight from workout |
-| **`scope` field** | `"template"` | `"exercise"` |
-| **`target` field** | `{ template_id }` | `{ exercise_name, exercise_id }` |
-| **Auto-apply** | Yes (if `auto_pilot_enabled`) | No (always `pending_review`) |
-| **Accept action** | Apply weight delta to template sets | Acknowledge (no mutation) |
+| | Template-scoped | Exercise-scoped | Routine-scoped |
+|---|---|---|---|
+| **Trigger condition** | User has `activeRoutineId` | No `activeRoutineId` | Weekly review muscle_balance |
+| **Baseline** | Template set weights | Max working set weight from workout | N/A (informational) |
+| **`scope` field** | `"template"` | `"exercise"` | `"routine"` |
+| **`target` field** | `{ template_id }` | `{ exercise_name, exercise_id }` | `{ routine_id, muscle_group }` |
+| **Auto-apply** | Yes (if `auto_pilot_enabled`) | No (always `pending_review`) | No (always `pending_review`) |
+| **Accept action** | Apply changes to template sets | Acknowledge (no mutation) | Acknowledge (no mutation) |
+| **Change types** | `weight_kg`, `target_reps`, `target_rir` | `weight_kg`, `target_reps`, `target_rir` | None (empty `changes` array) |
 
-Exercise-scoped recommendations ensure users who log workouts directly (without routines/templates) still receive actionable progression suggestions from analysis insights and weekly reviews.
+Exercise-scoped recommendations ensure users without routines/templates still receive progression suggestions. Routine-scoped muscle_balance recommendations surface training volume imbalances for the user to consider.
 
-### Progression Rules (Deterministic)
+### Progression Rules
 
-- Weight progression (>40kg): +2.5% rounded to nearest 2.5kg, capped at +5kg/step
-- Weight progression (≤40kg): +5% rounded to nearest 1.25kg, capped at +5kg/step
-- Deload: -10% weight, same rounding rules
-- Safety: min 0kg, no LLM involved in weight computation
+**Double Progression Model**: Increase reps to target range first, then increase weight and reset reps. This prevents premature weight jumps when the user hasn't mastered the current load.
+
+**Multi-lever progression types**:
+- `progression` — Weight increase: +2.5% for compounds (>40kg), +5% for isolation, rounded to 2.5kg/1.25kg, capped at +5kg/step
+- `rep_progression` — Rep increase: compounds +1-2 reps per session (5→6→8), isolation +2-4 reps (8→10→12)
+- `intensity_adjust` — RIR tuning: adjust target RIR when consistently too high (≥3) or too low (<1)
+- `deload` — Weight reduction: -10%, same rounding rules
+- `muscle_balance` — Informational: surfaces overtrained/undertrained muscle groups from weekly review (scope: `routine`, no `changes` array)
+
+**Decision order (per exercise)**:
+1. Not at target reps? → `rep_progression` (build reps before adding weight)
+2. At target reps with low RIR (≤2)? → `progression` (weight increase)
+3. Stalled with room (RIR ≥ 2)? → `rep_progression` (increase reps first)
+4. Stalled and grinding (RIR < 2)? → `deload` or `exercise_swap`
+
+Weight computation remains deterministic (no LLM involved). Safety: min 0kg.
 
 ### Premium Gates (3 Layers)
 

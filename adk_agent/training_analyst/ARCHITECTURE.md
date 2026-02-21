@@ -45,6 +45,9 @@ Three specialized analyzers with distinct data budgets and LLM models.
 - Reads: trimmed workout + 4 weeks rollups + exercise series
 - Writes: `users/{uid}/analysis_insights/{autoId}` (TTL 7 days)
 - Output: summary, typed highlights, severity-flagged issues, confidence-scored recommendations
+- Recommendation types: `progression`, `deload`, `swap`, `volume_adjust`, `rep_progression`, `intensity_adjust`
+- Uses double progression model: reps increase before weight increase when user hasn't hit target reps
+- Optional output fields: `suggested_weight`, `target_reps`, `target_rir`, `sets_delta`
 
 **Daily Brief Analyzer** (`daily_brief.py`):
 - Model: `gemini-2.5-flash` (temperature=0.3)
@@ -59,6 +62,10 @@ Three specialized analyzers with distinct data budgets and LLM models.
 - Reads: 12 weeks rollups + top 10 exercise series + 8 muscle group series
 - Writes: `users/{uid}/weekly_reviews/{YYYY-WNN}` (TTL 30 days)
 - Output: training load delta, muscle balance, exercise trends, progression candidates, stalled exercises
+- `progression_candidates` includes `target_reps` (for rep progression) and `suggested_weight` (for weight progression)
+- `stalled_exercises` includes `target_reps` and `suggested_weight` fields mapped to `suggested_action`
+- All stalled exercise actions now processed: `increase_weight`, `deload`, `swap`, `vary_rep_range`
+- `muscle_balance` data used for routine-scoped recommendations and readiness derivation
 
 **Data Budget Strategy**: NEVER pass raw workout docs, set_facts, or full history to LLM. Only use pre-aggregated data (analytics_rollups, series_*).
 
@@ -75,9 +82,9 @@ Three Cloud Run Jobs for bounded execution.
 
 **Scheduler** (`scheduler.py`):
 - Runs daily at 6 AM
-- Creates DAILY_BRIEF jobs for active users
 - Creates WEEKLY_REVIEW jobs on Sundays
 - Filters users with recent workouts
+- Daily brief scheduling removed (2026-02-20): readiness data is now derived from weekly review muscle_balance in the workout brief builder
 
 **Watchdog** (`watchdog.py`):
 - Recovers stuck jobs (expired leases)

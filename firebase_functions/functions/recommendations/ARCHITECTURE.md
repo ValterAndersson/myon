@@ -89,7 +89,7 @@ Pattern reference: `firebase_functions/functions/training/get-analysis-summary.j
 
 ---
 
-## Accept Flow (with Freshness Check)
+## Accept Flow (Scope-Dependent)
 
 1. **Auth**: Extract `userId` from `req.auth.uid` (never trust client)
 2. **Premium gate**: Call `isPremiumUser(userId)` from `utils/subscription-gate.js`
@@ -97,18 +97,23 @@ Pattern reference: `firebase_functions/functions/training/get-analysis-summary.j
 3. **Read recommendation**: `users/{uid}/agent_recommendations/{recommendationId}`
 4. **Validate state**: Must be `pending_review`
    - If not → return `409 INVALID_STATE`
-5. **Freshness check**:
+5. **Branch on `scope`**:
+   - **`exercise`**: Acknowledge only — set `state = 'acknowledged'`, no template mutation
+   - **`routine`**: Acknowledge only — set `state = 'acknowledged'`, no template mutation (muscle_balance recs)
+   - **`template`**: Proceed to freshness check + apply (steps 6-8)
+6. **Freshness check** (template-scoped only):
    - Read target template
    - For each change, verify `change.from === resolvePathValue(currentTemplate, change.path)`
+   - Skip comparison when `change.from === null` (new field being added — no baseline)
    - If any mismatch → return `409 STALE_RECOMMENDATION` with details
-6. **Apply changes**: Call `applyChangesToTarget()` from `agents/apply-progression.js`
-7. **Update recommendation**:
+7. **Apply changes**: Call `applyChangesToTarget()` from `agents/apply-progression.js`
+8. **Update recommendation**:
    - `state = 'applied'`
    - `applied_by = 'user'`
    - `applied_at = serverTimestamp()`
    - `result = { template_id, changes_applied }`
    - Append to `state_history`: `{ from: 'pending_review', to: 'applied', at, by: 'user' }`
-8. **Return**: `ok(res, { status: 'applied', result })`
+9. **Return**: `ok(res, { status: 'applied', result })` or `ok(res, { status: 'acknowledged' })`
 
 ### Freshness Check Rationale
 
@@ -240,7 +245,8 @@ Resolves a nested path like `"exercises[0].sets[0].weight_kg"` to get a value fr
 Agent recommendations follow this state machine:
 
 ```
-pending_review → applied (user accepts)
+pending_review → applied (user accepts, template-scoped)
+pending_review → acknowledged (user accepts, exercise/routine-scoped)
 pending_review → rejected (user rejects)
 pending_review → expired (daily TTL sweep)
 applied → failed (apply error during accept)
@@ -295,4 +301,3 @@ The `failed` state is a fallback when `applyChangesToTarget` throws during accep
 - **Batch review**: Accept/reject multiple recommendations in one request
 - **Preview mode**: Show what would change without applying (dry-run)
 - **Revert**: Undo applied recommendation (requires storing original values)
-- **Routine-scoped recommendations**: Currently only template-scoped is supported

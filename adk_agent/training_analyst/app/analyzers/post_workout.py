@@ -289,6 +289,9 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         return doc_ref.id
 
     def _get_system_prompt(self) -> str:
+        # Double progression model: increase reps to target range first,
+        # then increase weight and reset reps. This prevents premature
+        # weight jumps when the user hasn't mastered the current load.
         return """You are a training analyst providing post-workout feedback.
 
 Analyze the completed workout in context of recent weekly aggregated trends.
@@ -324,21 +327,55 @@ Return JSON matching this schema EXACTLY:
   ],
   "recommendations": [
     {
-      "type": "progression | deload | swap | volume_adjust",
+      "type": "progression | deload | swap | volume_adjust | rep_progression | intensity_adjust",
       "target": "exercise name or muscle group name FROM THE INPUT",
       "action": "concise next-step suggestion with specific numbers",
       "reasoning": "1-2 sentences: what data you evaluated, why this recommendation follows",
       "signals": ["e1RM stable at 125kg for 3 weeks", "avg RIR 2.0 across sets"],
-      "confidence": 0.0-1.0
+      "confidence": 0.0-1.0,
+      "suggested_weight": null,
+      "target_reps": null,
+      "target_rir": null,
+      "sets_delta": null
     }
   ]
 }
 
+DOUBLE PROGRESSION MODEL (choose ONE primary type per exercise):
+Evaluate in this order for each exercise:
+
+1. Rep progression needed? If the exercise has a target rep range (e.g., 4x8) and
+   the user performed fewer reps (e.g., 4x5), the FIRST priority is building reps
+   to the target range — NOT increasing weight.
+   → type: "rep_progression", target_reps: target rep count
+   → Rep progression steps: compounds +1-2 reps per session (5→6→8),
+     isolation +2-4 reps per session (8→10→12)
+
+2. Ready for weight increase? If the user hit all target reps across all sets
+   with low RIR (≤2), they have mastered the current load.
+   → type: "progression", suggested_weight: new weight
+   → Progression: +2.5% for compounds (>40kg), +5% for isolation, rounded to 2.5kg or 1.25kg
+   → If rounding gives no change, bump by one step (2.5kg or 1.25kg). Cap at +5kg.
+
+3. Stalled with room? If e1RM is flat for 3+ weeks BUT avg RIR ≥ 2,
+   the user has capacity — increase reps first before adding weight.
+   → type: "rep_progression", target_reps: current reps + 1-2
+
+4. Stalled and grinding? If e1RM is flat for 3+ weeks AND avg RIR < 2,
+   the user is near failure at this weight.
+   → type: "deload" (suggested_weight: 90% of current) or type: "swap"
+
+5. Intensity adjustment? If avg RIR is consistently too high (≥3) or too low (<1)
+   across multiple sessions.
+   → type: "intensity_adjust", target_rir: recommended RIR
+
 For each recommendation:
 - "action" must include specific numbers (weights, reps, percentages) from the input
-- "action" MUST include a specific target weight (e.g., "Try 102.5kg next session")
-- Progression: +2.5% for compounds (>40kg), +5% for isolation, rounded to 2.5kg or 1.25kg
-- If rounding gives no change, bump by one step (2.5kg or 1.25kg). Cap at +5kg.
+- Set ONLY the relevant numeric fields: suggested_weight for weight changes,
+  target_reps for rep changes, target_rir for RIR changes. Leave others as null.
+- target_reps must be > 0 and ≤ 30 when set
+- target_rir must be 0-5 when set
+- suggested_weight must be > 0 when set
 - For swap suggestions, estimate the new exercise weight from the original:
   BB→DB = 37% per hand, compound→isolation = 30%, incline = 82% of flat.
 - "reasoning" explains the logic chain: which metrics you compared, what threshold was met, why this change
@@ -351,11 +388,4 @@ Detection rules:
 - volume_drop: this week's total_sets < 70% of rollup average
 - overreach: avg_rir < 1.0 across multiple exercises while volume is high
 
-Stall → recommendation mapping:
-A "stall" flag does NOT automatically mean volume_adjust or swap.
-- avg RIR ≥ 2 → type: "progression". The user has capacity to lift more.
-  Recommend a small weight increase (+2.5% compounds, +5% isolation).
-- avg RIR < 2 → type: "deload" or "swap". The user is near failure
-  at this weight and still not progressing. Consider deload or swap.
-
-Output limits: 2-4 highlights, 0-3 flags, 1-3 recommendations"""
+Output limits: 2-4 highlights, 0-3 flags, 1-5 recommendations"""

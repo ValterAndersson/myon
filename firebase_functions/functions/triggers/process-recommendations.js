@@ -1,6 +1,6 @@
 /**
  * =============================================================================
- * process-recommendations.js - Recommendation Processing Triggers
+ * process-recommendations.js - Recommendation Processing Triggers (v2: multi-lever)
  * =============================================================================
  *
  * PURPOSE:
@@ -60,11 +60,20 @@ const onAnalysisInsightCreated = onDocumentCreated(
       // Extract actionable recommendations from insight
       const recommendations = insight.recommendations || [];
       const actionable = recommendations
-        .filter(rec => rec.confidence >= 0.7 && ['progression', 'deload', 'volume_adjust'].includes(rec.type))
+        .filter(rec => {
+          if (rec.confidence < 0.7) return false;
+          if (!['progression', 'deload', 'volume_adjust', 'rep_progression', 'intensity_adjust'].includes(rec.type)) return false;
+          // Input validation: clamp LLM-provided fields to valid ranges
+          if (rec.target_reps != null && (rec.target_reps < 1 || rec.target_reps > 30)) return false;
+          if (rec.target_rir != null && (rec.target_rir < 0 || rec.target_rir > 5)) return false;
+          return true;
+        })
         .map(rec => ({
           type: rec.type,
           target: rec.target,
           suggestedWeight: rec.suggested_weight ?? null,
+          targetReps: rec.target_reps ?? null,
+          targetRir: rec.target_rir ?? null,
           rationale: rec.action || 'Auto-generated from post-workout analysis',
           reasoning: rec.reasoning || '',
           signals: rec.signals || [],
@@ -110,26 +119,37 @@ const onWeeklyReviewCreated = onDocumentCreated(
     logger.info('[onWeeklyReviewCreated] Processing review', { userId, reviewId });
 
     try {
-      // Extract actionable items: progressions + deloads (skip swaps)
+      // Extract actionable items: progressions + all stalled exercise actions
       const progressionCandidates = review.progression_candidates || [];
-      const stalledExercises = (review.stalled_exercises || [])
-        .filter(ex => ex.suggested_action === 'deload');
+      const stalledExercises = review.stalled_exercises || [];
+
+      // Map stalled exercise actions to recommendation types
+      const stalledActionMap = {
+        increase_weight: 'progression',
+        deload: 'deload',
+        swap: 'exercise_swap',
+        vary_rep_range: 'rep_progression',
+      };
 
       const actionable = [
         ...progressionCandidates.map(pc => ({
-          type: 'progression',
+          type: pc.target_reps ? 'rep_progression' : 'progression',
           target: pc.exercise_name,
           suggestedWeight: pc.suggested_weight ?? null,
+          targetReps: pc.target_reps ?? null,
+          targetRir: null,
           rationale: pc.rationale || 'Auto-generated from weekly review',
           reasoning: pc.reasoning || '',
           signals: pc.signals || [],
           confidence: pc.confidence || 0.8,
         })),
         ...stalledExercises.map(se => ({
-          type: 'deload',
+          type: stalledActionMap[se.suggested_action] || se.suggested_action,
           target: se.exercise_name,
-          suggestedWeight: null,
-          rationale: se.rationale || 'Stall detected — deload recommended',
+          suggestedWeight: se.suggested_weight ?? null,
+          targetReps: se.target_reps ?? null,
+          targetRir: null,
+          rationale: se.rationale || `Stall detected — ${se.suggested_action} recommended`,
           reasoning: se.reasoning || '',
           signals: se.signals || [],
           confidence: 0.7,
@@ -143,8 +163,66 @@ const onWeeklyReviewCreated = onDocumentCreated(
 
       await processActionableRecommendations(userId, 'weekly_review', {
         review_id: reviewId,
-        week_ending: review.week_ending,
+        week_ending: review.week_ending || null,
       }, actionable);
+
+      // Muscle balance recommendations — routine-scoped, written directly (bypass template/exercise matching)
+      const muscleBalance = (review.muscle_balance || [])
+        .filter(mb => mb.status === 'overtrained' || mb.status === 'undertrained');
+
+      if (muscleBalance.length > 0) {
+        const db = admin.firestore();
+        const userDoc = await db.collection('users').doc(userId).get();
+        const activeRoutineId = userDoc.exists ? (userDoc.data().activeRoutineId || null) : null;
+        const isPremium = userDoc.exists && (
+          userDoc.data().subscription_override === 'premium' || userDoc.data().subscription_tier === 'premium'
+        );
+
+        if (isPremium) {
+          const { FieldValue } = admin.firestore;
+          for (const mb of muscleBalance) {
+            const recRef = db.collection(`users/${userId}/agent_recommendations`).doc();
+            const now = FieldValue.serverTimestamp();
+
+            const recData = {
+              id: recRef.id,
+              created_at: now,
+              trigger: 'weekly_review',
+              trigger_context: { review_id: reviewId, week_ending: review.week_ending || null },
+              scope: 'routine',
+              target: {
+                routine_id: activeRoutineId,
+                muscle_group: mb.muscle_group,
+              },
+              recommendation: {
+                type: 'muscle_balance',
+                changes: [],
+                summary: `${mb.muscle_group}: ${mb.status} (${mb.weekly_sets ?? '?'} sets/week)`,
+                rationale: `${mb.muscle_group} is ${mb.status} at ${mb.weekly_sets ?? '?'} sets/week (trend: ${mb.trend ?? 'unknown'}). ${mb.status === 'overtrained' ? 'Consider reducing volume to 10-20 sets/week.' : 'Consider increasing volume to at least 10 sets/week.'}`,
+                confidence: 0.6,
+                signals: [`${mb.weekly_sets} sets/week`, `trend: ${mb.trend}`, `status: ${mb.status}`],
+              },
+              state: 'pending_review',
+              state_history: [{
+                from: null,
+                to: 'pending_review',
+                at: new Date().toISOString(),
+                by: 'agent',
+                note: 'Muscle balance recommendation from weekly review',
+              }],
+              applied_by: null,
+            };
+
+            await recRef.set(recData);
+            logger.info('[onWeeklyReviewCreated] Created muscle_balance recommendation', {
+              userId,
+              muscleGroup: mb.muscle_group,
+              status: mb.status,
+              recommendationId: recRef.id,
+            });
+          }
+        }
+      }
     } catch (error) {
       logger.error('[onWeeklyReviewCreated] Error processing review', {
         userId,
@@ -346,7 +424,7 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
     }
 
     // Compute changes
-    const changes = computeProgressionChanges(exerciseData, rec.type, rec.suggestedWeight);
+    const changes = computeProgressionChanges(exerciseData, rec.type, rec);
     if (changes.length === 0) {
       logger.info(`[processRecommendations] No valid changes`, { exerciseName });
       continue;
@@ -371,7 +449,7 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
       recommendation: {
         type: rec.type,
         changes,
-        summary: buildSummary(rec, 'template', state, changes[0] || null, templateName),
+        summary: buildSummary(rec, 'template', state, changes, templateName),
         rationale: buildRationale(rec, 'template', state, templateName),
         confidence: rec.confidence,
         signals: rec.signals || [],
@@ -457,8 +535,8 @@ async function processExerciseScopedRecommendations(db, userId, triggerType, tri
     // Weekly review or missing workout_id — load recent workouts (last 14 days)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const recentSnap = await db.collection(`users/${userId}/workouts`)
-      .where('completed_at', '>=', admin.firestore.Timestamp.fromDate(twoWeeksAgo))
-      .orderBy('completed_at', 'desc')
+      .where('end_time', '>=', admin.firestore.Timestamp.fromDate(twoWeeksAgo))
+      .orderBy('end_time', 'desc')
       .limit(20)
       .get();
 
@@ -505,21 +583,42 @@ async function processExerciseScopedRecommendations(db, userId, triggerType, tri
       continue;
     }
 
-    // Compute progression from max working set weight
-    const currentWeight = exerciseData.maxWeight;
-    const newWeight = computeProgressionWeight(currentWeight, rec.type, rec.suggestedWeight);
+    // Compute changes based on recommendation type
+    const changes = [];
 
-    if (newWeight === currentWeight || newWeight <= 0) {
-      logger.info(`[processRecommendations] No weight change for exercise-scoped`, { exerciseName, currentWeight });
+    if (rec.type === 'progression' || rec.type === 'deload' || rec.type === 'volume_adjust') {
+      // Weight changes from max working set weight
+      const currentWeight = exerciseData.maxWeight;
+      const newWeight = computeProgressionWeight(currentWeight, rec.type, rec.suggestedWeight);
+      if (newWeight !== currentWeight && newWeight > 0) {
+        changes.push({
+          path: 'weight_kg',
+          from: currentWeight,
+          to: newWeight,
+          rationale: `${rec.type}: ${currentWeight}kg → ${newWeight}kg`,
+        });
+      }
+    } else if (rec.type === 'rep_progression' && rec.targetReps) {
+      changes.push({
+        path: 'target_reps',
+        from: null,
+        to: rec.targetReps,
+        rationale: `rep_progression: → ${rec.targetReps} reps`,
+      });
+    } else if (rec.type === 'intensity_adjust' && rec.targetRir != null) {
+      changes.push({
+        path: 'target_rir',
+        from: null,
+        to: rec.targetRir,
+        rationale: `intensity_adjust: → RIR ${rec.targetRir}`,
+      });
+    }
+    // muscle_balance: skip entirely (handled in onWeeklyReviewCreated)
+
+    if (changes.length === 0) {
+      logger.info(`[processRecommendations] No changes for exercise-scoped`, { exerciseName, type: rec.type });
       continue;
     }
-
-    const changes = [{
-      path: 'weight_kg',
-      from: currentWeight,
-      to: newWeight,
-      rationale: `${rec.type}: ${currentWeight}kg → ${newWeight}kg`,
-    }];
 
     // Exercise-scoped recs are always pending_review (no template to auto-apply to)
     const recRef = db.collection(`users/${userId}/agent_recommendations`).doc();
@@ -538,7 +637,7 @@ async function processExerciseScopedRecommendations(db, userId, triggerType, tri
       recommendation: {
         type: rec.type,
         changes,
-        summary: buildSummary(rec, 'exercise', 'pending_review', changes[0] || null, null),
+        summary: buildSummary(rec, 'exercise', 'pending_review', changes, null),
         rationale: buildRationale(rec, 'exercise', 'pending_review', null),
         confidence: rec.confidence,
         signals: rec.signals || [],
@@ -636,43 +735,88 @@ function computeProgressionWeight(currentWeight, recommendationType, suggestedWe
 
 /**
  * Build contextual summary based on scope, state, and change data.
- * Replaces the terse `${rec.type} for ${exerciseName}` template.
+ * Classifies changes by path suffix and builds multi-type summaries.
  *
  * @param {Object} rec - The recommendation { type, target, ... }
- * @param {string} scope - 'template' | 'exercise'
+ * @param {string} scope - 'template' | 'exercise' | 'routine'
  * @param {string} state - 'applied' | 'pending_review'
- * @param {Object|null} change - First change object { from, to } (or null)
+ * @param {Array|null} changes - Array of change objects (or null for muscle_balance)
  * @param {string|null} templateName - Human-readable template name
  * @returns {string} Contextual summary
  */
-function buildSummary(rec, scope, state, change, templateName) {
+function buildSummary(rec, scope, state, changes, templateName) {
   const name = rec.target || '';
-  const from = change ? change.from : null;
-  const to = change ? change.to : null;
+
+  // Guard for empty/null changes — use type-specific fallback summaries
+  if (!changes || changes.length === 0) {
+    if (rec.type === 'rep_progression' && rec.targetReps) {
+      return `Build ${name} to ${rec.targetReps} reps before adding weight`;
+    }
+    if (rec.type === 'deload' && rec.suggestedWeight) {
+      return `Consider reducing ${name} to ${rec.suggestedWeight}kg`;
+    }
+    if (rec.type === 'muscle_balance') {
+      return `${name}: ${rec.type}`;
+    }
+    return `${rec.type} for ${name}`;
+  }
+
+  // Classify changes by path suffix and build summary parts
+  const parts = [];
+  let firstWeight = null;
+  let firstReps = null;
+  let firstRir = null;
+
+  for (const change of changes) {
+    if (change.path.includes('weight_kg') && !firstWeight) {
+      firstWeight = change;
+    } else if ((change.path.includes('target_reps') || change.path.endsWith('.reps')) && !firstReps) {
+      firstReps = change;
+    } else if ((change.path.includes('target_rir') || change.path.endsWith('.rir')) && !firstRir) {
+      firstRir = change;
+    }
+  }
+
+  if (firstReps) {
+    const fromStr = firstReps.from != null ? `${firstReps.from}` : '';
+    parts.push(fromStr ? `${fromStr} → ${firstReps.to} reps` : `→ ${firstReps.to} reps`);
+  }
+  if (firstWeight) {
+    parts.push(`${firstWeight.from}kg → ${firstWeight.to}kg`);
+  }
+  if (firstRir) {
+    const fromStr = firstRir.from != null ? `${firstRir.from}` : '';
+    parts.push(fromStr ? `RIR ${fromStr} → ${firstRir.to}` : `RIR → ${firstRir.to}`);
+  }
+
+  const changeSummary = parts.join(', ');
 
   if (scope === 'template' && state === 'applied') {
-    if (rec.type === 'progression' && from != null) return `Applied: ${name} ${from}kg → ${to}kg`;
-    if (rec.type === 'deload' && to != null) return `Reduced ${name} to ${to}kg`;
-    return `Applied ${rec.type} for ${name}`;
+    return changeSummary ? `Applied: ${name} ${changeSummary}` : `Applied ${rec.type} for ${name}`;
   }
   if (scope === 'template' && state === 'pending_review') {
-    if (rec.type === 'progression' && to != null) return `Try ${to}kg on ${name}`;
-    if (rec.type === 'deload' && to != null) return `Consider reducing ${name} to ${to}kg`;
-    return `${rec.type} for ${name}`;
+    if (rec.type === 'rep_progression' && firstReps) {
+      return `Build ${name} to ${firstReps.to} reps`;
+    }
+    return changeSummary ? `${name}: ${changeSummary}` : `${rec.type} for ${name}`;
   }
   if (scope === 'exercise') {
-    if (rec.type === 'progression' && to != null) return `Ready to progress ${name} to ${to}kg`;
-    if (rec.type === 'deload' && to != null) return `${name}: consider a lighter session at ${to}kg`;
-    return `${rec.type} for ${name}`;
+    if (rec.type === 'rep_progression' && firstReps) {
+      return `Build ${name} to ${firstReps.to} reps`;
+    }
+    if (firstWeight) {
+      return `Ready to progress ${name} to ${firstWeight.to}kg`;
+    }
+    return changeSummary ? `${name}: ${changeSummary}` : `${rec.type} for ${name}`;
   }
-  return `${rec.type} for ${name}`;  // fallback
+  return changeSummary ? `${name}: ${changeSummary}` : `${rec.type} for ${name}`;
 }
 
 /**
  * Build contextual rationale from analyzer reasoning and signals.
  *
  * @param {Object} rec - The recommendation { reasoning, signals, rationale, ... }
- * @param {string} scope - 'template' | 'exercise'
+ * @param {string} scope - 'template' | 'exercise' | 'routine'
  * @param {string} state - 'applied' | 'pending_review'
  * @param {string|null} templateName - Human-readable template name
  * @returns {string} Contextual rationale
@@ -680,6 +824,8 @@ function buildSummary(rec, scope, state, change, templateName) {
 function buildRationale(rec, scope, state, templateName) {
   const reasoning = rec.reasoning || rec.rationale || '';
   const signals = (rec.signals || []).join('. ');
+
+  if (!reasoning && !signals) return '';
 
   if (scope === 'template' && state === 'applied') {
     return `${reasoning}${templateName ? ` Updated in ${templateName}.` : ''}`;
@@ -693,52 +839,94 @@ function buildRationale(rec, scope, state, templateName) {
     const prefix = signals ? `${signals}. ` : '';
     return `${prefix}${reasoning} Use this in your next workout or add it to a template.`;
   }
+  if (scope === 'routine') {
+    return reasoning;
+  }
   return reasoning;
 }
 
 /**
- * Compute progression changes for an exercise.
+ * Compute progression changes for an exercise — supports weight, reps, and RIR mutations.
  *
- * Rules (deterministic, not LLM):
- * - Progression (>40kg): +2.5% rounded to nearest 2.5kg, capped at +5kg
- * - Progression (≤40kg): +5% rounded to nearest 1.25kg, capped at +5kg
- * - Deload: -10% weight, same rounding
- * - Safety: min 0kg
+ * Change types by path:
+ * - weight_kg: Weight progression/deload (existing logic via computeProgressionWeight)
+ * - target_reps: Rep progression (double progression model — increase reps before weight)
+ * - target_rir: Intensity adjustment (RIR tuning)
  *
  * @param {Object} exerciseData - { templateId, exerciseIndex, sets }
- * @param {string} recommendationType - 'progression' | 'deload' | 'volume_adjust'
- * @param {number|null} suggestedWeight - Explicit weight suggestion (optional)
+ * @param {string} recommendationType - 'progression' | 'deload' | 'volume_adjust' | 'rep_progression' | 'intensity_adjust'
+ * @param {Object} recommendation - Full recommendation object { suggestedWeight, targetReps, targetRir, ... }
  * @returns {Array} Array of change objects { path, from, to, rationale }
  */
-function computeProgressionChanges(exerciseData, recommendationType, suggestedWeight) {
+function computeProgressionChanges(exerciseData, recommendationType, recommendation) {
   const changes = [];
   const sets = exerciseData.sets || [];
 
+  // Extract fields from recommendation — support both object and legacy scalar forms
+  const suggestedWeight = (typeof recommendation === 'object' && recommendation !== null)
+    ? (recommendation.suggestedWeight ?? null)
+    : (recommendation ?? null);  // Legacy: recommendation was suggestedWeight directly
+  const targetReps = (typeof recommendation === 'object' && recommendation !== null)
+    ? (recommendation.targetReps ?? null)
+    : null;
+  const targetRir = (typeof recommendation === 'object' && recommendation !== null)
+    ? (recommendation.targetRir ?? null)
+    : null;
+
   for (let setIdx = 0; setIdx < sets.length; setIdx++) {
     const set = sets[setIdx];
-    const currentWeight = set.weight_kg || set.weight || 0;
 
-    let newWeight;
-    if (suggestedWeight !== null && suggestedWeight !== undefined) {
-      newWeight = suggestedWeight;
-    } else if (recommendationType === 'deload') {
-      newWeight = roundToNearest(currentWeight * 0.9, currentWeight > 40 ? 2.5 : 1.25);
-    } else {
-      const increment = currentWeight > 40 ? 0.025 : 0.05;
-      const step = currentWeight > 40 ? 2.5 : 1.25;
-      newWeight = roundToNearest(currentWeight * (1 + increment), step);
-      // If rounding killed the increment, bump by one step
-      if (newWeight <= currentWeight) newWeight = currentWeight + step;
-      newWeight = Math.min(newWeight, currentWeight + 5);
+    // Weight changes (progression, deload, volume_adjust)
+    if (recommendationType === 'progression' || recommendationType === 'deload' || recommendationType === 'volume_adjust' || suggestedWeight !== null) {
+      const currentWeight = set.weight_kg || set.weight || 0;
+      let newWeight;
+
+      if (suggestedWeight !== null && suggestedWeight !== undefined) {
+        newWeight = suggestedWeight;
+      } else if (recommendationType === 'deload') {
+        newWeight = roundToNearest(currentWeight * 0.9, currentWeight > 40 ? 2.5 : 1.25);
+      } else if (recommendationType === 'progression' || recommendationType === 'volume_adjust') {
+        const increment = currentWeight > 40 ? 0.025 : 0.05;
+        const step = currentWeight > 40 ? 2.5 : 1.25;
+        newWeight = roundToNearest(currentWeight * (1 + increment), step);
+        if (newWeight <= currentWeight) newWeight = currentWeight + step;
+        newWeight = Math.min(newWeight, currentWeight + 5);
+      }
+
+      if (newWeight !== undefined && newWeight !== currentWeight && newWeight > 0) {
+        changes.push({
+          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].weight_kg`,
+          from: currentWeight,
+          to: newWeight,
+          rationale: `${recommendationType}: ${currentWeight}kg → ${newWeight}kg`,
+        });
+      }
     }
 
-    if (newWeight !== currentWeight && newWeight > 0) {
-      changes.push({
-        path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].weight_kg`,
-        from: currentWeight,
-        to: newWeight,
-        rationale: `${recommendationType}: ${currentWeight}kg → ${newWeight}kg`,
-      });
+    // Rep changes (rep_progression)
+    if (targetReps !== null && targetReps > 0) {
+      const currentReps = set.target_reps ?? set.reps ?? null;
+      if (currentReps !== targetReps) {
+        changes.push({
+          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].target_reps`,
+          from: currentReps,
+          to: targetReps,
+          rationale: `rep_progression: ${currentReps ?? '?'} → ${targetReps} reps`,
+        });
+      }
+    }
+
+    // RIR changes (intensity_adjust)
+    if (targetRir !== null && targetRir >= 0 && targetRir <= 5) {
+      const currentRir = set.target_rir ?? set.rir ?? null;
+      if (currentRir !== targetRir) {
+        changes.push({
+          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].target_rir`,
+          from: currentRir,
+          to: targetRir,
+          rationale: `intensity_adjust: RIR ${currentRir ?? '?'} → ${targetRir}`,
+        });
+      }
     }
   }
 

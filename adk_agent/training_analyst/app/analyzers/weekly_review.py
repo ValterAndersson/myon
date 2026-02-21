@@ -357,6 +357,7 @@ Return JSON matching this schema EXACTLY:
       "exercise_name": "from input",
       "current_weight": 100,
       "suggested_weight": 102.5,
+      "target_reps": null,
       "rationale": "Evidence from the data",
       "reasoning": "why this candidate qualifies for progression",
       "signals": ["e1rm_slope: +0.8 kg/week over 6 weeks", "consistent RIR 1.5-2.0"],
@@ -369,12 +370,30 @@ Return JSON matching this schema EXACTLY:
       "exercise_name": "from input",
       "weeks_stalled": 5,
       "suggested_action": "increase_weight | deload | swap | vary_rep_range",
+      "suggested_weight": null,
+      "target_reps": null,
       "rationale": "Evidence from the data",
       "reasoning": "why this exercise is stalled and why this action is suggested",
       "signals": ["e1RM flat at 65kg for 5 weeks", "avg RIR 1.5 (not an effort issue)"]
     }
   ]
 }
+
+DOUBLE PROGRESSION in progression_candidates:
+- If exercise is NOT at target reps (user consistently doing fewer reps than template prescribes),
+  set target_reps to the target rep count, leave suggested_weight as null.
+- If exercise IS at target reps with low RIR (≤2), set suggested_weight, leave target_reps as null.
+- If both are null, the candidate relies on suggested_weight (default behavior for weight progression).
+
+STALLED EXERCISES — set numeric fields based on suggested_action:
+- vary_rep_range: set target_reps (e.g., if stuck at 5 reps, suggest 8), leave suggested_weight null
+- deload: set suggested_weight (90% of current), leave target_reps null
+- increase_weight: set suggested_weight (computed via progression rules), leave target_reps null
+- swap: neither field needed (null for both)
+
+Validation:
+- target_reps must be > 0 and ≤ 30 when set
+- suggested_weight must be > 0 when set
 
 For progression_candidates and stalled_exercises:
 - "reasoning" explains the logic chain: which metrics triggered this, why the suggestion follows

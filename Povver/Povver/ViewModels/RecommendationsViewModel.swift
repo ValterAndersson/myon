@@ -18,7 +18,7 @@ class RecommendationsViewModel: ObservableObject {
             .sink { [weak self] recs in
                 guard let self = self else { return }
                 self.pending = recs.filter { $0.state == "pending_review" }
-                self.recent = Array(recs.filter { $0.state == "applied" }.prefix(10))
+                self.recent = Array(recs.filter { $0.state == "applied" || $0.state == "acknowledged" }.prefix(10))
                 self.pendingCount = self.pending.count
             }
             .store(in: &cancellables)

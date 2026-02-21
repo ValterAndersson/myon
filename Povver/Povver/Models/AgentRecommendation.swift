@@ -49,6 +49,7 @@ struct RecommendationTarget: Codable {
     let exerciseName: String?
     let exerciseId: String?
     let templateName: String?
+    let muscleGroup: String?
 
     enum CodingKeys: String, CodingKey {
         case templateId = "template_id"
@@ -56,14 +57,16 @@ struct RecommendationTarget: Codable {
         case exerciseName = "exercise_name"
         case exerciseId = "exercise_id"
         case templateName = "template_name"
+        case muscleGroup = "muscle_group"
     }
 
-    init(templateId: String? = nil, routineId: String? = nil, exerciseName: String? = nil, exerciseId: String? = nil, templateName: String? = nil) {
+    init(templateId: String? = nil, routineId: String? = nil, exerciseName: String? = nil, exerciseId: String? = nil, templateName: String? = nil, muscleGroup: String? = nil) {
         self.templateId = templateId
         self.routineId = routineId
         self.exerciseName = exerciseName
         self.exerciseId = exerciseId
         self.templateName = templateName
+        self.muscleGroup = muscleGroup
     }
 
     init(from decoder: Decoder) throws {
@@ -73,6 +76,7 @@ struct RecommendationTarget: Codable {
         exerciseName = try container.decodeIfPresent(String.self, forKey: .exerciseName)
         exerciseId = try container.decodeIfPresent(String.self, forKey: .exerciseId)
         templateName = try container.decodeIfPresent(String.self, forKey: .templateName)
+        muscleGroup = try container.decodeIfPresent(String.self, forKey: .muscleGroup)
     }
 }
 
@@ -83,14 +87,27 @@ struct RecommendationDetail: Codable {
     let rationale: String?
     let confidence: Double
     let signals: [String]
+    let suggestedWeight: Double?
+    let targetReps: Int?
+    let targetRir: Int?
 
-    init(type: String = "unknown", changes: [RecommendationChange] = [], summary: String = "", rationale: String? = nil, confidence: Double = 0, signals: [String] = []) {
+    enum CodingKeys: String, CodingKey {
+        case type, changes, summary, rationale, confidence, signals
+        case suggestedWeight = "suggested_weight"
+        case targetReps = "target_reps"
+        case targetRir = "target_rir"
+    }
+
+    init(type: String = "unknown", changes: [RecommendationChange] = [], summary: String = "", rationale: String? = nil, confidence: Double = 0, signals: [String] = [], suggestedWeight: Double? = nil, targetReps: Int? = nil, targetRir: Int? = nil) {
         self.type = type
         self.changes = changes
         self.summary = summary
         self.rationale = rationale
         self.confidence = confidence
         self.signals = signals
+        self.suggestedWeight = suggestedWeight
+        self.targetReps = targetReps
+        self.targetRir = targetRir
     }
 
     init(from decoder: Decoder) throws {
@@ -101,6 +118,9 @@ struct RecommendationDetail: Codable {
         rationale = try container.decodeIfPresent(String.self, forKey: .rationale)
         confidence = try container.decodeIfPresent(Double.self, forKey: .confidence) ?? 0
         signals = try container.decodeIfPresent([String].self, forKey: .signals) ?? []
+        suggestedWeight = try container.decodeIfPresent(Double.self, forKey: .suggestedWeight)
+        targetReps = try container.decodeIfPresent(Int.self, forKey: .targetReps)
+        targetRir = try container.decodeIfPresent(Int.self, forKey: .targetRir)
     }
 }
 
