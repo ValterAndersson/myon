@@ -103,7 +103,9 @@ async function searchExercisesHandler(req, res) {
 
   try {
     // Build cache key from query params
+    // version: bumped to invalidate cached results from old limited fetch path
     const cacheParams = {
+      version: 'v2',
       query, category, movementType, split, equipment, muscleGroup,
       primaryMuscle, secondaryMuscle, difficulty, planeOfMotion,
       unilateral, stimulusTag, programmingUseCase, limit,
@@ -226,13 +228,19 @@ async function searchExercisesHandler(req, res) {
 
     let exercises;
     if (query && !where.length) {
-      // For text search, fetch more documents and filter in-memory (substring match)
-      // This allows finding "Jefferson Deadlift" when searching for "deadlift"
-      const fetchLimit = 2000; // Full catalog scan for text search (~1000 exercises)
-      exercises = await db.getDocuments('exercises', { 
-        orderBy: { field: 'name', direction: 'asc' }, 
-        limit: fetchLimit 
+      // Text-only search: fetch full catalog for client-side text matching
+      const fetchLimit = 2000; // Full catalog scan (~1000 exercises)
+      exercises = await db.getDocuments('exercises', {
+        orderBy: { field: 'name', direction: 'asc' },
+        limit: fetchLimit
       });
+    } else if (query && where.length) {
+      // Combined filter+text: Firestore filters narrow by field, then client-side
+      // text matching runs on the result. Must fetch all filtered docs (not just
+      // parsedLimit) so text matching doesn't miss exercises whose doc IDs fall
+      // after the limit. The catalog is ~1000 items, so 2000 is a safe ceiling.
+      const filterParams = { ...queryParams, limit: 2000 };
+      exercises = await db.getDocuments('exercises', filterParams);
     } else {
       exercises = await db.getDocuments('exercises', queryParams);
     }
