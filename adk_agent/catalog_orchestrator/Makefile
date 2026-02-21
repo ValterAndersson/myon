@@ -4,7 +4,7 @@
 
 .PHONY: help install dev test lint format clean run deploy \
         worker worker-local watchdog-local \
-        docker-build docker-push deploy-worker deploy-review deploy-cleanup deploy-watchdog \
+        docker-build docker-push cloud-build deploy-worker deploy-review deploy-cleanup deploy-watchdog \
         deploy-jobs trigger-worker trigger-watchdog \
         eval eval-filter eval-id eval-no-judge
 
@@ -197,14 +197,20 @@ watchdog-emulator:
 # DOCKER
 # =============================================================================
 
-# Build worker Docker image
+# Build worker Docker image locally (linux/amd64 for Cloud Run)
+# NOTE: On Apple Silicon, this requires Docker buildx or Rosetta emulation.
+#       Prefer 'make cloud-build' which builds natively on x86_64.
 docker-build:
-	docker build -t catalog-worker:$(IMAGE_TAG) .
+	docker buildx build --platform linux/amd64 -t catalog-worker:$(IMAGE_TAG) .
 	docker tag catalog-worker:$(IMAGE_TAG) gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG)
 
-# Push to Google Container Registry
+# Push to Google Container Registry (local build)
 docker-push: docker-build
 	docker push gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG)
+
+# Build and push via Cloud Build (recommended — builds natively on x86_64)
+cloud-build:
+	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG) --project=$(PROJECT_ID)
 
 # =============================================================================
 # CLOUD RUN JOBS
@@ -238,8 +244,8 @@ trigger-worker:
 trigger-watchdog:
 	gcloud run jobs execute catalog-watchdog --region=$(REGION) --wait
 
-# Deploy all Cloud Run Jobs
-deploy-jobs: docker-push deploy-worker deploy-review deploy-cleanup deploy-watchdog
+# Deploy all Cloud Run Jobs (builds via Cloud Build for correct x86_64 arch)
+deploy-jobs: cloud-build deploy-worker deploy-review deploy-cleanup deploy-watchdog
 	@echo "All Cloud Run Jobs deployed"
 
 # =============================================================================
