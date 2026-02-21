@@ -24,12 +24,12 @@ All Exercises
 quality_scanner.py: heuristic_quality_check()
     │
     ├── Score 0-100 → PASS (no LLM needed)
-    │   12 checks:
+    │   Structural checks (1-12):
     │   1. Name present
     │   2. Category in CATEGORIES
     │   3. Equipment items in EQUIPMENT_TYPES
     │   4. Primary muscles non-empty
-    │   5. Equipment non-empty
+    │   5. execution_notes has ≥2 items (structural gate)
     │   6. Description >= 50 chars
     │   7. Movement type present + in MOVEMENT_TYPES
     │   8. Movement split present + in MOVEMENT_SPLITS
@@ -37,6 +37,15 @@ quality_scanner.py: heuristic_quality_check()
     │   10. Muscle names lowercase without underscores
     │   11. execution_notes + common_mistakes format (no markdown/step prefixes)
     │   12. muscles.category present
+    │
+    │   Content checks (13-15) → needs_enrichment_only=True:
+    │   13. execution_notes has ≥4 items (content quality)
+    │   14. All content array fields present (suitability_notes, etc.)
+    │   15. Style guide compliance via _detect_style_violations()
+    │       - Cue-only execution_notes (all notes start with cue verbs)
+    │       - Non-gerund common_mistakes voice
+    │       - "Label: Explanation" format in common_mistakes
+    │       - Generic descriptions (3+ equipment types)
     │
     └── None → needs LLM review
             │
@@ -52,9 +61,9 @@ quality_scanner.py: heuristic_quality_check()
 
 ## Key Design Decisions
 
-**Quality scanner is the first gate.** Exercises that pass all 12 deterministic checks never touch the LLM, saving cost. Only exercises that fail a check (return `None`) are sent to the LLM review agent.
+**Three-layer quality gate.** Structural checks (1-12) catch missing/invalid data — failures go to LLM review. Content checks (13-15) catch style violations and insufficient notes — these route to Flash enrichment only (`needs_enrichment_only=True`), bypassing expensive LLM review. Exercises passing all checks never touch the LLM.
 
-**Missing movement data is now flagged.** Checks 7-8 flag exercises with missing `movement.type` or `movement.split` (not just invalid values). An exercise with no movement metadata needs enrichment.
+**Style violation detection.** `_detect_style_violations()` in `engine.py` is shared by both the scanner (check 15) and the enrichment engine. It detects: cue-only execution_notes (all notes start with coaching cue verbs like "Focus", "Keep"), non-gerund common_mistakes ("Bounce" instead of "Bouncing"), "Label: Explanation" format, and generic descriptions mentioning 3+ equipment types.
 
 **Content format checks.** Check 11 detects markdown formatting (bold label prefixes, numbered lists, bullet markers) in `execution_notes` and `common_mistakes`. Badly formatted content gets sent to the LLM for re-enrichment with `CONTENT_FORMAT_RULES` guidance.
 

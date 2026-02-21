@@ -650,6 +650,34 @@ _THIRD_PERSON_SUBJ = re.compile(
     re.I,
 )
 
+# Cue-only detection: coaching cue verbs that indicate no setup/positioning context
+_CUE_ONLY_START = re.compile(
+    r'^(Focus|Keep|Maintain|Drive|Squeeze|Avoid|Ensure|Control|Pause|'
+    r'Engage|Brace|Think|Do not|Don\'t)\b',
+    re.I,
+)
+
+# "Label: Explanation" format in common_mistakes: 2+ words before colon, capital after
+_LABEL_COLON = re.compile(r'^[A-Z]\w+\s+\w+[^:]*:\s+[A-Z]')
+
+# Valid common_mistakes voice: gerund phrase, optionally preceded by "Not" / adverb.
+# Matches: "Rounding...", "Not reaching...", "Not fully extending...", "Over-extending..."
+_VALID_MISTAKE_START = re.compile(
+    r'^('
+    r'[A-Z][a-z]*ing\b'            # Direct gerund: Using, Rounding, Flaring
+    r'|Not\s+\w+ing\b'             # Not + gerund: Not reaching
+    r'|Not\s+\w+\s+\w+ing\b'       # Not + adverb + gerund: Not fully extending
+    r'|Only\s+\w+ing\b'            # Only lifting
+    r'|Over-?\w+ing\b'             # Over-extending, Overloading
+    r')'
+)
+
+# Equipment words for generic description detection (word-boundary matching)
+_EQUIPMENT_WORD_RE = re.compile(
+    r'\b(dumbbell|barbell|cable|kettlebell|machine|band|smith)\b',
+    re.I,
+)
+
 
 def _detect_style_violations(exercise: Dict[str, Any]) -> List[str]:
     """Detect content that exists but violates the style guide.
@@ -703,6 +731,40 @@ def _detect_style_violations(exercise: Dict[str, Any]) -> List[str]:
                     )
                     break
 
+            # Cue-only check: flag when ALL notes are coaching cues with no
+            # setup/positioning context
+            str_items = [i for i in items if isinstance(i, str)]
+            if str_items and all(_CUE_ONLY_START.match(i) for i in str_items):
+                issues.append(
+                    "execution_notes contains only coaching cues with no setup "
+                    "instructions — rewrite to begin with positioning/setup "
+                    "steps, then technique cues"
+                )
+
+        # "Label: Explanation" format in common_mistakes
+        if field_name == "common_mistakes":
+            for item in items:
+                if isinstance(item, str) and _LABEL_COLON.match(item):
+                    issues.append(
+                        "common_mistakes uses 'Label: Explanation' format — "
+                        "rewrite as plain gerund phrases (e.g., 'Rounding the "
+                        "lower back, which increases injury risk')"
+                    )
+                    break
+
+            # Non-gerund voice in common_mistakes: imperative ("Bounce"),
+            # tip/advice ("Avoid"), or other non-descriptive patterns
+            str_mistakes = [i for i in items if isinstance(i, str)]
+            non_gerund = [
+                i for i in str_mistakes if not _VALID_MISTAKE_START.match(i)
+            ]
+            if non_gerund:
+                issues.append(
+                    f"common_mistakes has {len(non_gerund)} items not in gerund "
+                    f"voice — rewrite as descriptive gerund phrases "
+                    f"(e.g., 'Bouncing the weight off the chest')"
+                )
+
         # Vague/terse items
         short_count = sum(
             1 for item in items
@@ -714,10 +776,19 @@ def _detect_style_violations(exercise: Dict[str, Any]) -> List[str]:
                 f"rewrite with specific, actionable detail"
             )
 
-    # Description check
+    # Description checks
     desc = exercise.get("description", "")
     if isinstance(desc, str) and 0 < len(desc) < 50:
         issues.append("description is too short — expand to 100-250 characters")
+
+    # Generic description: mentions 3+ different equipment types
+    if isinstance(desc, str) and desc:
+        equip_matches = set(m.group(1).lower() for m in _EQUIPMENT_WORD_RE.finditer(desc))
+        if len(equip_matches) >= 3:
+            issues.append(
+                f"description mentions {len(equip_matches)} equipment types — "
+                f"rewrite specific to this exercise's actual equipment"
+            )
 
     return issues
 
@@ -1100,7 +1171,7 @@ These are quality issues, not preference changes. Fix them.
 Check ALL of these fields. If missing/empty, GENERATE them. If present but violating
 the style guide above, REWRITE them:
 
-1. **execution_notes** - 3-6 concise cues in second person imperative voice
+1. **execution_notes** - 4-8 concise cues in second person imperative voice
    Example: `["Keep your knees tracking over your toes", "Brace your core before the lift"]`
 
 2. **common_mistakes** - 2-5 descriptive gerund phrases of common errors
@@ -1129,7 +1200,7 @@ the style guide above, REWRITE them:
 
 Before writing your response, check which content fields are present in the exercise.
 If ANY of these fields are missing or empty, you MUST include them in your changes:
-- execution_notes (3-6 items)
+- execution_notes (4-8 items)
 - common_mistakes (2-5 items)
 - suitability_notes (2-4 items)
 - programming_use_cases (3-5 items)

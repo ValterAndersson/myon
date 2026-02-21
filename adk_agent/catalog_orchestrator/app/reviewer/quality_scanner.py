@@ -31,7 +31,7 @@ from app.enrichment.llm_client import get_llm_client, LLMClient
 logger = logging.getLogger(__name__)
 
 # Version for tracking which scanner version reviewed an exercise
-SCANNER_VERSION = "2.0"
+SCANNER_VERSION = "2.1"
 
 # Heuristic thresholds
 HEURISTIC_PASS_SCORE = 0.85  # Score for exercises passing all heuristic checks
@@ -219,12 +219,23 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     if not muscles_category:
         return None  # Needs LLM — missing muscle category
 
-    # Checks 13-14: Content completeness and style guide compliance.
+    # Checks 13-15: Content completeness, style, and note count.
     # These are content-only issues that can be fixed by enrichment alone
     # (no need for expensive Pro review to decide what to do).
     content_issues = []
 
-    # Check 13: Content completeness — all content array fields must be present
+    # Check 13: Execution notes should have at least 4 items for proper coverage.
+    # Exercises with 0-1 notes already fail check 5 (MIN_EXECUTION_NOTES=2) and
+    # go to LLM scan. This catches the 2-3 range that is structurally present
+    # but insufficient for quality.
+    MIN_CONTENT_NOTES = 4
+    if len(execution_notes) < MIN_CONTENT_NOTES:
+        content_issues.append(
+            f"execution_notes has only {len(execution_notes)} items "
+            f"— expand to at least {MIN_CONTENT_NOTES} with setup and technique instructions"
+        )
+
+    # Check 14: Content completeness — all content array fields must be present
     suitability_notes = exercise.get("suitability_notes") or []
     programming_use_cases = exercise.get("programming_use_cases") or []
     stimulus_tags = exercise.get("stimulus_tags") or []
@@ -235,7 +246,7 @@ def heuristic_score_exercise(exercise: Dict[str, Any]) -> Optional[QualityScanRe
     if not stimulus_tags:
         content_issues.append("missing stimulus_tags")
 
-    # Check 14: Style guide compliance — voice consistency and content quality
+    # Check 15: Style guide compliance — voice consistency and content quality
     from app.enrichment.engine import _detect_style_violations
     style_issues = _detect_style_violations(exercise)
     if style_issues:
@@ -290,24 +301,22 @@ QUALITY_SCAN_PROMPT = """You are a fitness catalog quality scanner. Score each e
 
 ## Examples
 
-Exercise: {"name": "Bench Press (Barbell)", "equipment": ["barbell"], "execution_notes": ["Lower to chest", "Press up"], "muscles": {"primary": ["chest"]}}
+Exercise: {{"name": "Bench Press (Barbell)", "equipment": ["barbell"], "execution_notes": ["Lower to chest", "Press up"], "muscles": {{"primary": ["chest"]}}}}
 → quality_score: 0.85, issue_type: "none"
 
-Exercise: {"name": "Bicep Curl", "equipment": ["dumbbell"], "execution_notes": [], "muscles": {}}
+Exercise: {{"name": "Bicep Curl", "equipment": ["dumbbell"], "execution_notes": [], "muscles": {{}}}}
 → quality_score: 0.55, issue_type: "missing_fields"
 
-Exercise: {"name": "Barbell Deadlift", "equipment": ["barbell"], ...}
+Exercise: {{"name": "Barbell Deadlift", "equipment": ["barbell"], ...}}
 → quality_score: 0.45, issue_type: "naming" (should be "Deadlift (Barbell)")
 
 ## Your Task
 
 Score each exercise. Respond with JSON array:
-```json
 [
-  {"exercise_id": "...", "quality_score": 0.85, "issue_type": "none", "details": "brief note"},
+  {{"exercise_id": "...", "quality_score": 0.85, "issue_type": "none", "details": "brief note"}},
   ...
 ]
-```
 
 Exercises to scan:
 {exercises_json}
