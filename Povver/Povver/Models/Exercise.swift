@@ -37,7 +37,14 @@ struct Exercise: Identifiable, Codable {
         commonMistakes = try container.decodeIfPresent([String].self, forKey: .commonMistakes) ?? []
         programmingNotes = try container.decodeIfPresent([String].self, forKey: .programmingNotes) ?? []
         stimulusTags = try container.decodeIfPresent([String].self, forKey: .stimulusTags) ?? []
-        suitabilityNotes = try container.decodeIfPresent([String].self, forKey: .suitabilityNotes) ?? []
+        // Handle both array and string formats for suitability_notes (some docs have a plain string)
+        if let array = try? container.decodeIfPresent([String].self, forKey: .suitabilityNotes) {
+            suitabilityNotes = array
+        } else if let string = try? container.decodeIfPresent(String.self, forKey: .suitabilityNotes) {
+            suitabilityNotes = [string]
+        } else {
+            suitabilityNotes = []
+        }
         coachingCues = try container.decodeIfPresent([String].self, forKey: .coachingCues) ?? []
         tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "approved"

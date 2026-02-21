@@ -49,8 +49,23 @@ struct Routine: Codable, Identifiable {
         self.templateIds = try container.decodeIfPresent([String].self, forKey: .templateIds) ?? []
         self.isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive)
         self.lastCompletedTemplateId = try container.decodeIfPresent(String.self, forKey: .lastCompletedTemplateId)
-        self.lastCompletedAt = try container.decodeIfPresent(Date.self, forKey: .lastCompletedAt)
-        self.createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
-        self.updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        self.lastCompletedAt = Self.decodeFlexibleDate(from: container, forKey: .lastCompletedAt)
+        self.createdAt = Self.decodeFlexibleDate(from: container, forKey: .createdAt)
+        self.updatedAt = Self.decodeFlexibleDate(from: container, forKey: .updatedAt)
+    }
+
+    /// Decode a date that may arrive as an ISO8601 string (from JSONDecoder)
+    /// or as a Firestore Timestamp dictionary with `_seconds` / `_nanoseconds`.
+    private static func decodeFlexibleDate(from container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Date? {
+        // Try standard Date decoding first (works with iso8601 decoder strategy)
+        if let date = try? container.decodeIfPresent(Date.self, forKey: key) {
+            return date
+        }
+        // Firestore Timestamp arrives as {"_seconds": N, "_nanoseconds": N}
+        if let dict = try? container.decodeIfPresent([String: Double].self, forKey: key),
+           let seconds = dict["_seconds"] {
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return nil
     }
 }

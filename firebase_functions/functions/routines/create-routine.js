@@ -1,4 +1,5 @@
 const { onRequest } = require('firebase-functions/v2/https');
+const { logger } = require('firebase-functions');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
@@ -81,10 +82,18 @@ async function createRoutineHandler(req, res) {
     // Ensure the document has an `id` field (use the Firestore doc ID)
     await db.updateDocumentInSubcollection('users', userId, 'routines', routineId, { id: routineId });
 
+    // Auto-activate if user has no active routine
+    const userDoc = await firestore.collection('users').doc(userId).get();
+    const hasActiveRoutine = userDoc.exists && userDoc.data().activeRoutineId;
+    if (!hasActiveRoutine) {
+      await firestore.collection('users').doc(userId).update({ activeRoutineId: routineId });
+      logger.info('[createRoutine] Auto-activated routine (no prior active routine)', { userId, routineId });
+    }
+
     // Get the created routine for response
     const createdRoutine = await db.getDocumentFromSubcollection('users', userId, 'routines', routineId);
 
-    return ok(res, { routine: createdRoutine, routineId });
+    return ok(res, { routine: createdRoutine, routineId, activated: !hasActiveRoutine });
 
   } catch (error) {
     console.error('create-routine function error:', error);

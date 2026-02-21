@@ -114,6 +114,23 @@ exports.onWorkoutCreatedUpdateRoutineCursor = onDocumentCreated(
       });
 
       console.log(`Workout ${workoutId}: Updated routine ${workout.source_routine_id} cursor to template ${workout.source_template_id}`);
+
+      // Auto-activate this routine if user has no active routine set.
+      // Covers the case where a user starts a workout from a routine that
+      // isn't their active one (e.g., first workout ever, or activeRoutineId
+      // was cleared/never set).
+      try {
+        const userRef = firestore.collection('users').doc(userId);
+        const userSnap = await userRef.get();
+        if (userSnap.exists && !userSnap.data().activeRoutineId) {
+          await userRef.update({ activeRoutineId: workout.source_routine_id });
+          console.log(`Workout ${workoutId}: Auto-activated routine ${workout.source_routine_id} (no prior active routine)`);
+        }
+      } catch (e) {
+        // Best-effort — don't fail cursor update
+        console.warn(`Workout ${workoutId}: Non-fatal: failed to auto-activate routine`, e?.message || e);
+      }
+
       return null;
 
     } catch (error) {

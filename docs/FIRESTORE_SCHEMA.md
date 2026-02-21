@@ -1484,11 +1484,11 @@ Sources
   - `createTemplateFromPlan` (new) converts a `session_plan` card to a template with idempotency. Supports `create` (new template) and `update` (patch existing template's exercises) modes.
   - `deleteTemplate` removes the template and removes references from routines (reads both `template_ids` and `templateIds`, writes only canonical `template_ids`). Clears routine cursor if the deleted template was `last_completed_template_id`.
 - Routines
-  - `createRoutine`/`updateRoutine`/`deleteRoutine` manage `users/{uid}/routines/{routineId}` with canonical `template_ids` and timestamps. `setActiveRoutine` writes `users/{uid}.activeRoutineId`.
+  - `createRoutine`/`updateRoutine`/`deleteRoutine` manage `users/{uid}/routines/{routineId}` with canonical `template_ids` and timestamps. `setActiveRoutine` writes `users/{uid}.activeRoutineId`. `createRoutine` auto-sets `activeRoutineId` if user has no active routine. `getRoutine` and `getUserRoutines` enrich responses with `is_active` derived from `users/{uid}.activeRoutineId`.
   - `patchRoutine` (new) narrow allowlist patch for `name`, `description`, `frequency`, `template_ids`. Validates all templates exist (parallel reads). Clears cursor if `last_completed_template_id` is removed from `template_ids`.
   - `getNextWorkout` (new) deterministic next-template selection. Uses cursor (`last_completed_template_id`) for O(1) lookup; falls back to history scan if cursor missing/invalid. Returns template, routine, index, and selection method.
 - Routine cursor updates (trigger)
-  - `onWorkoutCreatedUpdateRoutineCursor` updates `routines/{routineId}.last_completed_template_id` and `last_completed_at` when a workout with `source_routine_id` is archived. Uses `source_routine_id` from workout (not current `activeRoutineId`) to handle routine changes mid-workout.
+  - `onWorkoutCreatedUpdateRoutineCursor` updates `routines/{routineId}.last_completed_template_id` and `last_completed_at` when a workout with `source_routine_id` is archived. Uses `source_routine_id` from workout (not current `activeRoutineId`) to handle routine changes mid-workout. Also auto-sets `activeRoutineId` if user has no active routine (best-effort).
 - Planning context (agent composite read)
   - `getPlanningContext` (new) returns user profile, active routine, next workout selection, templates (metadata or full), and recent workouts summary in one call. Flag-driven payload control: `includeTemplates`, `includeTemplateExercises`, `includeRecentWorkouts`, `workoutLimit`.
 
