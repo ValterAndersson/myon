@@ -646,9 +646,12 @@ private struct InlineEditingDock: View {
     private func applyChange(_ newValue: Double) {
         guard let idx = currentSetIndex else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        
+
+        // Warmup sets always use thisOnly — scope selector is hidden for them
+        let effectiveScope = isWarmupSet ? .thisOnly : editScope
+
         let indices: [Int]
-        switch editScope {
+        switch effectiveScope {
         case .allWorking: indices = sets.indices.filter { !sets[$0].isWarmup && sets[$0].type == .working }
         case .remaining: indices = sets.indices.filter { !sets[$0].isWarmup && sets[$0].type == .working && $0 >= idx }
         case .thisOnly: indices = [idx]
