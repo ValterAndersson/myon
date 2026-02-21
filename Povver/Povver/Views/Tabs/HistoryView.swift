@@ -92,6 +92,9 @@ struct HistoryView: View {
                 if !allWorkouts.isEmpty {
                     WeeklyWorkoutChart(workouts: allWorkouts)
                         .padding(.horizontal, Space.lg)
+
+                    Divider()
+                        .padding(.horizontal, Space.lg)
                 }
 
                 // Grouped by date
@@ -478,22 +481,37 @@ private struct WeeklyWorkoutChart: View {
         return buckets
     }
 
-    private static let weekLabelFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
+    /// Short label: show "d" normally, "MMM d" when the month changes from the previous bucket.
+    private static func weekLabel(for bucket: WeekBucket, previous: WeekBucket?) -> String {
+        let cal = Calendar.current
+        let day = cal.component(.day, from: bucket.weekStart)
+        let showMonth = previous == nil
+            || cal.component(.month, from: bucket.weekStart) != cal.component(.month, from: previous!.weekStart)
+
+        if showMonth {
+            let f = DateFormatter()
+            f.dateFormat = "MMM d"
+            return f.string(from: bucket.weekStart)
+        }
+        return "\(day)"
+    }
 
     var body: some View {
         let data = Self.buildWeeklyData(from: workouts, weekCount: weekCount)
         let total = data.map(\.count).reduce(0, +)
         let average = Double(total) / Double(data.count)
 
-        VStack(alignment: .leading, spacing: Space.sm) {
+        // Pre-compute labels so the chart gets stable categorical strings
+        let labeled: [(bucket: WeekBucket, label: String)] = data.enumerated().map { i, bucket in
+            (bucket, Self.weekLabel(for: bucket, previous: i > 0 ? data[i - 1] : nil))
+        }
+
+        VStack(alignment: .leading, spacing: Space.md) {
             // Section label + average
             HStack(alignment: .firstTextBaseline) {
                 Text("Weekly frequency")
                     .font(TypographyToken.footnote)
+                    .fontWeight(.medium)
                     .foregroundColor(Color.textSecondary)
                 Spacer()
                 Text("avg \(String(format: "%.1f", average))/wk")
@@ -501,16 +519,16 @@ private struct WeeklyWorkoutChart: View {
                     .foregroundColor(Color.textTertiary)
             }
 
-            Chart(data) { bucket in
+            Chart(labeled, id: \.bucket.id) { item in
                 BarMark(
-                    x: .value("Week", Self.weekLabelFormatter.string(from: bucket.weekStart)),
-                    y: .value("Workouts", bucket.count)
+                    x: .value("Week", item.label),
+                    y: .value("Workouts", item.bucket.count)
                 )
-                .foregroundStyle(bucket.isCurrent ? Color.accent : Color.accent.opacity(0.35))
+                .foregroundStyle(item.bucket.isCurrent ? Color.accent : Color.accent.opacity(0.35))
                 .cornerRadius(CornerRadiusToken.small / 2)
-                .annotation(position: .top, spacing: 2) {
-                    if bucket.isCurrent && bucket.count > 0 {
-                        Text("\(bucket.count)")
+                .annotation(position: .top, spacing: Space.xs) {
+                    if item.bucket.isCurrent && item.bucket.count > 0 {
+                        Text("\(item.bucket.count)")
                             .font(TypographyToken.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(Color.textPrimary)
@@ -537,9 +555,10 @@ private struct WeeklyWorkoutChart: View {
                         .foregroundStyle(Color.textSecondary)
                 }
             }
-            .frame(height: 120)
+            .frame(height: 140)
         }
-        .padding(Space.md)
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
         .background(Color.surface)
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium, style: .continuous))
         .overlay(
