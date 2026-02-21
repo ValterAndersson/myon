@@ -703,14 +703,23 @@ class CanvasFunctionsClient:
     # Active Workout APIs (Workout Mode)
     # ============================================================================
 
-    def get_active_workout(self, user_id: str) -> Dict[str, Any]:
+    def get_active_workout(
+        self, user_id: str, workout_id: str | None = None
+    ) -> Dict[str, Any]:
         """Get the user's active workout with full state.
 
         Uses requireFlexibleAuth — userId from X-User-Id header.
+        When workout_id is provided, passes it as query param for direct
+        Firestore lookup (bypasses lock doc). Falls back to lock-based
+        resolution if the direct lookup misses.
+
         Returns { success: true, workout: {...} | null }.
         """
+        endpoint = "getActiveWorkout"
+        if workout_id and workout_id.strip():
+            endpoint = f"getActiveWorkout?workout_id={workout_id.strip()}"
         return self._http.post(
-            "getActiveWorkout", {},
+            endpoint, {},
             headers={"X-User-Id": user_id},
         )
 

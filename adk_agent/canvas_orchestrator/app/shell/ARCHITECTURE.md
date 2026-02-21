@@ -33,9 +33,11 @@ agent_engine_app.py
 When `workout_id` is present in the context prefix, the agent enters workout coaching mode:
 
 1. **Context**: `SessionContext.workout_mode = True`, `active_workout_id` set
-2. **Brief injection**: `agent_engine_app.py` front-loads a `[WORKOUT BRIEF]` (~1350 tokens) before the user message in the Slow Lane. Skipped for Fast Lane.
+2. **Brief injection**: `agent_engine_app.py` front-loads a `[WORKOUT BRIEF]` (~1350 tokens) before the user message in the Slow Lane. Skipped for Fast Lane. `workout_id` is passed through to `get_active_workout` for direct Firestore lookup (bypasses lock doc).
 3. **Tool gating**: 6 workout tools (`tool_log_set`, `tool_add_exercise`, `tool_prescribe_set`, `tool_swap_exercise`, `tool_complete_workout`, `tool_get_workout_state`) validate `ctx.workout_mode` and return error if called outside workout mode.
-4. **Instruction overlay**: ACTIVE WORKOUT MODE section in `instruction.py` constrains responses to 2 sentences max and provides workout-specific examples (logging, adding exercises, modifying plans, swaps, completion).
+4. **Instruction overlay**: ACTIVE WORKOUT MODE section in `instruction.py` constrains responses to 2 sentences max and provides workout-specific examples (logging, adding exercises, modifying plans, swaps, exercise progress lookup, completion).
+5. **Tool ban list**: Heavy-compute tools (`tool_get_training_analysis`, `tool_query_training_sets`, `tool_propose_routine`, `tool_update_routine`, `tool_propose_workout`, `tool_update_template`) are banned mid-workout to prevent slow responses and context bloat. `tool_get_exercise_progress` is explicitly allowed — it's a single Firestore doc read (~50ms) used for "what did I do last time?" and concrete weight advice.
+6. **Empty brief fallback**: If the workout brief contains no exercises, the instruction directs the agent to call `tool_get_workout_state` once to refresh. If still empty, inform the user to reopen the workout screen. No retry loop.
 
 ### Context prefix format
 
