@@ -321,7 +321,7 @@ Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
 | Function | Path | Method |
 |----------|------|--------|
 | `getUserRoutines` | `/getUserRoutines?userId={id}` | GET |
-| `getRoutine` | `/getRoutine?id={id}&userId={userId}` | GET |
+| `getRoutine` | `/getRoutine` (body: `{routineId}`, userId from auth) | POST |
 | `createRoutine` | `/createRoutine` | POST |
 | `updateRoutine` | `/updateRoutine` | PUT |
 | `deleteRoutine` | `/deleteRoutine` | DELETE |
