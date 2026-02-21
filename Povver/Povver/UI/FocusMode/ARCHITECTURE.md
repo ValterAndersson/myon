@@ -9,7 +9,7 @@ Focus Mode is the active workout UI. It provides a distraction-free interface fo
 | `FocusModeWorkoutScreen.swift` | Main workout screen: exercise list, hero header, scroll tracking, finish/discard flow, exercise reordering. Contains `FocusModeExerciseSection`, `FocusModeExerciseSectionNew`, `WorkoutAlertsModifier`, `WorkoutCompletionSummary`. |
 | `FocusModeSetGrid.swift` | Set grid for logging reps, weight, and RIR per exercise. Contains `FocusModeEditingDock` (inline editor with stepper/keyboard/RIR pills), `FocusModeEditScope` enum (this/remaining/all). |
 | `FocusModeComponents.swift` | Shared UI components: `WorkoutHero`, `TimerPill`, `SwipeToDeleteRow`, `WarmupDivider`, `ExerciseCardContainer`, `CoachButton`, `ReorderModeBanner`, `ActionRail`. Also contains `FocusModeActiveSheet` enum (centralized sheet state machine). |
-| `FocusModeExerciseSearch.swift` | Exercise search for adding/swapping exercises mid-workout. |
+| `FocusModeExerciseSearch.swift` | Exercise search for adding/swapping exercises mid-workout. Includes `ExerciseSortOption` enum (Recent/Frequent/A–Z) and `ExerciseFilters` model. Sort chips UI wired to `ExercisesViewModel.setSortOption()`. |
 | `ExercisePerformanceSheet.swift` | In-workout exercise performance history. Queries `set_facts` for the given exercise and shows recent sessions grouped by date with summary stats (best e1RM, last weight/reps). Requires Firestore composite index — see FIRESTORE_SCHEMA.md. |
 | `WorkoutCoachView.swift` | AI copilot chat sheet for in-workout coaching. |
 
@@ -23,6 +23,7 @@ Navigation enters Focus Mode via two paths:
 
 - **FocusModeWorkoutService** (`Services/FocusModeWorkoutService.swift`): `@MainActor ObservableObject`. API calls for `startActiveWorkout`, `completeActiveWorkout`, `logSet`, `patchField`, `swapExercise`, `removeExercise`. Drains all pending sync operations before sending completion request (prevents race conditions). Exposes `workout` as published property.
 - **WorkoutSessionLogger** (`Services/WorkoutSessionLogger.swift`): Records every workout event (start, log_set, complete, error) to timestamped JSON files in `Documents/workout_logs/`. Auto-flushes on app background. Writes breadcrumbs to Crashlytics for crash correlation.
+- **FocusModeLogger** (`Services/DebugLogger.swift`): Convenience facade for workout debug logging. Preserves enum-based API (`MutationPhase`, `CoordinatorEvent`) for pattern matching. All output delegates to `AppLogger`.
 - **FocusModeModels** (`Models/FocusModeModels.swift`): `FocusModeWorkout`, `FocusModeExercise`, `FocusModeSet` structs matching the `active_workouts` Firestore schema.
 
 ## Data Flow

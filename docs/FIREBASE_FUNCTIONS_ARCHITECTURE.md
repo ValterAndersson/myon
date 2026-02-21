@@ -346,9 +346,9 @@ Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
 
 | Trigger | Event | Purpose |
 |---------|-------|---------|
-| `onWorkoutCompleted` | Workout complete | Update weekly stats |
-| `onWorkoutCreatedWithEnd` | Workout with endTime | Finalize workout analytics |
-| `onWorkoutDeleted` | Workout delete | Adjust weekly totals |
+| `onWorkoutCompleted` | Workout complete | Update weekly stats, exercise usage stats |
+| `onWorkoutCreatedWithEnd` | Workout with endTime | Finalize workout analytics, exercise usage stats |
+| `onWorkoutDeleted` | Workout delete | Adjust weekly totals, decrement exercise usage stats |
 | `onWorkoutCreatedWeekly` | Workout create | Increment weekly counters |
 | `onWorkoutFinalizedForUser` | Workout finalized | User-level analytics |
 

@@ -128,4 +128,21 @@ class ExerciseRepository: FirestoreRepository<Exercise> {
         return try snapshot.documents.compactMap { try $0.data(as: Exercise.self) }
             .filter { $0.status == "approved" }
     }
+
+    /// Fetch pre-computed exercise usage stats for the given user.
+    /// Returns a dictionary keyed by exercise ID for O(1) lookup during sorting.
+    func fetchUsageStats(userId: String) async throws -> [String: ExerciseUsageStats] {
+        let snapshot = try await Firestore.firestore()
+            .collection("users").document(userId)
+            .collection("exercise_usage_stats")
+            .getDocuments()
+
+        var stats: [String: ExerciseUsageStats] = [:]
+        for document in snapshot.documents {
+            if let stat = try? document.data(as: ExerciseUsageStats.self) {
+                stats[stat.exerciseId] = stat
+            }
+        }
+        return stats
+    }
 }

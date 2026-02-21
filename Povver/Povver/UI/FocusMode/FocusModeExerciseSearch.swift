@@ -38,10 +38,9 @@ struct ExerciseFilters: Equatable {
 }
 
 enum ExerciseSortOption: String, CaseIterable {
+    case recentlyUsed = "Recent"
+    case mostUsed = "Frequent"
     case alphabetical = "A–Z"
-    case mostUsed = "Most Used"
-    case recentlyUsed = "Recently Used"
-    case recommended = "Recommended"
 }
 
 // MARK: - Muscle Group Mapping
@@ -74,7 +73,6 @@ struct FocusModeExerciseSearch: View {
     
     @State private var searchText = ""
     @State private var filters = ExerciseFilters()
-    @State private var sortOption: ExerciseSortOption = .alphabetical
     @State private var showingFilterSheet = false
     @State private var showingExerciseDetail: Exercise?
     
@@ -302,20 +300,21 @@ struct FocusModeExerciseSearch: View {
     }
     
     // MARK: - Exercise List
-    
+
     private var exerciseList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Results count
-                HStack {
+                // Sort chips + results count
+                HStack(spacing: Space.sm) {
+                    sortChips
+                    Spacer()
                     Text("\(filteredExercises.count) exercises")
                         .font(.system(size: 13))
                         .foregroundColor(Color.textTertiary)
-                    Spacer()
                 }
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, Space.sm)
-                
+
                 ForEach(filteredExercises) { exercise in
                     ExerciseRowNew(
                         exercise: exercise,
@@ -336,8 +335,29 @@ struct FocusModeExerciseSearch: View {
         }
     }
     
+    // MARK: - Sort Chips
+
+    private var sortChips: some View {
+        HStack(spacing: 6) {
+            ForEach(ExerciseSortOption.allCases, id: \.self) { option in
+                Button {
+                    viewModel.setSortOption(option)
+                } label: {
+                    Text(option.rawValue)
+                        .font(.system(size: 12, weight: viewModel.sortOption == option ? .semibold : .medium))
+                        .foregroundColor(viewModel.sortOption == option ? .textInverse : Color.textSecondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(viewModel.sortOption == option ? Color.accent : Color.surfaceElevated)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+
     // MARK: - Loading View
-    
+
     private var loadingView: some View {
         VStack {
             Spacer()

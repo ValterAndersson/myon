@@ -74,6 +74,75 @@ function mergeMetrics(target = {}, source = {}, increment = 1) {
   }
 }
 
+/**
+ * Update exercise_usage_stats for each exercise in a completed workout.
+ * Uses per-exercise transactions with last_processed_workout_id for idempotency
+ * under at-least-once trigger delivery.
+ *
+ * @param {string} userId
+ * @param {object} workout - Workout document data (must have exercises[] and end_time)
+ * @param {string} workoutId
+ * @param {number} increment - 1 for add, -1 for delete
+ */
+async function updateExerciseUsageStats(userId, workout, workoutId, increment = 1) {
+  const exercises = Array.isArray(workout.exercises) ? workout.exercises : [];
+  if (exercises.length === 0) return;
+
+  const endTime = workout.end_time?.toDate
+    ? workout.end_time.toDate().toISOString()
+    : workout.end_time;
+  const workoutDate = typeof endTime === 'string' ? endTime.split('T')[0] : null;
+
+  // Collect unique exercises from the workout
+  const seen = new Set();
+  const uniqueExercises = [];
+  for (const ex of exercises) {
+    if (!ex.exercise_id || seen.has(ex.exercise_id)) continue;
+    seen.add(ex.exercise_id);
+    uniqueExercises.push({ id: ex.exercise_id, name: ex.name || '' });
+  }
+
+  const writes = uniqueExercises.map(async (ex) => {
+    const statsRef = db.collection('users').doc(userId)
+      .collection('exercise_usage_stats').doc(ex.id);
+
+    try {
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(statsRef);
+        const data = snap.exists ? snap.data() : {};
+
+        if (increment === 1) {
+          // Idempotency: skip if this workout was already processed
+          if (data.last_processed_workout_id === workoutId) return;
+
+          tx.set(statsRef, {
+            exercise_id: ex.id,
+            exercise_name: ex.name,
+            last_workout_date: workoutDate || data.last_workout_date || null,
+            workout_count: (data.workout_count || 0) + 1,
+            last_processed_workout_id: workoutId,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        } else {
+          // Decrement path (workout deletion) — don't fix last_workout_date
+          const newCount = Math.max((data.workout_count || 0) - 1, 0);
+          tx.set(statsRef, {
+            workout_count: newCount,
+            // Clear last_processed_workout_id to allow reprocessing
+            last_processed_workout_id: admin.firestore.FieldValue.delete(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+      });
+    } catch (e) {
+      // Per-exercise failure is non-fatal; log and continue
+      console.warn(`Non-fatal: failed to update exercise_usage_stats for ${ex.id}:`, e?.message || e);
+    }
+  });
+
+  await Promise.allSettled(writes);
+}
+
 // Simple e1RM estimator (Epley by default)
 function estimateE1RM(weightKg, reps) {
   if (typeof weightKg !== 'number' || typeof reps !== 'number' || reps <= 0) return 0;
@@ -527,6 +596,13 @@ exports.onWorkoutCompleted = onDocumentUpdated(
         console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
       }
 
+      // Update exercise usage stats for sorting by recency/frequency
+      try {
+        await updateExerciseUsageStats(event.params.userId, after, event.params.workoutId, 1);
+      } catch (e) {
+        console.warn('Non-fatal: failed to update exercise usage stats', e?.message || e);
+      }
+
       if (!result.success) {
         console.error(`Failed to update weekly stats:`, result);
       }
@@ -697,6 +773,13 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
         console.warn('Non-fatal: failed to enqueue analysis job', e?.message);
       }
 
+      // Update exercise usage stats for sorting by recency/frequency
+      try {
+        await updateExerciseUsageStats(event.params.userId, workout, event.params.workoutId, 1);
+      } catch (e) {
+        console.warn('Non-fatal: failed to update exercise usage stats (create)', e?.message || e);
+      }
+
       return result;
     } catch (error) {
       console.error('Error in onWorkoutCreatedWithEnd:', error);
@@ -836,11 +919,18 @@ exports.onWorkoutDeleted = onDocumentDeleted(
         console.warn('Non-fatal: failed to cleanup token-safe analytics (set_facts/series) on delete', e?.message || e);
       }
       // =============== END TOKEN-SAFE ANALYTICS ===============
-      
+
+      // Decrement exercise usage stats
+      try {
+        await updateExerciseUsageStats(event.params.userId, workout, event.params.workoutId, -1);
+      } catch (e) {
+        console.warn('Non-fatal: failed to revert exercise usage stats on delete', e?.message || e);
+      }
+
       if (!result.success) {
         console.error(`Failed to update weekly stats for deleted workout:`, result);
       }
-      
+
       return result;
     } catch (error) {
       console.error('Error in onWorkoutDeleted:', error);
