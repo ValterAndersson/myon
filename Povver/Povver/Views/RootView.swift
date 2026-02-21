@@ -40,6 +40,7 @@ struct RootView: View {
         }
         .onChange(of: flow) { _, newFlow in
             AnalyticsService.shared.screenViewed(String(describing: newFlow))
+            AppLogger.shared.nav("screen:\(String(describing: newFlow))")
         }
         // Pre-warm agent session after successful auth
         .onChange(of: flow) { _, newFlow in

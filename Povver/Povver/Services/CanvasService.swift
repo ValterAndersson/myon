@@ -153,42 +153,19 @@ final class CanvasService: CanvasServiceProtocol {
     // Related DTOs: ApplyActionRequestDTO, ApplyActionResponseDTO (CanvasDTOs.swift)
     // =========================================================================
     func applyAction(_ req: ApplyActionRequestDTO) async throws -> ApplyActionResponseDTO {
-        // Log canvas action with full context
-        var payloadDict: [String: Any] = [:]
-        if let payload = req.action.payload {
-            for (key, value) in payload {
-                payloadDict[key] = value.value
-            }
-        }
-        
-        SessionLogger.shared.logCanvasAction(
-            type: req.action.type,
-            cardId: req.action.card_id,
-            payload: payloadDict.isEmpty ? nil : payloadDict,
-            expectedVersion: req.expected_version ?? -1
-        )
-        
+        // Log canvas action
+        let actionDesc = "action:\(req.action.type) card=\(req.action.card_id ?? "nil") v=\(req.expected_version ?? -1)"
+        AppLogger.shared.info(.app, actionDesc)
+
         // POST to Firebase Function via ApiClient (uses Firebase Auth token)
         // Note: ApiClient already logs the full HTTP request/response
         let res: ApplyActionResponseDTO = try await ApiClient.shared.postJSON("applyAction", body: req)
-        
+
         // Log the result
         if res.success == true, let data = res.data {
-            SessionLogger.shared.log(.canvas, .info, "applyAction succeeded", context: [
-                "new_version": data.version ?? -1,
-                "changed_cards": data.changed_cards?.count ?? 0
-            ])
+            AppLogger.shared.info(.app, "applyAction succeeded v=\(data.version ?? -1) cards=\(data.changed_cards?.count ?? 0)")
         } else if let err = res.error {
-            SessionLogger.shared.logError(
-                category: .canvas,
-                message: "applyAction failed: \(err.code)",
-                context: [
-                    "code": err.code,
-                    "message": err.message,
-                    "action_type": req.action.type,
-                    "expected_version": req.expected_version ?? -1
-                ]
-            )
+            AppLogger.shared.error(.app, "applyAction failed: \(err.code)")
         }
         
         return res
@@ -213,11 +190,11 @@ final class CanvasService: CanvasServiceProtocol {
         struct DataDTO: Codable { let canvasId: String }
         struct Envelope: Codable { let success: Bool; let data: DataDTO?; let error: ActionErrorDTO? }
         
-        DebugLogger.log(.canvas, "bootstrapCanvas: user=\(userId) purpose=\(purpose)")
+        AppLogger.shared.info(.app, "bootstrapCanvas user=\(userId.prefix(8)) purpose=\(purpose)")
         let env: Envelope = try await ApiClient.shared.postJSON("bootstrapCanvas", body: Req(userId: userId, purpose: purpose))
-        
-        if DebugLogger.enabled {
-            DebugLogger.debug(.canvas, "bootstrapCanvas success=\(env.success) id=\(env.data?.canvasId ?? "-")")
+
+        if env.success, let id = env.data?.canvasId {
+            AppLogger.shared.info(.app, "bootstrapCanvas success id=\(id.prefix(8))")
         }
         if env.success, let id = env.data?.canvasId { return id }
         let message = env.error?.message ?? "Failed to bootstrap canvas"
@@ -247,15 +224,13 @@ final class CanvasService: CanvasServiceProtocol {
         struct Envelope: Codable { let success: Bool; let error: ActionErrorDTO? }
 
         let req = Req(userId: userId, canvasId: canvasId, dropEvents: dropEvents, dropState: dropState, dropWorkspace: dropWorkspace)
-        DebugLogger.log(.canvas, "purgeCanvas: user=\(userId) canvas=\(canvasId) dropEvents=\(dropEvents) dropState=\(dropState) dropWorkspace=\(dropWorkspace)")
+        AppLogger.shared.info(.app, "purgeCanvas canvas=\(canvasId.prefix(8)) dropWorkspace=\(dropWorkspace)")
         let env: Envelope = try await ApiClient.shared.postJSON("purgeCanvas", body: req)
-        
-        if DebugLogger.enabled {
-            if env.success {
-                DebugLogger.debug(.canvas, "purgeCanvas success")
-            } else if let err = env.error {
-                DebugLogger.error(.canvas, "purgeCanvas error: \(err.code) - \(err.message)")
-            }
+
+        if env.success {
+            AppLogger.shared.info(.app, "purgeCanvas success")
+        } else if let err = env.error {
+            AppLogger.shared.error(.app, "purgeCanvas error: \(err.code)")
         }
         guard env.success else {
             let message = env.error?.message ?? "Failed to purge canvas"
@@ -285,11 +260,11 @@ final class CanvasService: CanvasServiceProtocol {
     func initializeSession(canvasId: String, purpose: String, forceNew: Bool = false) async throws -> String {
         struct Req: Codable { let canvasId: String; let purpose: String; let forceNew: Bool }
         
-        DebugLogger.log(.canvas, "initializeSession: canvas=\(canvasId) purpose=\(purpose) forceNew=\(forceNew)")
+        AppLogger.shared.info(.app, "initializeSession canvas=\(canvasId.prefix(8)) forceNew=\(forceNew)")
         let response: InitializeSessionResponse = try await ApiClient.shared.postJSON("initializeSession", body: Req(canvasId: canvasId, purpose: purpose, forceNew: forceNew))
-        
-        if DebugLogger.enabled {
-            DebugLogger.debug(.canvas, "initializeSession success=\(response.success) sessionId=\(response.sessionId ?? "-") reused=\(response.isReused ?? false) latency=\(response.latencyMs ?? 0)ms")
+
+        if response.success, let sessionId = response.sessionId {
+            AppLogger.shared.info(.app, "initializeSession success session=\(sessionId.prefix(8)) reused=\(response.isReused ?? false)")
         }
         
         if response.success, let sessionId = response.sessionId {
@@ -328,45 +303,22 @@ final class CanvasService: CanvasServiceProtocol {
         
         let startTime = Date()
         
-        // Log with pre-warm status
-        let preWarmedSession = await MainActor.run { SessionPreWarmer.shared.preWarmedSession }
-        let hadPreWarmedSession = preWarmedSession != nil && preWarmedSession?.userId == userId
-        
-        SessionLogger.shared.log(.canvas, .info, "⏱️ openCanvas START", context: [
-            "user_id": userId,
-            "purpose": purpose,
-            "pre_warmed_available": hadPreWarmedSession,
-            "pre_warmed_session_id": preWarmedSession?.sessionId ?? "none"
-        ])
-        
+        AppLogger.shared.info(.app, "openCanvas START user=\(userId.prefix(8)) purpose=\(purpose)")
+
         let response: OpenCanvasResponse = try await ApiClient.shared.postJSON("openCanvas", body: Req(userId: userId, purpose: purpose))
-        
+
         let elapsed = Date().timeIntervalSince(startTime)
         let elapsedMs = Int(elapsed * 1000)
-        
+
         if response.success, let canvasId = response.canvasId, let sessionId = response.sessionId {
-            // Determine if we reused a pre-warmed session
-            let wasPreWarmed = !(response.isNewSession ?? true)
-            let matchedPreWarm = preWarmedSession?.sessionId == sessionId
-            
-            SessionLogger.shared.log(.canvas, .info, "⏱️ openCanvas COMPLETE", context: [
-                "canvas_id": canvasId,
-                "session_id": sessionId,
-                "duration_ms": elapsedMs,
-                "was_new_session": response.isNewSession ?? true,
-                "used_pre_warmed": wasPreWarmed,
-                "pre_warm_matched": matchedPreWarm,
-                "card_count": response.resumeState?.cardCount ?? 0,
-                "latency_category": elapsedMs < 500 ? "FAST" : (elapsedMs < 2000 ? "NORMAL" : "SLOW")
-            ])
-            
+            let category = elapsedMs < 500 ? "FAST" : (elapsedMs < 2000 ? "NORMAL" : "SLOW")
+            AppLogger.shared.info(.app, "openCanvas COMPLETE \(elapsedMs)ms \(category) canvas=\(canvasId.prefix(8)) session=\(sessionId.prefix(8))")
+
             return (canvasId, sessionId)
         }
-        
+
         let message = response.error ?? "Failed to open canvas"
-        SessionLogger.shared.logError(category: .canvas, message: "openCanvas FAILED after \(elapsedMs)ms", context: [
-            "error": message
-        ])
+        AppLogger.shared.error(.app, "openCanvas FAILED \(elapsedMs)ms: \(message)")
         throw NSError(domain: "CanvasService", code: 500, userInfo: [NSLocalizedDescriptionKey: message])
     }
     
@@ -383,14 +335,14 @@ final class CanvasService: CanvasServiceProtocol {
     func preWarmSession(userId: String, purpose: String) async throws -> String {
         struct Req: Codable { let userId: String; let purpose: String }
         
-        DebugLogger.log(.canvas, "⏱️ preWarmSession: user=\(userId) purpose=\(purpose)")
+        AppLogger.shared.info(.app, "preWarmSession user=\(userId.prefix(8)) purpose=\(purpose)")
         let startTime = Date()
-        
+
         let response: PreWarmResponse = try await ApiClient.shared.postJSON("preWarmSession", body: Req(userId: userId, purpose: purpose))
-        
+
         let elapsed = Date().timeIntervalSince(startTime)
-        if DebugLogger.enabled {
-            DebugLogger.debug(.canvas, "⏱️ preWarmSession completed in \(Int(elapsed * 1000))ms - success=\(response.success) session=\(response.sessionId ?? "-") isNew=\(response.isNew ?? true)")
+        if response.success, let sessionId = response.sessionId {
+            AppLogger.shared.info(.app, "preWarmSession \(Int(elapsed * 1000))ms session=\(sessionId.prefix(8)) isNew=\(response.isNew ?? true)")
         }
         
         if response.success, let sessionId = response.sessionId {

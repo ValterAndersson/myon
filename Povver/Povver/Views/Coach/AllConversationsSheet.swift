@@ -201,7 +201,7 @@ struct AllConversationsSheet: View {
                 isLoading = false
             }
         } catch {
-            DebugLogger.error(.firestore, "[AllConversationsSheet] loadConversations failed: \(error.localizedDescription)")
+            AppLogger.shared.error(.store, "loadConversations failed", error)
             await MainActor.run { isLoading = false }
         }
     }
@@ -232,7 +232,7 @@ struct AllConversationsSheet: View {
                 isLoadingMore = false
             }
         } catch {
-            DebugLogger.error(.firestore, "[AllConversationsSheet] loadMore failed: \(error.localizedDescription)")
+            AppLogger.shared.error(.store, "loadMore failed", error)
             await MainActor.run { isLoadingMore = false }
         }
     }

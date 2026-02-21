@@ -152,6 +152,7 @@ struct MainTabsView: View {
         }
         .onChange(of: selectedTabRaw) { _, newTab in
             AnalyticsService.shared.tabViewed(newTab)
+            AppLogger.shared.nav("tab:\(newTab)")
         }
         .task {
             if let userId = AuthService.shared.currentUser?.uid {

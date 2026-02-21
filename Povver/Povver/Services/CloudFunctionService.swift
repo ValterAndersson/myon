@@ -113,27 +113,19 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
     
     private func callFunction(name: String, data: [String: Any]) async throws -> Data {
         let startTime = Date()
-        
+
         // Log the callable request
-        SessionLogger.shared.logHTTPRequest(
-            method: "CALLABLE",
-            endpoint: name,
-            body: data
-        )
-        
+        let rid = AppLogger.shared.httpReq(method: "CALLABLE", endpoint: name, body: data)
+
         do {
             let result = try await functions.httpsCallable(name).call(data)
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            
+
             guard let jsonData = try? JSONSerialization.data(withJSONObject: result.data) else {
-                SessionLogger.shared.logError(
-                    category: .http,
-                    message: "Failed to serialize callable result",
-                    context: ["function": name]
-                )
+                AppLogger.shared.error(.http, "failed to serialize callable result")
                 throw NSError(domain: "CloudFunctionService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to serialize function result"])
             }
-            
+
             // Log the response
             let responseBody: Any
             if let jsonObject = try? JSONSerialization.jsonObject(with: jsonData) {
@@ -141,26 +133,13 @@ class CloudFunctionService: CloudFunctionServiceProtocol {
             } else {
                 responseBody = String(data: jsonData, encoding: .utf8) ?? "<binary>"
             }
-            
-            SessionLogger.shared.logHTTPResponse(
-                method: "CALLABLE",
-                endpoint: name,
-                statusCode: 200,
-                durationMs: durationMs,
-                body: responseBody
-            )
-            
+
+            AppLogger.shared.httpRes(rid: rid, status: 200, ms: durationMs, endpoint: name, body: responseBody)
+
             return jsonData
         } catch {
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            SessionLogger.shared.logHTTPResponse(
-                method: "CALLABLE",
-                endpoint: name,
-                statusCode: -1,
-                durationMs: durationMs,
-                body: nil,
-                error: error
-            )
+            AppLogger.shared.httpRes(rid: rid, status: -1, ms: durationMs, endpoint: name, error: error)
             throw error
         }
     }

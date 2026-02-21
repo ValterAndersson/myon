@@ -104,31 +104,23 @@ final class SessionPreWarmer: ObservableObject {
     func preWarmIfNeeded(userId: String, purpose: String = "ad_hoc", trigger: String = "unknown") {
         // Skip if already pre-warming
         guard !isPreWarming else {
-            SessionLogger.shared.log(.canvas, .debug, "🔥 Pre-warm SKIPPED (already in progress)", context: [
-                "purpose": purpose
-            ])
+            AppLogger.shared.info(.app, "pre-warm SKIPPED (already in progress)")
             return
         }
-        
+
         // Skip if we already have a valid pre-warmed session for this user/purpose
         if let existing = preWarmedSession,
            existing.userId == userId,
            existing.purpose == purpose,
            !existing.isStale {
-            SessionLogger.shared.log(.canvas, .debug, "🔥 Pre-warm SKIPPED (cached session valid)", context: [
-                "canvas_id": existing.canvasId,
-                "session_id": existing.sessionId,
-                "age_ms": existing.ageMs
-            ])
+            AppLogger.shared.info(.app, "pre-warm SKIPPED (cached valid age=\(existing.ageMs)ms)")
             return
         }
-        
+
         // Debounce: skip if we attempted recently
         if let lastAttempt = lastPreWarmAttempt,
            Date().timeIntervalSince(lastAttempt) < debounceInterval {
-            SessionLogger.shared.log(.canvas, .debug, "🔥 Pre-warm DEBOUNCED", context: [
-                "seconds_since_last": Int(Date().timeIntervalSince(lastAttempt))
-            ])
+            AppLogger.shared.info(.app, "pre-warm DEBOUNCED (\(Int(Date().timeIntervalSince(lastAttempt)))s since last)")
             return
         }
         
@@ -149,24 +141,16 @@ final class SessionPreWarmer: ObservableObject {
               session.userId == userId,
               session.purpose == purpose,
               !session.isStale else {
-            
-            if preWarmedSession != nil {
-                SessionLogger.shared.log(.canvas, .debug, "🔥 Pre-warmed session NOT consumed", context: [
-                    "reason": preWarmedSession?.isStale == true ? "stale" : "user/purpose mismatch",
-                    "cached_user": preWarmedSession?.userId ?? "none",
-                    "requested_user": userId
-                ])
+
+            if let existing = preWarmedSession {
+                let reason = existing.isStale ? "stale" : "mismatch"
+                AppLogger.shared.info(.app, "pre-warmed session NOT consumed (\(reason))")
             }
             return nil
         }
-        
+
         // Log consumption
-        SessionLogger.shared.log(.canvas, .info, "🔥 CONSUMING pre-warmed session", context: [
-            "canvas_id": session.canvasId,
-            "session_id": session.sessionId,
-            "age_ms": session.ageMs,
-            "was_new": session.isNew
-        ])
+        AppLogger.shared.info(.app, "CONSUMING pre-warmed session age=\(session.ageMs)ms")
         
         // Clear the cache (session can only be consumed once)
         preWarmedSession = nil
@@ -194,29 +178,17 @@ final class SessionPreWarmer: ObservableObject {
         
         isPreWarming = true
         lastError = nil
-        
-        SessionLogger.shared.log(.canvas, .info, "🔥 Pre-warm START", context: [
-            "user_id": userId,
-            "purpose": purpose,
-            "trigger": trigger
-        ])
-        
+
+        AppLogger.shared.info(.app, "pre-warm START trigger=\(trigger)")
+
         do {
             // Call the backend to create/reuse session
             let sessionId = try await canvasService.preWarmSession(userId: userId, purpose: purpose)
-            
+
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            
-            // Note: preWarmSession returns both sessionId and canvasId 
-            // We need to get the canvasId from the response - for now, log partial info
-            // The actual canvas/session linking happens in Firestore
-            
-            SessionLogger.shared.log(.canvas, .info, "🔥 Pre-warm SUCCESS", context: [
-                "session_id": sessionId,
-                "duration_ms": durationMs,
-                "trigger": trigger
-            ])
-            
+
+            AppLogger.shared.info(.app, "pre-warm SUCCESS \(durationMs)ms session=\(sessionId.prefix(8))")
+
             // Cache the result
             // Note: We don't have canvasId from preWarmSession - openCanvas will find it
             // The session is stored in Firestore, so openCanvas will reuse it
@@ -228,22 +200,12 @@ final class SessionPreWarmer: ObservableObject {
                 createdAt: Date(),
                 isNew: true  // We don't know from current API
             )
-            
+
         } catch {
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-            
-            SessionLogger.shared.logError(
-                category: .canvas,
-                message: "🔥 Pre-warm FAILED after \(durationMs)ms",
-                error: error,
-                context: [
-                    "user_id": userId,
-                    "purpose": purpose,
-                    "trigger": trigger,
-                    "duration_ms": durationMs
-                ]
-            )
-            
+
+            AppLogger.shared.error(.app, "pre-warm FAILED \(durationMs)ms", error)
+
             lastError = error
         }
         

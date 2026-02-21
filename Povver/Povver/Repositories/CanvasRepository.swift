@@ -84,19 +84,15 @@ final class CanvasRepository: CanvasRepositoryProtocol {
 
             let stateListener = stateRef.addSnapshotListener { snap, err in
                 if let err {
-                    SessionLogger.shared.logError(
-                        category: .firestore,
-                        message: "Canvas state listener error",
-                        error: err
-                    )
+                    AppLogger.shared.error(.store, "canvas state listener error", err)
                     continuation.finish(throwing: err)
                     return
                 }
                 guard let data = snap?.data() else { return }
-                
+
                 let source = snap?.metadata.isFromCache == true ? "cache" : "server"
-                SessionLogger.shared.logFirestoreSnapshot(collection: "canvases/\(canvasId)", documentCount: 1, source: source)
-                
+                AppLogger.shared.snapshot("canvases/\(canvasId)", docs: 1, source: source)
+
                 if let st = data["state"] as? [String: Any] {
                     let phase = (st["phase"] as? String).flatMap { CanvasPhase(rawValue: $0) }
                     let version = st["version"] as? Int
@@ -110,30 +106,23 @@ final class CanvasRepository: CanvasRepositoryProtocol {
             var hasReceivedServerCards = false
             let cardsListener = cardsRef.addSnapshotListener { snap, err in
                 if let err {
-                    SessionLogger.shared.logError(
-                        category: .firestore,
-                        message: "Canvas cards listener error",
-                        error: err
-                    )
+                    AppLogger.shared.error(.store, "canvas cards listener error", err)
                     continuation.finish(throwing: err)
                     return
                 }
                 guard let snap else { return }
-                
+
                 let source = snap.metadata.isFromCache ? "cache" : "server"
-                
+
                 // Only skip cache on FIRST load (before server data arrives)
                 if snap.metadata.isFromCache && !hasReceivedServerCards {
-                    SessionLogger.shared.log(.firestore, .debug, "Skipping cache-only cards snapshot", context: [
-                        "doc_count": snap.documents.count,
-                        "source": source
-                    ])
+                    AppLogger.shared.info(.store, "skipping cache-only cards snapshot count=\(snap.documents.count)")
                     return
                 }
                 hasReceivedServerCards = true
-                
-                SessionLogger.shared.logFirestoreSnapshot(collection: "canvases/\(canvasId)/cards", documentCount: snap.documents.count, source: source)
-                
+
+                AppLogger.shared.snapshot("canvases/\(canvasId)/cards", docs: snap.documents.count, source: source)
+
                 let docs = snap.documents
                 var nextCards: [String: CanvasCardModel] = [:]
                 for doc in docs {
@@ -147,19 +136,15 @@ final class CanvasRepository: CanvasRepositoryProtocol {
 
             let upNextListener = upNextRef.order(by: "priority", descending: true).addSnapshotListener { snap, err in
                 if let err {
-                    SessionLogger.shared.logError(
-                        category: .firestore,
-                        message: "Canvas up_next listener error",
-                        error: err
-                    )
+                    AppLogger.shared.error(.store, "canvas up_next listener error", err)
                     continuation.finish(throwing: err)
                     return
                 }
                 guard let docs = snap?.documents else { return }
-                
+
                 let source = snap?.metadata.isFromCache == true ? "cache" : "server"
-                SessionLogger.shared.logFirestoreSnapshot(collection: "canvases/\(canvasId)/up_next", documentCount: docs.count, source: source)
-                
+                AppLogger.shared.snapshot("canvases/\(canvasId)/up_next", docs: docs.count, source: source)
+
                 upNext = docs.compactMap { $0.data()["card_id"] as? String }
                 emit()
             }

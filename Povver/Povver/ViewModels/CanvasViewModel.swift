@@ -117,9 +117,8 @@ final class CanvasViewModel: ObservableObject {
         streamTask?.cancel()
         let startTime = Date()
 
-        // Start session logging
-        SessionLogger.shared.startSession(userId: userId, canvasId: canvasId)
-        SessionLogger.shared.log(.canvas, .info, "Canvas start BEGIN (existing canvas)", context: ["canvas_id": canvasId])
+        AppLogger.shared.nav("canvas:\(canvasId)")
+        AppLogger.shared.info(.app, "Canvas start BEGIN (existing canvas) canvas_id=\(canvasId)")
         AnalyticsService.shared.conversationStarted(entryPoint: "existing_canvas")
         
         streamTask = Task { [weak self] in
@@ -140,7 +139,7 @@ final class CanvasViewModel: ObservableObject {
                 self.attachEventsListener(userId: userId, canvasId: canvasId)
                 self.attachWorkspaceEntriesListener(userId: userId, canvasId: canvasId)
                 let elapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                SessionLogger.shared.log(.canvas, .debug, "Listeners attached", context: ["elapsed_s": elapsed])
+                AppLogger.shared.info(.app, "Listeners attached elapsed_s=\(elapsed)")
                 
                 // PHASE 1 OPTIMIZATION: Start session initialization in parallel
                 // Use forceNew: false to enable session reuse
@@ -149,29 +148,20 @@ final class CanvasViewModel: ObservableObject {
                     do {
                         let sessionId = try await self.service.initializeSession(canvasId: canvasId, purpose: "general", forceNew: false)
                         let sessionDuration = Date().timeIntervalSince(sessionStart)
-                        SessionLogger.shared.updateContext(sessionId: sessionId)
-                        SessionLogger.shared.log(.canvas, .info, "Session initialized", context: [
-                            "session_id": sessionId,
-                            "duration_s": String(format: "%.2f", sessionDuration),
-                            "reuse_enabled": true
-                        ])
+                        AppLogger.shared.info(.app, "Session initialized session_id=\(sessionId) duration_s=\(String(format: "%.2f", sessionDuration)) reuse_enabled=true")
                         return sessionId
                     } catch {
-                        SessionLogger.shared.logError(
-                            category: .canvas,
-                            message: "initializeSession failed - will create new on first message",
-                            error: error
-                        )
+                        AppLogger.shared.error(.app, "initializeSession failed - will create new on first message", error)
                         return nil
                     }
                 }
                 
                 // PHASE 1 OPTIMIZATION: Skip purgeCanvas
                 // Purging workspace_entries on every open adds latency and loses conversation history
-                SessionLogger.shared.log(.canvas, .debug, "Skipping purgeCanvas (optimization)")
-                
+                AppLogger.shared.info(.app, "Skipping purgeCanvas (optimization)")
+
                 let subElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                SessionLogger.shared.log(.canvas, .debug, "Starting subscription", context: ["elapsed_s": subElapsed])
+                AppLogger.shared.info(.app, "Starting subscription elapsed_s=\(subElapsed)")
                 
                 // Subscribe to canvas updates
                 var firstSnapshotReceived = false
@@ -179,22 +169,22 @@ final class CanvasViewModel: ObservableObject {
                     if !firstSnapshotReceived {
                         firstSnapshotReceived = true
                         let snapElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                        SessionLogger.shared.log(.canvas, .info, "First snapshot received", context: ["elapsed_s": snapElapsed])
+                        AppLogger.shared.info(.app, "First snapshot received elapsed_s=\(snapElapsed)")
                     }
-                    
+
                     // Log canvas state snapshot
                     self.logCanvasSnapshot(snap: snap, trigger: "firestore_update")
-                    
+
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
-                    
+
                     // Mark ready on first snapshot
                     if self.isReady == false {
                         self.isReady = true
                         let readyElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                        SessionLogger.shared.log(.canvas, .info, "Canvas READY", context: ["elapsed_s": readyElapsed])
+                        AppLogger.shared.info(.app, "Canvas READY elapsed_s=\(readyElapsed)")
                     }
                 }
                 
@@ -202,10 +192,10 @@ final class CanvasViewModel: ObservableObject {
                 if let sessionId = await sessionTask.value {
                     await MainActor.run { self.currentSessionId = sessionId }
                 }
-                
+
             } catch {
                 self.errorMessage = error.localizedDescription
-                SessionLogger.shared.logError(category: .canvas, message: "Canvas subscribe error", error: error)
+                AppLogger.shared.error(.app, "Canvas subscribe error", error)
             }
         }
     }
@@ -214,9 +204,8 @@ final class CanvasViewModel: ObservableObject {
         streamTask?.cancel()
         let startTime = Date()
 
-        // Start session logging
-        SessionLogger.shared.startSession(userId: userId)
-        SessionLogger.shared.log(.canvas, .info, "Canvas start BEGIN (new canvas)", context: ["purpose": purpose])
+        AppLogger.shared.nav("canvas:new")
+        AppLogger.shared.info(.app, "Canvas start BEGIN (new canvas) purpose=\(purpose)")
         AnalyticsService.shared.conversationStarted(entryPoint: purpose)
         
         streamTask = Task { [weak self] in
@@ -229,14 +218,8 @@ final class CanvasViewModel: ObservableObject {
                 let openStart = Date()
                 let (cid, sessionId) = try await self.service.openCanvas(userId: userId, purpose: purpose)
                 let openDuration = Date().timeIntervalSince(openStart)
-                
-                // Update session context with canvas and session IDs
-                SessionLogger.shared.updateContext(canvasId: cid, sessionId: sessionId)
-                SessionLogger.shared.log(.canvas, .info, "openCanvas completed", context: [
-                    "canvas_id": cid,
-                    "session_id": sessionId,
-                    "duration_s": String(format: "%.2f", openDuration)
-                ])
+
+                AppLogger.shared.info(.app, "openCanvas completed canvas_id=\(cid) session_id=\(sessionId) duration_s=\(String(format: "%.2f", openDuration))")
                 
                 self.canvasId = cid
                 self.currentSessionId = sessionId
@@ -253,10 +236,10 @@ final class CanvasViewModel: ObservableObject {
                 self.attachEventsListener(userId: userId, canvasId: cid)
                 self.attachWorkspaceEntriesListener(userId: userId, canvasId: cid)
                 let elapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                SessionLogger.shared.log(.canvas, .debug, "Listeners attached", context: ["elapsed_s": elapsed])
-                
+                AppLogger.shared.info(.app, "Listeners attached elapsed_s=\(elapsed)")
+
                 let subElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                SessionLogger.shared.log(.canvas, .debug, "Starting subscription", context: ["elapsed_s": subElapsed])
+                AppLogger.shared.info(.app, "Starting subscription elapsed_s=\(subElapsed)")
                 
                 // Subscribe to canvas updates
                 var firstSnapshotReceived = false
@@ -264,28 +247,28 @@ final class CanvasViewModel: ObservableObject {
                     if !firstSnapshotReceived {
                         firstSnapshotReceived = true
                         let snapElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                        SessionLogger.shared.log(.canvas, .info, "First snapshot received", context: ["elapsed_s": snapElapsed])
+                        AppLogger.shared.info(.app, "First snapshot received elapsed_s=\(snapElapsed)")
                     }
-                    
+
                     // Log canvas state snapshot
                     self.logCanvasSnapshot(snap: snap, trigger: "firestore_update")
-                    
+
                     self.version = snap.version
                     self.cards = snap.cards
                     self.upNext = snap.upNext
                     if let ph = snap.state.phase { self.phase = ph }
-                    
+
                     // Mark ready on first snapshot
                     if self.isReady == false {
                         self.isReady = true
                         let readyElapsed = String(format: "%.2f", Date().timeIntervalSince(startTime))
-                        SessionLogger.shared.log(.canvas, .info, "Canvas READY", context: ["elapsed_s": readyElapsed])
+                        AppLogger.shared.info(.app, "Canvas READY elapsed_s=\(readyElapsed)")
                     }
                 }
-                
+
             } catch {
                 self.errorMessage = error.localizedDescription
-                SessionLogger.shared.logError(category: .canvas, message: "openCanvas/subscribe error", error: error)
+                AppLogger.shared.error(.app, "openCanvas/subscribe error", error)
             }
         }
     }
@@ -332,12 +315,13 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func startSSEStream(userId: String, canvasId: String, message: String, correlationId: String) {
-        DebugLogger.log(.canvas, "SSE stream BEGIN: corr=\(correlationId) sessionId=\(currentSessionId ?? "nil")")
+        AppLogger.shared.user("message", String(message.prefix(80)))
+        AppLogger.shared.info(.app, "SSE stream BEGIN corr=\(correlationId) sessionId=\(currentSessionId ?? "nil")")
         AnalyticsService.shared.messageSent(messageLength: message.count)
         sseStreamTask?.cancel()
         sseStreamTask = Task { [weak self] in
             guard let self = self else { return }
-            
+
             // Show overlay while agent is working
             await MainActor.run {
                 self.showStreamOverlay = true
@@ -387,7 +371,7 @@ final class CanvasViewModel: ObservableObject {
                     if isMeaningfulEvent {
                         lastMeaningfulEventTime = Date()
                     } else if Date().timeIntervalSince(lastMeaningfulEventTime) > streamTimeoutSeconds {
-                        DebugLogger.debug(.canvas, "Stream timeout - only heartbeats for \(streamTimeoutSeconds)s")
+                        AppLogger.shared.info(.app, "Stream timeout - only heartbeats for \(streamTimeoutSeconds)s")
                         await MainActor.run {
                             self.currentAgentStatus = "Request timed out"
                             self.showStreamOverlay = false
@@ -405,10 +389,10 @@ final class CanvasViewModel: ObservableObject {
                         receivedDoneEvent = true
                     }
                 }
-                
+
                 // If stream ended without done event, clean up gracefully
                 if !receivedDoneEvent {
-                    DebugLogger.debug(.canvas, "Stream ended without done event - cleaning up")
+                    AppLogger.shared.info(.app, "Stream ended without done event - cleaning up")
                     await MainActor.run {
                         self.showStreamOverlay = false
                         self.isAgentThinking = false
@@ -446,7 +430,7 @@ final class CanvasViewModel: ObservableObject {
             // Pipeline events (router, planner, critic) are handled by thinkingState
             // Just log for debugging
             if let step = event.content?["step"]?.value as? String {
-                DebugLogger.log(.canvas, "Pipeline: \(step)")
+                AppLogger.shared.info(.app, "Pipeline: \(step)")
             }
             
         case .thinking:
@@ -579,7 +563,7 @@ final class CanvasViewModel: ObservableObject {
                 cards.append(card)
                 streamEvents.append(event)
                 AnalyticsService.shared.artifactReceived(artifactType: artifactType)
-                DebugLogger.log(.canvas, "Artifact card added: type=\(artifactType) id=\(card.id) artifactId=\(artifactId ?? "nil")")
+                AppLogger.shared.info(.app, "Artifact card added type=\(artifactType) id=\(card.id) artifactId=\(artifactId ?? "nil")")
             }
 
         case .card, .heartbeat:
@@ -741,7 +725,7 @@ final class CanvasViewModel: ObservableObject {
             return nil
 
         default:
-            DebugLogger.log(.canvas, "Unknown artifact type: \(type)")
+            AppLogger.shared.info(.app, "Unknown artifact type: \(type)")
             return nil
         }
     }
@@ -754,7 +738,7 @@ final class CanvasViewModel: ObservableObject {
             guard let docs = snap?.documents else { return }
             for doc in docs {
                 if let payload = doc.data()["payload"] as? [String: Any], let correlation = payload["correlation_id"] as? String {
-                    DebugLogger.debug(.canvas, "event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
+                    AppLogger.shared.info(.app, "event=\(doc.data()["type"] as? String ?? "?") correlation=\(correlation)")
                 }
             }
         }
@@ -823,7 +807,7 @@ final class CanvasViewModel: ObservableObject {
         ]
         ref.setData(entry) { error in
             if let error {
-                DebugLogger.error(.canvas, "Failed to log prompt entry: \(error.localizedDescription)")
+                AppLogger.shared.error(.app, "Failed to log prompt entry", error)
             }
         }
 
@@ -835,7 +819,7 @@ final class CanvasViewModel: ObservableObject {
             "lastMessage": String(message.prefix(100))
         ]) { error in
             if let error {
-                DebugLogger.error(.canvas, "Failed to update canvas metadata: \(error.localizedDescription)")
+                AppLogger.shared.error(.app, "Failed to update canvas metadata", error)
             }
         }
     }
@@ -869,7 +853,7 @@ final class CanvasViewModel: ObservableObject {
         ]
         ref.setData(entry) { error in
             if let error {
-                DebugLogger.error(.canvas, "Failed to log user response: \(error.localizedDescription)")
+                AppLogger.shared.error(.app, "Failed to log user response", error)
             }
         }
     }
@@ -881,20 +865,11 @@ final class CanvasViewModel: ObservableObject {
     }
     
     // MARK: - Canvas State Snapshot Logging
-    
+
     private func logCanvasSnapshot(snap: CanvasSnapshot, trigger: String) {
-        let cardTuples: [(id: String, type: String, status: String, title: String?)] = snap.cards.map { card in
-            // Use card.title if available, otherwise extract from data
-            let title: String? = card.title ?? card.subtitle
-            return (id: card.id, type: card.type.rawValue, status: card.status.rawValue, title: title)
-        }
-        
-        SessionLogger.shared.logCanvasSnapshot(
-            phase: snap.state.phase?.rawValue ?? "unknown",
-            version: snap.version,
-            cards: cardTuples,
-            upNext: snap.upNext,
-            trigger: trigger
-        )
+        let phase = snap.state.phase?.rawValue ?? "unknown"
+        let cardCount = snap.cards.count
+        let cardSummary = snap.cards.map { "\($0.type.rawValue)(\($0.status.rawValue))" }.joined(separator: ", ")
+        AppLogger.shared.info(.store, "snapshot phase=\(phase) v=\(snap.version) cards=\(cardCount) [\(cardSummary)] trigger=\(trigger)")
     }
 }

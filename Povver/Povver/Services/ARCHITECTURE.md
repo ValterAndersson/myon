@@ -25,7 +25,7 @@ Services are singleton managers and API clients that provide cross-cutting conce
 | `TimezoneManager.swift` | User timezone detection and sync |
 | `SessionPreWarmer.swift` | Pre-warms agent sessions on app launch |
 | `AgentsApi.swift` | Agent invocation helpers |
-| `AgentPipelineLogger.swift` | Structured logging for agent streaming pipeline |
+| `AgentPipelineLogger.swift` | Thin facade over `AppLogger` for agent streaming pipeline. Keeps `AgentLane`/`PipelineStep` enums and SSE event parsing logic |
 | `ThinkingProcessState.swift` | Agent thinking/tool execution progress tracking |
 | `BackgroundSaveService.swift` | Singleton managing fire-and-forget background saves for library editing (workouts, templates, routines). Views dismiss immediately; the service runs the operation async and publishes sync state per entity ID for UI indicators |
 | `MutationCoordinator.swift` | Serial queue for Focus Mode workout operations to prevent race conditions and TARGET_NOT_FOUND errors |
@@ -33,7 +33,7 @@ Services are singleton managers and API clients that provide cross-cutting conce
 | `Idempotency.swift` | Client-side idempotency key generation |
 | `FirebaseService.swift` | Firestore abstraction layer |
 | `Errors.swift` | App error types and handling |
-| `DebugLogger.swift` | Debug logging utilities |
+| `DebugLogger.swift` | Unified logging system. `AppLogger` singleton with monotonic seq numbers, 5 categories (`APP`, `HTTP`, `STORE`, `AGENT`, `WORK`), HTTP request/response correlation via `rid`, agent stream indentation. `#if DEBUG` gated — no-op stubs in release. Also houses `FocusModeLogger` facade and `MutationPhase`/`CoordinatorEvent` enums |
 | `AnyCodable.swift` | Dynamic JSON encoding/decoding helper |
 
 ## Key Patterns

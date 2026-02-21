@@ -141,8 +141,7 @@ final class WorkoutCoachViewModel: ObservableObject {
                 showingPaywall = true
                 messages.removeAll { $0.id == agentMsgId }
             } else {
-                let description = error.localizedDescription
-                DebugLogger.error(.canvas, "Workout copilot stream failed: \(description)")
+                AppLogger.shared.error(.agent, "workout copilot stream failed", error)
                 updateAgentMessage(id: agentMsgId, text: "Connection error. Try again.", status: .failed)
             }
         }

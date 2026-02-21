@@ -733,8 +733,8 @@ class DirectStreamingService: ObservableObject {
                   let arr = dict["sessions"] as? [[String: Any]] {
             sessionArray = arr
         } else {
-            if let json = json {
-                print("Unexpected list_sessions response format: \(json)")
+            if json != nil {
+                AppLogger.shared.error(.agent, "unexpected list_sessions response")
             }
             return []
         }
@@ -838,42 +838,39 @@ class DirectStreamingService: ObservableObject {
             throw StreamingError.notAuthenticated
         }
         
-        print("User authenticated: \(user.uid)")
-        
+        AppLogger.shared.info(.agent, "authenticated uid=\(user.uid.prefix(8))")
+
         // Get Firebase ID token
         do {
-            print("Getting Firebase ID token...")
+            AppLogger.shared.info(.agent, "getting Firebase ID token")
             let idToken = try await user.getIDToken()
-            
+
             // Call HTTP endpoint with auth token
             let url = URL(string: "https://us-central1-myon-53d85.cloudfunctions.net/getServiceToken")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            print("Getting service account access token...")
+
+            AppLogger.shared.info(.agent, "getting service account token")
             let (data, response) = try await session.data(for: request)
-            
+
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                print("HTTP error: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
-                if let responseData = String(data: data, encoding: .utf8) {
-                    print("Response: \(responseData)")
-                }
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                AppLogger.shared.error(.agent, "token exchange HTTP \(statusCode)")
                 throw StreamingError.tokenExchangeFailed
             }
-            
-            print("Exchange token response received")
+
+            AppLogger.shared.info(.agent, "token exchange response received")
             let resultData = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            
+
             guard let resultData = resultData,
                   let accessToken = resultData["accessToken"] as? String else {
-                print("Failed to extract accessToken from response")
-                print("Result was: \(String(data: data, encoding: .utf8) ?? "nil")")
+                AppLogger.shared.error(.agent, "failed to extract accessToken")
                 throw StreamingError.invalidTokenResponse
             }
-            
+
             // Extract expiry time if available
             if let expiryTimestamp = resultData["expiryDate"] as? TimeInterval {
                 self.tokenExpiryTime = Date(timeIntervalSince1970: expiryTimestamp / 1000)
@@ -881,17 +878,15 @@ class DirectStreamingService: ObservableObject {
                 // Default to 1 hour if no expiry provided
                 self.tokenExpiryTime = Date().addingTimeInterval(3600)
             }
-            
+
             self.gcpAuthToken = accessToken
-            print("Successfully obtained GCP access token")
+            AppLogger.shared.info(.agent, "GCP access token obtained")
             return accessToken
         } catch let error as NSError {
-            print("Error: \(error.localizedDescription)")
-            print("Error code: \(error.code)")
-            print("Error domain: \(error.domain)")
+            AppLogger.shared.error(.agent, "auth token error", error)
             throw StreamingError.tokenExchangeFailed
         } catch {
-            print("Unknown error: \(error)")
+            AppLogger.shared.error(.agent, "auth token error", error)
             throw StreamingError.tokenExchangeFailed
         }
     }
