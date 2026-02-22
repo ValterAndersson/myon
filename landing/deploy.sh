@@ -29,7 +29,10 @@ echo "Deploying landing page to ${HOST}..."
 # Upload all site files to /tmp on the instance
 scp ${SSH_OPTS} \
   "${SCRIPT_DIR}/index.html" \
+  "${SCRIPT_DIR}/privacy.html" \
+  "${SCRIPT_DIR}/tos.html" \
   "${SCRIPT_DIR}/styles.css" \
+  "${SCRIPT_DIR}/legal.css" \
   "${SCRIPT_DIR}/script.js" \
   "${SCRIPT_DIR}/robots.txt" \
   "${HOST}:/tmp/"
@@ -39,7 +42,7 @@ scp ${SSH_OPTS} -r "${SCRIPT_DIR}/assets/" "${HOST}:/tmp/landing-assets/"
 
 # Move files into nginx web root (requires sudo)
 ssh ${SSH_OPTS} "${HOST}" "
-  sudo cp /tmp/index.html /tmp/styles.css /tmp/script.js /tmp/robots.txt /usr/share/nginx/html/
+  sudo cp /tmp/index.html /tmp/privacy.html /tmp/tos.html /tmp/styles.css /tmp/legal.css /tmp/script.js /tmp/robots.txt /usr/share/nginx/html/
   sudo cp -r /tmp/landing-assets/* /usr/share/nginx/html/assets/
   rm -rf /tmp/landing-assets /tmp/index.html /tmp/styles.css /tmp/script.js /tmp/robots.txt
 "

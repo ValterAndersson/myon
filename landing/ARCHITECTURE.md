@@ -18,8 +18,11 @@ EC2 instance (Amazon Linux 2023) in eu-west-1 with nginx. Let's Encrypt SSL via 
 landing/
 ├── ARCHITECTURE.md          # This file
 ├── index.html               # Single-page landing (SEO meta, OG, JSON-LD)
+├── privacy.html             # Privacy Policy (GDPR-compliant)
+├── tos.html                 # Terms of Service
 ├── styles.css               # All styles — mobile-first, CSS custom properties
-├── script.js                # Scroll animations, mobile nav, smooth scroll (~95 lines)
+├── legal.css                # Shared styles for legal pages (privacy, tos)
+├── script.js                # Scroll animations, mobile nav, smooth scroll
 ├── deploy.sh                # SCP deploy to EC2 instance
 ├── robots.txt               # Disallow all (staging — remove for launch)
 └── assets/
