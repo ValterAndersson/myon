@@ -37,21 +37,29 @@ landing/
 
 **Mobile-first CSS**: Base styles target mobile (375px). Desktop layout scales up via `@media (min-width: 768px)`. Design tokens in `:root` use mobile values; the `min-width` media query overrides them for desktop (nav height, section padding, container padding).
 
-**Brand tokens**: Sourced from the iOS app's `Tokens.swift` and color assets. Accent emerald `#0B7A5E`, dark background `#0C1117`, system font stack.
+**Brand tokens**: Accent green `#22C59A`, dark background `#0A0E14`, Inter font via Google Fonts with system fallback. Full token set in `:root` CSS custom properties.
 
-**Phone mockups**: On desktop, screenshots render inside a dark device frame (40px border-radius, 6px padding). On mobile, the frame is stripped and screenshots show as clean rounded images to reduce visual weight and scrolling.
+**Phone mockups**: On desktop, screenshots render inside a dark device frame (42px border-radius, 6px padding, 280px wide) with a floating bob animation and radial glow. On mobile, device frames are 220px with a smaller glow, no float animation.
 
-**Hero on mobile**: Phone mockup is hidden. Text-only hero with centered layout to maximize the headline-to-CTA distance.
+**Hero on mobile**: Phone mockup is hidden to avoid back-to-back phones with the first feature screenshot. Text-only hero with centered layout: label pill, headline, subtitle, App Store button, scroll cue.
+
+**Feature numbering**: Each feature section has an `01`–`04` accent-colored number label above the title for visual progression.
+
+**Staggered scroll animations**: Feature screenshots animate in first via IntersectionObserver; text content follows with a 150ms delay. Highlight stats cascade in sequentially with 100ms offsets.
+
+**Scroll cue**: A pulsing green dot with a gradient line at the bottom of the hero. Fades out via JS after 80px of scroll.
+
+**Grain texture**: A subtle SVG noise overlay (`opacity: 0.02`) fixed over the entire viewport for tactile depth.
 
 **No build step**: The page is three files (HTML, CSS, JS) deployed directly. Cache busting via `?v=N` query string on the CSS link.
 
 ## Page Sections
 
-1. **Nav** — Fixed, transparent over dark hero, frosted glass when scrolled past hero
-2. **Hero** — Dark background with ambient emerald glow, animated gradient accent text, phone mockup (desktop only)
-3. **Features** (x4) — Alternating left/right layout on desktop, stacked on mobile
-4. **Highlights** — Single-line emerald gradient strip
-5. **Final CTA** — Dark background with centered glow, App Store badge
+1. **Nav** — Fixed, transparent over dark hero, glassmorphic (`backdrop-filter: blur(20px)`) when scrolled past hero
+2. **Hero** — Mesh gradient background (multiple radial gradients), animated gradient accent text, phone mockup (desktop only), scroll cue
+3. **Features** (x4) — Alternating left/right layout on desktop. On mobile, screenshots shown first (`order: -1`), then text. Numbered 01–04. Gradient dividers between sections, alternating subtle backgrounds
+4. **Highlights** — 3-column stat grid (900+, Every, Free) with gradient text values and vertical dividers
+5. **Final CTA** — Centered radial glow, accent gradient divider at top
 6. **Footer** — Dark, minimal
 
 ## Deployment

@@ -8,9 +8,14 @@
   <!-- TODO: Remove noindex before launch — see ARCHITECTURE.md launch checklist -->
   <meta name="robots" content="noindex, nofollow">
   <link rel="canonical" href="https://povver.ai">
-  <meta name="theme-color" content="#0C1117">
+  <meta name="theme-color" content="#0A0E14">
   <meta name="apple-mobile-web-app-title" content="Povver">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- Open Graph -->
   <meta property="og:title" content="Povver — Stop Guessing, Start Progressing">
@@ -64,7 +69,7 @@
   }
   </script>
 
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -89,12 +94,14 @@
         <span class="hero-label">For lifters who want results, not just logs</span>
         <h1 class="hero-title">You're Putting in the Work.<br><span class="hero-accent">Make Sure It Pays Off.</span></h1>
         <p class="hero-subtitle">Most apps just record your sets. Povver actually analyzes them — spots plateaus before you do, tells you when to add weight, and builds programs around how you already train.</p>
-        <a href="#download" class="app-store-badge" aria-label="Download on the App Store">
-          <svg viewBox="0 0 120 40" width="150" height="50" role="img" aria-label="Download on the App Store">
-            <rect x="0.5" y="0.5" width="119" height="39" rx="5.5" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>
-            <text x="60" y="15" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="7" font-family="-apple-system, sans-serif">Download on the</text>
-            <text x="60" y="28" text-anchor="middle" fill="#fff" font-size="12" font-weight="600" font-family="-apple-system, sans-serif">App Store</text>
+        <a href="#download" class="store-btn" aria-label="Download on the App Store">
+          <svg class="store-btn-apple" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="18" height="22" fill="currentColor" aria-hidden="true">
+            <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-27.1-46.9-42.2-83.7-45.2-35.6-2.9-74.6 20.9-88.9 20.9-15.1 0-50-19.5-76.7-19.5C63.6 141.3 0 196.4 0 310.5c0 33.8 6.1 68.8 18.4 104.9 16.3 48 76.3 165.6 138.7 163.5 31.4-.7 53.7-22.5 81-22.5 26.3 0 47 22.5 81 22.5 63-1.1 115.2-106.4 130.9-154.6C376.3 390.3 318.9 355 318.7 268.7zM262.3 68.5c27.6-33.1 24.7-63.6 23.9-74.5-23.7 1.4-51.2 16.2-67 34.8-17.4 20.3-27.7 45.3-25.6 74.2 25.6 2 52-11.7 68.7-34.5z"/>
           </svg>
+          <span class="store-btn-text">
+            <span class="store-btn-sub">Download on the</span>
+            <span class="store-btn-main">App Store</span>
+          </span>
         </a>
       </div>
       <div class="hero-phone">
@@ -105,12 +112,13 @@
         </div>
       </div>
     </div>
-    <!-- Hero divider -->
-    <div class="hero-divider">
-      <svg viewBox="0 0 1440 80" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M0 80L1440 80L1440 0C1440 0 1080 60 720 60C360 60 0 0 0 0L0 80Z" fill="#FFFFFF"/>
-      </svg>
+    <!-- Scroll cue -->
+    <div class="scroll-cue" id="scroll-cue" aria-hidden="true">
+      <div class="scroll-cue-dot"></div>
+      <div class="scroll-cue-line"></div>
     </div>
+    <!-- Hero divider (hidden in dark design) -->
+    <div class="hero-divider"></div>
   </section>
 
   <!-- Features -->
@@ -120,6 +128,7 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid">
         <div class="feature-content">
+          <span class="feature-number">01</span>
           <h2 class="feature-title">Stop Wondering If You Should Add Weight</h2>
           <p class="feature-copy">You finished a solid bench session. Was it enough to move up next week? With a notebook, you'd never know. With a tracking app, you'd scroll through old entries and try to spot a trend yourself. Povver reviews every session automatically — compares your performance across weeks, flags lifts where you've stalled, and tells you exactly when you're ready to progress.</p>
           <p class="feature-copy">Progressive overload is how you get stronger. But tracking it manually across dozens of exercises and muscle groups is a full-time job. Povver does it for you, so you can focus on lifting.</p>
@@ -138,6 +147,7 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid feature-grid--reverse">
         <div class="feature-content">
+          <span class="feature-number">02</span>
           <h2 class="feature-title">Programming Is a Second Job. Outsource It.</h2>
           <p class="feature-copy">Researching exercises, balancing volume across muscle groups, picking the right progression scheme — it's hours of work before you even touch a barbell. Tell Povver what you want in plain language. "Build me a 4-day upper/lower split" or "I need a quick leg day, dumbbells only." You get a complete program with exercises, sets, and target weights pulled from your actual training history — not a generic template.</p>
           <p class="feature-copy">Mid-workout, the coach stays useful without getting in the way. The squat rack is taken? Ask for a swap. Can't remember your last bench numbers? Ask. It keeps answers short because you're resting between sets, not reading an article.</p>
@@ -156,6 +166,7 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid">
         <div class="feature-content">
+          <span class="feature-number">03</span>
           <h2 class="feature-title">Log a Set in Two Seconds. Get Back to Lifting.</h2>
           <p class="feature-copy">Most tracking apps make you tap through three screens to log one set. By the time you're done, your rest timer is up and you've lost focus. Povver lays every set out in a single grid — tap a cell, change the number, move on. Weight, reps, and effort for every set, editable in any order.</p>
           <p class="feature-copy">Big buttons you can hit with chalky hands. Fast number entry. Nothing between you and your next set. If you've ever wished you could just scribble in a notebook but still have the data tracked — that's what this feels like.</p>
@@ -174,6 +185,7 @@
     <div class="feature-section fade-in">
       <div class="container feature-grid feature-grid--reverse">
         <div class="feature-content">
+          <span class="feature-number">04</span>
           <h2 class="feature-title">Your Workout. Your Rules.</h2>
           <p class="feature-copy">Some days you follow a program. Some days you walk into the gym and figure it out. Most apps punish the second kind of session — they want you to pick a plan and stick to it. Povver works either way. Start empty and add exercises as you go. Pick a saved template. Follow your routine's next session. Or just ask the coach to build something on the spot.</p>
           <p class="feature-copy">Add exercises, remove them, drag to reorder — mid-workout, nothing is locked down. The app fits how you actually train, not the other way around.</p>
@@ -193,7 +205,20 @@
   <!-- Highlights -->
   <section class="highlights fade-in">
     <div class="container">
-      <p class="highlights-text">900+ exercises. Analysis after every session. Free to start.</p>
+      <div class="highlights-grid">
+        <div class="highlight-stat">
+          <span class="highlight-value">900+</span>
+          <span class="highlight-label">Exercises</span>
+        </div>
+        <div class="highlight-stat">
+          <span class="highlight-value">Every</span>
+          <span class="highlight-label">Session Analyzed</span>
+        </div>
+        <div class="highlight-stat">
+          <span class="highlight-value">Free</span>
+          <span class="highlight-label">To Start</span>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -202,12 +227,14 @@
     <div class="container final-cta-content fade-in">
       <h2 class="final-cta-title">You're Already Doing the Hard Part</h2>
       <p class="final-cta-subtitle">Povver makes sure all that effort adds up to real progress. Free on iOS.</p>
-      <a href="#" class="app-store-badge app-store-badge--light" aria-label="Download on the App Store">
-        <svg viewBox="0 0 120 40" width="150" height="50" role="img" aria-label="Download on the App Store">
-          <rect width="120" height="40" rx="6" fill="#fff"/>
-          <text x="60" y="15" text-anchor="middle" fill="#000" font-size="7" font-family="-apple-system, sans-serif">Download on the</text>
-          <text x="60" y="28" text-anchor="middle" fill="#000" font-size="12" font-weight="600" font-family="-apple-system, sans-serif">App Store</text>
+      <a href="#" class="store-btn" aria-label="Download on the App Store">
+        <svg class="store-btn-apple" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="18" height="22" fill="currentColor" aria-hidden="true">
+          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-27.1-46.9-42.2-83.7-45.2-35.6-2.9-74.6 20.9-88.9 20.9-15.1 0-50-19.5-76.7-19.5C63.6 141.3 0 196.4 0 310.5c0 33.8 6.1 68.8 18.4 104.9 16.3 48 76.3 165.6 138.7 163.5 31.4-.7 53.7-22.5 81-22.5 26.3 0 47 22.5 81 22.5 63-1.1 115.2-106.4 130.9-154.6C376.3 390.3 318.9 355 318.7 268.7zM262.3 68.5c27.6-33.1 24.7-63.6 23.9-74.5-23.7 1.4-51.2 16.2-67 34.8-17.4 20.3-27.7 45.3-25.6 74.2 25.6 2 52-11.7 68.7-34.5z"/>
         </svg>
+        <span class="store-btn-text">
+          <span class="store-btn-sub">Download on the</span>
+          <span class="store-btn-main">App Store</span>
+        </span>
       </a>
     </div>
   </section>

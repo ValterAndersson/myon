@@ -9,10 +9,11 @@
     "(prefers-reduced-motion: reduce)"
   ).matches;
 
-  // --- Nav scroll state (transparent → frosted) ---
+  // --- Nav scroll state (transparent → frosted) + scroll cue fade ---
 
   var nav = document.getElementById("nav");
   var hero = document.querySelector(".hero");
+  var scrollCue = document.getElementById("scroll-cue");
 
   if (nav && hero) {
     var updateNav = function () {
@@ -21,6 +22,15 @@
         nav.classList.add("nav--scrolled");
       } else {
         nav.classList.remove("nav--scrolled");
+      }
+
+      // Fade out scroll cue after scrolling 80px
+      if (scrollCue) {
+        if (window.scrollY > 80) {
+          scrollCue.classList.add("hidden");
+        } else {
+          scrollCue.classList.remove("hidden");
+        }
       }
     };
 
