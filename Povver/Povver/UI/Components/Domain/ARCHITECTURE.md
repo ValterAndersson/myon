@@ -18,4 +18,4 @@ Reusable UI components specific to the fitness domain. These render workout data
 - **Mode-based density**: Components scale padding/font based on context (readOnly < planning < execution)
 - **Render models**: `SetCellModel`, `ExerciseSectionModel` separate presentation from domain models
 - **No data fetching**: All components are pure renderers — data is passed in via props
-- **WorkoutSummaryContent**: All analytics are server-computed by `analytics-calculator.js`. No client-side calculation. Used by both post-workout completion flow and history detail screen.
+- **WorkoutSummaryContent**: All analytics are server-computed by `analytics-calculator.js`. No client-side calculation. Used by both post-workout completion flow and history detail screen. Supports optional `onEditWorkoutNote` / `onEditExerciseNote` callbacks for note editing (wired from history detail, nil in post-workout).

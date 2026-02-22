@@ -93,11 +93,18 @@ const PatchOpSchema = z.discriminatedUnion('op', [
     field: z.enum(['weight', 'reps', 'rir', 'status', 'set_type', 'tags.is_failure']),
     value: z.any(),
   }),
-  // Field update on the workout itself (name, start_time, etc.)
+  // Field update on the workout itself (name, start_time, notes)
   z.object({
     op: z.literal('set_workout_field'),
-    field: z.enum(['name', 'start_time']),
-    value: z.any(),
+    field: z.enum(['name', 'start_time', 'notes']),
+    value: z.string().max(500),
+  }),
+  // Field update on an exercise instance (notes, etc.)
+  z.object({
+    op: z.literal('set_exercise_field'),
+    target: z.object({ exercise_instance_id: IdSchema }),
+    field: z.enum(['notes']),
+    value: z.string().max(500),
   }),
   // Add set
   z.object({

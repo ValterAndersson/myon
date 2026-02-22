@@ -49,6 +49,9 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
     case moreActions(exerciseId: String)
     case exerciseDetail(exerciseId: String?, exerciseName: String)
     case exercisePerformance(exerciseId: String, exerciseName: String)
+    case noteEditorWorkout
+    case noteEditorExercise(exerciseInstanceId: String)
+    case exerciseSwap(exercise: FocusModeExercise)
 
     var id: String {
         switch self {
@@ -60,6 +63,9 @@ enum FocusModeActiveSheet: Identifiable, Equatable {
         case .moreActions(let exId): return "moreActions-\(exId)"
         case .exerciseDetail(let exId, _): return "exerciseDetail-\(exId ?? "nil")"
         case .exercisePerformance(let exId, _): return "exercisePerformance-\(exId)"
+        case .noteEditorWorkout: return "noteEditorWorkout"
+        case .noteEditorExercise(let exId): return "noteEditorExercise-\(exId)"
+        case .exerciseSwap(let ex): return "exerciseSwap-\(ex.instanceId)"
         }
     }
 }
@@ -73,13 +79,17 @@ struct FinishWorkoutSheet: View {
     let completedSets: Int
     let totalSets: Int
     let exerciseCount: Int
+    var workoutNotes: String? = nil
+    var showSaveToTemplate: Bool = false
     let onComplete: () -> Void
     let onDiscard: () -> Void
     let onDismiss: () -> Void
-    
+    var onSaveToTemplate: (() -> Void)? = nil
+
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
     @State private var showDiscardConfirmation = false
+    @State private var saveToTemplate: Bool = true
     
     /// Complete is disabled when there are no exercises
     private var canComplete: Bool {
@@ -119,7 +129,40 @@ struct FinishWorkoutSheet: View {
                     .padding(.vertical, Space.sm)
                 }
                 .padding(.top, Space.md)
-                
+
+                // Workout note preview (read-only, single-line truncated)
+                if let notes = workoutNotes {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color.textTertiary)
+                        Text(notes)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.sm)
+                }
+
+                // Save to template toggle
+                if showSaveToTemplate {
+                    Toggle(isOn: $saveToTemplate) {
+                        HStack(spacing: Space.sm) {
+                            Image(systemName: "doc.badge.arrow.up")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.textSecondary)
+                            Text("Update template with today's changes")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color.textPrimary)
+                        }
+                    }
+                    .tint(Color.accent)
+                    .padding(.horizontal, Space.lg)
+                    .padding(.top, Space.md)
+                }
+
                 // Error message
                 if let error = errorMessage {
                     Text(error)
@@ -128,14 +171,17 @@ struct FinishWorkoutSheet: View {
                         .padding(.horizontal, Space.lg)
                         .padding(.top, Space.sm)
                 }
-                
+
                 Spacer(minLength: Space.md)
-                
+
                 // Action buttons - tighter grouping
                 VStack(spacing: Space.sm) {
                     // Complete - Primary CTA
                     Button {
                         isLoading = true
+                        if saveToTemplate && showSaveToTemplate {
+                            onSaveToTemplate?()
+                        }
                         onComplete()
                     } label: {
                         HStack(spacing: Space.sm) {
@@ -479,21 +525,23 @@ struct ReorderToggleButton: View {
 /// Scrolls away, triggering compact timer in nav bar
 struct WorkoutHero: View {
     let workoutName: String
+    let workoutNotes: String?
     let startTime: Date
     let elapsedTime: TimeInterval
     let completedSets: Int
     let totalSets: Int
     let hasExercises: Bool
-    
+
     let onNameTap: () -> Void
     let onTimerTap: () -> Void
     let onCoachTap: () -> Void
     let onReorderTap: () -> Void
     let onMenuAction: (HeroMenuAction) -> Void
-    
+
     enum HeroMenuAction {
         case editName
         case editStartTime
+        case addNote
         case reorder
         case discard
     }
@@ -532,13 +580,17 @@ struct WorkoutHero: View {
                     Button { onMenuAction(.editStartTime) } label: {
                         Label("Edit Start Time", systemImage: "clock")
                     }
-                    
+
+                    Button { onMenuAction(.addNote) } label: {
+                        Label(workoutNotes != nil ? "Edit Note" : "Add Note", systemImage: "note.text")
+                    }
+
                     if hasExercises {
                         Button { onMenuAction(.reorder) } label: {
                             Label("Reorder Exercises", systemImage: "arrow.up.arrow.down")
                         }
                     }
-                    
+
                     Divider()
                     
                     Button(role: .destructive) { onMenuAction(.discard) } label: {
@@ -572,7 +624,25 @@ struct WorkoutHero: View {
                     .foregroundColor(Color.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
-            
+
+            // Workout note preview (single-line truncated)
+            if let notes = workoutNotes {
+                Button { onMenuAction(.addNote) } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color.textTertiary)
+                        Text(notes)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+
             // Action strip: Coach + Reorder pills
             HStack(spacing: Space.sm) {
                 // Coach pill (primary)
@@ -1155,6 +1225,69 @@ struct SwipeToDeleteRow<Content: View>: View {
                 }
         }
         .clipped()
+    }
+}
+
+// MARK: - Note Editor Sheet
+
+/// Shared sheet component for editing workout or exercise notes.
+/// TextEditor with 500-char limit, Save/Cancel buttons.
+/// Empty text saves as nil (clears note).
+struct NoteEditorSheet: View {
+    let title: String
+    let existingNote: String?
+    let onSave: (String?) -> Void
+    let onCancel: () -> Void
+
+    @State private var noteText: String = ""
+    private let maxLength = 500
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextEditor(text: $noteText)
+                    .font(.system(size: 16))
+                    .foregroundColor(Color.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, Space.md)
+                    .padding(.top, Space.sm)
+                    .onChange(of: noteText) { _, newValue in
+                        if newValue.count > maxLength {
+                            noteText = String(newValue.prefix(maxLength))
+                        }
+                    }
+
+                // Character count
+                HStack {
+                    Spacer()
+                    Text("\(noteText.count)/\(maxLength)")
+                        .font(.system(size: 12).monospacedDigit())
+                        .foregroundColor(noteText.count >= maxLength ? Color.destructive : Color.textTertiary)
+                }
+                .padding(.horizontal, Space.lg)
+                .padding(.bottom, Space.md)
+            }
+            .background(Color.bg)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSave(trimmed.isEmpty ? nil : trimmed)
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            noteText = existingNote ?? ""
+        }
     }
 }
 

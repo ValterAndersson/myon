@@ -99,27 +99,30 @@ struct WorkoutExercise: Codable, Identifiable {
     var name: String
     var position: Int
     var sets: [WorkoutExerciseSet]
+    var notes: String?
     var analytics: ExerciseAnalytics
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case exerciseId = "exercise_id"
         case name
         case position
         case sets
+        case notes
         case analytics
     }
-    
+
     // Memberwise init for backward compatibility
-    init(id: String, exerciseId: String, name: String, position: Int, sets: [WorkoutExerciseSet], analytics: ExerciseAnalytics) {
+    init(id: String, exerciseId: String, name: String, position: Int, sets: [WorkoutExerciseSet], notes: String? = nil, analytics: ExerciseAnalytics) {
         self.id = id
         self.exerciseId = exerciseId
         self.name = name
         self.position = position
         self.sets = sets
+        self.notes = notes
         self.analytics = analytics
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -127,6 +130,7 @@ struct WorkoutExercise: Codable, Identifiable {
         self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Unknown"
         self.position = try container.decodeIfPresent(Int.self, forKey: .position) ?? 0
         self.sets = try container.decodeIfPresent([WorkoutExerciseSet].self, forKey: .sets) ?? []
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
         self.analytics = try container.decodeIfPresent(ExerciseAnalytics.self, forKey: .analytics) ?? ExerciseAnalytics.empty
     }
 }

@@ -121,6 +121,7 @@ enum SyncState: Equatable {
 enum MetadataField: String, Equatable {
     case name = "name"
     case startTime = "start_time"
+    case notes = "notes"
 }
 
 /// All mutation types that go through the coordinator
@@ -132,16 +133,19 @@ enum WorkoutMutation: Equatable {
     case patchSet(exerciseInstanceId: String, setId: String, field: String, value: AnyCodableValue)
     case reorderExercises(order: [String])
     case logSet(exerciseInstanceId: String, setId: String, weight: Double?, reps: Int, rir: Int?, isFailure: Bool?)
-    /// Patch workout-level metadata (name, start_time) with coalescing semantics
+    /// Patch workout-level metadata (name, start_time, notes) with coalescing semantics
     case patchWorkoutMetadata(field: MetadataField, value: AnyCodableValue)
-    
+    /// Patch exercise-level metadata (notes) with coalescing semantics
+    case patchExerciseField(exerciseInstanceId: String, field: MetadataField, value: AnyCodableValue)
+
     /// Get the exercise instance ID this mutation depends on (if any)
     var exerciseDependency: String? {
         switch self {
         case .addSet(let exId, _, _, _, _, _),
              .removeSet(let exId, _),
              .patchSet(let exId, _, _, _),
-             .logSet(let exId, _, _, _, _, _):
+             .logSet(let exId, _, _, _, _, _),
+             .patchExerciseField(let exId, _, _):
             return exId
         default:
             return nil
@@ -165,7 +169,8 @@ enum WorkoutMutation: Equatable {
         case .addSet(let exId, _, _, _, _, _),
              .removeSet(let exId, _),
              .patchSet(let exId, _, _, _),
-             .logSet(let exId, _, _, _, _, _):
+             .logSet(let exId, _, _, _, _, _),
+             .patchExerciseField(let exId, _, _):
             return exId == instanceId
         default:
             return false
@@ -364,6 +369,17 @@ actor MutationCoordinator {
                 if case .patchWorkoutMetadata(let existingField, _) = queued.mutation {
                     if existingField == field {
                         print("[MutationCoordinator] Coalesced metadata mutation for field: \(field)")
+                        return true
+                    }
+                }
+                return false
+            }
+        case .patchExerciseField(let exId, let field, _):
+            // Remove any pending exercise field patch for same (exerciseInstanceId, field) pair
+            pending.removeAll { queued in
+                if case .patchExerciseField(let existingExId, let existingField, _) = queued.mutation {
+                    if existingExId == exId && existingField == field {
+                        print("[MutationCoordinator] Coalesced exercise field mutation for \(exId).\(field)")
                         return true
                     }
                 }
@@ -647,6 +663,17 @@ actor MutationCoordinator {
             case .patchWorkoutMetadata(let field, let value):
                 let request = PatchMetadataRequest(
                     workoutId: workoutId,
+                    field: field.rawValue,
+                    value: value,
+                    idempotencyKey: queued.id
+                )
+                let _: PatchResponse = try await apiClient.postJSON("patchActiveWorkout", body: request)
+                return .success
+
+            case .patchExerciseField(let exId, let field, let value):
+                let request = PatchExerciseFieldRequest(
+                    workoutId: workoutId,
+                    exerciseInstanceId: exId,
                     field: field.rawValue,
                     value: value,
                     idempotencyKey: queued.id
@@ -977,13 +1004,13 @@ private struct LogSetMutationResponse: Decodable {
     }
 }
 
-/// Request for patching workout-level metadata (name, start_time)
+/// Request for patching workout-level metadata (name, start_time, notes)
 private struct PatchMetadataRequest: Encodable {
     let workoutId: String
-    let field: String  // "name" or "start_time"
+    let field: String  // "name", "start_time", or "notes"
     let value: AnyCodableValue
     let idempotencyKey: String
-    
+
     enum CodingKeys: String, CodingKey {
         case workoutId = "workout_id"
         case ops, cause
@@ -991,21 +1018,56 @@ private struct PatchMetadataRequest: Encodable {
         case idempotencyKey = "idempotency_key"
         case clientTimestamp = "client_timestamp"
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(workoutId, forKey: .workoutId)
-        
+
         // Build the metadata patch op - workout-level field, no target
         let op: [String: Any] = [
             "op": "set_workout_field",
             "field": field,
             "value": value.rawValue
         ]
-        
+
         try container.encode([AnyCodable(op)], forKey: .ops)
         try container.encode("user_edit", forKey: .cause)
         try container.encode("header_edit", forKey: .uiSource)
+        try container.encode(idempotencyKey, forKey: .idempotencyKey)
+        try container.encode(ISO8601DateFormatter().string(from: Date()), forKey: .clientTimestamp)
+    }
+}
+
+/// Request for patching exercise-level metadata (notes)
+private struct PatchExerciseFieldRequest: Encodable {
+    let workoutId: String
+    let exerciseInstanceId: String
+    let field: String  // "notes"
+    let value: AnyCodableValue
+    let idempotencyKey: String
+
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case ops, cause
+        case uiSource = "ui_source"
+        case idempotencyKey = "idempotency_key"
+        case clientTimestamp = "client_timestamp"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workoutId, forKey: .workoutId)
+
+        let op: [String: Any] = [
+            "op": "set_exercise_field",
+            "target": ["exercise_instance_id": exerciseInstanceId],
+            "field": field,
+            "value": value.rawValue
+        ]
+
+        try container.encode([AnyCodable(op)], forKey: .ops)
+        try container.encode("user_edit", forKey: .cause)
+        try container.encode("exercise_note_edit", forKey: .uiSource)
         try container.encode(idempotencyKey, forKey: .idempotencyKey)
         try container.encode(ISO8601DateFormatter().string(from: Date()), forKey: .clientTimestamp)
     }

@@ -307,6 +307,8 @@ struct WorkoutDetailView: View {
     @State private var showEditSheet = false
     @State private var showDeleteConfirmation = false
     @State private var isDeleting = false
+    @State private var showWorkoutNoteEditor = false
+    @State private var editingExerciseIndex: Int? = nil
 
     private var syncState: FocusModeSyncState? {
         saveService.state(for: workoutId)
@@ -317,7 +319,11 @@ struct WorkoutDetailView: View {
             if isLoading {
                 loadingView
             } else if let workout = workout {
-                WorkoutSummaryContent(workout: workout)
+                WorkoutSummaryContent(
+                    workout: workout,
+                    onEditWorkoutNote: { showWorkoutNoteEditor = true },
+                    onEditExerciseNote: { index in editingExerciseIndex = index }
+                )
             } else {
                 errorView
             }
@@ -345,6 +351,14 @@ struct WorkoutDetailView: View {
                     }
                 } else if workout != nil {
                     Menu {
+                        Button {
+                            showWorkoutNoteEditor = true
+                        } label: {
+                            Label(
+                                workout?.notes != nil ? "Edit Note" : "Add Note",
+                                systemImage: "note.text"
+                            )
+                        }
                         Button("Edit") {
                             showEditSheet = true
                         }
@@ -380,6 +394,51 @@ struct WorkoutDetailView: View {
                 WorkoutEditView(workout: workout) {
                     // Will auto-reload when background save completes
                 }
+            }
+        }
+        .sheet(isPresented: $showWorkoutNoteEditor) {
+            NoteEditorSheet(
+                title: workout?.notes != nil ? "Edit Note" : "Add Note",
+                existingNote: workout?.notes,
+                onSave: { newNote in
+                    showWorkoutNoteEditor = false
+                    workout?.notes = newNote
+                    guard let userId = AuthService.shared.currentUser?.uid else { return }
+                    let noteCopy = newNote
+                    BackgroundSaveService.shared.save(entityId: workoutId) {
+                        try await WorkoutRepository().patchWorkoutNotes(
+                            userId: userId, workoutId: workoutId, notes: noteCopy
+                        )
+                    }
+                },
+                onCancel: { showWorkoutNoteEditor = false }
+            )
+        }
+        .sheet(isPresented: Binding(
+            get: { editingExerciseIndex != nil },
+            set: { if !$0 { editingExerciseIndex = nil } }
+        )) {
+            if let index = editingExerciseIndex,
+               index < (workout?.exercises.count ?? 0) {
+                let exercise = workout?.exercises[index]
+                NoteEditorSheet(
+                    title: "Exercise Note",
+                    existingNote: exercise?.notes,
+                    onSave: { newNote in
+                        editingExerciseIndex = nil
+                        workout?.exercises[index].notes = newNote
+                        guard let userId = AuthService.shared.currentUser?.uid else { return }
+                        let noteCopy = newNote
+                        let idx = index
+                        BackgroundSaveService.shared.save(entityId: "\(workoutId)-ex\(idx)") {
+                            try await WorkoutRepository().patchExerciseNotes(
+                                userId: userId, workoutId: workoutId,
+                                exerciseIndex: idx, notes: noteCopy
+                            )
+                        }
+                    },
+                    onCancel: { editingExerciseIndex = nil }
+                )
             }
         }
         .task {

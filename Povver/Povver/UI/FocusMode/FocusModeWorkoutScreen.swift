@@ -260,6 +260,8 @@ struct FocusModeWorkoutScreen: View {
                 completedSets: completedSets,
                 totalSets: totalSets,
                 exerciseCount: service.workout?.exercises.count ?? 0,
+                workoutNotes: service.workout?.notes,
+                showSaveToTemplate: service.hasTemplateChanges,
                 onComplete: {
                     activeSheet = nil
                     finishWorkout()
@@ -270,6 +272,9 @@ struct FocusModeWorkoutScreen: View {
                 },
                 onDismiss: {
                     activeSheet = nil
+                },
+                onSaveToTemplate: {
+                    Task { await service.saveChangesToTemplate() }
                 }
             )
         case .exerciseDetail(let exerciseId, let exerciseName):
@@ -283,6 +288,72 @@ struct FocusModeWorkoutScreen: View {
             ExercisePerformanceSheet(
                 exerciseId: exerciseId,
                 exerciseName: exerciseName,
+                onDismiss: { activeSheet = nil }
+            )
+        case .noteEditorWorkout:
+            NoteEditorSheet(
+                title: "Workout Note",
+                existingNote: service.workout?.notes,
+                onSave: { note in
+                    activeSheet = nil
+                    Task {
+                        do {
+                            try await service.updateWorkoutNotes(note)
+                        } catch {
+                            print("Failed to update workout notes: \(error)")
+                        }
+                    }
+                },
+                onCancel: { activeSheet = nil }
+            )
+        case .noteEditorExercise(let exerciseInstanceId):
+            let exercise = service.workout?.exercises.first(where: { $0.instanceId == exerciseInstanceId })
+            NoteEditorSheet(
+                title: "Exercise Note",
+                existingNote: exercise?.notes,
+                onSave: { note in
+                    activeSheet = nil
+                    Task {
+                        do {
+                            try await service.updateExerciseNotes(exerciseInstanceId: exerciseInstanceId, notes: note)
+                        } catch {
+                            print("Failed to update exercise notes: \(error)")
+                        }
+                    }
+                },
+                onCancel: { activeSheet = nil }
+            )
+        case .exerciseSwap(let exercise):
+            ExerciseSwapSheet(
+                currentExercise: PlanExercise(
+                    id: exercise.instanceId,
+                    exerciseId: exercise.exerciseId,
+                    name: exercise.name,
+                    sets: exercise.sets.map { set in
+                        PlanSet(
+                            id: set.id,
+                            type: SetType(rawValue: set.setType.rawValue) ?? .working,
+                            reps: set.displayReps ?? 10,
+                            weight: set.displayWeight,
+                            rir: set.displayRir
+                        )
+                    }
+                ),
+                onSwapWithAI: { _, _ in },
+                onSwapManual: { replacement in
+                    activeSheet = nil
+                    Task {
+                        do {
+                            try await service.swapExercise(
+                                exerciseInstanceId: exercise.instanceId,
+                                newExerciseId: replacement.id ?? "",
+                                newExerciseName: replacement.name
+                            )
+                        } catch {
+                            print("[ExerciseSwap] Failed: \(error)")
+                        }
+                    }
+                },
                 onDismiss: { activeSheet = nil }
             )
         case .setTypePicker, .moreActions:
@@ -613,6 +684,7 @@ struct FocusModeWorkoutScreen: View {
                     // Use .onGeometryChange for continuous scroll tracking (iOS 16+)
                     WorkoutHero(
                         workoutName: workout.name ?? "Workout",
+                        workoutNotes: workout.notes,
                         startTime: workout.startTime,
                         elapsedTime: elapsedTime,
                         completedSets: completedSets,
@@ -714,7 +786,9 @@ struct FocusModeWorkoutScreen: View {
                                     onRemoveExercise: { removeExercise(exerciseId: exercise.instanceId) },
                                     onAutofill: { autofillExercise(exercise.instanceId) },
                                     onShowDetails: { presentSheet(.exerciseDetail(exerciseId: exercise.exerciseId, exerciseName: exercise.name)) },
-                                    onShowPerformance: { presentSheet(.exercisePerformance(exerciseId: exercise.exerciseId, exerciseName: exercise.name)) }
+                                    onShowPerformance: { presentSheet(.exercisePerformance(exerciseId: exercise.exerciseId, exerciseName: exercise.name)) },
+                                    onEditNote: { presentSheet(.noteEditorExercise(exerciseInstanceId: exercise.instanceId)) },
+                                    onSwapExercise: { presentSheet(.exerciseSwap(exercise: exercise)) }
                                 )
                             }
                             .padding(.top, Space.md)
@@ -796,6 +870,8 @@ struct FocusModeWorkoutScreen: View {
             showingNameEditor = true
         case .editStartTime:
             presentSheet(.startTimeEditor)
+        case .addNote:
+            presentSheet(.noteEditorWorkout)
         case .reorder:
             toggleReorderMode()
         case .discard:
@@ -1464,7 +1540,9 @@ struct FocusModeExerciseSectionNew: View {
     let onAutofill: () -> Void
     var onShowDetails: (() -> Void)? = nil
     var onShowPerformance: (() -> Void)? = nil
-    
+    var onEditNote: (() -> Void)? = nil
+    var onSwapExercise: (() -> Void)? = nil
+
     @State private var showRemoveConfirmation = false
     
     /// Derive selectedCell from screenMode for this exercise
@@ -1564,55 +1642,86 @@ struct FocusModeExerciseSectionNew: View {
     }
     
     private var exerciseHeader: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(exercise.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
-                
-                Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
-                    .font(.system(size: 13).monospacedDigit())
-                    .foregroundColor(Color.textSecondary)
-            }
-            
-            Spacer()
-            
-            // Progress indicator
-            if exercise.isComplete {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(Color.success)
-                    .font(.system(size: 20))
-            }
-            
-            // More menu
-            Menu {
-                Button { onAutofill() } label: {
-                    Label("Auto-fill Sets", systemImage: "sparkles")
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(exercise.name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color.textPrimary)
+
+                    Text("\(exercise.completedSetsCount)/\(exercise.totalWorkingSetsCount) sets")
+                        .font(.system(size: 13).monospacedDigit())
+                        .foregroundColor(Color.textSecondary)
                 }
-                if let onShowDetails {
-                    Button { onShowDetails() } label: {
-                        Label("Exercise Info", systemImage: "info.circle")
+
+                Spacer()
+
+                // Progress indicator
+                if exercise.isComplete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(Color.success)
+                        .font(.system(size: 20))
+                }
+
+                // More menu
+                Menu {
+                    Button { onAutofill() } label: {
+                        Label("Auto-fill Sets", systemImage: "sparkles")
                     }
-                }
-                if let onShowPerformance {
-                    Button { onShowPerformance() } label: {
-                        Label("Performance", systemImage: "chart.line.uptrend.xyaxis")
+                    if let onEditNote {
+                        Button { onEditNote() } label: {
+                            Label(exercise.notes != nil ? "Edit Note" : "Add Note", systemImage: "note.text")
+                        }
                     }
-                }
-                Button(role: .destructive) {
-                    showRemoveConfirmation = true
+                    if let onShowDetails {
+                        Button { onShowDetails() } label: {
+                            Label("Exercise Info", systemImage: "info.circle")
+                        }
+                    }
+                    if let onShowPerformance {
+                        Button { onShowPerformance() } label: {
+                            Label("Performance", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                    }
+                    if let onSwapExercise {
+                        Button { onSwapExercise() } label: {
+                            Label("Swap Exercise", systemImage: "arrow.triangle.swap")
+                        }
+                    }
+                    Button(role: .destructive) {
+                        showRemoveConfirmation = true
+                    } label: {
+                        Label("Remove Exercise", systemImage: "trash")
+                    }
                 } label: {
-                    Label("Remove Exercise", systemImage: "trash")
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color.textSecondary)
+                        .frame(width: 32, height: 32)
                 }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16))
-                    .foregroundColor(Color.textSecondary)
-                    .frame(width: 32, height: 32)
+            }
+            .padding(.horizontal, Space.md)
+            .padding(.vertical, Space.sm)
+
+            // Exercise note preview (single-line truncated)
+            if let notes = exercise.notes, let onEditNote {
+                Button { onEditNote() } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color.textTertiary)
+                        Text(notes)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .padding(.horizontal, Space.md)
+                    .padding(.bottom, Space.xs)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
         .confirmationDialog("Remove \(exercise.name)?", isPresented: $showRemoveConfirmation) {
             Button("Remove", role: .destructive) {
                 onRemoveExercise()

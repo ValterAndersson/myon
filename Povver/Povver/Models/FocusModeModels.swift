@@ -218,18 +218,20 @@ struct FocusModeExercise: Codable, Identifiable, Equatable {
     var name: String
     var position: Int
     var sets: [FocusModeSet]
-    
+    var notes: String?
+
     /// Sync state (not persisted to server)
     var syncState: FocusModeSyncState = .synced
-    
+
     var id: String { instanceId }
-    
+
     enum CodingKeys: String, CodingKey {
         case instanceId = "instance_id"
         case exerciseId = "exercise_id"
         case name
         case position
         case sets
+        case notes
         // syncState is not in CodingKeys - not persisted
     }
     
@@ -249,18 +251,30 @@ struct FocusModeExercise: Codable, Identifiable, Equatable {
     
     // MARK: - Initializers
     
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.instanceId = try container.decode(String.self, forKey: .instanceId)
+        self.exerciseId = try container.decode(String.self, forKey: .exerciseId)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.position = try container.decode(Int.self, forKey: .position)
+        self.sets = try container.decode([FocusModeSet].self, forKey: .sets)
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
+    }
+
     init(
         instanceId: String = UUID().uuidString,
         exerciseId: String,
         name: String,
         position: Int,
-        sets: [FocusModeSet] = []
+        sets: [FocusModeSet] = [],
+        notes: String? = nil
     ) {
         self.instanceId = instanceId
         self.exerciseId = exerciseId
         self.name = name
         self.position = position
         self.sets = sets
+        self.notes = notes
     }
 }
 
@@ -273,6 +287,7 @@ struct FocusModeWorkout: Codable, Identifiable {
     var sourceTemplateId: String?
     var sourceRoutineId: String?
     var name: String?
+    var notes: String?
     var exercises: [FocusModeExercise]
     var totals: WorkoutTotals
     var version: Int
@@ -288,6 +303,7 @@ struct FocusModeWorkout: Codable, Identifiable {
         case sourceTemplateId = "source_template_id"
         case sourceRoutineId = "source_routine_id"
         case name
+        case notes
         case exercises
         case totals
         case version
@@ -305,6 +321,7 @@ struct FocusModeWorkout: Codable, Identifiable {
         self.sourceTemplateId = try container.decodeIfPresent(String.self, forKey: .sourceTemplateId)
         self.sourceRoutineId = try container.decodeIfPresent(String.self, forKey: .sourceRoutineId)
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
         self.exercises = try container.decode([FocusModeExercise].self, forKey: .exercises)
         self.totals = try container.decode(WorkoutTotals.self, forKey: .totals)
         self.version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
@@ -321,6 +338,7 @@ struct FocusModeWorkout: Codable, Identifiable {
         sourceTemplateId: String? = nil,
         sourceRoutineId: String? = nil,
         name: String? = nil,
+        notes: String? = nil,
         exercises: [FocusModeExercise],
         totals: WorkoutTotals,
         version: Int = 0,
@@ -335,6 +353,7 @@ struct FocusModeWorkout: Codable, Identifiable {
         self.sourceTemplateId = sourceTemplateId
         self.sourceRoutineId = sourceRoutineId
         self.name = name
+        self.notes = notes
         self.exercises = exercises
         self.totals = totals
         self.version = version

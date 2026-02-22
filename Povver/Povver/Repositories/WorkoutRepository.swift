@@ -52,4 +52,36 @@ class WorkoutRepository {
         try await db.collection("users").document(userId).collection("workouts").document(id).delete()
         logger.debug("Workout deleted: \(id) for user: \(userId)")
     }
+
+    /// Atomic single-field update for workout-level notes.
+    /// Empty/nil deletes the field via FieldValue.delete().
+    func patchWorkoutNotes(userId: String, workoutId: String, notes: String?) async throws {
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value: Any = (trimmed == nil || trimmed!.isEmpty) ? FieldValue.delete() : trimmed!
+        try await db.collection("users").document(userId).collection("workouts").document(workoutId)
+            .updateData(["notes": value])
+        logger.debug("Workout notes patched: \(workoutId) for user: \(userId)")
+    }
+
+    /// Read-modify-write for exercise-level notes (Firestore doesn't support array index updates).
+    /// Race condition risk is negligible — single user editing their own historical data.
+    func patchExerciseNotes(userId: String, workoutId: String, exerciseIndex: Int, notes: String?) async throws {
+        let docRef = db.collection("users").document(userId).collection("workouts").document(workoutId)
+        let snapshot = try await docRef.getDocument()
+        guard let data = snapshot.data(),
+              var exercises = data["exercises"] as? [[String: Any]],
+              exerciseIndex >= 0, exerciseIndex < exercises.count else {
+            throw NSError(domain: "WorkoutRepository", code: 404, userInfo: [NSLocalizedDescriptionKey: "Exercise not found at index \(exerciseIndex)"])
+        }
+
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed = trimmed, !trimmed.isEmpty {
+            exercises[exerciseIndex]["notes"] = trimmed
+        } else {
+            exercises[exerciseIndex].removeValue(forKey: "notes")
+        }
+
+        try await docRef.updateData(["exercises": exercises])
+        logger.debug("Exercise[\(exerciseIndex)] notes patched: \(workoutId) for user: \(userId)")
+    }
 }

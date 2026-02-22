@@ -103,7 +103,13 @@ class FocusModeWorkoutService: ObservableObject {
     
     /// Per-exercise sync state for UI indicators (spinners, error badges)
     @Published private(set) var exerciseSyncState: [String: EntitySyncState] = [:]
-    
+
+    /// Whether the current workout has changes vs its source template (Phase 3)
+    @Published var hasTemplateChanges: Bool = false
+
+    /// Snapshot of exercises at workout start for detecting changes vs template
+    private var templateSnapshot: [FocusModeExercise]?
+
     /// Session ID to validate coordinator callbacks (prevents stale updates)
     private var currentSessionId: UUID?
 
@@ -360,6 +366,14 @@ class FocusModeWorkoutService: ObservableObject {
         let parsedWorkout = FocusModeWorkout(fromNewResponse: response)
         self.workout = parsedWorkout
 
+        // Capture template snapshot for change detection (Phase 3)
+        if sourceTemplateId != nil {
+            self.templateSnapshot = parsedWorkout.exercises
+        } else {
+            self.templateSnapshot = nil
+        }
+        self.hasTemplateChanges = false
+
         sessionLog.begin(
             workoutId: parsedWorkout.id,
             name: parsedWorkout.name,
@@ -608,6 +622,7 @@ class FocusModeWorkoutService: ObservableObject {
         var updatedWorkout = workout
         updatedWorkout.exercises.append(newExercise)
         self.workout = updatedWorkout
+        updateHasTemplateChanges()
 
         // Haptic feedback immediately on tap
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -705,10 +720,11 @@ class FocusModeWorkoutService: ObservableObject {
         updatedWorkout.totals = recalculateTotals(for: updatedWorkout)
         
         self.workout = updatedWorkout
-        
+        updateHasTemplateChanges()
+
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        
+
         print("[removeExercise] Optimistically removed exercise: \(exerciseInstanceId)")
         
         // 2. Build and send request
@@ -743,8 +759,84 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    /// Swap an exercise in the active workout for a different one
+    /// Uses optimistic updates — exercise swaps instantly in UI, syncs to backend
+    func swapExercise(
+        exerciseInstanceId: String,
+        newExerciseId: String,
+        newExerciseName: String,
+        reason: String = "user_swap"
+    ) async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+
+        guard let exIdx = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) else {
+            throw FocusModeError.syncFailed("Exercise not found")
+        }
+
+        let originalExercise = workout.exercises[exIdx]
+
+        sessionLog.log(.exerciseSwapped, details: [
+            "instanceId": exerciseInstanceId,
+            "fromExerciseId": originalExercise.exerciseId,
+            "fromName": originalExercise.name,
+            "toExerciseId": newExerciseId,
+            "toName": newExerciseName
+        ])
+
+        // 1. Apply optimistically — swap exercise_id and name, keep sets/position/instanceId
+        var updatedWorkout = workout
+        updatedWorkout.exercises[exIdx].exerciseId = newExerciseId
+        updatedWorkout.exercises[exIdx].name = newExerciseName
+        self.workout = updatedWorkout
+        updateHasTemplateChanges()
+
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+        // 2. Mark as syncing
+        markExerciseSyncing(exerciseInstanceId)
+
+        // 3. Call swap-exercise endpoint directly (not through mutation coordinator)
+        let request = SwapExerciseRequest(
+            workoutId: workout.id,
+            fromExerciseId: exerciseInstanceId,
+            toExerciseId: newExerciseId,
+            reason: reason
+        )
+
+        do {
+            let response: SwapExerciseResponse = try await apiClient.postJSON("swapExercise", body: request)
+            exerciseSyncState[exerciseInstanceId] = .synced
+            if !response.success {
+                // Rollback
+                var rollback = self.workout ?? updatedWorkout
+                if let idx = rollback.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) {
+                    rollback.exercises[idx].exerciseId = originalExercise.exerciseId
+                    rollback.exercises[idx].name = originalExercise.name
+                }
+                self.workout = rollback
+                self.error = response.error ?? "Failed to swap exercise"
+                throw FocusModeError.syncFailed(response.error ?? "Swap failed")
+            }
+        } catch let error as FocusModeError {
+            throw error
+        } catch {
+            // Network/decode error — rollback
+            exerciseSyncState[exerciseInstanceId] = .synced
+            var rollback = self.workout ?? updatedWorkout
+            if let idx = rollback.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) {
+                rollback.exercises[idx].exerciseId = originalExercise.exerciseId
+                rollback.exercises[idx].name = originalExercise.name
+            }
+            self.workout = rollback
+            self.error = "Failed to swap exercise"
+            throw error
+        }
+    }
+
     // MARK: - Workout Lifecycle Actions
-    
+
     /// Cancel (discard) the active workout
     func cancelWorkout() async throws {
         guard let workout = workout else {
@@ -765,6 +857,8 @@ class FocusModeWorkoutService: ObservableObject {
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
+            self.templateSnapshot = nil
+            self.hasTemplateChanges = false
             self.workout = nil  // Clear local state
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to cancel workout")
@@ -811,13 +905,60 @@ class FocusModeWorkoutService: ObservableObject {
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
+            self.templateSnapshot = nil
+            self.hasTemplateChanges = false
             self.workout = nil  // Clear local state
             return archivedId
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to complete workout")
         }
     }
-    
+
+    /// Save current workout modifications back to the source template
+    /// Uses hybrid approach: actuals for done sets, targets for planned sets, skip skipped sets
+    func saveChangesToTemplate() async {
+        guard let workout = workout,
+              let templateId = workout.sourceTemplateId else { return }
+
+        // Map current exercises to template format
+        let templateExercises: [[String: Any]] = workout.exercises.enumerated().map { index, exercise in
+            let sets: [[String: Any]] = exercise.sets.compactMap { set in
+                guard set.status != .skipped else { return nil }
+                let isDone = set.status == .done
+                var setDict: [String: Any] = [
+                    "id": set.id,
+                    "type": set.setType.rawValue,
+                    "reps": isDone ? (set.reps ?? set.targetReps ?? 0) : (set.targetReps ?? 0),
+                    "weight": isDone ? (set.weight ?? set.targetWeight ?? 0) : (set.targetWeight ?? 0)
+                ]
+                let rir = isDone ? set.rir : set.targetRir
+                if let rir { setDict["rir"] = rir }
+                return setDict
+            }
+            return [
+                "id": UUID().uuidString,
+                "exercise_id": exercise.exerciseId,
+                "name": exercise.name,
+                "position": index,
+                "sets": sets
+            ] as [String: Any]
+        }
+
+        let patch: [String: Any] = [
+            "exercises": templateExercises,
+            "change_source": "workout_save",
+            "workout_id": workout.id
+        ]
+
+        do {
+            try await patchTemplate(templateId: templateId, patch: patch)
+        } catch {
+            // Non-blocking — workout completion should not be affected
+            print("[saveChangesToTemplate] Failed to update template: \(error)")
+            self.error = "Template could not be updated"
+        }
+    }
+
     /// Compute local totals from self.workout (fallback when sync fails)
     private func computeLocalTotals() -> WorkoutTotals {
         guard let workout = workout else {
@@ -872,6 +1013,52 @@ class FocusModeWorkoutService: ObservableObject {
         ))
     }
     
+    /// Update the workout notes with optimistic updates and coordinator sync
+    func updateWorkoutNotes(_ notes: String?) async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+
+        // Normalize: empty/whitespace-only → nil
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNotes: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+
+        // Optimistically update local state
+        self.workout?.notes = normalizedNotes
+
+        // Enqueue to coordinator with coalescing (last-write-wins)
+        // Backend normalizes empty string to null
+        await mutationCoordinator.setWorkout(workout.id)
+        await mutationCoordinator.enqueue(.patchWorkoutMetadata(
+            field: .notes,
+            value: .string(normalizedNotes ?? "")
+        ))
+    }
+
+    /// Update exercise-level notes with optimistic updates and coordinator sync
+    func updateExerciseNotes(exerciseInstanceId: String, notes: String?) async throws {
+        guard let workout = workout else {
+            throw FocusModeError.noActiveWorkout
+        }
+
+        // Normalize: empty/whitespace-only → nil
+        let trimmed = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNotes: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+
+        // Optimistically update local state
+        if let idx = self.workout?.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) {
+            self.workout?.exercises[idx].notes = normalizedNotes
+        }
+
+        // Enqueue to coordinator with coalescing (last-write-wins)
+        await mutationCoordinator.setWorkout(workout.id)
+        await mutationCoordinator.enqueue(.patchExerciseField(
+            exerciseInstanceId: exerciseInstanceId,
+            field: .notes,
+            value: .string(normalizedNotes ?? "")
+        ))
+    }
+
     /// Update the workout start time (adjusts timer) with validation and coordinator sync
     func updateStartTime(_ newStartTime: Date) async throws {
         guard let workout = workout else {
@@ -1018,8 +1205,52 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    // MARK: - Template Change Detection
+
+    /// Compare current workout exercises against the snapshot taken at start
+    /// Called after exercise mutations (swap, add, remove, weight change)
+    private func updateHasTemplateChanges() {
+        guard let snapshot = templateSnapshot,
+              let currentExercises = workout?.exercises else {
+            hasTemplateChanges = false
+            return
+        }
+
+        // Different exercise count
+        if currentExercises.count != snapshot.count {
+            hasTemplateChanges = true
+            return
+        }
+
+        // Compare exercise IDs at each position
+        for (current, original) in zip(currentExercises, snapshot) {
+            if current.exerciseId != original.exerciseId {
+                hasTemplateChanges = true
+                return
+            }
+            // Different set count
+            if current.sets.count != original.sets.count {
+                hasTemplateChanges = true
+                return
+            }
+            // Compare set weights
+            for (cs, os) in zip(current.sets, original.sets) {
+                if cs.weight != os.weight || cs.targetWeight != os.targetWeight {
+                    hasTemplateChanges = true
+                    return
+                }
+                if cs.reps != os.reps || cs.targetReps != os.targetReps {
+                    hasTemplateChanges = true
+                    return
+                }
+            }
+        }
+
+        hasTemplateChanges = false
+    }
+
     // MARK: - Optimistic Updates
-    
+
     private func applyLogSetLocally(
         exerciseInstanceId: String,
         setId: String,
@@ -1048,11 +1279,12 @@ class FocusModeWorkoutService: ObservableObject {
             if wasPlanned {
                 workout.totals = recalculateTotals(for: workout)
             }
-            
+
             self.workout = workout
+            updateHasTemplateChanges()
         }
     }
-    
+
     /// Recalculate workout totals from current state
     private func recalculateTotals(for workout: FocusModeWorkout) -> WorkoutTotals {
         var totalSets = 0
@@ -1991,6 +2223,27 @@ private struct ReorderExercisesRequest: Encodable {
         try container.encode(idempotencyKey, forKey: .idempotencyKey)
         try container.encode(clientTimestamp, forKey: .clientTimestamp)
     }
+}
+
+// MARK: - Swap Exercise DTOs
+
+private struct SwapExerciseRequest: Encodable {
+    let workoutId: String
+    let fromExerciseId: String
+    let toExerciseId: String
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case workoutId = "workout_id"
+        case fromExerciseId = "from_exercise_id"
+        case toExerciseId = "to_exercise_id"
+        case reason
+    }
+}
+
+private struct SwapExerciseResponse: Decodable {
+    let success: Bool
+    let error: String?
 }
 
 private struct ReorderOpDTO: Encodable {

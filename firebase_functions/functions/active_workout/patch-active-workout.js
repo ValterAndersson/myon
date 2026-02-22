@@ -52,8 +52,8 @@ function validateHomogeneous(ops) {
     }
   }
 
-  // For add_set, remove_set, reorder_exercises, and set_workout_field, only one op allowed
-  if ((opType === 'add_set' || opType === 'remove_set' || opType === 'reorder_exercises' || opType === 'set_workout_field') && ops.length > 1) {
+  // For add_set, remove_set, reorder_exercises, set_workout_field, and set_exercise_field, only one op allowed
+  if ((opType === 'add_set' || opType === 'remove_set' || opType === 'reorder_exercises' || opType === 'set_workout_field' || opType === 'set_exercise_field') && ops.length > 1) {
     return { valid: false, error: 'MULTIPLE_STRUCTURAL_OPS', message: `Only one ${opType} op allowed per request` };
   }
 
@@ -350,7 +350,28 @@ async function patchActiveWorkoutHandler(req, res) {
         });
       }
 
-      // Handle workout-level field updates (name, start_time)
+      if (opType === 'set_exercise_field') {
+        const op = ops[0];
+        const { exercise_instance_id } = op.target;
+        const { field, value } = op;
+        const exerciseIndex = exercises.findIndex(
+          (ex) => ex.instance_id === exercise_instance_id
+        );
+        if (exerciseIndex === -1) {
+          throw { httpCode: 404, code: 'NOT_FOUND', message: 'Exercise not found', details: { exercise_instance_id } };
+        }
+        const normalizedValue = (typeof value === 'string' && value.trim().length > 0) ? value.trim() : null;
+        exercises[exerciseIndex][field] = normalizedValue;
+        fieldsChanged.push(`exercise.${exercise_instance_id}.${field}`);
+
+        diffOps.push({
+          op: 'replace',
+          path: `/exercises/${exerciseIndex}/${field}`,
+          value: normalizedValue,
+        });
+      }
+
+      // Handle workout-level field updates (name, start_time, notes)
       let workoutFieldUpdates = {};
       if (opType === 'set_workout_field') {
         const op = ops[0];
@@ -369,6 +390,10 @@ async function patchActiveWorkoutHandler(req, res) {
           }
           workoutFieldUpdates.name = value.trim();
           fieldsChanged.push('name');
+        } else if (field === 'notes') {
+          workoutFieldUpdates.notes = (typeof value === 'string' && value.trim().length > 0)
+            ? value.trim() : null;
+          fieldsChanged.push('notes');
         }
 
         diffOps.push({

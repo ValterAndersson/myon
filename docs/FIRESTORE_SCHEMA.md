@@ -628,6 +628,7 @@ Subcollections:
            exercise_id: string,
            name?: string,
            position?: number,
+           notes?: string (max 500 chars),
            sets: Array<{
              id?: string,
              reps: number,
@@ -727,7 +728,7 @@ Subcollections:
      - `source_routine_id?: string` (routine this workout belongs to; copied to archived workout for cursor updates)
      - `plan?: any` (structured blocks used to initialize)
      - `current?: any`
-     - `exercises: any[]` (app-managed during session)
+     - `exercises: any[]` (app-managed during session; each exercise object may contain `notes?: string (max 500 chars)` for per-exercise context)
      - `totals: { sets: number, reps: number, volume: number, stimulus_score: number }`
      - `version: number` (monotonically incrementing; starts at 1, incremented on each mutation. Used for debugging and future optimistic concurrency. Existing documents without this field are treated as version 0.)
      - `start_time: Timestamp`

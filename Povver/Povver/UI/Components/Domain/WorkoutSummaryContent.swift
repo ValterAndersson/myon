@@ -6,6 +6,10 @@ import SwiftUI
 struct WorkoutSummaryContent: View {
     let workout: Workout
 
+    /// Optional callbacks for note editing (only wired up from history detail, not post-workout).
+    var onEditWorkoutNote: (() -> Void)?
+    var onEditExerciseNote: ((Int) -> Void)?
+
     private var durationMinutes: Int {
         Int(workout.endTime.timeIntervalSince(workout.startTime) / 60)
     }
@@ -20,6 +24,7 @@ struct WorkoutSummaryContent: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xl) {
                 headerSection
+                workoutNoteRow
                 statsRow
                 muscleGroupSection
                 intensitySection
@@ -43,6 +48,36 @@ struct WorkoutSummaryContent: View {
         }
         .padding(.horizontal, Space.lg)
         .padding(.top, Space.md)
+    }
+
+    // MARK: - Workout Note
+
+    @ViewBuilder
+    private var workoutNoteRow: some View {
+        if let notes = workout.notes, !notes.isEmpty {
+            Button {
+                onEditWorkoutNote?()
+            } label: {
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color.textTertiary)
+                    Text(notes)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.textSecondary)
+                        .lineLimit(1)
+                    Spacer()
+                    if onEditWorkoutNote != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color.textTertiary)
+                    }
+                }
+                .padding(.horizontal, Space.lg)
+            }
+            .buttonStyle(.plain)
+            .disabled(onEditWorkoutNote == nil)
+        }
     }
 
     // MARK: - Stats Row
@@ -186,6 +221,31 @@ struct WorkoutSummaryContent: View {
                                 sets: exercise.sets.toSetCellModels(),
                                 mode: .readOnly
                             )
+                        }
+                        // Exercise note row
+                        if let notes = exercise.notes, !notes.isEmpty {
+                            Button {
+                                onEditExerciseNote?(index)
+                            } label: {
+                                HStack(spacing: Space.xs) {
+                                    Image(systemName: "note.text")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(Color.textTertiary)
+                                    Text(notes)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(Color.textSecondary)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if onEditExerciseNote != nil {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundColor(Color.textTertiary)
+                                    }
+                                }
+                                .padding(.top, Space.xs)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(onEditExerciseNote == nil)
                         }
                     }
                 }

@@ -9,7 +9,7 @@ Repositories provide type-safe Firestore data access with real-time listeners an
 | `BaseRepository.swift` | — | Base protocol and generic `FirestoreRepository<T>` implementation for CRUD operations |
 | `retry.swift` | — | Exponential backoff retry helper (max 3 attempts) |
 | `UserRepository.swift` | `users/{uid}`, `users/{uid}/user_attributes` | User profile reads, attribute updates |
-| `WorkoutRepository.swift` | `users/{uid}/workouts` | Completed workout history queries |
+| `WorkoutRepository.swift` | `users/{uid}/workouts` | Completed workout CRUD + targeted field patches (notes) |
 | `CanvasRepository.swift` | `users/{uid}/canvases/{id}/cards`, `events`, `up_next` | Canvas card snapshot listeners, workspace events |
 | `ExerciseRepository.swift` | `exercises` | Global exercise catalog search and fetch |
 

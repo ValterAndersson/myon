@@ -99,6 +99,7 @@ async function completeActiveWorkoutHandler(req, res) {
       exercise_id: ex.exercise_id,
       name: ex.name || null,
       position: ex.position ?? 0,
+      notes: ex.notes || null,
       sets: (ex.sets || []).map(s => ({
         id: s.id || null,
         reps: typeof s.reps === 'number' ? s.reps : 0,
@@ -106,7 +107,8 @@ async function completeActiveWorkoutHandler(req, res) {
         type: s.set_type || s.type || 'working',
         weight_kg: typeof s.weight === 'number' ? s.weight : (typeof s.weight_kg === 'number' ? s.weight_kg : 0),
         is_completed: s.status === 'done',
-      }))
+      })),
+      analytics: ex.analytics || null,
     }));
 
     // Compute full analytics if missing using analytics-calculator

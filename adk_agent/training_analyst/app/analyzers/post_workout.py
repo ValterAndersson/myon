@@ -120,6 +120,7 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         trimmed = {
             "workout_date": workout_date,
             "duration_minutes": duration_minutes,
+            "notes": data.get("notes"),  # Workout-level context
             "exercises": [],
         }
 
@@ -155,7 +156,7 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
                 mn, mx = min(reps_list), max(reps_list)
                 rep_range = str(mn) if mn == mx else f"{mn}-{mx}"
 
-            trimmed["exercises"].append({
+            ex_entry = {
                 "name": ex.get("exercise_name") or ex.get("name"),
                 "exercise_id": ex.get("exercise_id"),
                 "working_sets": len(working_sets),
@@ -164,7 +165,12 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
                 "avg_rir": round(sum(rirs) / len(rirs), 1) if rirs else None,
                 "volume": round(volume),
                 "e1rm": e1rm,
-            })
+                "notes": ex.get("notes"),  # Exercise-level context
+            }
+            # Remove None notes to save token budget
+            if ex_entry.get("notes") is None:
+                ex_entry.pop("notes", None)
+            trimmed["exercises"].append(ex_entry)
 
         # Include workout-level analytics summary if present
         analytics = data.get("analytics")
@@ -176,6 +182,10 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
                     (analytics.get("muscle_groups") or {}).keys()
                 )[:10],
             }
+
+        # Remove None notes to save token budget
+        if trimmed.get("notes") is None:
+            trimmed.pop("notes", None)
 
         return trimmed
 
@@ -303,6 +313,11 @@ CRITICAL RULES:
 - If fewer than 3 weeks of rollup data exist, say "early days — not enough history for trend analysis" in the summary. Do not claim stalls or trends.
 - If exercise_series is empty for an exercise, skip trend analysis for it.
 - Every numeric claim (e1RM, volume, sets) MUST come from the provided data.
+
+CONTEXT NOTES: The workout or individual exercises may include a "notes" field
+with user-provided context (e.g., different gym, equipment differences, illness,
+injury). When notes are present, factor them into your analysis — they may explain
+performance deviations. Reference relevant notes in your summary or flags.
 
 Return JSON matching this schema EXACTLY:
 {
