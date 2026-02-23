@@ -22,32 +22,44 @@ struct LibraryView: View {
                 // Library sections - monochrome icons for premium aesthetic
                 VStack(spacing: Space.sm) {
                     // Routines
-                    NavigationLink(destination: RoutinesListView()) {
-                        LibraryRow(
-                            title: "Routines",
-                            subtitle: "Weekly training programs",
-                            icon: "calendar"
-                        )
+                    Button {
+                        AnalyticsService.shared.librarySectionOpened(section: .routines)
+                    } label: {
+                        NavigationLink(destination: RoutinesListView()) {
+                            LibraryRow(
+                                title: "Routines",
+                                subtitle: "Weekly training programs",
+                                icon: "calendar"
+                            )
+                        }
                     }
                     .buttonStyle(PlainButtonStyle())
-                    
+
                     // Templates
-                    NavigationLink(destination: TemplatesListView()) {
-                        LibraryRow(
-                            title: "Templates",
-                            subtitle: "Reusable workout templates",
-                            icon: "doc.on.doc"
-                        )
+                    Button {
+                        AnalyticsService.shared.librarySectionOpened(section: .templates)
+                    } label: {
+                        NavigationLink(destination: TemplatesListView()) {
+                            LibraryRow(
+                                title: "Templates",
+                                subtitle: "Reusable workout templates",
+                                icon: "doc.on.doc"
+                            )
+                        }
                     }
                     .buttonStyle(PlainButtonStyle())
-                    
+
                     // Exercises
-                    NavigationLink(destination: ExercisesListView()) {
-                        LibraryRow(
-                            title: "Exercises",
-                            subtitle: "Exercise catalog and movements",
-                            icon: "figure.strengthtraining.traditional"
-                        )
+                    Button {
+                        AnalyticsService.shared.librarySectionOpened(section: .exercises)
+                    } label: {
+                        NavigationLink(destination: ExercisesListView()) {
+                            LibraryRow(
+                                title: "Exercises",
+                                subtitle: "Exercise catalog and movements",
+                                icon: "figure.strengthtraining.traditional"
+                            )
+                        }
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -381,6 +393,22 @@ struct ExercisesListView: View {
         .onChange(of: searchText) { _, newValue in
             Task {
                 await viewModel.searchExercises(query: newValue)
+                // Track exercise search
+                AnalyticsService.shared.exerciseSearched(
+                    hasQuery: !newValue.isEmpty,
+                    filterCount: filters.activeCount,
+                    resultCount: filteredExercises.count
+                )
+            }
+        }
+        .onChange(of: filters) { _, _ in
+            // Track filter changes
+            if !searchText.isEmpty || !filters.isEmpty {
+                AnalyticsService.shared.exerciseSearched(
+                    hasQuery: !searchText.isEmpty,
+                    filterCount: filters.activeCount,
+                    resultCount: filteredExercises.count
+                )
             }
         }
         .sheet(isPresented: $showingFilterSheet) {
@@ -733,6 +761,14 @@ struct TemplateDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadTemplate()
+            // Track template view
+            if let template = template {
+                AnalyticsService.shared.templateViewed(
+                    templateId: templateId,
+                    exerciseCount: template.exercises.count,
+                    source: "library"
+                )
+            }
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1067,6 +1103,10 @@ struct TemplateDetailView: View {
                 changeSource: "user_edit"
             )
         }
+
+        // Track template edit
+        let editTypes = patch.keys.joined(separator: ",")
+        AnalyticsService.shared.templateEdited(templateId: id, editType: editTypes)
     }
 
     /// Compare current exercises against the snapshot taken when editing started.
@@ -1218,6 +1258,8 @@ struct RoutineDetailView: View {
         }
         .task {
             await loadRoutineTemplates()
+            // Track routine view
+            AnalyticsService.shared.routineViewed(routineId: routineId, templateCount: templates.count)
         }
         .onChange(of: syncState) { oldState, newState in
             if oldState != nil && newState == nil {
@@ -1468,6 +1510,10 @@ struct RoutineDetailView: View {
                 patch: patch
             )
         }
+
+        // Track routine edit
+        let editTypes = patch.keys.joined(separator: ",")
+        AnalyticsService.shared.routineEdited(routineId: id, editType: editTypes)
     }
 
     // MARK: - Data Loading

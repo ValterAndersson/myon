@@ -36,7 +36,9 @@ final class WorkoutCoachViewModel: ObservableObject {
         guard !text.isEmpty, !isStreaming else { return }
 
         if messages.isEmpty {
-            AnalyticsService.shared.workoutCoachOpened()
+            let elapsedMin = Int(Date().timeIntervalSince(FocusModeWorkoutService.shared.workout?.startTime ?? Date()) / 60)
+            let setsLogged = FocusModeWorkoutService.shared.workout?.exercises.reduce(0) { $0 + $1.sets.filter { $0.isDone }.count } ?? 0
+            AnalyticsService.shared.workoutCoachOpened(workoutId: workoutId, elapsedMin: elapsedMin, setsLogged: setsLogged)
         }
 
         inputText = ""
@@ -46,6 +48,8 @@ final class WorkoutCoachViewModel: ObservableObject {
             author: .user
         )
         messages.append(userMsg)
+
+        AnalyticsService.shared.workoutCoachMsgSent(workoutId: workoutId, messageLength: text.count)
 
         guard let userId = AuthService.shared.currentUser?.uid else {
             messages.append(ChatMessage(

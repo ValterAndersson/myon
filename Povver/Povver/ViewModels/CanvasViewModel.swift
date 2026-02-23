@@ -108,6 +108,13 @@ final class CanvasViewModel: ObservableObject {
     private var thoughtStartAt: Double? = nil
     private var toolStartByName: [String: Double] = [:]
 
+    // Conversation tracking state
+    private var conversationDepth: Int = 0
+    private var conversationStartTime: Date?
+    private var artifactsReceived: Int = 0
+    private var artifactsAccepted: Int = 0
+    private var didFireConversationEnded: Bool = false
+
     init(repo: CanvasRepositoryProtocol = CanvasRepository(), service: CanvasServiceProtocol = CanvasService()) {
         self.repo = repo
         self.service = service
@@ -116,6 +123,13 @@ final class CanvasViewModel: ObservableObject {
     func start(userId: String, canvasId: String) {
         streamTask?.cancel()
         let startTime = Date()
+
+        // Reset conversation tracking state
+        conversationDepth = 0
+        conversationStartTime = Date()
+        artifactsReceived = 0
+        artifactsAccepted = 0
+        didFireConversationEnded = false
 
         AppLogger.shared.nav("canvas:\(canvasId)")
         AppLogger.shared.info(.app, "Canvas start BEGIN (existing canvas) canvas_id=\(canvasId)")
@@ -204,6 +218,13 @@ final class CanvasViewModel: ObservableObject {
         streamTask?.cancel()
         let startTime = Date()
 
+        // Reset conversation tracking state
+        conversationDepth = 0
+        conversationStartTime = Date()
+        artifactsReceived = 0
+        artifactsAccepted = 0
+        didFireConversationEnded = false
+
         AppLogger.shared.nav("canvas:new")
         AppLogger.shared.info(.app, "Canvas start BEGIN (new canvas) purpose=\(purpose)")
         AnalyticsService.shared.conversationStarted(entryPoint: purpose)
@@ -274,6 +295,22 @@ final class CanvasViewModel: ObservableObject {
     }
 
     func stop() {
+        // Fire conversation_ended event if conversation had activity
+        if !didFireConversationEnded {
+            didFireConversationEnded = true
+            if conversationDepth > 0 {
+                let durationSec = Int(Date().timeIntervalSince(conversationStartTime ?? Date()))
+                AnalyticsService.shared.conversationEnded(
+                    ConversationEndedParams(
+                        conversationDepth: conversationDepth,
+                        artifactsReceived: artifactsReceived,
+                        artifactsAccepted: artifactsAccepted,
+                        durationSec: durationSec
+                    )
+                )
+            }
+        }
+
         streamTask?.cancel()
         streamTask = nil
         eventsListener?.remove()
@@ -308,6 +345,11 @@ final class CanvasViewModel: ObservableObject {
             } else {
                 let cardType = cards.first(where: { $0.id == cardId })?.type.rawValue ?? "unknown"
                 AnalyticsService.shared.artifactAction(action: type, artifactType: cardType)
+
+                // Track artifact acceptance for conversation_ended event
+                if type == "accept" || type == "start_workout" || type == "save_as_template" || type == "save_routine" {
+                    artifactsAccepted += 1
+                }
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -317,7 +359,11 @@ final class CanvasViewModel: ObservableObject {
     func startSSEStream(userId: String, canvasId: String, message: String, correlationId: String) {
         AppLogger.shared.user("message", String(message.prefix(80)))
         AppLogger.shared.info(.app, "SSE stream BEGIN corr=\(correlationId) sessionId=\(currentSessionId ?? "nil")")
-        AnalyticsService.shared.messageSent(messageLength: message.count)
+
+        // Increment conversation depth synchronously before async Task block
+        conversationDepth += 1
+        AnalyticsService.shared.messageSent(messageLength: message.count, conversationDepth: conversationDepth)
+
         sseStreamTask?.cancel()
         sseStreamTask = Task { [weak self] in
             guard let self = self else { return }
@@ -565,7 +611,8 @@ final class CanvasViewModel: ObservableObject {
             ) {
                 cards.append(card)
                 streamEvents.append(event)
-                AnalyticsService.shared.artifactReceived(artifactType: artifactType)
+                artifactsReceived += 1
+                AnalyticsService.shared.artifactReceived(artifactType: artifactType, conversationDepth: conversationDepth)
                 AppLogger.shared.info(.app, "Artifact card added type=\(artifactType) id=\(card.id) artifactId=\(artifactId ?? "nil")")
             }
 

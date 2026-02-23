@@ -443,6 +443,11 @@ struct WorkoutDetailView: View {
         }
         .task {
             await loadWorkout()
+            // Track workout history view
+            if let workout = workout {
+                let daysAgo = Calendar.current.dateComponents([.day], from: workout.endTime, to: Date()).day ?? 0
+                AnalyticsService.shared.workoutHistoryViewed(workoutId: workoutId, daysAgo: daysAgo)
+            }
         }
         .onChange(of: syncState) { oldState, newState in
             // Save completed (entry removed) — reload fresh data
@@ -501,6 +506,11 @@ struct WorkoutDetailView: View {
         guard let userId = AuthService.shared.currentUser?.uid else { return }
         isDeleting = true
         do {
+            // Track deletion analytics
+            if let workout = workout {
+                let daysAgo = Calendar.current.dateComponents([.day], from: workout.endTime, to: Date()).day ?? 0
+                AnalyticsService.shared.workoutHistoryDeleted(workoutId: workoutId, daysAgo: daysAgo)
+            }
             try await WorkoutRepository().deleteWorkout(userId: userId, id: workoutId)
             onDelete?(workoutId)
             dismiss()

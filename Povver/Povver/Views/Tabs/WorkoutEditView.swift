@@ -183,6 +183,9 @@ struct WorkoutEditView: View {
             _ = try await FocusModeWorkoutService.shared.upsertWorkout(request)
         }
 
+        // Track workout edit analytics
+        AnalyticsService.shared.workoutHistoryEdited(workoutId: workoutId, editType: "exercises_modified")
+
         onSave()
         dismiss()
     }

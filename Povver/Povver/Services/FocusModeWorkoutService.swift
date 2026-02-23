@@ -115,7 +115,13 @@ class FocusModeWorkoutService: ObservableObject {
 
     /// Tracks in-flight logSet/patchField network calls so completeWorkout() can drain them
     private var inFlightSyncCount = 0
-    
+
+    /// Track workout start time for first-set timing
+    private var workoutStartedAt: Date?
+
+    /// Track if first set has been logged for this workout session
+    private var hasLoggedFirstSet: Bool = false
+
     // MARK: - Dependencies
 
     private let apiClient = ApiClient.shared
@@ -380,15 +386,20 @@ class FocusModeWorkoutService: ObservableObject {
             resumed: response.resumed
         )
 
-        let source: String
-        if sourceRoutineId != nil {
-            source = "routine"
-        } else if sourceTemplateId != nil {
-            source = "template"
-        } else {
-            source = "freeform"
-        }
-        AnalyticsService.shared.workoutStarted(source: source, workoutId: parsedWorkout.id)
+        // Track workout start time for first-set detection
+        workoutStartedAt = Date()
+        hasLoggedFirstSet = false
+
+        // Determine analytics source
+        let analyticsSource: AnalyticsWorkoutSource = sourceRoutineId != nil ? .nextScheduled : (sourceTemplateId != nil ? .template : .empty)
+        AnalyticsService.shared.workoutStarted(
+            source: analyticsSource,
+            workoutId: parsedWorkout.id,
+            templateId: sourceTemplateId,
+            routineId: sourceRoutineId,
+            plannedExerciseCount: parsedWorkout.exercises.count
+        )
+        AnalyticsService.shared.recordWorkoutStarted()
 
         return parsedWorkout
     }
@@ -417,6 +428,13 @@ class FocusModeWorkoutService: ObservableObject {
             "rir": rir ?? -1,
             "isFailure": isFailure ?? false
         ])
+
+        // Track first set logged for time-to-first-set analytics
+        if !hasLoggedFirstSet {
+            hasLoggedFirstSet = true
+            let secondsToFirst = Int(Date().timeIntervalSince(workoutStartedAt ?? Date()))
+            AnalyticsService.shared.workoutFirstSetLogged(workoutId: workout.id, secondsToFirstSet: secondsToFirst)
+        }
 
         // 1. Apply optimistically to local state (coordinator handles dependency ordering)
         applyLogSetLocally(exerciseInstanceId: exerciseInstanceId, setId: setId, weight: weight, reps: reps, rir: rir, isFailure: isFailure)
@@ -653,6 +671,9 @@ class FocusModeWorkoutService: ObservableObject {
             position: newExercise.position,
             sets: mutationSets
         ))
+
+        // 5. Fire analytics event
+        AnalyticsService.shared.exerciseAdded(workoutId: workout.id, source: .search)
     }
     
     /// Remove a set from an exercise
@@ -726,8 +747,11 @@ class FocusModeWorkoutService: ObservableObject {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
         print("[removeExercise] Optimistically removed exercise: \(exerciseInstanceId)")
-        
-        // 2. Build and send request
+
+        // 2. Fire analytics event
+        AnalyticsService.shared.exerciseRemoved(workoutId: workout.id)
+
+        // 3. Build and send request
         let idempotencyKey = idempotencyHelper.generate(context: "removeExercise", exerciseId: exerciseInstanceId)
         
         let op = PatchOperationDTO(
@@ -794,10 +818,13 @@ class FocusModeWorkoutService: ObservableObject {
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-        // 2. Mark as syncing
+        // 2. Fire analytics event
+        AnalyticsService.shared.exerciseSwapped(workoutId: workout.id, source: .menu)
+
+        // 3. Mark as syncing
         markExerciseSyncing(exerciseInstanceId)
 
-        // 3. Call swap-exercise endpoint directly (not through mutation coordinator)
+        // 4. Call swap-exercise endpoint directly (not through mutation coordinator)
         let request = SwapExerciseRequest(
             workoutId: workout.id,
             fromExerciseId: exerciseInstanceId,
@@ -853,7 +880,14 @@ class FocusModeWorkoutService: ObservableObject {
         if response.success {
             sessionLog.end(outcome: .workoutCancelled)
             let durationMin = Int(Date().timeIntervalSince(workout.startTime) / 60)
-            AnalyticsService.shared.workoutCancelled(durationMin: durationMin, workoutId: workout.id)
+            let setsCompleted = workout.exercises.reduce(0) { $0 + $1.sets.filter { $0.isDone }.count }
+            let totalSets = workout.exercises.reduce(0) { $0 + $1.sets.count }
+            AnalyticsService.shared.workoutCancelled(
+                workoutId: workout.id,
+                durationMin: durationMin,
+                setsCompleted: setsCompleted,
+                totalSets: totalSets
+            )
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
@@ -901,7 +935,21 @@ class FocusModeWorkoutService: ObservableObject {
             let durationMin = Int(Date().timeIntervalSince(workout.startTime) / 60)
             let exerciseCount = workout.exercises.count
             let setCount = workout.exercises.reduce(0) { $0 + $1.sets.filter { $0.isDone }.count }
-            AnalyticsService.shared.workoutCompleted(durationMin: durationMin, exerciseCount: exerciseCount, setCount: setCount, workoutId: archivedId)
+            let totalSets = workout.exercises.reduce(0) { $0 + $1.sets.count }
+            let source: AnalyticsWorkoutSource = workout.sourceRoutineId != nil ? .nextScheduled : (workout.sourceTemplateId != nil ? .template : .empty)
+            AnalyticsService.shared.workoutCompleted(WorkoutCompletedParams(
+                workoutId: archivedId,
+                durationMin: durationMin,
+                exerciseCount: exerciseCount,
+                totalSets: totalSets,
+                setsCompleted: setCount,
+                source: source,
+                templateId: workout.sourceTemplateId,
+                routineId: workout.sourceRoutineId
+            ))
+            AnalyticsService.shared.recordLastWorkoutDate()
+            AnalyticsService.shared.recordWorkoutDuration(durationMin)
+            AnalyticsService.shared.recordWorkoutSource(source)
             // Reset coordinator to clear pending mutations and invalidate callbacks
             await mutationCoordinator.reset()
             currentSessionId = nil
@@ -1111,6 +1159,9 @@ class FocusModeWorkoutService: ObservableObject {
         sessionLog.log(.exercisesReordered, details: [
             "order": newOrder.joined(separator: ",")
         ])
+
+        // Fire analytics event
+        AnalyticsService.shared.exerciseReordered(workoutId: workout.id)
 
         // Sync to backend (fire and forget - don't block UI)
         Task {

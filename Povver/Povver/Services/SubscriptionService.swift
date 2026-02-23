@@ -144,9 +144,20 @@ class SubscriptionService: ObservableObject {
                 updateState(from: transaction)
                 await transaction.finish()
                 await syncToFirestore()
-                AnalyticsService.shared.subscriptionPurchased(productId: product.id)
+
+                // Track purchase analytics
+                let priceValue = NSDecimalNumber(decimal: product.price).doubleValue
+                let currency = Locale.current.currency?.identifier ?? "USD"
+
                 if self.subscriptionState.status == .trial {
-                    AnalyticsService.shared.trialStarted()
+                    AnalyticsService.shared.trialStarted(productId: product.id)
+                } else {
+                    AnalyticsService.shared.subscriptionPurchased(
+                        productId: product.id,
+                        isFromTrial: false,
+                        value: priceValue,
+                        currency: currency
+                    )
                 }
                 isLoading = false
                 return true
@@ -182,6 +193,7 @@ class SubscriptionService: ObservableObject {
         do {
             try await AppStore.sync()
             await checkEntitlements()
+            AnalyticsService.shared.subscriptionRestored()
             isLoading = false
         } catch {
             self.error = .restoreFailed(error)

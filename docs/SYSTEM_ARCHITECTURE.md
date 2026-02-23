@@ -1152,39 +1152,124 @@ The gate checks the denormalized `subscription_tier` field, not `status + expire
 
 ### iOS — Firebase Analytics (GA4)
 
-Firebase Analytics is enabled via `IS_ANALYTICS_ENABLED` in `GoogleService-Info.plist`. All events are fired through `AnalyticsService.swift`, a singleton wrapper around `Analytics.logEvent()` that provides typed methods to prevent typos.
+Firebase Analytics is enabled via `IS_ANALYTICS_ENABLED` in `GoogleService-Info.plist`. All events are fired through `AnalyticsService.swift`, a singleton wrapper around `Analytics.logEvent()` that provides typed methods organized by 9 domains. Type-safe enums (`AnalyticsWorkoutSource`, `AnalyticsArtifactAction`, etc.) and parameter structs (`WorkoutCompletedParams`, `ConversationEndedParams`) prevent typos and enforce consistency.
 
 **Debug verification**: Enable Analytics debug mode in Xcode scheme → Arguments → `-FIRAnalyticsDebugEnabled`. Events print to console in DEBUG builds (`[Analytics]` prefix).
 
-**Event Taxonomy**:
+**Event Taxonomy (~53 events across 9 domains)**:
+
+*Domain 1 — Authentication*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `signup_started` | `provider` | `RegisterView` on signup button tap |
+| `signup_completed` | `provider` | `AuthService.signUp`, `confirmSSOAccountCreation` |
+| `login_completed` | `provider` | `LoginView` on successful auth |
+| `sso_confirmation_shown` | `provider` | `LoginView` / `RegisterView` SSO dialog |
+| `sso_confirmation_cancelled` | `provider` | `LoginView` / `RegisterView` cancel |
+
+*Domain 2 — AI Coaching & Conversations*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `quick_action_tapped` | `action` | `CoachTabView` quick action card |
+| `conversation_started` | `entry_point` | `CanvasViewModel.start()` |
+| `message_sent` | `message_length`, `conversation_depth` | `CanvasViewModel.startSSEStream()` |
+| `first_message_sent` | — | Milestone (once per install) |
+| `artifact_received` | `artifact_type`, `conversation_depth` | `CanvasViewModel.handleIncomingStreamEvent` |
+| `first_artifact_received` | — | Milestone (once per install) |
+| `artifact_action` | `action`, `artifact_type` | `CanvasViewModel.applyAction()` |
+| `conversation_ended` | `conversation_depth`, `artifacts_received`, `artifacts_accepted`, `duration_sec` | `CanvasViewModel.stop()` / scene background |
+
+*Domain 3 — Workout Execution*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `workout_start_viewed` | `has_next_scheduled`, `template_count` | `FocusModeWorkoutScreen` start view |
+| `workout_started` | `source`, `workout_id`, `template_id?`, `routine_id?`, `planned_exercise_count` | `FocusModeWorkoutService.startWorkout()` |
+| `workout_first_set_logged` | `workout_id`, `seconds_to_first_set` (capped 600) | `FocusModeWorkoutService.logSet()` (first set only) |
+| `set_logged` | `workout_id`, `exercise_position`, `set_index`, `is_warmup`, `logged_via` | `FocusModeWorkoutService.logSet()` |
+| `first_workout_completed` | — | Milestone (once per install) |
+| `exercise_added` | `workout_id`, `source` | `FocusModeWorkoutService` |
+| `exercise_removed` | `workout_id` | `FocusModeWorkoutService` |
+| `exercise_swapped` | `workout_id`, `source` | `FocusModeWorkoutService` |
+| `exercise_reordered` | `workout_id` | `FocusModeWorkoutService` |
+| `workout_coach_opened` | `workout_id`, `elapsed_min`, `sets_logged` | `WorkoutCoachViewModel` |
+| `workout_coach_msg_sent` | `workout_id`, `message_length` | `WorkoutCoachViewModel` |
+| `workout_completed` | `workout_id`, `duration_min`, `exercise_count`, `total_sets`, `sets_completed`, `source`, `template_id?`, `routine_id?` | `FocusModeWorkoutService.completeWorkout()` |
+| `workout_cancelled` | `workout_id`, `duration_min`, `sets_completed`, `total_sets` | `FocusModeWorkoutService.cancelWorkout()` |
+
+*Domain 4 — Library & Content*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `library_section_opened` | `section` | `LibraryView` |
+| `routine_viewed` | `routine_id`, `template_count` | `LibraryView` → routine detail |
+| `routine_edited` | `routine_id`, `edit_type` | `RoutineDetailView` |
+| `template_viewed` | `template_id`, `exercise_count`, `source` | `LibraryView` → template detail |
+| `template_edited` | `template_id`, `edit_type` | `TemplateDetailView` |
+| `exercise_searched` | `has_query`, `filter_count`, `result_count` | `ExercisesListView` |
+| `exercise_detail_viewed` | `exercise_id`, `source` | `ExercisesListView` detail |
+
+*Domain 5 — Recommendations*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `recommendation_bell_tapped` | `pending_count` | `MainTabsView` |
+| `recommendation_viewed` | `type`, `scope` | `RecommendationsViewModel` |
+| `recommendation_accepted` | `type`, `scope` | `RecommendationsViewModel.accept()` |
+| `recommendation_rejected` | `type`, `scope` | `RecommendationsViewModel.reject()` |
+| `auto_pilot_toggled` | `enabled` | `ProfileView` |
+
+*Domain 6 — Monetization*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `premium_gate_hit` | `feature`, `gate_type` | `PaywallView` |
+| `paywall_shown` | `trigger` | `PaywallView.onAppear` |
+| `paywall_dismissed` | `trigger`, `time_on_screen_sec` | `PaywallView` close button |
+| `trial_started` | `product_id` | `SubscriptionService.purchase()` |
+| `subscription_purchased` | `product_id`, `is_from_trial`, `value`, `currency` | `SubscriptionService.purchase()` |
+| `subscription_restored` | — | `SubscriptionService.restorePurchases()` |
+
+*Domain 7 — History & Review*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `workout_history_viewed` | `workout_id`, `days_ago` | `HistoryView` → detail |
+| `workout_history_edited` | `workout_id`, `edit_type` | `WorkoutEditView` |
+| `workout_history_deleted` | `workout_id`, `days_ago` | `HistoryView` |
+
+*Domain 8 — Profile & Settings*
+
+| GA4 Event | Parameters | Call Site |
+|-----------|-----------|-----------|
+| `body_metrics_updated` | `field` | `ProfileView` |
+| `preference_changed` | `preference`, `value` | `ProfileView` |
+| `account_deleted` | — | `DeleteAccountView` |
+
+*Domain 9 — App Lifecycle & Navigation*
 
 | GA4 Event | Parameters | Call Site |
 |-----------|-----------|-----------|
 | `app_opened` | — | `PovverApp.swift` on launch |
-| `signup_completed` | `provider` | `AuthService.signUp`, `confirmSSOAccountCreation` |
 | `tab_viewed` | `tab` | `MainTabsView` on tab switch |
-| `screen_viewed` | `screen` | `RootView` on flow change (login/register/main) |
-| `conversation_started` | `entry_point` | `CanvasViewModel.start()` |
-| `message_sent` | `message_length` | `CanvasViewModel.startSSEStream()` |
-| `artifact_received` | `artifact_type` | `CanvasViewModel.handleIncomingStreamEvent` (.artifact) |
-| `artifact_action` | `action`, `artifact_type` | `CanvasViewModel.applyAction()` |
-| `workout_started` | `source`, `workout_id` | `FocusModeWorkoutService.startWorkout()` |
-| `workout_completed` | `duration_min`, `exercise_count`, `set_count`, `workout_id` | `FocusModeWorkoutService.completeWorkout()` |
-| `workout_cancelled` | `duration_min`, `workout_id` | `FocusModeWorkoutService.cancelWorkout()` |
-| `workout_coach_opened` | — | `WorkoutCoachViewModel.send()` (first message) |
-| `paywall_shown` | `trigger` | `CanvasViewModel` (premium gate catch / SSE error) |
-| `trial_started` | — | `SubscriptionService.purchase()` |
-| `subscription_purchased` | `product_id` | `SubscriptionService.purchase()` |
-| `recommendation_action` | `action`, `type` | `RecommendationsViewModel.accept/reject()` (after server confirmation) |
-| `streaming_error` | `error_code` | `CanvasViewModel.startSSEStream()` (error catch) |
+| `screen_viewed` | `screen` | `RootView` (DEPRECATED — 30-day transition, then remove) |
+| `streaming_error` | `error_code`, `context` | `CanvasViewModel.startSSEStream()` |
 
-**Workout event correlation**: All workout lifecycle events (`workout_started`, `workout_completed`, `workout_cancelled`) share a `workout_id` parameter so you can join start → completion rates by source (routine vs. template vs. freeform).
+**Workout event correlation**: All workout lifecycle events share a `workout_id` parameter. `workout_started` includes `source`, `template_id`, and `routine_id` so you can join start → first-set → completion rates by origin.
+
+**Conversation depth tracking**: `CanvasViewModel` maintains a 1-indexed `conversationDepth` counter, reset on new conversations. Incremented synchronously before async send. Passed to `message_sent`, `artifact_received`, and `conversation_ended` for funnel depth analysis. `conversation_ended` includes `artifacts_received`, `artifacts_accepted`, and `duration_sec`.
 
 **Milestone events** (fire once per install via UserDefaults guard): `first_message_sent`, `first_artifact_received`, `first_workout_completed`. These fire automatically inside `messageSent()`, `artifactReceived()`, and `workoutCompleted()`.
 
-**Funnel tracking**: `screen_viewed` tracks auth flow transitions (login → register → main). `tab_viewed` tracks which tabs users visit and in what order. Combined with `conversation_started`, `message_sent`, `artifact_received`, and `artifact_action`, this gives a full activation funnel: app open → signup → first conversation → first artifact → first accepted plan.
+**User Properties (16 of 25 GA4 slots)**: Set via `Analytics.setUserProperty()`. Counters persisted in `UserDefaults`. Synced via `syncUserPropertiesIfNeeded()` (daily debounce). Calculated properties (`workout_completion_rate`, `avg_workout_duration_min`, `primary_workout_source`, `coach_engagement_level`) only set after threshold data exists (5+ workouts or 10+ sessions). Properties: `subscription_status`, `fitness_level`, `total_workouts`, `total_conversations`, `has_active_routine`, `auto_pilot_enabled`, `workout_completion_rate`, `avg_workout_duration_min`, `primary_workout_source`, `days_since_signup`, `days_since_last_workout`, `total_templates`, `total_routines`, `signup_provider`, `coach_engagement_level`, `install_source`.
 
-**User identity**: `Analytics.setUserID()` is called in `AuthService`'s auth state listener alongside Crashlytics.
+**GA4 Key Events**: `signup_completed`, `artifact_action` (accept/start_workout/save_as_template/save_routine), `workout_completed`, `workout_first_set_logged`, `trial_started`, `subscription_purchased` (with `value` + `currency` for revenue), `recommendation_accepted`.
+
+**Key Funnels**: (1) Acquisition: landing_page_viewed → app_store_click → app_opened → signup_completed. (2) New User Activation: signup_completed → conversation_started → first_message_sent → first_artifact_received → artifact_action(accept). (3) Workout Habit: first_workout_completed → 2nd/3rd/4th within 21d. (4) AI Coaching Depth: conversation_started → message_sent(depth=1) → artifact_received → artifact_action → message_sent(depth=2). (5) Workout Execution: workout_started → workout_first_set_logged → set_logged(10+) → workout_completed. (6) Monetization: premium_gate_hit → paywall_shown → trial_started/subscription_purchased. (7) Recommendation Trust: recommendation_bell_tapped → recommendation_viewed → recommendation_accepted. (8) Template Lifecycle: artifact_action(save_as_template) → template_viewed → workout_started(source=template).
+
+**User identity**: `Analytics.setUserID()` is called in `AuthService`'s auth state listener alongside Crashlytics. Same GA4 property (`G-V9YHQNJTB7`) used on both iOS and web for cross-platform funnel tracking.
 
 ### Server-Side — Structured Cloud Logging
 

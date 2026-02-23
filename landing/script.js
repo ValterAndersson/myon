@@ -135,8 +135,9 @@
   var navCta = document.querySelector(".nav-cta");
   if (navCta) {
     navCta.addEventListener("click", function () {
-      track("nav_cta_click", {
-        link_text: navCta.textContent.trim()
+      track("app_store_click", {
+        link_location: "nav",
+        link_url: navCta.getAttribute("href") || ""
       });
     });
   }
@@ -204,11 +205,17 @@
       localStorage.setItem("povver_cookie_consent", "accepted");
       cookieBanner.classList.remove("visible");
       loadAnalytics();
+      // cookie_consent_accepted fires after GA4 init (loadAnalytics is async)
+      setTimeout(function () {
+        track("cookie_consent_accepted");
+      }, 1000);
     });
 
     cookieDecline.addEventListener("click", function () {
       localStorage.setItem("povver_cookie_consent", "declined");
       cookieBanner.classList.remove("visible");
+      var declineCount = parseInt(localStorage.getItem("povver_cookie_decline_count") || "0", 10);
+      localStorage.setItem("povver_cookie_decline_count", String(declineCount + 1));
     });
   }
 
@@ -228,6 +235,14 @@
       window.gtag = gtag;
       gtag("js", new Date());
       gtag("config", gaId, { anonymize_ip: true });
+
+      // Fire landing_page_viewed after GA4 initializes
+      var params = { referrer: document.referrer || "(direct)" };
+      var urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("utm_source")) params.utm_source = urlParams.get("utm_source");
+      if (urlParams.get("utm_medium")) params.utm_medium = urlParams.get("utm_medium");
+      if (urlParams.get("utm_campaign")) params.utm_campaign = urlParams.get("utm_campaign");
+      gtag("event", "landing_page_viewed", params);
     };
   }
 })();

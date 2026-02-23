@@ -135,6 +135,7 @@ struct LoginView: View {
             }
             Button("Cancel", role: .cancel) {
                 // User declined — sign out the Firebase auth session that was created
+                AnalyticsService.shared.ssoConfirmationCancelled(provider: ssoProvider == .apple ? .apple : .google)
                 try? authService.signOut()
             }
         } message: {
@@ -198,10 +199,12 @@ struct LoginView: View {
                 case .existingUser:
                     if let user = Auth.auth().currentUser {
                         session.startSession(userId: user.uid)
+                        AnalyticsService.shared.loginCompleted(provider: ssoProvider == .apple ? .apple : .google)
                         onLogin?(user.uid)
                     }
                 case .newUser:
                     pendingSSOResult = result
+                    AnalyticsService.shared.ssoConfirmationShown(provider: ssoProvider == .apple ? .apple : .google)
                     showingNewAccountConfirmation = true
                 }
                 errorMessage = nil
@@ -239,6 +242,7 @@ struct LoginView: View {
                 try await authService.signIn(email: email, password: password)
                 if let user = Auth.auth().currentUser {
                     session.startSession(userId: user.uid)
+                    AnalyticsService.shared.loginCompleted(provider: .email)
                     onLogin?(user.uid)
                 }
                 errorMessage = nil

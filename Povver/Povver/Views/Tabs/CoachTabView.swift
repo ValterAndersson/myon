@@ -105,24 +105,28 @@ struct CoachTabView: View {
             
             LazyVGrid(columns: columns, alignment: .center, spacing: Space.md) {
                 QuickActionCard(title: "Plan program", icon: "calendar.badge.plus") {
+                    AnalyticsService.shared.quickActionTapped(action: .planProgram)
                     selectedCanvasId = nil
                     entryContext = "quick:Plan program"
                     navigateToCanvas = true
                 }
 
                 QuickActionCard(title: "Analyze progress", icon: "chart.bar") {
+                    AnalyticsService.shared.quickActionTapped(action: .analyzeProgress)
                     selectedCanvasId = nil
                     entryContext = "quick:Analyze progress"
                     navigateToCanvas = true
                 }
 
                 QuickActionCard(title: "Create routine", icon: "figure.strengthtraining.traditional") {
+                    AnalyticsService.shared.quickActionTapped(action: .createRoutine)
                     selectedCanvasId = nil
                     entryContext = "quick:Create routine"
                     navigateToCanvas = true
                 }
 
                 QuickActionCard(title: "Review plan", icon: "doc.text.magnifyingglass") {
+                    AnalyticsService.shared.quickActionTapped(action: .reviewPlan)
                     selectedCanvasId = nil
                     entryContext = "quick:Review plan"
                     navigateToCanvas = true

@@ -6,6 +6,7 @@ import StoreKit
 struct PaywallView: View {
     @ObservedObject private var subscriptionService = SubscriptionService.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var paywallShownAt: Date?
 
     var body: some View {
         ZStack {
@@ -45,6 +46,7 @@ struct PaywallView: View {
             }
         }
         .task {
+            paywallShownAt = Date()
             await subscriptionService.loadProducts()
         }
     }
@@ -216,6 +218,8 @@ struct PaywallView: View {
 
     private var closeButton: some View {
         Button {
+            let timeOnScreen = Int(Date().timeIntervalSince(paywallShownAt ?? Date()))
+            AnalyticsService.shared.paywallDismissed(trigger: "unknown", timeOnScreenSec: timeOnScreen)
             dismiss()
         } label: {
             Image(systemName: "xmark.circle.fill")

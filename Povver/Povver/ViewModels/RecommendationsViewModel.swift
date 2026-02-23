@@ -56,7 +56,7 @@ class RecommendationsViewModel: ObservableObject {
                 if !response.success {
                     handleServerError(response.error)
                 } else {
-                    AnalyticsService.shared.recommendationAction(action: "accept", type: recType)
+                    AnalyticsService.shared.recommendationAccepted(type: recType, scope: recommendation.scope)
                 }
             } catch {
                 handleThrownError(error)
@@ -85,7 +85,7 @@ class RecommendationsViewModel: ObservableObject {
                 if !response.success {
                     handleServerError(response.error)
                 } else {
-                    AnalyticsService.shared.recommendationAction(action: "reject", type: recType)
+                    AnalyticsService.shared.recommendationRejected(type: recType, scope: recommendation.scope)
                 }
             } catch {
                 handleThrownError(error)

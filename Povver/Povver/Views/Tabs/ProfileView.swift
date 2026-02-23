@@ -600,6 +600,7 @@ struct ProfileView: View {
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
             userAttributes = attrs
+            AnalyticsService.shared.bodyMetricsUpdated(field: "height")
         } catch {
             print("[ProfileView] Failed to save height: \(error)")
         }
@@ -624,6 +625,7 @@ struct ProfileView: View {
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
             userAttributes = attrs
+            AnalyticsService.shared.bodyMetricsUpdated(field: "weight")
         } catch {
             print("[ProfileView] Failed to save weight: \(error)")
         }
@@ -647,6 +649,7 @@ struct ProfileView: View {
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
             userAttributes = attrs
+            AnalyticsService.shared.bodyMetricsUpdated(field: "fitness_level")
         } catch {
             print("[ProfileView] Failed to save fitness level: \(error)")
         }
@@ -663,6 +666,7 @@ struct ProfileView: View {
                 weekStartsOnMonday: startsOnMonday
             )
             user?.weekStartsOnMonday = startsOnMonday
+            AnalyticsService.shared.preferenceChanged(preference: "week_start", value: startsOnMonday ? "monday" : "sunday")
         } catch {
             print("[ProfileView] Failed to update week start: \(error)")
         }
@@ -674,6 +678,7 @@ struct ProfileView: View {
         do {
             try await UserRepository.shared.updateAutoPilot(userId: userId, enabled: enabled)
             user?.autoPilotEnabled = enabled
+            AnalyticsService.shared.autoPilotToggled(enabled: enabled)
         } catch {
             print("[ProfileView] Failed to update auto-pilot: \(error)")
         }

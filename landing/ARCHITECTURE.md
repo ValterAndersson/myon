@@ -58,7 +58,9 @@ landing/
 
 **Cookie consent**: GA4 (`G-V9YHQNJTB7`) is loaded only after user consent. The banner appears after 1.5s on first visit, stores preference in `localStorage` as `povver_cookie_consent`. GA4 script is injected dynamically on acceptance — never loaded if declined or before consent. Compliant with EU ePrivacy Directive (opt-in required for analytics cookies per CJEU Planet49 ruling).
 
-**GA4 event tracking**: Custom events sent via `gtag()` through a `track()` helper that no-ops before GA4 loads. Events: `app_store_click` (with `link_location`: hero/cta_footer), `nav_cta_click`, `section_view` (with `section_name` and `section_index`, fires once per section at 30% visibility). `app_store_click` should be marked as a key event in GA4 admin. Same GA4 property as the iOS app (property 488064435) for cross-platform funnel tracking.
+**GA4 event tracking**: Custom events sent via `gtag()` through a `track()` helper that no-ops before GA4 loads. Events: `landing_page_viewed` (with `referrer`, `utm_source`, `utm_medium`, `utm_campaign`), `app_store_click` (with `link_location`: hero/cta_footer/nav, `link_url`), `cookie_consent_accepted`, `section_view` (with `section_name` and `section_index`, fires once per section at 30% visibility). Cookie decline count tracked via `localStorage` only (GA4 not loaded). Same GA4 property as the iOS app (property 488064435) for cross-platform funnel tracking.
+
+**App Store attribution**: Store buttons carry campaign tokens (`ct=landing_hero`, `ct=landing_cta_footer`) for App Store Connect analytics. Apple ID: `6759248585`. Smart App Banner meta tag included for Safari native install prompts.
 
 **Legal pages**: Privacy Policy and Terms of Service are litigation-hardened for multi-jurisdiction compliance. Key protections: explicit health data consent, AI wiretap/transmission disclosure, mandatory pre-suit notice period, 1-year limitation period, ICC arbitration for non-EU users, class action and jury trial waivers, prevailing party fee-shifting, California auto-renewal compliance, EU right of withdrawal, BIPA-safe (explicit no-biometric-data statement). Age minimum is 18+.
 
@@ -87,7 +89,7 @@ Before removing `noindex`:
 - [ ] Replace placeholder screenshot for Feature 1 (post-workout analysis)
 - [x] Replace `train.png` with a real phone screenshot
 - [ ] Create `og-image.png` (1200x630) for social sharing
-- [ ] Set App Store badge `href` to actual App Store link
+- [x] Set App Store badge `href` to actual App Store link (Apple ID: 6759248585)
 - [x] Set Privacy Policy and Terms of Service links
 - [x] Replace `G-XXXXXXXXXX` in `script.js` with actual GA4 measurement ID (`G-V9YHQNJTB7`)
 - [ ] Set up `privacy@povver.ai` and `legal@povver.ai` email addresses

@@ -143,6 +143,7 @@ Navigation entry points use `conversationId` instead of `canvasId`:
 | `CloudFunctionService` | Class | Firebase Functions HTTP client |
 | `SubscriptionService` | Singleton | StoreKit 2 subscription management: product loading, purchase, entitlement checking, Firestore sync |
 | `RecommendationService` | Enum (static) | Accept/reject recommendations via `ApiClient.shared.postJSON("reviewRecommendation", ...)` |
+| `AnalyticsService` | Singleton | GA4 analytics: ~53 typed events across 9 domains, 16 user properties, milestone events via `logOnce()`, UserDefaults-persisted counters with daily sync |
 | `ApiClient` | Singleton | Generic HTTP client with auth |
 
 ### Managers

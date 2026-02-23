@@ -118,6 +118,7 @@ struct RegisterView: View {
                 confirmSSOAccount()
             }
             Button("Cancel", role: .cancel) {
+                AnalyticsService.shared.ssoConfirmationCancelled(provider: ssoProvider == .apple ? .apple : .google)
                 try? authService.signOut()
             }
         } message: {
@@ -164,11 +165,13 @@ struct RegisterView: View {
 
     private func performGoogleSignIn() {
         ssoProvider = .google
+        AnalyticsService.shared.signupStarted(provider: .google)
         performSSOSignIn { try await authService.signInWithGoogle() }
     }
 
     private func performAppleSignIn() {
         ssoProvider = .apple
+        AnalyticsService.shared.signupStarted(provider: .apple)
         performSSOSignIn { try await authService.signInWithApple() }
     }
 
@@ -185,6 +188,7 @@ struct RegisterView: View {
                     }
                 case .newUser:
                     pendingSSOResult = result
+                    AnalyticsService.shared.ssoConfirmationShown(provider: ssoProvider == .apple ? .apple : .google)
                     showingNewAccountConfirmation = true
                 }
                 errorMessage = nil
@@ -219,6 +223,7 @@ struct RegisterView: View {
         isLoading = true
         Task {
             do {
+                AnalyticsService.shared.signupStarted(provider: .email)
                 try await authService.signUp(email: email, password: password)
                 if let user = Auth.auth().currentUser {
                     session.startSession(userId: user.uid)

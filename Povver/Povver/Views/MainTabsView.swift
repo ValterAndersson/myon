@@ -114,6 +114,7 @@ struct MainTabsView: View {
                     HStack {
                         Spacer()
                         NotificationBell(badgeCount: recommendationsVM.pendingCount) {
+                            AnalyticsService.shared.recommendationBellTapped(pendingCount: recommendationsVM.pendingCount)
                             showRecommendations = true
                         }
                         .padding(.trailing, Space.lg)

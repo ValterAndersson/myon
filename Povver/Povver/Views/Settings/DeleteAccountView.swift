@@ -97,6 +97,7 @@ struct DeleteAccountView: View {
         isDeleting = true
         errorMessage = nil
         do {
+            AnalyticsService.shared.accountDeleted()
             try await authService.deleteAccount()
             // RootView reactively navigates to .login when isAuthenticated becomes false
         } catch {

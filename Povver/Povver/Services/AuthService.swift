@@ -40,6 +40,7 @@ class AuthService: ObservableObject {
             provider: AuthProvider.email.firestoreValue
         )
         AnalyticsService.shared.signupCompleted(provider: "email")
+        AnalyticsService.shared.recordSignupDate()
         try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: result.user.uid)
         try await DeviceManager.shared.registerCurrentDevice(for: result.user.uid)
     }
@@ -125,6 +126,7 @@ class AuthService: ObservableObject {
             appleAuthCode: appleAuthCode
         )
         AnalyticsService.shared.signupCompleted(provider: provider.firestoreValue)
+        AnalyticsService.shared.recordSignupDate()
         try await TimezoneManager.shared.initializeTimezoneIfNeeded(userId: userId)
         try await DeviceManager.shared.registerCurrentDevice(for: userId)
     }
