@@ -12,8 +12,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=6">
-  <link rel="stylesheet" href="legal.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="legal.css?v=2">
 </head>
 <body>
 
@@ -37,160 +37,216 @@
       <p class="legal-updated">Last updated: February 23, 2026</p>
 
       <section class="legal-section">
-        <p>This Privacy Policy explains how Valterandersson TMI ("Povver," "we," "us," or "our"), a sole proprietorship registered in Finland, collects, uses, and protects your personal data when you use the Povver mobile application and related services (the "Service").</p>
-        <p>We are committed to protecting your privacy and complying with the EU General Data Protection Regulation (GDPR) and applicable Finnish data protection laws.</p>
+        <p>This Privacy Policy describes how Povver collects, uses, stores, and shares your personal data when you use the Povver mobile application and website (together, the "Service"). Povver is operated by Valterandersson TMI, a sole proprietorship registered in Finland.</p>
+        <p>By creating an account or using the Service, you consent to the practices described in this policy, including the processing of health-related data as described in Section 3.</p>
       </section>
 
+      <!-- 1. Data Controller -->
       <section class="legal-section">
         <h2>1. Data Controller</h2>
-        <p>The data controller for the personal data processed through the Service is:</p>
-        <p>Valterandersson TMI<br>Finland<br>Email: <a href="mailto:hello@povver.ai">hello@povver.ai</a></p>
+        <p>Povver is the data controller for the personal data processed through the Service. This means we determine the purposes and means of processing your data.</p>
+        <p>Valterandersson TMI<br>Finland<br>Email: <a href="mailto:privacy@povver.ai">privacy@povver.ai</a></p>
       </section>
 
+      <!-- 2. Data We Collect -->
       <section class="legal-section">
-        <h2>2. Data We Collect</h2>
+        <h2>2. What We Collect</h2>
 
-        <h3>2.1 Account Data</h3>
-        <p>When you create an account, we collect:</p>
-        <ul>
-          <li>Email address</li>
-          <li>Display name (if provided)</li>
-          <li>Authentication credentials (managed by Firebase Authentication or Apple Sign-In)</li>
-        </ul>
+        <h3>2.1 Account Information</h3>
+        <p>When you create an account, we collect your email address, display name (if provided), and authentication credentials. Authentication is handled by Firebase Authentication or Apple Sign-In — we do not store passwords directly.</p>
 
-        <h3>2.2 Workout Data</h3>
-        <p>When you use the Service, we collect the workout data you enter:</p>
-        <ul>
-          <li>Exercises performed, sets, reps, and weights</li>
-          <li>Workout dates, durations, and notes</li>
-          <li>Templates, routines, and training programs</li>
-          <li>RPE (Rate of Perceived Exertion) and other effort metrics</li>
-        </ul>
+        <h3>2.2 Workout and Training Data</h3>
+        <p>The core of the Service involves recording your training. This includes exercises performed, sets, repetitions, weights, RPE (Rate of Perceived Exertion), workout dates, durations, personal notes, templates, routines, and training programs. This data may reveal information about your physical capabilities and health status, and we treat it accordingly (see Section 3).</p>
 
-        <h3>2.3 AI Interaction Data</h3>
-        <p>When you interact with the AI coaching features, we process:</p>
-        <ul>
-          <li>Messages you send to the AI coach</li>
-          <li>Your workout history and performance data (used to generate personalized recommendations)</li>
-        </ul>
+        <h3>2.3 AI Coaching Data</h3>
+        <p>When you interact with the AI coach, we process the messages you send, the responses generated, and the workout context used to produce those responses. Your workout history and performance trends are provided to the AI model so it can generate personalized coaching. See Section 5 for details on how AI processing works.</p>
 
-        <h3>2.4 Usage and Analytics Data</h3>
-        <p>We automatically collect:</p>
-        <ul>
-          <li>Device type, operating system version, and app version</li>
-          <li>Feature usage patterns and interaction events</li>
-          <li>Crash reports and performance diagnostics</li>
-          <li>General location data (country/region level, not precise location)</li>
-        </ul>
+        <h3>2.4 Device and Usage Data</h3>
+        <p>We automatically collect device type, operating system version, app version, feature usage patterns, interaction events, crash reports, and performance diagnostics. We collect country-level location (not precise GPS coordinates).</p>
 
         <h3>2.5 Payment Data</h3>
-        <p>Subscription payments are processed entirely by Apple through the App Store. We do not collect or store your payment card details, billing address, or other financial information. We receive only a transaction confirmation and subscription status from Apple.</p>
+        <p>All subscription payments are processed by Apple through the App Store. We do not collect or store your payment card details, billing address, or financial information. We receive only a transaction confirmation and subscription status from Apple.</p>
+
+        <h3>2.6 Website Analytics</h3>
+        <p>Our website (povver.ai) uses Google Analytics 4 to collect anonymized usage data such as page views, referral sources, and device information. This data is collected via cookies and only with your consent. You can withdraw consent or opt out at any time.</p>
+
+        <h3>2.7 Data We Do Not Collect</h3>
+        <p>We do not collect biometric identifiers or biometric information (such as fingerprints, facial geometry, voiceprints, or retina scans). We do not collect precise geolocation data. We do not access your device camera, microphone, contacts, or photo library.</p>
       </section>
 
+      <!-- 3. Health-Related Data and Consent -->
       <section class="legal-section">
-        <h2>3. How We Use Your Data</h2>
-        <p>We use your data for the following purposes:</p>
+        <h2>3. Health-Related Data and Your Consent</h2>
+        <p>Workout data — such as the weights you lift, your training volume, RPE ratings, and performance trends over time — may reveal information about your physical health, fitness level, and physical capabilities. Some privacy laws classify this type of data as health-related or sensitive personal data, subject to heightened protections.</p>
+        <p>We take a conservative approach: <strong>we treat your workout and training data as sensitive personal data</strong> and require your explicit consent to process it. When you create an account and begin logging workouts, you are providing this consent. You may withdraw your consent at any time by deleting your account, which will trigger deletion of your personal data (see Section 8).</p>
+        <p>Specifically, you consent to:</p>
+        <ul>
+          <li>Storage of your workout and training data to provide the Service.</li>
+          <li>Processing of your workout data by AI models to generate coaching recommendations and training analysis (see Section 5).</li>
+          <li>Use of anonymized, aggregated workout data to improve the Service. This aggregated data cannot identify you.</li>
+        </ul>
+      </section>
+
+      <!-- 4. How We Use Your Data -->
+      <section class="legal-section">
+        <h2>4. How We Use Your Data</h2>
         <ul>
           <li><strong>Providing the Service</strong> — storing your workouts, generating AI coaching recommendations, tracking your training progress, and building personalized programs.</li>
-          <li><strong>Improving the Service</strong> — analyzing usage patterns, identifying bugs, and developing new features.</li>
-          <li><strong>Communication</strong> — sending service-related notifications, responding to support requests, and (with your consent) sending product updates.</li>
-          <li><strong>Legal compliance</strong> — meeting our legal obligations under applicable laws.</li>
+          <li><strong>AI Coaching</strong> — your workout history and messages to the AI coach are sent to our AI model provider (Google Vertex AI) to generate responses. See Section 5 for details.</li>
+          <li><strong>Service Improvement</strong> — analyzing anonymized usage patterns, identifying bugs, and developing new features. We do not use your individual workout data for this purpose without anonymization.</li>
+          <li><strong>Communication</strong> — sending service-related notifications and responding to support requests. We will only send marketing communications with your explicit opt-in consent.</li>
+          <li><strong>Security and Fraud Prevention</strong> — detecting and preventing unauthorized access, abuse, or other harmful activity.</li>
+          <li><strong>Legal Compliance</strong> — meeting our obligations under applicable law, including responding to lawful requests from authorities.</li>
+        </ul>
+        <p>We do not sell your personal data. We do not use your personal data for advertising. We do not share your personal data with third parties for their own marketing purposes.</p>
+      </section>
+
+      <!-- 5. AI Processing -->
+      <section class="legal-section">
+        <h2>5. How AI Processing Works</h2>
+        <p>Povver uses AI to provide coaching, post-workout analysis, and program generation. <strong>The AI coach is an automated system, not a human.</strong> When you send messages to the AI coach, those messages are transmitted to a third-party AI infrastructure provider for processing. By using the AI coaching features, you acknowledge and consent to this transmission.</p>
+        <p>Here is exactly what happens with your data during AI processing:</p>
+        <ul>
+          <li><strong>AI Model Provider:</strong> We use <strong>Google Vertex AI</strong> (operated by Google LLC) to run large language models that power the coaching features.</li>
+          <li><strong>What is sent:</strong> When you interact with the AI coach or when a post-workout analysis is generated, relevant portions of your workout history, the current conversation context, and your training patterns are transmitted to Google Vertex AI for processing.</li>
+          <li><strong>How it is processed:</strong> Google Vertex AI processes this data to generate a response (coaching advice, workout analysis, or a training program). The processing happens on Google's infrastructure. No human reviews your individual conversations.</li>
+          <li><strong>Data retention by the AI provider:</strong> Under our agreement with Google, data sent to Vertex AI for inference is not used by Google to train or improve their models. Google's data processing terms apply to this processing.</li>
+          <li><strong>No third-party model training:</strong> Your personal workout data is never used to train AI models — not by us, and not by our AI provider.</li>
         </ul>
       </section>
 
+      <!-- 6. Third-Party Data Processors -->
       <section class="legal-section">
-        <h2>4. Legal Basis for Processing</h2>
-        <p>Under the GDPR, we process your personal data based on the following legal grounds:</p>
+        <h2>6. Third-Party Data Processors</h2>
+        <p>We use the following third-party services to operate the Service. Each processes data on our behalf, under data processing agreements, and subject to their own privacy policies:</p>
         <ul>
-          <li><strong>Contract performance</strong> (Article 6(1)(b)) — processing necessary to provide you with the Service you signed up for, including workout tracking and AI coaching.</li>
-          <li><strong>Legitimate interests</strong> (Article 6(1)(f)) — analytics and service improvement, provided these interests do not override your fundamental rights.</li>
-          <li><strong>Consent</strong> (Article 6(1)(a)) — where applicable, such as for marketing communications. You can withdraw consent at any time.</li>
-          <li><strong>Legal obligation</strong> (Article 6(1)(c)) — where required by law.</li>
+          <li><strong>Google LLC</strong> (United States / global infrastructure)
+            <ul>
+              <li>Firebase Authentication — account creation and sign-in</li>
+              <li>Cloud Firestore — secure storage of workout data and account information</li>
+              <li>Google Vertex AI — AI model inference for coaching features</li>
+              <li>Google Analytics 4 — anonymized website usage analytics</li>
+            </ul>
+          </li>
+          <li><strong>Apple Inc.</strong> (United States)
+            <ul>
+              <li>Sign in with Apple — authentication</li>
+              <li>App Store — payment processing and subscription management</li>
+              <li>Crash reporting — application stability diagnostics</li>
+            </ul>
+          </li>
         </ul>
-      </section>
-
-      <section class="legal-section">
-        <h2>5. Third-Party Services</h2>
-        <p>We use the following third-party services to operate and improve the Service:</p>
-        <ul>
-          <li><strong>Firebase Authentication</strong> (Google LLC) — account creation and sign-in.</li>
-          <li><strong>Cloud Firestore</strong> (Google LLC) — secure storage of your workout data and account information.</li>
-          <li><strong>Google Vertex AI</strong> (Google LLC) — powers the AI coaching and workout analysis features. Your workout data and coach messages are sent to Google's AI models to generate personalized recommendations.</li>
-          <li><strong>Google Analytics 4</strong> (Google LLC) — anonymized usage analytics to understand how the app is used.</li>
-          <li><strong>Apple Services</strong> (Apple Inc.) — authentication (Sign in with Apple), payment processing (App Store), and crash reporting.</li>
-        </ul>
-        <p>These providers process data on our behalf and are bound by their own privacy policies and data processing agreements. We may integrate additional service providers in the future to improve the Service. This policy will be updated accordingly, and significant changes will be communicated to you.</p>
-        <p>For details on how these providers handle data, please refer to:</p>
+        <p>We may integrate additional service providers in the future. When we do, we will update this policy and notify you of material changes. Any new provider will be bound by a data processing agreement before receiving access to personal data.</p>
+        <p>For details on how these providers handle data:</p>
         <ul>
           <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a></li>
+          <li><a href="https://cloud.google.com/terms/data-processing-addendum" target="_blank" rel="noopener">Google Cloud Data Processing Addendum</a></li>
           <li><a href="https://www.apple.com/legal/privacy/" target="_blank" rel="noopener">Apple Privacy Policy</a></li>
         </ul>
       </section>
 
+      <!-- 7. International Data Transfers -->
       <section class="legal-section">
-        <h2>6. International Data Transfers</h2>
-        <p>Your data may be transferred to and processed in countries outside the European Economic Area (EEA), including the United States, where our third-party service providers operate. These transfers are protected by:</p>
+        <h2>7. International Data Transfers</h2>
+        <p>Povver is based in Finland (EU). Your data may be transferred to and processed in countries outside the European Economic Area, including the United States, where our third-party service providers maintain infrastructure.</p>
+        <p>These transfers are protected by:</p>
         <ul>
-          <li>The EU-U.S. Data Privacy Framework</li>
+          <li>The EU-U.S. Data Privacy Framework (for transfers to certified U.S. organizations)</li>
           <li>Standard Contractual Clauses (SCCs) approved by the European Commission</li>
-          <li>Other appropriate safeguards as required by the GDPR</li>
+          <li>The UK International Data Transfer Agreement (UK IDTA) for transfers from the United Kingdom</li>
         </ul>
+        <p>We ensure that any international transfer of your data is accompanied by appropriate safeguards that provide a level of protection equivalent to that available within the EEA.</p>
       </section>
 
+      <!-- 8. Data Retention and Deletion -->
       <section class="legal-section">
-        <h2>7. Data Retention</h2>
-        <p>We retain your personal data for as long as your account is active or as needed to provide the Service. Specifically:</p>
+        <h2>8. Data Retention and Deletion</h2>
         <ul>
-          <li><strong>Account and workout data</strong> — retained until you delete your account.</li>
+          <li><strong>Account and workout data</strong> — retained for as long as your account is active.</li>
           <li><strong>AI conversation history</strong> — retained for the duration of your active use to provide contextual coaching.</li>
-          <li><strong>Analytics data</strong> — retained in anonymized/aggregated form as configured in Google Analytics 4.</li>
+          <li><strong>Analytics data</strong> — retained in anonymized, aggregated form. This data cannot identify you.</li>
         </ul>
-        <p>When you delete your account, we will delete or anonymize your personal data within 30 days, except where retention is required by law.</p>
+        <p>When you delete your account, we will delete or permanently anonymize all personal data associated with your account within 30 days. Anonymized, aggregated data that cannot identify you may be retained indefinitely. Data that we are required by law to retain will be kept for the minimum period required and then deleted.</p>
+        <p>You can request account deletion at any time through the app or by contacting us at <a href="mailto:privacy@povver.ai">privacy@povver.ai</a>.</p>
       </section>
 
+      <!-- 9. Your Rights -->
       <section class="legal-section">
-        <h2>8. Your Rights</h2>
-        <p>Under the GDPR, you have the following rights regarding your personal data:</p>
+        <h2>9. Your Rights</h2>
+        <p>Regardless of where you are located, you have the following rights regarding your personal data:</p>
         <ul>
           <li><strong>Access</strong> — request a copy of the personal data we hold about you.</li>
-          <li><strong>Rectification</strong> — request correction of inaccurate data.</li>
-          <li><strong>Erasure</strong> — request deletion of your data ("right to be forgotten").</li>
+          <li><strong>Correction</strong> — request correction of inaccurate or incomplete data.</li>
+          <li><strong>Deletion</strong> — request deletion of your personal data.</li>
           <li><strong>Restriction</strong> — request that we limit how we process your data.</li>
-          <li><strong>Portability</strong> — receive your data in a structured, machine-readable format.</li>
-          <li><strong>Objection</strong> — object to processing based on legitimate interests.</li>
-          <li><strong>Withdraw consent</strong> — where processing is based on consent, withdraw it at any time.</li>
+          <li><strong>Portability</strong> — receive your data in a structured, commonly used, machine-readable format.</li>
+          <li><strong>Objection</strong> — object to processing of your data based on our legitimate interests.</li>
+          <li><strong>Withdraw consent</strong> — where processing is based on your consent, you may withdraw it at any time. Withdrawal does not affect the lawfulness of processing that occurred before withdrawal.</li>
+          <li><strong>Opt out of data sharing</strong> — we do not sell or share your personal data for advertising purposes. If this changes in the future, we will provide a clear opt-out mechanism.</li>
         </ul>
-        <p>To exercise any of these rights, contact us at <a href="mailto:hello@povver.ai">hello@povver.ai</a>. We will respond within 30 days.</p>
-        <p>You also have the right to lodge a complaint with the Finnish Data Protection Ombudsman (<a href="https://tietosuoja.fi/en" target="_blank" rel="noopener">tietosuoja.fi</a>) or your local supervisory authority.</p>
+        <p>To exercise any of these rights, contact us at <a href="mailto:privacy@povver.ai">privacy@povver.ai</a>. We will respond within 30 days. If a request is complex or we receive a large number of requests, we may extend this by an additional 60 days — we will notify you if this is the case.</p>
+        <p>If you are unsatisfied with our response, you have the right to lodge a complaint with a supervisory authority. For users in Finland, this is the Office of the Data Protection Ombudsman (<a href="https://tietosuoja.fi/en" target="_blank" rel="noopener">tietosuoja.fi</a>). Users in other jurisdictions may contact their local data protection authority.</p>
       </section>
 
+      <!-- 10. Data Security -->
       <section class="legal-section">
-        <h2>9. Data Security</h2>
-        <p>We implement appropriate technical and organizational measures to protect your personal data, including:</p>
+        <h2>10. Data Security</h2>
+        <p>We implement technical and organizational measures to protect your personal data, including:</p>
         <ul>
-          <li>Encryption in transit (TLS) and at rest</li>
+          <li>Encryption in transit (TLS 1.2+) and at rest</li>
           <li>Authentication-gated access to all personal data</li>
-          <li>Regular security reviews of our infrastructure</li>
-          <li>Principle of least privilege for data access</li>
+          <li>Principle of least privilege for system access</li>
+          <li>Regular security reviews of our infrastructure and code</li>
         </ul>
-        <p>While we take reasonable precautions, no method of electronic transmission or storage is 100% secure. If you become aware of a security vulnerability, please contact us immediately at <a href="mailto:hello@povver.ai">hello@povver.ai</a>.</p>
+        <p>No method of electronic transmission or storage is completely secure. While we implement industry-standard protections, we cannot guarantee absolute security.</p>
       </section>
 
+      <!-- 11. Data Breach Notification -->
       <section class="legal-section">
-        <h2>10. Children's Privacy</h2>
-        <p>The Service is not intended for children under 13 years of age. We do not knowingly collect personal data from children under 13. If we learn that we have collected data from a child under 13, we will delete it promptly. If you believe a child under 13 has provided us with personal data, please contact us at <a href="mailto:hello@povver.ai">hello@povver.ai</a>.</p>
+        <h2>11. Data Breach Notification</h2>
+        <p>In the event of a personal data breach that is likely to result in a risk to your rights and freedoms, we will:</p>
+        <ul>
+          <li>Notify the relevant supervisory authority within 72 hours of becoming aware of the breach.</li>
+          <li>Notify affected users without undue delay if the breach is likely to result in a high risk to their rights and freedoms.</li>
+          <li>Document the breach, its effects, and the remedial actions taken.</li>
+        </ul>
       </section>
 
+      <!-- 12. Age Restriction -->
       <section class="legal-section">
-        <h2>11. Changes to This Policy</h2>
-        <p>We may update this Privacy Policy from time to time. We will notify you of material changes by posting the updated policy within the app or by email. The "Last updated" date at the top of this page indicates when the policy was last revised.</p>
-        <p>Continued use of the Service after changes take effect constitutes acceptance of the updated policy.</p>
+        <h2>12. Age Restriction</h2>
+        <p>The Service is intended for users who are at least 18 years old. We do not knowingly collect personal data from anyone under 18. If we learn that we have collected data from a person under 18, we will delete it promptly. If you believe someone under 18 has provided us with personal data, please contact us at <a href="mailto:privacy@povver.ai">privacy@povver.ai</a>.</p>
       </section>
 
+      <!-- 13. Changes to This Policy -->
       <section class="legal-section">
-        <h2>12. Contact</h2>
-        <p>For questions about this Privacy Policy or your personal data, contact us at:</p>
-        <p>Valterandersson TMI<br>Email: <a href="mailto:hello@povver.ai">hello@povver.ai</a></p>
+        <h2>13. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. For material changes — such as new categories of data collection, new third-party processors, or changes to how AI processing works — we will notify you through the app and/or by email before the changes take effect.</p>
+        <p>The "Last updated" date at the top of this page indicates when the policy was last revised. Continued use of the Service after changes take effect constitutes acceptance of the updated policy. If you disagree with the changes, you should stop using the Service and delete your account.</p>
+      </section>
+
+      <!-- 14. Regulatory Compliance -->
+      <section class="legal-section">
+        <h2>14. Regulatory Compliance</h2>
+        <p>Povver is designed and operated to comply with the following data protection and privacy frameworks:</p>
+        <ul>
+          <li><strong>GDPR</strong> — EU General Data Protection Regulation (Regulation (EU) 2016/679)</li>
+          <li><strong>UK GDPR</strong> — United Kingdom General Data Protection Regulation and Data Protection Act 2018</li>
+          <li><strong>Finnish Data Protection Act</strong> (Tietosuojalaki 1050/2018)</li>
+          <li><strong>CCPA / CPRA</strong> — California Consumer Privacy Act and California Privacy Rights Act</li>
+          <li><strong>PIPEDA</strong> — Canada's Personal Information Protection and Electronic Documents Act</li>
+          <li><strong>Australian Privacy Act 1988</strong> and Australian Privacy Principles (APPs)</li>
+          <li><strong>EU AI Act</strong> — Regulation (EU) 2024/1689, as applicable to limited-risk AI systems</li>
+        </ul>
+        <p>Where local law provides additional rights beyond those described in this policy, those rights apply to users in the relevant jurisdictions. If you have questions about your specific rights under local law, contact us at <a href="mailto:privacy@povver.ai">privacy@povver.ai</a>.</p>
+      </section>
+
+      <!-- 15. Contact -->
+      <section class="legal-section">
+        <h2>15. Contact</h2>
+        <p>For questions about this Privacy Policy, data protection requests, or concerns about how your data is handled:</p>
+        <p>Valterandersson TMI<br>Email: <a href="mailto:privacy@povver.ai">privacy@povver.ai</a></p>
+        <p>We aim to resolve all data protection queries promptly. If you are not satisfied with our response, you have the right to escalate your concern to the relevant supervisory authority in your jurisdiction.</p>
       </section>
     </div>
   </main>

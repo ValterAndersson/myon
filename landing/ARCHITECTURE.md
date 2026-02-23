@@ -17,12 +17,12 @@ EC2 instance (Amazon Linux 2023) in eu-west-1 with nginx. Let's Encrypt SSL via 
 ```
 landing/
 ├── ARCHITECTURE.md          # This file
-├── index.html               # Single-page landing (SEO meta, OG, JSON-LD)
-├── privacy.html             # Privacy Policy (GDPR-compliant)
-├── tos.html                 # Terms of Service
-├── styles.css               # All styles — mobile-first, CSS custom properties
+├── index.html               # Single-page landing (SEO meta, OG, JSON-LD, cookie banner)
+├── privacy.html             # Privacy Policy — litigation-hardened, multi-jurisdiction
+├── tos.html                 # Terms of Service — 23 sections, arbitration, class action waiver
+├── styles.css               # All styles — mobile-first, CSS custom properties, cookie banner
 ├── legal.css                # Shared styles for legal pages (privacy, tos)
-├── script.js                # Scroll animations, mobile nav, smooth scroll
+├── script.js                # Scroll animations, mobile nav, cookie consent, GA4 event tracking
 ├── deploy.sh                # SCP deploy to EC2 instance
 ├── robots.txt               # Disallow all (staging — remove for launch)
 └── assets/
@@ -32,7 +32,7 @@ landing/
         ├── coach.png         # Hero: Coach tab home screen
         ├── plan.png          # Feature 2: AI-generated workout plan
         ├── grid.png          # Feature 3: Set logging grid
-        ├── train.png         # Feature 4: Train tab (old simulator screenshot, uses contain)
+        ├── train.png         # Feature 4: Train tab
         └── workout.png       # Currently unused (keyboard-open grid)
 ```
 
@@ -56,6 +56,12 @@ landing/
 
 **No build step**: The page is three files (HTML, CSS, JS) deployed directly. Cache busting via `?v=N` query string on the CSS link.
 
+**Cookie consent**: GA4 (`G-V9YHQNJTB7`) is loaded only after user consent. The banner appears after 1.5s on first visit, stores preference in `localStorage` as `povver_cookie_consent`. GA4 script is injected dynamically on acceptance — never loaded if declined or before consent. Compliant with EU ePrivacy Directive (opt-in required for analytics cookies per CJEU Planet49 ruling).
+
+**GA4 event tracking**: Custom events sent via `gtag()` through a `track()` helper that no-ops before GA4 loads. Events: `app_store_click` (with `link_location`: hero/cta_footer), `nav_cta_click`, `section_view` (with `section_name` and `section_index`, fires once per section at 30% visibility). `app_store_click` should be marked as a key event in GA4 admin. Same GA4 property as the iOS app (property 488064435) for cross-platform funnel tracking.
+
+**Legal pages**: Privacy Policy and Terms of Service are litigation-hardened for multi-jurisdiction compliance. Key protections: explicit health data consent, AI wiretap/transmission disclosure, mandatory pre-suit notice period, 1-year limitation period, ICC arbitration for non-EU users, class action and jury trial waivers, prevailing party fee-shifting, California auto-renewal compliance, EU right of withdrawal, BIPA-safe (explicit no-biometric-data statement). Age minimum is 18+.
+
 ## Page Sections
 
 1. **Nav** — Fixed, transparent over dark hero, glassmorphic (`backdrop-filter: blur(20px)`) when scrolled past hero
@@ -63,7 +69,8 @@ landing/
 3. **Features** (x4) — Alternating left/right layout on desktop. On mobile, screenshots shown first (`order: -1`), then text. Numbered 01–04. Gradient dividers between sections, alternating subtle backgrounds
 4. **Highlights** — 3-column stat grid (900+, Every, Free) with gradient text values and vertical dividers
 5. **Final CTA** — Centered radial glow, accent gradient divider at top
-6. **Footer** — Dark, minimal
+6. **Cookie banner** — Fixed bottom bar, glassmorphic, Accept/Decline buttons, slides up after 1.5s
+7. **Footer** — Dark, minimal
 
 ## Deployment
 
@@ -78,9 +85,13 @@ Requires SSH access to the EC2 instance. The PEM key is not in the repo (gitigno
 
 Before removing `noindex`:
 - [ ] Replace placeholder screenshot for Feature 1 (post-workout analysis)
-- [ ] Replace `train.png` with a real phone screenshot
+- [x] Replace `train.png` with a real phone screenshot
 - [ ] Create `og-image.png` (1200x630) for social sharing
 - [ ] Set App Store badge `href` to actual App Store link
-- [ ] Set Privacy Policy and Terms of Service links
-- [ ] Remove `<meta name="robots" content="noindex, nofollow">` from `index.html`
+- [x] Set Privacy Policy and Terms of Service links
+- [x] Replace `G-XXXXXXXXXX` in `script.js` with actual GA4 measurement ID (`G-V9YHQNJTB7`)
+- [ ] Set up `privacy@povver.ai` and `legal@povver.ai` email addresses
+- [ ] Incorporate as Finnish Oy (update entity references in privacy.html and tos.html)
+- [ ] Restrict App Store distribution to: EU, EEA, UK, US, Canada, Australia, NZ
+- [ ] Remove `<meta name="robots" content="noindex, nofollow">` from all HTML files
 - [ ] Remove `Disallow: /` from `robots.txt`
