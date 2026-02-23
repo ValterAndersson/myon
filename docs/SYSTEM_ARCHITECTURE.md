@@ -46,6 +46,8 @@
 | **Conversation APIs** | `firebase_functions/functions/conversations/` | Artifact actions |
 | **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |
 | **Session APIs** | `firebase_functions/functions/sessions/` | Session initialization |
+| **Shared Agent Utilities** | `adk_agent/shared/` | Cross-agent usage tracking + pricing |
+| **LLM Usage Query Script** | `scripts/query_llm_usage.js` | Weekly cost aggregation by user/system |
 
 ---
 
@@ -1302,3 +1304,22 @@ The `@timed_tool` decorator on all tool functions in `tools.py` provides per-too
 **Dashboards**:
 - **Product Health** (Firebase Console / GA4): Activation funnel, WAU, subscription funnel, retention cohorts
 - **System Health** (Cloud Monitoring): Stream latency by lane, tool latency, error rates, function invocations
+
+### LLM Usage Tracking (Cost Attribution)
+
+Self-tracked token accounting for per-user, per-system cost visibility. Vertex AI billing shows a flat total — this system breaks it down.
+
+**How it works**: Each LLM call records token counts from `usage_metadata` to the top-level `llm_usage` Firestore collection. Writes are fire-and-forget (failures logged, never crash callers). Gated by `ENABLE_USAGE_TRACKING` env var (default: `false`).
+
+**Categories**:
+| Category | System | User Context | Example |
+|----------|--------|-------------|---------|
+| `system` | Catalog Orchestrator | None | Exercise enrichment |
+| `user_scoped` | Training Analyst | Per-user | Post-workout analysis |
+| `user_initiated` | Canvas Orchestrator | Per-user | Shell agent chat, functional lane |
+
+**Implementation**: Centralized in `adk_agent/shared/usage_tracker.py`. Each agent system imports it differently (see `adk_agent/shared/ARCHITECTURE.md`).
+
+**Cost estimation**: Token counts are stored raw. Cost in EUR is computed at query time using rates in `adk_agent/shared/llm_pricing.py`. Query with `node scripts/query_llm_usage.js --weeks N [--user UID] [--csv]`.
+
+**Firestore collection**: `llm_usage/{auto_id}` — see `docs/FIRESTORE_SCHEMA.md` for field definitions. Requires composite index: `(user_id ASC, created_at ASC)`.

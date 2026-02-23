@@ -83,6 +83,7 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         result = self.call_llm(
             self._get_system_prompt(), llm_input,
             required_keys=["summary", "highlights", "flags", "recommendations"],
+            user_id=user_id,
         )
 
         # 9. Write to analysis_insights

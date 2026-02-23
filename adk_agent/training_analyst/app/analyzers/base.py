@@ -51,6 +51,7 @@ class BaseAnalyzer:
         user_prompt: str,
         temperature: float = 0.2,
         required_keys: Optional[list] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Call LLM and parse JSON response.
@@ -123,6 +124,30 @@ class BaseAnalyzer:
                         raise ValueError(
                             f"LLM response missing required keys: {missing}"
                         )
+
+                # Track LLM usage for cost attribution (fire-and-forget)
+                try:
+                    from shared.usage_tracker import (
+                        extract_usage_from_genai_response,
+                        track_usage,
+                    )
+                    usage = extract_usage_from_genai_response(response)
+                    if usage.get("total_tokens"):
+                        feature = (
+                            self.__class__.__name__
+                            .lower()
+                            .replace("analyzer", "")
+                        )
+                        track_usage(
+                            user_id=user_id,
+                            category="user_scoped",
+                            system="training_analyst",
+                            feature=feature,
+                            model=self.model_name,
+                            **usage,
+                        )
+                except Exception as track_err:
+                    logger.debug("Usage tracking error (non-fatal): %s", track_err)
 
                 logger.info("LLM call succeeded, model=%s", self.model_name)
                 return data

@@ -35,5 +35,9 @@ spec:
                 - name: CATALOG_APPLY_ENABLED
                   value: "true"
 
+                # LLM usage tracking for cost attribution
+                - name: ENABLE_USAGE_TRACKING
+                  value: "true"
+
           # 3 hour timeout (generous for large batches)
           timeoutSeconds: 10800

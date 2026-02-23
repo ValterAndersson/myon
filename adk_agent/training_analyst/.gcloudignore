@@ -1,0 +1,10 @@
+# Exclude from Cloud Build uploads
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+tests/
+*.md
+.gcloudignore
+.gitignore

@@ -31,5 +31,9 @@ spec:
                 - name: MAX_SECONDS_PER_RUN
                   value: "0"
 
+                # LLM usage tracking for cost attribution
+                - name: ENABLE_USAGE_TRACKING
+                  value: "true"
+
           # 1 hour timeout
           timeoutSeconds: 3600

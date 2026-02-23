@@ -1632,6 +1632,31 @@ Sources
 
 ---
 
+## LLM Usage Tracking
+
+### llm_usage/{auto_id}
+Per-request token accounting for Vertex AI LLM calls. Used to attribute costs by user, category, and system for margin analysis. Written fire-and-forget by the `shared/usage_tracker.py` module; never blocks the user-facing request path.
+
+Gated by `ENABLE_USAGE_TRACKING` env var (default `false`). Query with `scripts/query_llm_usage.js`.
+
+- `user_id: string | null` — Firebase Auth UID. Null for system-level calls (catalog enrichment).
+- `category: string` — Cost attribution bucket:
+  - `"system"` — No user context; internal system jobs (catalog enrichment, catalog agent)
+  - `"user_scoped"` — Background job for a specific user, not real-time (training analyst post-workout, weekly review)
+  - `"user_initiated"` — User is actively waiting for the response (shell agent, functional lane)
+- `system: string` — Agent system that made the call: `"canvas_orchestrator"` | `"catalog_orchestrator"` | `"training_analyst"`
+- `feature: string` — Specific feature within the system (e.g. `"shell_agent"`, `"functional"`, `"post_workout"`, `"weekly_review"`, `"enrichment"`)
+- `model: string` — Vertex AI model identifier (e.g. `"gemini-2.5-flash"`, `"gemini-2.5-pro"`)
+- `prompt_tokens: number` — Input token count
+- `completion_tokens: number` — Output token count
+- `thinking_tokens: number | null` — Thinking/reasoning tokens (Gemini 2.5+), null if not reported
+- `total_tokens: number` — Total token count
+- `created_at: Timestamp` — Server timestamp
+
+**Indexes required:** Composite on `(user_id ASC, created_at ASC)` for per-user weekly/monthly rollups.
+
+---
+
 ## Training Analysis Collections
 
 ### training_analysis_jobs/{jobId}

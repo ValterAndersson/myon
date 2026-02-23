@@ -224,9 +224,10 @@ class AgentEngineApp(AdkApp):
             augmented_message = f"{augmented_message}\n\n{plan_prompt}"
             logger.info("PLANNER: Injected plan for %s", plan.intent)
         
-        # Collect response for critic pass
+        # Collect response for critic pass + usage tracking
         collected_text = []
-        
+        usage_accumulator = {}
+
         for chunk in super().stream_query(
             user_id=user_id,
             session_id=session_id,
@@ -243,9 +244,31 @@ class AgentEngineApp(AdkApp):
                             collected_text.append(part["text"])
             except Exception:
                 pass
-            
+
+            # Accumulate usage metadata across multi-turn tool use
+            try:
+                from shared.usage_tracker import accumulate_usage_from_chunk
+                accumulate_usage_from_chunk(chunk, usage_accumulator)
+            except Exception:
+                pass
+
             yield chunk
-        
+
+        # === USAGE TRACKING: Write accumulated token counts (fire-and-forget) ===
+        if usage_accumulator.get("total_tokens"):
+            try:
+                from shared.usage_tracker import track_usage
+                track_usage(
+                    user_id=ctx.user_id if ctx else None,
+                    category="user_initiated",
+                    system="canvas_orchestrator",
+                    feature="shell_agent",
+                    model=os.getenv("CANVAS_SHELL_MODEL", "gemini-2.5-flash"),
+                    **usage_accumulator,
+                )
+            except Exception as e:
+                logger.debug("Usage tracking error (non-fatal): %s", e)
+
         # === 7. CRITIC PASS: Validate response ===
         if routing and collected_text:
             try:
@@ -421,7 +444,7 @@ def deploy_canvas_orchestrator(
     env_vars: Optional[Dict[str, str]] = None,
 ) -> agent_engines.AgentEngine:
     if extra_packages is None:
-        extra_packages = ["./app"]
+        extra_packages = ["./app", "../shared"]
     if env_vars is None:
         env_vars = {}
     staging_bucket_uri = f"gs://{project}-agent-engine"

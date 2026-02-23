@@ -13,11 +13,11 @@ deploy:
 		 exit 1)
 	@echo "Using SA key: $(GCP_SA_KEY_PATH)"
 	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
-	PYTHONPATH=. python3 -m app.agent_engine_app \
+	PYTHONPATH=.:.. python3 -m app.agent_engine_app \
 		--project myon-53d85 \
 		--location us-central1 \
 		--agent-name canvas-orchestrator \
-		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_API_KEY=$${MYON_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine}
+		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_API_KEY=$${MYON_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine},ENABLE_USAGE_TRACKING=true
 
 bootstrap:
 	@USER_ID=$${USER_ID:-canvas_orchestrator_engine}; \
@@ -42,26 +42,26 @@ inspect:
 # Run full eval suite (55 cases via SSE → LLM judge scoring)
 eval:
 	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
-	PYTHONPATH=. python3 tests/eval/runner.py
+	PYTHONPATH=.:.. python3 tests/eval/runner.py
 
 # Run eval for a specific category (easy, moderate, complex, edge, active_workout)
 eval-category:
 	@echo "Usage: make eval-category CAT=edge"
 	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
-	PYTHONPATH=. python3 tests/eval/runner.py --filter category=$${CAT:-easy}
+	PYTHONPATH=.:.. python3 tests/eval/runner.py --filter category=$${CAT:-easy}
 
 # Run a single eval test case
 eval-single:
 	@echo "Usage: make eval-single ID=easy_001"
 	GOOGLE_APPLICATION_CREDENTIALS="$(GCP_SA_KEY_PATH)" \
-	PYTHONPATH=. python3 tests/eval/runner.py --id $${ID:-easy_001}
+	PYTHONPATH=.:.. python3 tests/eval/runner.py --id $${ID:-easy_001}
 
 # Analyze latest eval run
 eval-analyze:
-	PYTHONPATH=. python3 tests/eval/analyze.py
+	PYTHONPATH=.:.. python3 tests/eval/analyze.py
 
 # Compare two eval runs
 eval-compare:
 	@echo "Usage: make eval-compare B=eval_20240101_120000 N=eval_20240102_120000"
-	PYTHONPATH=. python3 tests/eval/analyze.py --compare \
+	PYTHONPATH=.:.. python3 tests/eval/analyze.py --compare \
 		tests/eval/results/$${B}.jsonl tests/eval/results/$${N}.jsonl

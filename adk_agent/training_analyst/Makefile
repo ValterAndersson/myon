@@ -80,8 +80,11 @@ scheduler-local:
 	python workers/scheduler.py
 
 # Build and push via Cloud Build (builds natively on amd64, avoids arm64 issues on Apple Silicon)
+# Copies shared/ into build context (Docker can't COPY from parent dirs)
 docker-push:
-	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/training-analyst-worker:$(IMAGE_TAG) --project=$(PROJECT_ID)
+	cp -r ../shared shared/
+	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/training-analyst-worker:$(IMAGE_TAG) --project=$(PROJECT_ID); \
+	rm -rf shared/
 
 # Deploy worker job
 deploy-worker:

@@ -169,6 +169,23 @@ class FunctionalHandler:
                 intent=intent,
             )
     
+    def _track_usage(self, response, feature: str, ctx: SessionContext) -> None:
+        """Track LLM usage from a generate_content response (fire-and-forget)."""
+        try:
+            from shared.usage_tracker import extract_usage_from_vertex_response, track_usage
+            usage = extract_usage_from_vertex_response(response)
+            if usage.get("total_tokens"):
+                track_usage(
+                    user_id=ctx.user_id,
+                    category="user_initiated",
+                    system="canvas_orchestrator",
+                    feature=feature,
+                    model=FUNCTIONAL_MODEL,
+                    **usage,
+                )
+        except Exception as e:
+            logger.debug("Usage tracking error (non-fatal): %s", e)
+
     async def _handle_swap_exercise(
         self, 
         payload: Dict[str, Any], 
@@ -230,7 +247,9 @@ Select ONE exercise. Output:
         try:
             response = self.client.generate_content(prompt)
             result = json.loads(response.text)
-            
+
+            self._track_usage(response, "functional", ctx)
+
             return FunctionalResult(
                 success=True,
                 action=result.get("action", "REPLACE_EXERCISE"),
@@ -343,7 +362,9 @@ Calculate appropriate weight. Output:
         try:
             response = self.client.generate_content(prompt)
             result = json.loads(response.text)
-            
+
+            self._track_usage(response, "functional", ctx)
+
             return FunctionalResult(
                 success=True,
                 action=result.get("action", "SUGGEST"),
@@ -399,7 +420,9 @@ If NO intervention needed, output:
         try:
             response = self.client.generate_content(prompt)
             result = json.loads(response.text)
-            
+
+            self._track_usage(response, "functional", ctx)
+
             action = result.get("action", "NULL")
             
             if action == "NULL" or action == "NONE":

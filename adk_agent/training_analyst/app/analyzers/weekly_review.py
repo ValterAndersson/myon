@@ -103,6 +103,7 @@ class WeeklyReviewAnalyzer(BaseAnalyzer):
             self._get_system_prompt(), llm_input,
             required_keys=["summary", "training_load", "muscle_balance",
                            "exercise_trends"],
+            user_id=user_id,
         )
 
         # 10. Write to weekly_reviews/{YYYY-WNN}

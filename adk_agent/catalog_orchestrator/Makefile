@@ -209,8 +209,11 @@ docker-push: docker-build
 	docker push gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG)
 
 # Build and push via Cloud Build (recommended — builds natively on x86_64)
+# Copies shared/ into build context (Docker can't COPY from parent dirs)
 cloud-build:
-	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG) --project=$(PROJECT_ID)
+	cp -r ../shared shared/
+	gcloud builds submit --tag gcr.io/$(PROJECT_ID)/catalog-worker:$(IMAGE_TAG) --project=$(PROJECT_ID); \
+	rm -rf shared/
 
 # =============================================================================
 # CLOUD RUN JOBS

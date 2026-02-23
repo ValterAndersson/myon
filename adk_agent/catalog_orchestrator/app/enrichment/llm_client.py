@@ -177,9 +177,28 @@ class VertexLLMClient(LLMClient):
                 result = response.text.strip()
             
             logger.debug("LLM response length: %d chars", len(result))
-            
+
+            # Track LLM usage for cost attribution (fire-and-forget)
+            try:
+                from shared.usage_tracker import (
+                    extract_usage_from_vertex_response,
+                    track_usage,
+                )
+                usage = extract_usage_from_vertex_response(response)
+                if usage.get("total_tokens"):
+                    track_usage(
+                        user_id=None,
+                        category="system",
+                        system="catalog_orchestrator",
+                        feature="enrichment",
+                        model=model_name,
+                        **usage,
+                    )
+            except Exception as track_err:
+                logger.debug("Usage tracking error (non-fatal): %s", track_err)
+
             return result
-            
+
         except Exception as e:
             logger.error("LLM completion failed: %s", e)
             raise

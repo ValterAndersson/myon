@@ -20,6 +20,7 @@ COPY worker_requirements.txt .
 RUN pip install --no-cache-dir -r worker_requirements.txt
 
 # Copy application code
+COPY shared/ shared/
 COPY app/ app/
 COPY workers/ workers/
 

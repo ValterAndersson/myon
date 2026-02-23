@@ -1,1 +1,3 @@
 tests/eval/results/
+# Temporary copy of shared/ for Docker build context (see Makefile cloud-build)
+shared/
