@@ -654,11 +654,11 @@ def tool_get_training_analysis(
 ) -> Dict[str, Any]:
     """Get pre-computed AI training analysis — PREFERRED for progress questions.
 
-    Returns up to 3 sections of pre-computed analysis. Default: all sections.
+    Returns up to 2 sections of pre-computed analysis. Default: all sections.
     ~6KB total — well within token budget for a single call.
 
     Args:
-        sections: Optional filter. Valid values: "insights", "daily_brief", "weekly_review"
+        sections: Optional filter. Valid values: "insights", "weekly_review"
             Default (None): returns all available sections in a single call.
 
     Returns:
@@ -672,14 +672,6 @@ def tool_get_training_analysis(
             created_at, expires_at
         }]
 
-        daily_brief: {
-            date, has_planned_workout, planned_workout?,
-            readiness: "fresh"|"moderate"|"fatigued",
-            readiness_summary (2-3 sentences),
-            fatigue_flags: [{ muscle_group, signal: "fresh"|"building"|"fatigued"|"overreached", acwr }],
-            adjustments: [{ exercise_name, type: "reduce_weight"|"reduce_sets"|"skip"|"swap", rationale }]
-        }
-
         weekly_review: {
             id (YYYY-WNN), week_ending,
             summary (paragraph),
@@ -687,13 +679,33 @@ def tool_get_training_analysis(
             muscle_balance: [{ muscle_group, weekly_sets, trend, status }],
             exercise_trends: [{ exercise_name, trend: "improving"|"plateaued"|"declining", e1rm_slope, note }],
             progression_candidates: [{ exercise_name, current_weight, suggested_weight, rationale, confidence }],
-            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }]
+            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }],
+            periodization: {
+                current_phase: "hypertrophy | strength | endurance | mixed",
+                weeks_in_phase: number,
+                suggestion: "phase change recommendation if applicable",
+                reasoning: "evidence from data"
+            },
+            routine_recommendations: [
+                {
+                    type: "add_exercise | remove_exercise | frequency_change | volume_adjust | restructure",
+                    target: "muscle group or template name",
+                    suggestion: "specific recommendation",
+                    reasoning: "evidence from data"
+                }
+            ],
+            fatigue_status: {
+                overall_acwr: number,
+                interpretation: "optimal | underloading | overreaching | high_overreach",
+                flags: [{ muscle, acwr, concern }],
+                recommendation: "text"
+            }
         }
 
     Examples:
         tool_get_training_analysis()  # all sections
         tool_get_training_analysis(sections=["insights"])  # insights only
-        tool_get_training_analysis(sections=["daily_brief", "weekly_review"])  # skip insights
+        tool_get_training_analysis(sections=["weekly_review"])  # weekly review only
     """
     ctx = get_current_context()
 

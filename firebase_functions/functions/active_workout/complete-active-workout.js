@@ -69,6 +69,8 @@ const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
 const admin = require('firebase-admin');
 const AnalyticsCalc = require('../utils/analytics-calculator');
+const { generateTemplateDiff } = require('../utils/template-diff-generator');
+const { logger } = require('firebase-functions');
 
 const firestore = admin.firestore();
 
@@ -139,6 +141,30 @@ async function completeActiveWorkoutHandler(req, res) {
     }
 
     // ==========================================================================
+    // TEMPLATE DIFF: Compare workout exercises against source template
+    // ==========================================================================
+    let templateDiff = null;
+    if (active.source_template_id) {
+      try {
+        const templateRef = firestore.doc(`users/${userId}/templates/${active.source_template_id}`);
+        const templateSnap = await templateRef.get();
+        if (templateSnap.exists) {
+          const templateData = templateSnap.data();
+          templateDiff = generateTemplateDiff(normalizedExercises, templateData.exercises || []);
+        } else {
+          logger.warn('[completeActiveWorkout] Source template not found, skipping diff', {
+            userId, templateId: active.source_template_id
+          });
+        }
+      } catch (diffErr) {
+        logger.warn('[completeActiveWorkout] Failed to generate template diff', {
+          userId, error: diffErr?.message || diffErr
+        });
+        // Non-fatal: continue without diff
+      }
+    }
+
+    // ==========================================================================
     // ATOMIC TRANSACTION: Archive + Update Status + Clear Lock
     // ==========================================================================
     const archiveRef = firestore.collection('users').doc(userId).collection('workouts').doc();
@@ -174,7 +200,8 @@ async function completeActiveWorkoutHandler(req, res) {
         end_time: now,
         exercises: normalizedExercises,
         notes: active.notes || null,
-        analytics
+        analytics,
+        ...(templateDiff !== null && { template_diff: templateDiff })
       };
 
       tx.set(archiveRef, archived);
@@ -200,7 +227,27 @@ async function completeActiveWorkoutHandler(req, res) {
       return ok(res, { workout_id: workout_id, archived: false, message: 'Already completed' });
     }
 
-    console.log(`Completed workout ${workout_id}, archived as ${result.workout_id}, lock cleared`);
+    // Write changelog entry if template diff detected changes (non-critical, outside transaction)
+    if (templateDiff && templateDiff.changes_detected && active.source_template_id) {
+      try {
+        const changelogRef = firestore.collection('users').doc(userId)
+          .collection('templates').doc(active.source_template_id)
+          .collection('changelog').doc();
+        await changelogRef.set({
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          source: 'workout_completion',
+          workout_id: result.workout_id,
+          recommendation_id: null,
+          changes: [{ field: 'exercises', operation: 'deviated', summary: templateDiff.summary || 'User deviated from template' }],
+          expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+        });
+      } catch (changelogErr) {
+        logger.warn('[completeActiveWorkout] Failed to write changelog', { error: changelogErr?.message });
+        // Non-fatal: workout already archived successfully
+      }
+    }
+
+    logger.info(`[completeActiveWorkout] Completed workout ${workout_id}, archived as ${result.workout_id}`);
 
     return ok(res, result);
   } catch (error) {

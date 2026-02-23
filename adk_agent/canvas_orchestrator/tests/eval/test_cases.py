@@ -148,10 +148,10 @@ EASY_CASES = [
         query="Am I ready to train today?",
         category="easy",
         expected_tools=["tool_get_training_analysis"],
-        expected_behavior="Fetches daily_brief section for readiness assessment",
-        gold_standard="States readiness level (fresh/moderate/fatigued). "
+        expected_behavior="Fetches weekly_review section for readiness/fatigue assessment",
+        gold_standard="States readiness level based on fatigue_status and ACWR. "
                        "Relays any adjustments. Gives clear train/skip recommendation.",
-        tags=["readiness", "daily_brief"],
+        tags=["readiness", "weekly_review"],
     ),
     TestCase(
         id="easy_004",
@@ -268,9 +268,9 @@ MODERATE_CASES = [
         expected_tools=["tool_get_training_analysis"],
         expected_behavior="Checks readiness data before validating emotional state. "
                           "Does not default to skipping based on feeling alone.",
-        gold_standard="Checks daily_brief for objective readiness. Gives data-backed "
+        gold_standard="Checks weekly_review fatigue_status for objective readiness. Gives data-backed "
                        "recommendation. Acknowledges feeling but doesn't over-empathize.",
-        tags=["readiness", "emotional", "daily_brief"],
+        tags=["readiness", "emotional", "weekly_review"],
     ),
     TestCase(
         id="mod_003",
@@ -1181,10 +1181,10 @@ ANALYSIS_CASES = [
         query="Am I overtraining?",
         category="analysis",
         expected_tools=["tool_get_training_analysis"],
-        expected_behavior="Fetch training_analysis(daily_brief) for ACWR and fatigue_flags. "
+        expected_behavior="Fetch training_analysis(weekly_review) for fatigue_status and ACWR. "
                           "Interpret objectively — high ACWR ≠ overtraining, but sustained "
                           ">1.5 is a concern.",
-        gold_standard="Checks ACWR and fatigue flags from training analysis. Interprets "
+        gold_standard="Checks ACWR and fatigue status from weekly review. Interprets "
                        "objectively: distinguishes overreaching from overtraining. Cites "
                        "actual ACWR value. Gives clear verdict with next steps.",
         tags=["overtraining", "acwr", "fatigue"],

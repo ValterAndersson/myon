@@ -7,11 +7,9 @@ from datetime import datetime, timedelta
 def test_import_analyzer():
     """Test that analyzers can be imported."""
     from app.analyzers.post_workout import PostWorkoutAnalyzer
-    from app.analyzers.daily_brief import DailyBriefAnalyzer
     from app.analyzers.weekly_review import WeeklyReviewAnalyzer
 
     assert PostWorkoutAnalyzer is not None
-    assert DailyBriefAnalyzer is not None
     assert WeeklyReviewAnalyzer is not None
 
 

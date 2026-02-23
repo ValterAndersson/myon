@@ -14,46 +14,6 @@ from app.jobs.queue import create_job
 logger = logging.getLogger(__name__)
 
 
-def schedule_daily_briefs():
-    """Create daily brief jobs for active users."""
-    db = get_db()
-
-    # Query users with active routines
-    users_ref = db.collection("users")
-    query = users_ref.where("activeRoutineId", "!=", None).stream()
-
-    created_count = 0
-
-    for user_doc in query:
-        user_id = user_doc.id
-
-        # Check if user has recent workouts (last 14 days)
-        two_weeks_ago = datetime.utcnow() - timedelta(days=14)
-        recent_workouts = (
-            db.collection("users")
-            .document(user_id)
-            .collection("workouts")
-            .where("ended_at", ">=", two_weeks_ago)
-            .limit(1)
-            .get()
-        )
-
-        if not recent_workouts:
-            continue
-
-        # Create daily brief job
-        try:
-            create_job(
-                job_type=JobType.DAILY_BRIEF,
-                user_id=user_id,
-            )
-            created_count += 1
-            logger.info("Created daily brief job for user %s", user_id)
-        except Exception as e:
-            logger.error("Failed to create daily brief for user %s: %s", user_id, e)
-
-    logger.info("Created %d daily brief jobs", created_count)
-    return {"daily_briefs_created": created_count}
 
 
 def schedule_weekly_reviews():

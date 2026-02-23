@@ -892,37 +892,43 @@ struct TemplateDetailView: View {
                 let exercise = planExercises[index]
                 let isExpanded = expandedExerciseId == exercise.id
 
-                ExerciseRowView(
-                    exerciseIndex: index,
-                    exercises: $planExercises,
-                    selectedCell: $selectedCell,
-                    isExpanded: isExpanded,
-                    isPlanningMode: !isEditing,
-                    showDivider: index < planExercises.count - 1,
-                    onToggleExpand: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            expandedExerciseId = isExpanded ? nil : exercise.id
-                        }
-                    },
-                    onSwap: { ex, reason in
-                        if reason == .manualSearch {
-                            exerciseForSwap = ex
-                        }
-                        // For library mode, only manual swap is supported
-                    },
-                    onInfo: { ex in
-                        selectedExerciseForInfo = ex
-                    },
-                    onRemove: { exIdx in
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            _ = planExercises.remove(at: exIdx)
-                        }
-                    },
-                    warmupCollapsed: Binding(
-                        get: { warmupCollapsed[exercise.id] ?? true },
-                        set: { warmupCollapsed[exercise.id] = $0 }
+                HStack(alignment: .top, spacing: 0) {
+                    if isEditing {
+                        exerciseReorderControls(for: index)
+                    }
+
+                    ExerciseRowView(
+                        exerciseIndex: index,
+                        exercises: $planExercises,
+                        selectedCell: $selectedCell,
+                        isExpanded: isExpanded,
+                        isPlanningMode: !isEditing,
+                        showDivider: index < planExercises.count - 1,
+                        onToggleExpand: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                expandedExerciseId = isExpanded ? nil : exercise.id
+                            }
+                        },
+                        onSwap: { ex, reason in
+                            if reason == .manualSearch {
+                                exerciseForSwap = ex
+                            }
+                            // For library mode, only manual swap is supported
+                        },
+                        onInfo: { ex in
+                            selectedExerciseForInfo = ex
+                        },
+                        onRemove: { exIdx in
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                _ = planExercises.remove(at: exIdx)
+                            }
+                        },
+                        warmupCollapsed: Binding(
+                            get: { warmupCollapsed[exercise.id] ?? true },
+                            set: { warmupCollapsed[exercise.id] = $0 }
+                        )
                     )
-                )
+                }
             }
 
             // Add exercise button (only in edit mode)
@@ -1057,7 +1063,8 @@ struct TemplateDetailView: View {
         BackgroundSaveService.shared.save(entityId: id) {
             try await FocusModeWorkoutService.shared.patchTemplate(
                 templateId: id,
-                patch: patch
+                patch: patch,
+                changeSource: "user_edit"
             )
         }
     }
@@ -1079,6 +1086,45 @@ struct TemplateDetailView: View {
             }
         }
         return false
+    }
+
+    // MARK: - Exercise Reorder
+
+    private enum MoveDirection { case up, down }
+
+    private func moveExercise(from index: Int, direction: MoveDirection) {
+        let target = direction == .up ? index - 1 : index + 1
+        guard target >= 0, target < planExercises.count else { return }
+        planExercises.swapAt(index, target)
+    }
+
+    private func exerciseReorderControls(for index: Int) -> some View {
+        VStack(spacing: 2) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    moveExercise(from: index, direction: .up)
+                }
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(index > 0 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+            }
+            .disabled(index == 0)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    moveExercise(from: index, direction: .down)
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(index < planExercises.count - 1 ? Color.textSecondary : Color.textTertiary.opacity(0.3))
+            }
+            .disabled(index >= planExercises.count - 1)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .padding(.top, Space.md)
+        .padding(.leading, Space.sm)
     }
 
     private func addExerciseToTemplate(_ exercise: Exercise) {

@@ -78,7 +78,7 @@ Catalog model:
 - Core fields: `name`, `name_slug`, `family_slug`, `variant_key`, `movement`, `equipment`, `metadata`, `merged_into?`, `merge_lineage?`, timestamps
 
 ### Training Analysis (pre-computed insights)
-- `getAnalysisSummary` – retrieve pre-computed training analysis (insights, daily brief, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`
+- `getAnalysisSummary` – retrieve pre-computed training analysis (insights, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`
 - `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` – live drilldown summaries. `getExerciseSummary` accepts `exercise_name` for fuzzy name→ID resolution via the user's training history
 - `querySets` / `aggregateSets` – raw set-level data queries with filtering (v2 onRequest + requireFlexibleAuth). Sorts by `workout_date` when date range filters are present to satisfy Firestore compound query constraints
 - `getActiveSnapshotLite` – lightweight active workout state snapshot

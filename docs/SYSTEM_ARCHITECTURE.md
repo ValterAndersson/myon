@@ -207,13 +207,15 @@ iOS: FocusModeWorkoutService.finishWorkout()
         ▼
 Firebase: complete-active-workout.js
         │ Archives workout with analytics
+        │ Generates template_diff (exercise adds/removes/swaps/weight changes)
         ▼
 Firestore: workouts/{newId} created
   {
     source_routine_id: "...",
     source_template_id: "...",
     end_time: ...,
-    analytics: {...}
+    analytics: {...},
+    template_diff: {...}  // Deviations from source template
   }
         │
         ▼ (onCreate trigger fires)
@@ -456,7 +458,7 @@ Agent context prefix changed from `canvas_id=X` to `conversation_id=X`.
       "exercise_id": "ex_bench",
       "name": "Bench Press",           // Denormalized for display
       "sets": [
-        { "target_reps": 8, "target_rir": 2 }
+        { "reps": 8, "rir": 2, "weight": 80 }
       ]
     }
   ],
@@ -685,7 +687,7 @@ When adding a new field (e.g., `routine.goal`):
 
 ## Training Analyst: Background Analysis Architecture
 
-The Training Analyst is an **asynchronous background service** that pre-computes training insights, daily briefs, and weekly reviews. It runs as Cloud Run Jobs processing from a Firestore-backed job queue. This allows the chat agent to retrieve analysis instantly instead of computing it during conversations.
+The Training Analyst is an **asynchronous background service** that pre-computes training insights and weekly reviews. It runs as Cloud Run Jobs processing from a Firestore-backed job queue. This allows the chat agent to retrieve analysis instantly instead of computing it during conversations.
 
 ### Architecture Flow
 
@@ -702,10 +704,10 @@ Firestore: training_analysis_jobs/{jobId}
 Training Analyst Worker: poll_job() → lease → run
         │ Routes to appropriate analyzer
         ▼
-PostWorkoutAnalyzer / DailyBriefAnalyzer / WeeklyReviewAnalyzer
+PostWorkoutAnalyzer / WeeklyReviewAnalyzer
         │ Reads aggregated data, calls Gemini LLM
         ▼
-Firestore: analysis_insights / daily_briefs / weekly_reviews
+Firestore: analysis_insights / weekly_reviews
         │
         ▼ (Chat agent retrieves)
 Chat Agent: tool_get_training_analysis()
@@ -734,7 +736,6 @@ adk_agent/training_analyst/
 │   ├── analyzers/
 │   │   ├── base.py                ← Shared LLM client (google.genai + Vertex AI)
 │   │   ├── post_workout.py        ← Post-workout insights
-│   │   ├── daily_brief.py         ← Daily readiness
 │   │   └── weekly_review.py       ← Weekly progression
 │   └── jobs/
 │       ├── models.py              ← Job, JobPayload, JobStatus, JobType
@@ -752,7 +753,6 @@ adk_agent/training_analyst/
 | Job Type | Trigger | Model | Output Collection | TTL |
 |----------|---------|-------|-------------------|-----|
 | `POST_WORKOUT` | `onWorkoutCompleted` Firestore trigger | gemini-2.5-pro | `users/{uid}/analysis_insights/{autoId}` | 7 days |
-| `DAILY_BRIEF` | Scheduler (daily 6 AM UTC) | gemini-2.5-flash | `users/{uid}/daily_briefs/{YYYY-MM-DD}` | 7 days |
 | `WEEKLY_REVIEW` | Scheduler (Sundays) | gemini-2.5-pro | `users/{uid}/weekly_reviews/{YYYY-WNN}` | 30 days |
 
 ### Data Budget Strategy
@@ -761,9 +761,8 @@ All analyzers read from **pre-aggregated collections only** (never raw workout d
 
 | Analyzer | Data Budget | Sources |
 |----------|------------|---------|
-| Post-Workout | ~8KB | Trimmed workout (~1.5KB) + 4wk rollups (~2KB) + exercise series (~4KB) |
-| Daily Brief | ~4KB | Next template (~1KB) + 4wk rollups (~2KB) + recent insight (~1KB) |
-| Weekly Review | ~35KB | 12wk rollups (~6KB) + top 10 exercise series (~18KB) + 8 muscle group series (~10KB) + routine context (~1KB) |
+| Post-Workout | ~18KB | Trimmed workout (~1.5KB) + 8wk rollups (~4KB) + 8wk exercise series (~10KB) + routine summary (~3KB) + exercise catalog (~1KB) + fatigue metrics |
+| Weekly Review | ~51KB | 12wk rollups (~6KB) + 15 exercise series (~18KB) + 8 muscle group series (~14KB) + full templates (~5KB) + recent insights (~2KB) + fatigue metrics + exercise catalog (~1KB) |
 
 ### Backfill
 
@@ -794,7 +793,7 @@ The chat agent retrieves all pre-computed analysis through a single consolidated
 
 ```python
 # In app/shell/tools.py
-tool_get_training_analysis(sections=None)  # All sections, or filter: ["insights", "daily_brief", "weekly_review"]
+tool_get_training_analysis(sections=None)  # All sections, or filter: ["insights", "weekly_review"]
 ```
 
 This calls the `getAnalysisSummary` Firebase Function, which reads from Firestore and returns all requested sections in a single HTTP call (~6KB total).
@@ -805,7 +804,7 @@ This calls the `getAnalysisSummary` Firebase Function, which reads from Firestor
 // firebase_functions/functions/training/get-analysis-summary.js
 // Auth: requireFlexibleAuth (Bearer + API key)
 // Params: userId, sections? (array), date? (YYYY-MM-DD), limit? (number)
-// Default: returns all 3 sections for today
+// Default: returns all sections (insights + weekly_review)
 ```
 
 ---
@@ -975,7 +974,7 @@ Connects the training analyst pipeline to user-facing recommendations and automa
 | **`target` field** | `{ template_id }` | `{ exercise_name, exercise_id }` | `{ routine_id, muscle_group }` |
 | **Auto-apply** | Yes (if `auto_pilot_enabled`) | No (always `pending_review`) | No (always `pending_review`) |
 | **Accept action** | Apply changes to template sets | Acknowledge (no mutation) | Acknowledge (no mutation) |
-| **Change types** | `weight_kg`, `target_reps`, `target_rir` | `weight_kg`, `target_reps`, `target_rir` | None (empty `changes` array) |
+| **Change types** | `weight`, `reps` | `weight`, `reps` | None (empty `changes` array) |
 
 Exercise-scoped recommendations ensure users without routines/templates still receive progression suggestions. Routine-scoped muscle_balance recommendations surface training volume imbalances for the user to consider.
 

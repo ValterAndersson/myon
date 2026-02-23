@@ -322,7 +322,7 @@ class TestTrainingAnalysis:
         assert success, f"get_analysis_summary failed: {err}"
         # At least one section should be present
         sections_found = [
-            k for k in ["insights", "daily_brief", "weekly_review"]
+            k for k in ["insights", "weekly_review"]
             if k in data
         ]
         assert len(sections_found) > 0, (
@@ -339,15 +339,15 @@ class TestTrainingAnalysis:
         success, data, err = parse_api_response(resp)
         assert success, f"get_analysis_summary(insights) failed: {err}"
 
-    def test_get_daily_brief(self, client):
-        """Get the daily brief."""
+    def test_get_weekly_review(self, client):
+        """Get the weekly review."""
         resp, http_err = safe_call(
             client.get_analysis_summary,
-            TEST_USER_ID, sections=["daily_brief"],
+            TEST_USER_ID, sections=["weekly_review"],
         )
-        assert http_err is None, f"get_analysis_summary(daily_brief) HTTP error: {http_err}"
+        assert http_err is None, f"get_analysis_summary(weekly_review) HTTP error: {http_err}"
         success, data, err = parse_api_response(resp)
-        assert success, f"get_analysis_summary(daily_brief) failed: {err}"
+        assert success, f"get_analysis_summary(weekly_review) failed: {err}"
 
 
 # ============================================================================

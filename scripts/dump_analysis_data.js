@@ -42,19 +42,6 @@ async function main() {
     console.log('---');
   }
 
-  // Daily briefs (latest 3)
-  const briefsSnap = await db.collection('users').doc(USER_ID)
-    .collection('daily_briefs')
-    .orderBy('created_at', 'desc')
-    .limit(3)
-    .get();
-
-  console.log('\n=== DAILY BRIEFS ===');
-  for (const doc of briefsSnap.docs) {
-    console.log(JSON.stringify({ id: doc.id, ...clean(doc.data()) }, null, 2));
-    console.log('---');
-  }
-
   // Weekly reviews (latest 2)
   const reviewsSnap = await db.collection('users').doc(USER_ID)
     .collection('weekly_reviews')

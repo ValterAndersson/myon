@@ -104,25 +104,6 @@ def fetch_analysis_data(sections=None):
                 break
         result["insights"] = insights
 
-    if not sections or "daily_brief" in sections:
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        doc = user_ref.collection("daily_briefs").document(today).get()
-        if doc.exists:
-            d = doc.to_dict()
-            result["daily_brief"] = {
-                "date": today,
-                "has_planned_workout": d.get("has_planned_workout", False),
-                "planned_workout": d.get("planned_workout"),
-                "readiness": d.get("readiness"),
-                "readiness_summary": d.get("readiness_summary", ""),
-                "fatigue_flags": d.get("fatigue_flags", []),
-                "adjustments": d.get("adjustments", []),
-                "created_at": ts(d.get("created_at")),
-            }
-        else:
-            result["daily_brief"] = None
-
     if not sections or "weekly_review" in sections:
         docs = (
             user_ref.collection("weekly_reviews")
@@ -263,7 +244,6 @@ def main():
         print(f"ERROR fetching data: {e}")
         return 1
     print(f"   insights: {len(data.get('insights', []))} items")
-    print(f"   daily_brief: {'present' if data.get('daily_brief') else 'null'}")
     print(f"   weekly_review: {'present' if data.get('weekly_review') else 'null'}")
 
     total_issues = 0

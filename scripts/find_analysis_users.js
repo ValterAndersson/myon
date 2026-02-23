@@ -13,12 +13,10 @@ async function main() {
 
   for (const u of users.docs) {
     const insights = await db.collection('users').doc(u.id).collection('analysis_insights').limit(1).get();
-    const briefs = await db.collection('users').doc(u.id).collection('daily_briefs').limit(1).get();
     const reviews = await db.collection('users').doc(u.id).collection('weekly_reviews').limit(1).get();
 
     const has = [];
     if (insights.size > 0) has.push('insights');
-    if (briefs.size > 0) has.push('briefs');
     if (reviews.size > 0) has.push('reviews');
 
     if (has.length > 0) {

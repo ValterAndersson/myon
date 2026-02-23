@@ -62,7 +62,7 @@ const onAnalysisInsightCreated = onDocumentCreated(
       const actionable = recommendations
         .filter(rec => {
           if (rec.confidence < 0.7) return false;
-          if (!['progression', 'deload', 'volume_adjust', 'rep_progression', 'intensity_adjust'].includes(rec.type)) return false;
+          if (!['progression', 'deload', 'volume_adjust', 'rep_progression'].includes(rec.type)) return false;
           // Input validation: clamp LLM-provided fields to valid ranges
           if (rec.target_reps != null && (rec.target_reps < 1 || rec.target_reps > 30)) return false;
           if (rec.target_rir != null && (rec.target_rir < 0 || rec.target_rir > 5)) return false;
@@ -605,14 +605,9 @@ async function processExerciseScopedRecommendations(db, userId, triggerType, tri
         to: rec.targetReps,
         rationale: `rep_progression: → ${rec.targetReps} reps`,
       });
-    } else if (rec.type === 'intensity_adjust' && rec.targetRir != null) {
-      changes.push({
-        path: 'target_rir',
-        from: null,
-        to: rec.targetRir,
-        rationale: `intensity_adjust: → RIR ${rec.targetRir}`,
-      });
     }
+    // intensity_adjust: removed — RIR is diagnostic, not prescriptive.
+    // High RIR triggers weight progression in the LLM prompt instead.
     // muscle_balance: skip entirely (handled in onWeeklyReviewCreated)
 
     if (changes.length === 0) {
@@ -851,10 +846,9 @@ function buildRationale(rec, scope, state, templateName) {
  * Change types by path:
  * - weight_kg: Weight progression/deload (existing logic via computeProgressionWeight)
  * - target_reps: Rep progression (double progression model — increase reps before weight)
- * - target_rir: Intensity adjustment (RIR tuning)
  *
  * @param {Object} exerciseData - { templateId, exerciseIndex, sets }
- * @param {string} recommendationType - 'progression' | 'deload' | 'volume_adjust' | 'rep_progression' | 'intensity_adjust'
+ * @param {string} recommendationType - 'progression' | 'deload' | 'volume_adjust' | 'rep_progression'
  * @param {Object} recommendation - Full recommendation object { suggestedWeight, targetReps, targetRir, ... }
  * @returns {Array} Array of change objects { path, from, to, rationale }
  */
@@ -876,9 +870,13 @@ function computeProgressionChanges(exerciseData, recommendationType, recommendat
   for (let setIdx = 0; setIdx < sets.length; setIdx++) {
     const set = sets[setIdx];
 
+    // Skip warmup sets — only modify working sets
+    if (set.type === 'warmup') continue;
+
     // Weight changes (progression, deload, volume_adjust)
+    // Templates use `weight` (not `weight_kg`) as the prescription field
     if (recommendationType === 'progression' || recommendationType === 'deload' || recommendationType === 'volume_adjust' || suggestedWeight !== null) {
-      const currentWeight = set.weight_kg || set.weight || 0;
+      const currentWeight = set.weight || set.weight_kg || 0;
       let newWeight;
 
       if (suggestedWeight !== null && suggestedWeight !== undefined) {
@@ -895,7 +893,7 @@ function computeProgressionChanges(exerciseData, recommendationType, recommendat
 
       if (newWeight !== undefined && newWeight !== currentWeight && newWeight > 0) {
         changes.push({
-          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].weight_kg`,
+          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].weight`,
           from: currentWeight,
           to: newWeight,
           rationale: `${recommendationType}: ${currentWeight}kg → ${newWeight}kg`,
@@ -904,11 +902,12 @@ function computeProgressionChanges(exerciseData, recommendationType, recommendat
     }
 
     // Rep changes (rep_progression)
+    // Templates use `reps` (not `target_reps`) as the prescription field
     if (targetReps !== null && targetReps > 0) {
-      const currentReps = set.target_reps ?? set.reps ?? null;
+      const currentReps = set.reps ?? set.target_reps ?? null;
       if (currentReps !== targetReps) {
         changes.push({
-          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].target_reps`,
+          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].reps`,
           from: currentReps,
           to: targetReps,
           rationale: `rep_progression: ${currentReps ?? '?'} → ${targetReps} reps`,
@@ -916,18 +915,8 @@ function computeProgressionChanges(exerciseData, recommendationType, recommendat
       }
     }
 
-    // RIR changes (intensity_adjust)
-    if (targetRir !== null && targetRir >= 0 && targetRir <= 5) {
-      const currentRir = set.target_rir ?? set.rir ?? null;
-      if (currentRir !== targetRir) {
-        changes.push({
-          path: `exercises[${exerciseData.exerciseIndex}].sets[${setIdx}].target_rir`,
-          from: currentRir,
-          to: targetRir,
-          rationale: `intensity_adjust: RIR ${currentRir ?? '?'} → ${targetRir}`,
-        });
-      }
-    }
+    // RIR is diagnostic, not prescriptive — no template mutations for RIR.
+    // High RIR triggers weight progression instead (handled by LLM prompt).
   }
 
   return changes;

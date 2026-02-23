@@ -12,7 +12,6 @@ from typing import Any, Dict, Optional
 class JobType(str, Enum):
     """Training analysis job types."""
     POST_WORKOUT = "POST_WORKOUT"
-    DAILY_BRIEF = "DAILY_BRIEF"
     WEEKLY_REVIEW = "WEEKLY_REVIEW"
 
 
@@ -107,9 +106,19 @@ class Job:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Job":
         """Create from Firestore dict."""
+        # Handle unknown job types gracefully (e.g., legacy DAILY_BRIEF jobs)
+        job_type = None
+        raw_type = data.get("type")
+        if raw_type:
+            try:
+                job_type = JobType(raw_type)
+            except ValueError:
+                # Unknown type - set to None instead of crashing
+                job_type = None
+
         return cls(
             id=data.get("id", ""),
-            type=JobType(data["type"]) if data.get("type") else JobType.POST_WORKOUT,
+            type=job_type,
             status=JobStatus(data["status"]) if data.get("status") else JobStatus.QUEUED,
             payload=JobPayload.from_dict(data.get("payload", {})),
             lease_owner=data.get("lease_owner"),

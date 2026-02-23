@@ -134,10 +134,11 @@ class TestToolRegistry:
         assert doc is not None
         # Verify key schema details are in docstring (LLM reads these)
         assert "insights" in doc
-        assert "daily_brief" in doc
         assert "weekly_review" in doc
         assert "progression_candidates" in doc
         assert "stalled_exercises" in doc
+        # daily_brief was removed
+        assert "daily_brief" not in doc
 
     def test_tool_count(self):
         names = self._get_tool_names()
@@ -164,9 +165,10 @@ class TestSkillImports:
         params = set(sig.parameters.keys())
         assert "user_id" in params
         assert "sections" in params
-        assert "date" in params
         assert "limit" in params
         assert "client" in params
+        # date parameter was removed (only used for daily_brief)
+        assert "date" not in params
 
     def test_deleted_skills_not_importable(self):
         import importlib
@@ -282,8 +284,9 @@ class TestClientMethod:
         params = set(sig.parameters.keys())
         assert "user_id" in params
         assert "sections" in params
-        assert "date" in params
         assert "limit" in params
+        # date parameter was removed (only used for daily_brief)
+        assert "date" not in params
 
     def test_deleted_client_methods(self):
         from app.libs.tools_canvas.client import CanvasFunctionsClient

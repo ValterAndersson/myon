@@ -31,6 +31,7 @@ MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "0"))  # 0 = unlimited
 MAX_SECONDS_PER_RUN = int(os.getenv("MAX_SECONDS_PER_RUN", "0"))  # 0 = no deadline
 SAFETY_MARGIN_SECS = int(os.getenv("SAFETY_MARGIN_SECS", "60"))
 HEARTBEAT_INTERVAL_SECS = int(os.getenv("HEARTBEAT_INTERVAL_SECS", "60"))
+INTER_JOB_DELAY_SECS = int(os.getenv("INTER_JOB_DELAY_SECS", "0"))  # delay between jobs
 
 
 def log_event(
@@ -205,6 +206,9 @@ class AnalystWorker:
 
             jobs_this_run += 1
 
+            if INTER_JOB_DELAY_SECS > 0 and self.running:
+                time.sleep(INTER_JOB_DELAY_SECS)
+
     def _process_job(self, job) -> bool:
         """Process a single job with full lifecycle."""
         from app.jobs.queue import (
@@ -215,7 +219,7 @@ class AnalystWorker:
         )
 
         job_id = job.id
-        job_type = job.type.value
+        job_type = job.type.value if job.type else "UNKNOWN"
         user_id = job.payload.user_id
         attempt = job.attempts
 
@@ -305,7 +309,6 @@ class AnalystWorker:
     def _execute_job(self, job) -> Dict[str, Any]:
         """Execute job using appropriate analyzer."""
         from app.analyzers.post_workout import PostWorkoutAnalyzer
-        from app.analyzers.daily_brief import DailyBriefAnalyzer
         from app.analyzers.weekly_review import WeeklyReviewAnalyzer
         from app.jobs.models import JobType
 
@@ -316,11 +319,6 @@ class AnalystWorker:
                     user_id=job.payload.user_id,
                     workout_id=job.payload.workout_id,
                 )
-            elif job.type == JobType.DAILY_BRIEF:
-                analyzer = DailyBriefAnalyzer()
-                return analyzer.analyze(
-                    user_id=job.payload.user_id,
-                )
             elif job.type == JobType.WEEKLY_REVIEW:
                 analyzer = WeeklyReviewAnalyzer()
                 return analyzer.analyze(
@@ -329,6 +327,13 @@ class AnalystWorker:
                     week_ending=job.payload.week_ending,
                 )
             else:
+                # Unknown job type (e.g., legacy DAILY_BRIEF)
+                log_event(
+                    "unknown_job_type",
+                    job_id=job.id,
+                    job_type=str(job.type) if job.type else "None",
+                    user_id=job.payload.user_id,
+                )
                 return {
                     "success": False,
                     "error": {

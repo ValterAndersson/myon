@@ -380,7 +380,7 @@ Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
 
 ### Training Analysis (Pre-computed)
 
-- `getAnalysisSummary` - Retrieve pre-computed training analysis (insights, daily brief, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`.
+- `getAnalysisSummary` - Retrieve pre-computed training analysis (insights, weekly review). Supports `sections`, `date`, `limit` params. Called by Shell Agent's `tool_get_training_analysis`.
 - `getMuscleGroupSummary` / `getMuscleSummary` / `getExerciseSummary` - Live drilldown summaries for specific muscles/exercises. `getExerciseSummary` accepts `exercise_name` for fuzzy name→ID resolution via the user's `set_facts`
 - `querySets` / `aggregateSets` - Raw set-level data queries with filtering (v2 onRequest + requireFlexibleAuth; converted from onCall for HTTP client compatibility). When date range filters (`start`/`end`) are present, sorts by `workout_date` instead of `workout_end_time` to satisfy Firestore's compound query constraint (first orderBy must match the inequality field)
 - `getActiveSnapshotLite` - Lightweight active workout state snapshot

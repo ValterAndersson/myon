@@ -49,7 +49,7 @@ LLM calls tool_log_set(exercise_instance_id, set_id, reps, weight_kg)
 
 Called by `agent_engine_app.py` once per Slow Lane request (not per LLM turn). Builds a compact text representation of the active workout state:
 
-- Parallel fetch with `ThreadPoolExecutor(max_workers=3)`: `getActiveWorkout` + `getAnalysisSummary(daily_brief)` + `getExerciseSummary` (after workout response resolves to identify current exercise)
+- Parallel fetch with `ThreadPoolExecutor(max_workers=3)`: `getActiveWorkout` + `getAnalysisSummary(weekly_review)` + `getExerciseSummary` (after workout response resolves to identify current exercise)
 - Formats as `[WORKOUT BRIEF]` text (~1350 tokens)
 
 ### Firebase endpoint mapping

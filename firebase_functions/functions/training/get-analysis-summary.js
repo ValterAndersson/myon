@@ -38,11 +38,11 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
     }
 
     // Parse optional params
-    const sections = req.body.sections || null; // e.g. ["insights", "daily_brief"]
+    const sections = req.body.sections || null; // e.g. ["insights", "weekly_review"]
     const insightsLimit = req.body.limit || 5;
     const dateKey = req.body.date || getTodayDateKey();
 
-    const validSections = ['insights', 'daily_brief', 'weekly_review'];
+    const validSections = ['insights', 'weekly_review'];
     const requestedSections = sections
       ? sections.filter(s => validSections.includes(s))
       : validSections;
@@ -64,12 +64,6 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
         .get();
     }
 
-    if (requestedSections.includes('daily_brief')) {
-      reads.daily_brief = db.collection('users').doc(userId)
-        .collection('daily_briefs')
-        .doc(dateKey)
-        .get();
-    }
 
     if (requestedSections.includes('weekly_review')) {
       reads.weekly_review = db.collection('users').doc(userId)
@@ -92,7 +86,7 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
       const insights = [];
       for (const doc of results.insights.docs) {
         const data = doc.data();
-        insights.push({
+        const insight = {
           id: doc.id,
           type: data.type,
           workout_id: data.workout_id || null,
@@ -103,30 +97,18 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
           recommendations: data.recommendations || [],
           created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
           expires_at: data.expires_at?.toDate?.()?.toISOString() || data.expires_at,
-        });
+        };
+        // Include template diff summary if the user deviated from template
+        if (data.template_diff_summary) {
+          insight.template_diff_summary = data.template_diff_summary;
+        }
+        insights.push(insight);
       }
       // Sort by workout_date descending so most recent workouts come first
       insights.sort((a, b) => (b.workout_date || '').localeCompare(a.workout_date || ''));
       response.insights = insights.slice(0, insightsLimit);
     }
 
-    if (results.daily_brief) {
-      let dailyBrief = null;
-      if (results.daily_brief.exists) {
-        const data = results.daily_brief.data();
-        dailyBrief = {
-          date: dateKey,
-          has_planned_workout: data.has_planned_workout || false,
-          planned_workout: data.planned_workout || null,
-          readiness: data.readiness || null,
-          readiness_summary: data.readiness_summary || '',
-          fatigue_flags: data.fatigue_flags || [],
-          adjustments: data.adjustments || [],
-          created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        };
-      }
-      response.daily_brief = dailyBrief;
-    }
 
     if (results.weekly_review) {
       let weeklyReview = null;
@@ -137,11 +119,17 @@ exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
           id: doc.id,
           week_ending: data.week_ending || null,
           summary: data.summary || '',
-          training_load: data.training_load || {},
+          training_load: {
+            ...(data.training_load || {}),
+            acwr: data.training_load?.acwr || null,
+          },
           muscle_balance: data.muscle_balance || [],
           exercise_trends: data.exercise_trends || [],
           progression_candidates: data.progression_candidates || [],
           stalled_exercises: data.stalled_exercises || [],
+          periodization: data.periodization || null,
+          routine_recommendations: data.routine_recommendations || [],
+          fatigue_status: data.fatigue_status || null,
           created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
         };
       }

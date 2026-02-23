@@ -44,30 +44,48 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         if not workout:
             raise ValueError(f"Workout {workout_id} not found for user {user_id}")
 
-        # 2. Read 4 weeks of analytics rollups (~2KB)
-        rollups = self._read_rollups(db, user_id, weeks=4)
+        # 2. Read 8 weeks of analytics rollups (~4KB)
+        rollups_list = self._read_rollups(db, user_id, weeks=8)
 
-        # 3. Read exercise series for exercises in this workout (~4KB)
+        # 3. Read exercise series for exercises in this workout (~8KB)
         exercise_ids = [
             ex["exercise_id"] for ex in workout.get("exercises", [])
             if ex.get("exercise_id")
         ]
-        series = self._read_exercise_series(db, user_id, exercise_ids, weeks=4)
+        series = self._read_exercise_series(db, user_id, exercise_ids, weeks=8)
 
-        # 4. Build LLM input (~8KB total)
-        llm_input = json.dumps({
+        # 4. Read routine summary (template IDs → template names)
+        routine_context = self._read_routine_summary(db, user_id)
+
+        # 5. Read exercise catalog (batch read muscles for exercises in workout)
+        exercise_catalog = self._read_exercise_catalog(db, exercise_ids)
+
+        # 6. Compute fatigue metrics from rollups
+        rollups_map = {r["week_id"]: r for r in rollups_list}
+        fatigue_metrics = self._compute_fatigue_metrics(rollups_map)
+
+        # 7. Build LLM input (~20KB total)
+        llm_input_data = {
             "workout": workout,
-            "recent_rollups": rollups,
+            "recent_rollups": rollups_list,
             "exercise_series": series,
-        }, indent=2, default=str)
+        }
+        if routine_context:
+            llm_input_data["routine_context"] = routine_context
+        if exercise_catalog:
+            llm_input_data["exercise_catalog"] = exercise_catalog
+        if fatigue_metrics:
+            llm_input_data["fatigue_metrics"] = fatigue_metrics
 
-        # 5. Call LLM
+        llm_input = json.dumps(llm_input_data, indent=2, default=str)
+
+        # 8. Call LLM
         result = self.call_llm(
             self._get_system_prompt(), llm_input,
             required_keys=["summary", "highlights", "flags", "recommendations"],
         )
 
-        # 6. Write to analysis_insights
+        # 9. Write to analysis_insights
         insight_id = self._write_insight(db, user_id, workout_id, workout, result)
 
         self.log_event(
@@ -127,9 +145,11 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         for ex in data.get("exercises", []):
             sets = ex.get("sets", [])
             # Filter to working sets only (exclude warmups)
-            working_sets = [s for s in sets if not s.get("is_warmup")]
+            # Sets use type: "warmup" | "working" (not is_warmup boolean)
+            working_sets = [s for s in sets if s.get("type") != "warmup"]
             if not working_sets:
-                working_sets = sets
+                # All sets are warmups — skip this exercise entirely
+                continue
 
             weights = [s.get("weight_kg", 0) for s in working_sets if s.get("weight_kg")]
             reps_list = [s.get("reps", 0) for s in working_sets if s.get("reps")]
@@ -183,6 +203,32 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
                 )[:10],
             }
 
+        # Include template_diff if user deviated from template (~500B)
+        template_diff = data.get("template_diff")
+        if template_diff and template_diff.get("changes_detected"):
+            trimmed["template_diff"] = {
+                "summary": template_diff.get("summary", ""),
+                "weight_changes": template_diff.get("weight_changes", []),
+                "rep_changes": template_diff.get("rep_changes", []),
+                "exercises_added": [
+                    e.get("exercise_name", e.get("exercise_id"))
+                    for e in template_diff.get("exercises_added", [])
+                ],
+                "exercises_removed": [
+                    e.get("exercise_name", e.get("exercise_id"))
+                    for e in template_diff.get("exercises_removed", [])
+                ],
+                "exercises_swapped": [
+                    {
+                        "from": s.get("from_name", s.get("from_id")),
+                        "to": s.get("to_name", s.get("to_id")),
+                    }
+                    for s in template_diff.get("exercises_swapped", [])
+                ],
+                "sets_added": template_diff.get("sets_added_count", 0),
+                "sets_removed": template_diff.get("sets_removed_count", 0),
+            }
+
         # Remove None notes to save token budget
         if trimmed.get("notes") is None:
             trimmed.pop("notes", None)
@@ -216,6 +262,9 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
                 "total_weight": data.get("total_weight", 0),
                 "hard_sets_total": data.get("hard_sets_total", 0),
                 "low_rir_sets_total": data.get("low_rir_sets_total", 0),
+                # Per-muscle breakdowns for ACWR computation
+                "load_per_muscle": data.get("load_per_muscle", {}),
+                "hard_sets_per_muscle": data.get("hard_sets_per_muscle", {}),
             })
 
         return rollups
@@ -270,6 +319,88 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
 
         return series
 
+    def _read_routine_summary(
+        self, db, user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Read routine summary (template IDs → template names via batch read)."""
+        user_doc = db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            return None
+
+        user_data = user_doc.to_dict()
+        routine_id = user_data.get("activeRoutineId")
+        if not routine_id:
+            return None
+
+        routine_doc = (
+            db.collection("users").document(user_id)
+            .collection("routines").document(routine_id).get()
+        )
+        if not routine_doc.exists:
+            return None
+
+        routine = routine_doc.to_dict()
+        template_ids = routine.get("template_ids", [])
+        if not template_ids:
+            return None
+
+        # Batch read templates
+        template_refs = [
+            db.collection("users").document(user_id)
+            .collection("templates").document(tid)
+            for tid in template_ids[:10]  # Cap at 10
+        ]
+        template_docs = db.get_all(template_refs)
+
+        templates = []
+        for tdoc in template_docs:
+            if tdoc.exists:
+                tdata = tdoc.to_dict()
+                templates.append({
+                    "template_id": tdoc.id,
+                    "name": tdata.get("name", tdoc.id),
+                })
+
+        return {
+            "routine_name": routine.get("name"),
+            "frequency": routine.get("frequency"),
+            "templates": templates,
+        }
+
+    def _read_exercise_catalog(
+        self, db, exercise_ids: List[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Read exercise catalog (batch read muscles for exercises in workout).
+
+        Caps at 15 exercises to avoid oversized reads.
+        """
+        if not exercise_ids:
+            return None
+
+        # Cap at 15 exercises
+        capped_ids = exercise_ids[:15]
+
+        # Batch read from exercise_catalog
+        exercise_refs = [
+            db.collection("exercise_catalog").document(ex_id)
+            for ex_id in capped_ids
+        ]
+        exercise_docs = db.get_all(exercise_refs)
+
+        catalog = []
+        for edoc in exercise_docs:
+            if edoc.exists:
+                edata = edoc.to_dict()
+                muscles = edata.get("muscles", {})
+                catalog.append({
+                    "exercise_id": edoc.id,
+                    "name": edata.get("name", edoc.id),
+                    "primary_muscles": muscles.get("primary", []),
+                    "secondary_muscles": muscles.get("secondary", []),
+                })
+
+        return catalog if catalog else None
+
     def _write_insight(
         self, db, user_id: str, workout_id: str,
         workout: Dict[str, Any], result: Dict[str, Any]
@@ -290,6 +421,11 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
             "recommendations": result.get("recommendations", []),
         }
 
+        # Include template_diff summary if the workout had user modifications
+        template_diff = workout.get("template_diff")
+        if template_diff:
+            doc_data["template_diff_summary"] = template_diff.get("summary", "")
+
         ref = (
             db.collection("users").document(user_id)
             .collection("analysis_insights")
@@ -299,32 +435,90 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         return doc_ref.id
 
     def _get_system_prompt(self) -> str:
-        # Double progression model: increase reps to target range first,
-        # then increase weight and reset reps. This prevents premature
-        # weight jumps when the user hasn't mastered the current load.
         return """You are a training analyst providing post-workout feedback.
 
-Analyze the completed workout in context of recent weekly aggregated trends.
-Compare this session's volume, intensity (RIR), and estimated 1RMs against
-the 4-week baseline from rollups and exercise series.
+**EVIDENCE-BASED PRINCIPLES:**
 
-CRITICAL RULES:
+1. **Progressive Overload** (Schoenfeld 2010; Progression of Load Review)
+   Primary driver of muscle adaptation. Incremental increases in load, volume, or intensity over time.
+   Mechanism: mechanical tension → satellite cell activation → muscle protein synthesis.
+
+2. **Proximity to Failure** (Schoenfeld et al. 2017; Martinez-Hernandez et al. 2024)
+   Training within 0-3 RIR produces similar hypertrophy to failure. RIR 4+ reduces stimulus.
+   RIR 0-1 increases fatigue cost without proportional gains for most lifters.
+   RIR 1-3 = optimal stimulus-to-fatigue ratio.
+
+3. **Volume Landmarks** (Schoenfeld et al. 2017; Baz-Valle et al. 2022)
+   Per muscle per week: 10-20 hard sets = optimal zone. <10 = suboptimal stimulus. >20 = diminishing returns + fatigue accumulation.
+   Hard set = within 0-3 RIR.
+
+4. **Stimulus-to-Fatigue Ratio** (Israetel et al. 2018; Helms et al. 2018)
+   Not all volume is equal. Effective volume = hard sets that produce adaptation without excessive fatigue.
+   Junk volume = high-RIR sets, redundant exercises, or volume beyond recovery capacity.
+
+5. **Fatigue Management & ACWR** (Gabbett 2016; Hulin et al. 2014)
+   Acute:Chronic Workload Ratio predicts injury risk and performance readiness.
+   ACWR 0.8-1.3 = "sweet spot". <0.8 = detraining risk. >1.5 = overreaching/injury risk.
+   Use fatigue_metrics (if present) to contextualize volume recommendations.
+
+6. **Periodization** (Rhea et al. 2003; Williams et al. 2017)
+   Planned variation in volume/intensity prevents plateaus and manages fatigue.
+   Block periodization (4-12 weeks per block) > constant linear progression for intermediate+ lifters.
+
+7. **Exercise Selection Hierarchy** (Schoenfeld & Contreras 2016)
+   Compound lifts (squat, deadlift, bench, row) = high stimulus, multi-muscle recruitment.
+   Isolation lifts = targeted hypertrophy, lower systemic fatigue.
+   Swap exercises when: (a) plateau >6 weeks, (b) pain/form breakdown, (c) poor muscle activation.
+
+**CONTEXT DATA:**
+
+You have access to:
+- **workout**: Completed session with exercise summaries (sets, reps, weight, RIR, e1RM, volume, notes)
+- **recent_rollups**: 8 weeks of weekly aggregates (total sets, volume, hard sets, intensity)
+- **exercise_series**: 8 weeks of per-exercise trends (e1RM, volume, sets, RIR)
+- **routine_context** (if present): User's active routine + template names
+- **exercise_catalog** (if present): Muscle targets for exercises in this workout
+- **fatigue_metrics** (if present): Pre-computed ACWR (systemic + per-muscle)
+
+**ROUTINE CONTEXT (if present):**
+If routine_context is in the input, you know the user's program structure. Use this to:
+- Identify if this workout is part of a planned progression (e.g., "Week 3 of Push day")
+- Assess if the session aligns with routine frequency (e.g., 4x/week program but user trained 2x this week)
+- Flag missing muscles from the routine split (e.g., "Pull day missed legs this week")
+
+**EXERCISE CATALOG (if present):**
+If exercise_catalog is in the input, you have muscle target data for exercises. Use this to:
+- Assess muscle balance within the workout (e.g., "chest volume high, triceps undertrained")
+- Suggest exercise swaps that target the same primary muscles
+- Identify accessory muscles hit by each exercise
+
+**CRITICAL RULES:**
 - ONLY reference exercises, numbers, and data that appear in the input. NEVER invent or assume data.
-- If fewer than 3 weeks of rollup data exist, say "early days — not enough history for trend analysis" in the summary. Do not claim stalls or trends.
+- If fewer than 4 weeks of rollup data exist, say "limited history — not enough data for reliable trend analysis" in the summary. Do not claim stalls or trends.
 - If exercise_series is empty for an exercise, skip trend analysis for it.
 - Every numeric claim (e1RM, volume, sets) MUST come from the provided data.
+- When citing principles, reference the mechanism or threshold (e.g., "RIR 1.5 = optimal stimulus-to-fatigue" not just "good RIR").
 
-CONTEXT NOTES: The workout or individual exercises may include a "notes" field
+**CONTEXT NOTES:** The workout or individual exercises may include a "notes" field
 with user-provided context (e.g., different gym, equipment differences, illness,
 injury). When notes are present, factor them into your analysis — they may explain
 performance deviations. Reference relevant notes in your summary or flags.
+
+**USER MODIFICATIONS (template_diff):** If the workout includes a "template_diff" field,
+the user deviated from their prescribed template. Key signals:
+- Weight increases = SELF-PROGRESSION (user chose to increase weight independently).
+  Acknowledge this positively rather than recommending the same progression again.
+- Exercise swaps = user preference or equipment changes. Don't flag swapped exercises
+  as "missing" from the template.
+- Added/removed sets = volume adjustment by the user.
+- If no template_diff is present, the workout matched the template or was freeform.
 
 Return JSON matching this schema EXACTLY:
 {
   "summary": "2-3 sentence overview of the session",
   "highlights": [
     {
-      "type": "pr | volume_up | consistency | intensity",
+      "type": "pr | volume_up | consistency | intensity | self_progression",
       "message": "Human-readable highlight referencing specific numbers",
       "exercise_id": "exercise ID from workout.exercises (or omit if workout-level)",
       "data": {}
@@ -342,10 +536,10 @@ Return JSON matching this schema EXACTLY:
   ],
   "recommendations": [
     {
-      "type": "progression | deload | swap | volume_adjust | rep_progression | intensity_adjust",
+      "type": "progression | deload | swap | volume_adjust | rep_progression | intensity_adjust | periodization | exercise_selection",
       "target": "exercise name or muscle group name FROM THE INPUT",
       "action": "concise next-step suggestion with specific numbers",
-      "reasoning": "1-2 sentences: what data you evaluated, why this recommendation follows",
+      "reasoning": "1-2 sentences: what data you evaluated, why this recommendation follows. CITE the principle (e.g., 'Progressive overload requires load increase when RIR stable')",
       "signals": ["e1RM stable at 125kg for 3 weeks", "avg RIR 2.0 across sets"],
       "confidence": 0.0-1.0,
       "suggested_weight": null,
@@ -380,17 +574,21 @@ Evaluate in this order for each exercise:
    the user is near failure at this weight.
    → type: "deload" (suggested_weight: 90% of current) or type: "swap"
 
-5. Intensity adjustment? If avg RIR is consistently too high (≥3) or too low (<1)
-   across multiple sessions.
-   → type: "intensity_adjust", target_rir: recommended RIR
+5. High RIR = too light? If avg RIR is consistently ≥3 across multiple sessions,
+   the load is too easy. Prescribe a WEIGHT INCREASE (type: "progression") so RIR
+   naturally drops to the 1-2 range. Do NOT recommend an RIR change alone — RIR is
+   an outcome of load and effort, not an independent variable.
+
+6. Very low RIR (<1) = grinding? If avg RIR is consistently <1, the user is at
+   failure. Consider a deload or rep reduction, not an RIR target change.
 
 For each recommendation:
 - "action" must include specific numbers (weights, reps, percentages) from the input
 - Set ONLY the relevant numeric fields: suggested_weight for weight changes,
-  target_reps for rep changes, target_rir for RIR changes. Leave others as null.
+  target_reps for rep changes. Leave others as null.
 - target_reps must be > 0 and ≤ 30 when set
-- target_rir must be 0-5 when set
 - suggested_weight must be > 0 when set
+- target_rir should always be null (RIR is diagnostic, not prescriptive)
 - For swap suggestions, estimate the new exercise weight from the original:
   BB→DB = 37% per hand, compound→isolation = 30%, incline = 82% of flat.
 - "reasoning" explains the logic chain: which metrics you compared, what threshold was met, why this change
@@ -403,4 +601,12 @@ Detection rules:
 - volume_drop: this week's total_sets < 70% of rollup average
 - overreach: avg_rir < 1.0 across multiple exercises while volume is high
 
-Output limits: 2-4 highlights, 0-3 flags, 1-5 recommendations"""
+New recommendation types:
+- **intensity_adjust**: When RIR is consistently too high (≥3) or too low (<1) across multiple sessions.
+  Cite: "Proximity to Failure principle — RIR 1-3 optimal stimulus-to-fatigue ratio"
+- **periodization**: When user has been in same rep range or intensity for >6 weeks without variation.
+  Cite: "Periodization prevents plateaus — planned variation in volume/intensity"
+- **exercise_selection**: When exercise shows poor activation or form breakdown despite correct load.
+  Cite: "Exercise Selection Hierarchy — swap when plateau >6 weeks or form breakdown"
+
+Output limits: 2-5 highlights, 0-4 flags, 1-7 recommendations (expanded to accommodate new types)"""

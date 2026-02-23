@@ -161,7 +161,7 @@ Error response format (via `utils/response.js`):
     "details": {
       "mismatches": [
         {
-          "path": "exercises[0].sets[0].weight_kg",
+          "path": "exercises[0].sets[0].weight",
           "expected": 80,
           "actual": 85
         }
@@ -214,7 +214,7 @@ Applies an array of changes to a template or routine document. Used by:
 
 ### `resolvePathValue(obj, path)`
 
-Resolves a nested path like `"exercises[0].sets[0].weight_kg"` to get a value from an object.
+Resolves a nested path like `"exercises[0].sets[0].weight"` to get a value from an object.
 
 **Input**:
 - `obj` - Object to traverse

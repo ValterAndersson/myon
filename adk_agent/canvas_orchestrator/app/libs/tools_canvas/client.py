@@ -639,23 +639,20 @@ class CanvasFunctionsClient:
         user_id: str,
         *,
         sections: Optional[List[str]] = None,
-        date: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Get pre-computed training analysis summaries.
 
-        Returns AI-generated insights, daily briefs, and weekly reviews.
+        Returns AI-generated insights and weekly reviews.
         Use this instead of computing from raw data for faster responses.
 
         Valid sections:
             - "insights": Recent analysis_insights (last 7 days)
-            - "daily_brief": Today's training readiness brief
             - "weekly_review": Most recent weekly progression review
 
         Args:
             user_id: User ID
             sections: Which sections to include (default: all)
-            date: Date for daily_brief (YYYY-MM-DD, defaults to today)
             limit: Max insights to return (for "insights" section)
 
         Returns:
@@ -672,18 +669,32 @@ class CanvasFunctionsClient:
                             "recommendations": [...]
                         }
                     ],
-                    "daily_brief": {
-                        "date": "2024-01-15",
-                        "readiness_score": 0.85,
-                        "recommendations": [...],
-                        "upcoming_workout_suggestion": {...}
-                    },
                     "weekly_review": {
                         "week_id": "2024-01-08",
                         "progression_summary": "...",
                         "volume_trends": {...},
                         "intensity_metrics": {...},
-                        "recommendations": [...]
+                        "recommendations": [...],
+                        "periodization": {
+                            "current_phase": "hypertrophy | strength | endurance | mixed",
+                            "weeks_in_phase": number,
+                            "suggestion": "phase change recommendation if applicable",
+                            "reasoning": "evidence from data"
+                        },
+                        "routine_recommendations": [
+                            {
+                                "type": "add_exercise | remove_exercise | frequency_change | volume_adjust | restructure",
+                                "target": "muscle group or template name",
+                                "suggestion": "specific recommendation",
+                                "reasoning": "evidence from data"
+                            }
+                        ],
+                        "fatigue_status": {
+                            "overall_acwr": number,
+                            "interpretation": "optimal | underloading | overreaching | high_overreach",
+                            "flags": [{ "muscle": "...", "acwr": number, "concern": "..." }],
+                            "recommendation": "text"
+                        }
                     }
                 }
             }
@@ -693,8 +704,6 @@ class CanvasFunctionsClient:
         }
         if sections:
             body["sections"] = sections
-        if date:
-            body["date"] = date
         if limit is not None:
             body["limit"] = limit
         return self._http.post("getAnalysisSummary", body)

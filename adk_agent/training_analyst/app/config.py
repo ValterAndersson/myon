@@ -14,11 +14,9 @@ LEASE_DURATION_SECS = 300  # 5 minutes
 LEASE_RENEWAL_MARGIN_SECS = 120  # 2 minutes
 MAX_ATTEMPTS = 3
 
-# LLM models
-MODEL_PRO = "gemini-2.5-pro"  # Post-workout and weekly review
-MODEL_FLASH = "gemini-2.5-flash"  # Daily brief
+# LLM models (overridable via env var for backfills with different quota)
+MODEL_PRO = os.getenv("LLM_MODEL", "gemini-2.5-pro")
 
 # TTL for output documents (days)
 TTL_INSIGHTS = 7  # analysis_insights
-TTL_BRIEFS = 7   # daily_briefs
 TTL_REVIEWS = 30  # weekly_reviews

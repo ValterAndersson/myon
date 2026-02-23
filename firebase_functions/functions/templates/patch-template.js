@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
+const { logger } = require('firebase-functions');
 
 const firestore = admin.firestore();
 
@@ -27,7 +28,7 @@ async function patchTemplateHandler(req, res) {
     return fail(res, 'UNAUTHENTICATED', 'No user identified', null, 401);
   }
 
-  const { templateId, patch } = req.body;
+  const { templateId, patch, change_source, recommendation_id, workout_id } = req.body;
 
   if (!templateId) {
     return fail(res, 'INVALID_ARGUMENT', 'Missing templateId', null, 400);
@@ -136,8 +137,54 @@ async function patchTemplateHandler(req, res) {
       sanitizedPatch.analytics = admin.firestore.FieldValue.delete();
     }
 
-    // Apply patch
-    await templateRef.update(sanitizedPatch);
+    // Build changelog entry
+    const changesSummary = [];
+    if (exercisesChanged) {
+      // Detect specific exercise changes
+      const currentExIds = (current.exercises || []).map(e => e.exercise_id);
+      const newExIds = (sanitizedPatch.exercises || []).map(e => e.exercise_id);
+      const added = newExIds.filter(id => !currentExIds.includes(id));
+      const removed = currentExIds.filter(id => !newExIds.includes(id));
+
+      if (added.length > 0 && removed.length > 0) {
+        changesSummary.push({ field: 'exercises.swap', operation: 'swap', summary: `Swapped ${removed.length} exercise(s)` });
+      } else {
+        if (added.length > 0) changesSummary.push({ field: 'exercises', operation: 'add', summary: `Added ${added.length} exercise(s)` });
+        if (removed.length > 0) changesSummary.push({ field: 'exercises', operation: 'remove', summary: `Removed ${removed.length} exercise(s)` });
+      }
+      if (JSON.stringify(newExIds.filter(id => currentExIds.includes(id))) !== JSON.stringify(currentExIds.filter(id => newExIds.includes(id)))) {
+        changesSummary.push({ field: 'exercises', operation: 'reorder', summary: 'Reordered exercises' });
+      }
+      if (changesSummary.length === 0) {
+        changesSummary.push({ field: 'exercises', operation: 'update', summary: 'Updated exercise sets' });
+      }
+    }
+    if (sanitizedPatch.name !== undefined) {
+      changesSummary.push({ field: 'name', operation: 'update', summary: `Renamed to "${sanitizedPatch.name}"` });
+    }
+    if (sanitizedPatch.description !== undefined) {
+      changesSummary.push({ field: 'description', operation: 'update', summary: 'Updated description' });
+    }
+
+    // Batched write: template update + changelog entry for atomicity
+    const batch = firestore.batch();
+    batch.update(templateRef, sanitizedPatch);
+
+    const changelogRef = templateRef.collection('changelog').doc();
+    batch.set(changelogRef, {
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      source: change_source || 'user_edit',
+      workout_id: workout_id || null,
+      recommendation_id: recommendation_id || null,
+      changes: changesSummary,
+      expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+    });
+
+    await batch.commit();
+
+    logger.info('[patchTemplate] Template updated with changelog', {
+      userId: callerUid, templateId, patchedFields, source: change_source || 'user_edit'
+    });
 
     return ok(res, {
       templateId,
@@ -147,7 +194,7 @@ async function patchTemplateHandler(req, res) {
     });
 
   } catch (error) {
-    console.error('patch-template function error:', error);
+    logger.error('[patchTemplate] Error:', { error: error.message });
     return fail(res, 'INTERNAL', 'Failed to patch template', { message: error.message }, 500);
   }
 }

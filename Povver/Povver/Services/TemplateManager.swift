@@ -79,7 +79,8 @@ class TemplateManager: ObservableObject {
 
             try await FocusModeWorkoutService.shared.patchTemplate(
                 templateId: template.id,
-                patch: patch
+                patch: patch,
+                changeSource: "user_edit"
             )
             return template.id
         } else {

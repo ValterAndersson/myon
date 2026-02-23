@@ -14,7 +14,6 @@ Firestore-backed job queue with lease-based concurrency control.
 
 **Job Types**:
 - `POST_WORKOUT`: Immediate post-workout analysis
-- `DAILY_BRIEF`: Daily readiness assessment
 - `WEEKLY_REVIEW`: Weekly comprehensive review
 
 **Key Files**:
@@ -32,7 +31,7 @@ Firestore-backed job queue with lease-based concurrency control.
 
 ### Analyzers (`app/analyzers/`)
 
-Three specialized analyzers with distinct data budgets and LLM models.
+Two specialized analyzers with distinct data budgets and LLM models.
 
 **Base Analyzer** (`base.py`):
 - Shared LLM client (`google.genai` SDK with Vertex AI backend)
@@ -41,31 +40,31 @@ Three specialized analyzers with distinct data budgets and LLM models.
 
 **Post-Workout Analyzer** (`post_workout.py`):
 - Model: `gemini-2.5-pro` (temperature=0.2)
-- Budget: ~8KB
-- Reads: trimmed workout + 4 weeks rollups + exercise series
+- Budget: ~18KB total
+- Reads: trimmed workout (~1.5KB) + 8 weeks rollups (~4KB) + 8 weeks exercise series (~10KB) + routine summary (~3KB) + exercise catalog (~1KB) + fatigue metrics (deterministic ACWR)
 - Writes: `users/{uid}/analysis_insights/{autoId}` (TTL 7 days)
 - Output: summary, typed highlights, severity-flagged issues, confidence-scored recommendations
-- Recommendation types: `progression`, `deload`, `swap`, `volume_adjust`, `rep_progression`, `intensity_adjust`
+- Recommendation types: `progression`, `deload`, `swap`, `volume_adjust`, `rep_progression`
 - Uses double progression model: reps increase before weight increase when user hasn't hit target reps
-- Optional output fields: `suggested_weight`, `target_reps`, `target_rir`, `sets_delta`
-
-**Daily Brief Analyzer** (`daily_brief.py`):
-- Model: `gemini-2.5-flash` (temperature=0.3)
-- Budget: ~3KB
-- Reads: next template + current week rollup + latest insights
-- Writes: `users/{uid}/daily_briefs/{YYYY-MM-DD}` (TTL 7 days)
-- Output: readiness level, fatigue flags per muscle group, adjustment suggestions
+- RIR is diagnostic only — high RIR triggers weight progression, not a standalone RIR adjustment
+- Optional output fields: `suggested_weight`, `target_reps`, `sets_delta`
+- Evidence-based training principles: Rep ranges and progression guidance aligned with Schoenfeld et al. research
 
 **Weekly Review Analyzer** (`weekly_review.py`):
 - Model: `gemini-2.5-pro` (temperature=0.2)
-- Budget: ~35KB
-- Reads: 12 weeks rollups + top 10 exercise series + 8 muscle group series
+- Budget: ~51KB total
+- Reads: 12 weeks rollups (~6KB) + 15 exercise series (~18KB) + 8 muscle group series (~14KB) + full templates (~5KB) + recent insights (~2KB) + fatigue metrics (deterministic ACWR) + exercise catalog (~1KB)
 - Writes: `users/{uid}/weekly_reviews/{YYYY-WNN}` (TTL 30 days)
-- Output: training load delta, muscle balance, exercise trends, progression candidates, stalled exercises
+- Output: training load delta, muscle balance, exercise trends, progression candidates, stalled exercises, periodization, routine_recommendations, fatigue_status
 - `progression_candidates` includes `target_reps` (for rep progression) and `suggested_weight` (for weight progression)
 - `stalled_exercises` includes `target_reps` and `suggested_weight` fields mapped to `suggested_action`
 - All stalled exercise actions now processed: `increase_weight`, `deload`, `swap`, `vary_rep_range`
 - `muscle_balance` data used for routine-scoped recommendations and readiness derivation
+- New `periodization` field: current_phase, weeks_in_phase, suggestion, reasoning
+- New `routine_recommendations` array: type, target, suggestion, reasoning
+- New `fatigue_status` field: overall_acwr, interpretation, flags array, recommendation
+- ACWR calculation uses load_per_muscle with fallback to hard_sets_per_muscle for deterministic fatigue tracking
+- Evidence-based training principles: Periodization guidance aligned with Schoenfeld et al. research
 
 **Data Budget Strategy**: NEVER pass raw workout docs, set_facts, or full history to LLM. Only use pre-aggregated data (analytics_rollups, series_*).
 
@@ -84,7 +83,6 @@ Three Cloud Run Jobs for bounded execution.
 - Runs daily at 6 AM
 - Creates WEEKLY_REVIEW jobs on Sundays
 - Filters users with recent workouts
-- Daily brief scheduling removed (2026-02-20): readiness data is now derived from weekly review muscle_balance in the workout brief builder
 
 **Watchdog** (`watchdog.py`):
 - Recovers stuck jobs (expired leases)
@@ -102,7 +100,7 @@ Three jobs deployed to `europe-west1`:
 
 2. **training-analyst-scheduler**
    - Triggered daily at 6 AM
-   - Creates daily/weekly jobs
+   - Creates weekly jobs
    - 30 minute timeout, 512Mi memory
 
 3. **training-analyst-watchdog**
@@ -159,7 +157,7 @@ FIREBASE_SERVICE_ACCOUNT_PATH=$FIREBASE_SA_KEY \
   node scripts/backfill_analysis_jobs.js --user <userId> --months 3
 ```
 
-Creates idempotent jobs with deterministic IDs (`bf-pw-{hash}`, `bf-wr-{hash}`, `bf-db-{hash}`). Safe to re-run — overwrites rather than duplicates.
+Creates idempotent jobs with deterministic IDs (`bf-pw-{hash}`, `bf-wr-{hash}`). Safe to re-run — overwrites rather than duplicates.
 
 **Step 3 — Process jobs:**
 ```bash
@@ -173,10 +171,12 @@ Or trigger the Cloud Run Job: `make trigger-worker`
 **Backfill script options:**
 - `--user <userId>` or `--all-users`: Target scope
 - `--months <n>`: Window (default: 3)
-- `--skip-workouts`, `--skip-weekly`, `--skip-daily`: Skip specific job types
+- `--skip-workouts`, `--skip-weekly`: Skip specific job types
 - `--dry-run`: Preview without writing
 
-**Required Firestore index**: `training_analysis_jobs` composite index on `status` (ASC) + `created_at` (ASC). The worker will fail with a `FailedPrecondition` error if this index doesn't exist. Create it via:
+**Required Firestore indexes**:
+
+1. `training_analysis_jobs` composite index on `status` (ASC) + `created_at` (ASC):
 ```bash
 gcloud firestore indexes composite create \
   --collection-group=training_analysis_jobs \
@@ -184,6 +184,8 @@ gcloud firestore indexes composite create \
   --field-config field-path=created_at,order=ASCENDING \
   --project=myon-53d85
 ```
+
+2. **Potential requirement**: `analysis_insights` composite index on `created_at` (ASC). The Weekly Review analyzer queries recent insights ordered by creation time. If the query fails with `FailedPrecondition`, create this index.
 
 ## Key Differences from Catalog Orchestrator
 

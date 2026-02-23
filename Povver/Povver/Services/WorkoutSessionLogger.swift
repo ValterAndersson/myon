@@ -27,6 +27,7 @@ final class WorkoutSessionLogger {
         // Exercises
         case exerciseAdded = "exercise_added"
         case exerciseRemoved = "exercise_removed"
+        case exerciseSwapped = "exercise_swapped"
         case exercisesReordered = "exercises_reordered"
 
         // Sets

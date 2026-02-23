@@ -945,13 +945,11 @@ class FocusModeWorkoutService: ObservableObject {
         }
 
         let patch: [String: Any] = [
-            "exercises": templateExercises,
-            "change_source": "workout_save",
-            "workout_id": workout.id
+            "exercises": templateExercises
         ]
 
         do {
-            try await patchTemplate(templateId: templateId, patch: patch)
+            try await patchTemplate(templateId: templateId, patch: patch, changeSource: "workout_save", workoutId: workout.id)
         } catch {
             // Non-blocking — workout completion should not be affected
             print("[saveChangesToTemplate] Failed to update template: \(error)")
@@ -1563,8 +1561,10 @@ class FocusModeWorkoutService: ObservableObject {
 
     /// Patch an existing template (name, description, exercises)
     /// Server recomputes analytics via Firestore trigger when exercises change
-    func patchTemplate(templateId: String, patch: [String: Any]) async throws {
-        let request = PatchTemplateRequest(templateId: templateId, patch: patch)
+    /// Optional metadata fields (changeSource, workoutId, recommendationId) are sent as
+    /// top-level request body fields for changelog attribution in patch-template.js
+    func patchTemplate(templateId: String, patch: [String: Any], changeSource: String? = nil, workoutId: String? = nil, recommendationId: String? = nil) async throws {
+        let request = PatchTemplateRequest(templateId: templateId, patch: patch, changeSource: changeSource, workoutId: workoutId, recommendationId: recommendationId)
         let response: PatchTemplateResponse = try await apiClient.postJSON("patchTemplate", body: request)
 
         guard response.success else {
@@ -1748,16 +1748,25 @@ private struct GetUserRoutinesResponse: Decodable {
 private struct PatchTemplateRequest: Encodable {
     let templateId: String
     let patch: [String: Any]
+    let changeSource: String?
+    let workoutId: String?
+    let recommendationId: String?
 
     enum CodingKeys: String, CodingKey {
         case templateId
         case patch
+        case changeSource = "change_source"
+        case workoutId = "workout_id"
+        case recommendationId = "recommendation_id"
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(templateId, forKey: .templateId)
         try container.encode(AnyCodable(patch), forKey: .patch)
+        try container.encodeIfPresent(changeSource, forKey: .changeSource)
+        try container.encodeIfPresent(workoutId, forKey: .workoutId)
+        try container.encodeIfPresent(recommendationId, forKey: .recommendationId)
     }
 }
 

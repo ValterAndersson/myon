@@ -11,7 +11,8 @@ struct Workout: Codable, Identifiable {
     var exercises: [WorkoutExercise]
     var notes: String?
     var analytics: WorkoutAnalytics
-    
+    var templateDiff: WorkoutTemplateDiff?
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
@@ -23,12 +24,13 @@ struct Workout: Codable, Identifiable {
         case exercises
         case notes
         case analytics
+        case templateDiff = "template_diff"
     }
     
     // Memberwise init for backward compatibility
     init(id: String, userId: String, name: String? = nil, sourceTemplateId: String? = nil, createdAt: Date,
          startTime: Date, endTime: Date, exercises: [WorkoutExercise], notes: String? = nil,
-         analytics: WorkoutAnalytics) {
+         analytics: WorkoutAnalytics, templateDiff: WorkoutTemplateDiff? = nil) {
         self.id = id
         self.userId = userId
         self.name = name
@@ -39,6 +41,7 @@ struct Workout: Codable, Identifiable {
         self.exercises = exercises
         self.notes = notes
         self.analytics = analytics
+        self.templateDiff = templateDiff
     }
     
     init(from decoder: Decoder) throws {
@@ -62,6 +65,7 @@ struct Workout: Codable, Identifiable {
         self.exercises = try container.decodeIfPresent([WorkoutExercise].self, forKey: .exercises) ?? []
         self.notes = try container.decodeIfPresent(String.self, forKey: .notes)
         self.analytics = try container.decodeIfPresent(WorkoutAnalytics.self, forKey: .analytics) ?? WorkoutAnalytics.empty
+        self.templateDiff = try container.decodeIfPresent(WorkoutTemplateDiff.self, forKey: .templateDiff)
     }
     
     /// Generate a display name for UI with proper priority:
@@ -319,6 +323,87 @@ struct ExerciseAnalytics: Codable {
         self.setsPerMuscleGroup = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscleGroup) ?? [:]
         self.setsPerMuscle = try container.decodeIfPresent([String: Int].self, forKey: .setsPerMuscle) ?? [:]
         self.intensity = try container.decodeIfPresent(IntensityAnalytics.self, forKey: .intensity)
+    }
+}
+
+// MARK: - Template Diff
+
+/// Structured diff between what the template prescribed and what the user did
+struct WorkoutTemplateDiff: Codable {
+    var changesDetected: Bool
+    var exercisesAdded: [DiffExercise]?
+    var exercisesRemoved: [DiffExercise]?
+    var exercisesSwapped: [DiffSwap]?
+    var exercisesReordered: Bool?
+    var weightChanges: [DiffWeightChange]?
+    var repChanges: [DiffRepChange]?
+    var setsAddedCount: Int?
+    var setsRemovedCount: Int?
+    var summary: String?
+
+    enum CodingKeys: String, CodingKey {
+        case changesDetected = "changes_detected"
+        case exercisesAdded = "exercises_added"
+        case exercisesRemoved = "exercises_removed"
+        case exercisesSwapped = "exercises_swapped"
+        case exercisesReordered = "exercises_reordered"
+        case weightChanges = "weight_changes"
+        case repChanges = "rep_changes"
+        case setsAddedCount = "sets_added_count"
+        case setsRemovedCount = "sets_removed_count"
+        case summary
+    }
+
+    struct DiffExercise: Codable {
+        let exerciseId: String
+        let exerciseName: String
+
+        enum CodingKeys: String, CodingKey {
+            case exerciseId = "exercise_id"
+            case exerciseName = "exercise_name"
+        }
+    }
+
+    struct DiffSwap: Codable {
+        let fromId: String
+        let fromName: String
+        let toId: String
+        let toName: String
+
+        enum CodingKeys: String, CodingKey {
+            case fromId = "from_id"
+            case fromName = "from_name"
+            case toId = "to_id"
+            case toName = "to_name"
+        }
+    }
+
+    struct DiffWeightChange: Codable {
+        let exerciseId: String
+        let exerciseName: String
+        let direction: String
+        let maxDeltaKg: Double
+
+        enum CodingKeys: String, CodingKey {
+            case exerciseId = "exercise_id"
+            case exerciseName = "exercise_name"
+            case direction
+            case maxDeltaKg = "max_delta_kg"
+        }
+    }
+
+    struct DiffRepChange: Codable {
+        let exerciseId: String
+        let exerciseName: String
+        let direction: String
+        let maxDelta: Int
+
+        enum CodingKeys: String, CodingKey {
+            case exerciseId = "exercise_id"
+            case exerciseName = "exercise_name"
+            case direction
+            case maxDelta = "max_delta"
+        }
     }
 }
 

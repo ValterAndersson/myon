@@ -513,20 +513,18 @@ def query_training_sets(
 def get_training_analysis(
     user_id: str,
     sections: Optional[List[str]] = None,
-    date: Optional[str] = None,
     limit: int = 5,
     client: Optional[CanvasFunctionsClient] = None,
 ) -> SkillResult:
     """
     Get pre-computed AI training analysis — single call for all sections.
 
-    Returns up to 3 sections of pre-computed analysis. Default: all sections.
+    Returns up to 2 sections of pre-computed analysis. Default: all sections.
 
     Args:
         user_id: User ID (required)
-        sections: Optional filter. Valid: "insights", "daily_brief", "weekly_review"
+        sections: Optional filter. Valid: "insights", "weekly_review"
             Default (None): returns all available sections.
-        date: Date for daily_brief lookup (YYYY-MM-DD, defaults to today)
         limit: Max insights to return (default 5)
         client: Optional client instance (for Worker injection)
 
@@ -543,14 +541,6 @@ def get_training_analysis(
             created_at, expires_at
         }]
 
-        daily_brief: {
-            date, has_planned_workout, planned_workout?,
-            readiness: "fresh"|"moderate"|"fatigued",
-            readiness_summary,
-            fatigue_flags: [{ muscle_group, signal, acwr }],
-            adjustments: [{ exercise_name, type, rationale }]
-        }
-
         weekly_review: {
             id (YYYY-WNN), week_ending,
             summary,
@@ -558,15 +548,35 @@ def get_training_analysis(
             muscle_balance: [{ muscle_group, weekly_sets, trend, status }],
             exercise_trends: [{ exercise_name, trend, e1rm_slope, note }],
             progression_candidates: [{ exercise_name, current_weight, suggested_weight, rationale, confidence }],
-            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }]
+            stalled_exercises: [{ exercise_name, weeks_stalled, suggested_action, rationale }],
+            periodization: {
+                current_phase: "hypertrophy | strength | endurance | mixed",
+                weeks_in_phase: number,
+                suggestion: "phase change recommendation if applicable",
+                reasoning: "evidence from data"
+            },
+            routine_recommendations: [
+                {
+                    type: "add_exercise | remove_exercise | frequency_change | volume_adjust | restructure",
+                    target: "muscle group or template name",
+                    suggestion: "specific recommendation",
+                    reasoning: "evidence from data"
+                }
+            ],
+            fatigue_status: {
+                overall_acwr: number,
+                interpretation: "optimal | underloading | overreaching | high_overreach",
+                flags: [{ muscle, acwr, concern }],
+                recommendation: "text"
+            }
         }
     """
     if not user_id:
         return SkillResult(success=False, error="user_id is required")
 
     logger.info(
-        "get_training_analysis uid=%s sections=%s date=%s limit=%d",
-        user_id, sections, date, limit,
+        "get_training_analysis uid=%s sections=%s limit=%d",
+        user_id, sections, limit,
     )
 
     try:
@@ -574,7 +584,6 @@ def get_training_analysis(
         resp = api_client.get_analysis_summary(
             user_id,
             sections=sections,
-            date=date,
             limit=limit,
         )
         success, data, error_details = parse_api_response(resp)

@@ -3,7 +3,7 @@
 /**
  * Backfill Training Analysis Jobs
  *
- * Enqueues POST_WORKOUT, WEEKLY_REVIEW, and DAILY_BRIEF jobs for historical data.
+ * Enqueues POST_WORKOUT and WEEKLY_REVIEW jobs for historical data.
  * Run after backfill_set_facts.js to generate AI-powered summaries.
  *
  * Idempotent: uses deterministic job IDs so re-runs overwrite existing jobs
@@ -20,7 +20,6 @@
  *   --dry-run         Don't write, just log what would be created
  *   --skip-workouts   Skip POST_WORKOUT jobs
  *   --skip-weekly     Skip WEEKLY_REVIEW jobs
- *   --skip-daily      Skip DAILY_BRIEF job
  */
 
 const admin = require('firebase-admin');
@@ -55,7 +54,6 @@ const options = {
   dryRun: false,
   skipWorkouts: false,
   skipWeekly: false,
-  skipDaily: false,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -73,8 +71,6 @@ for (let i = 0; i < args.length; i++) {
     options.skipWorkouts = true;
   } else if (args[i] === '--skip-weekly') {
     options.skipWeekly = true;
-  } else if (args[i] === '--skip-daily') {
-    options.skipDaily = true;
   }
 }
 
@@ -149,7 +145,6 @@ async function processUser(userId, cutoff) {
 
   let postWorkoutCount = 0;
   let weeklyReviewCount = 0;
-  let dailyBriefCount = 0;
 
   // 1. POST_WORKOUT jobs for workouts in the window
   if (!options.skipWorkouts) {
@@ -242,24 +237,7 @@ async function processUser(userId, cutoff) {
     console.log(`  Created ${weeklyReviewCount} WEEKLY_REVIEW jobs`);
   }
 
-  // 3. DAILY_BRIEF job for today
-  if (!options.skipDaily) {
-    const today = formatDateUTC(new Date());
-    const jobId = deterministicJobId('db', userId, today);
-
-    if (options.dryRun) {
-      console.log(`  [DRY RUN] DAILY_BRIEF: ${today}`);
-    } else {
-      await db.collection('training_analysis_jobs').doc(jobId).set(
-        buildJobDoc(jobId, 'DAILY_BRIEF', { user_id: userId })
-      );
-    }
-
-    dailyBriefCount = 1;
-    console.log(`  Created 1 DAILY_BRIEF job for ${today}`);
-  }
-
-  return { postWorkoutCount, weeklyReviewCount, dailyBriefCount };
+  return { postWorkoutCount, weeklyReviewCount };
 }
 
 async function main() {
@@ -297,13 +275,11 @@ async function main() {
 
   let totalPostWorkout = 0;
   let totalWeeklyReview = 0;
-  let totalDailyBrief = 0;
 
   for (const userId of userIds) {
     const result = await processUser(userId, cutoff);
     totalPostWorkout += result.postWorkoutCount;
     totalWeeklyReview += result.weeklyReviewCount;
-    totalDailyBrief += result.dailyBriefCount;
   }
 
   console.log('');
@@ -313,8 +289,7 @@ async function main() {
   console.log(`Users processed:    ${userIds.length}`);
   console.log(`POST_WORKOUT jobs:  ${totalPostWorkout}`);
   console.log(`WEEKLY_REVIEW jobs: ${totalWeeklyReview}`);
-  console.log(`DAILY_BRIEF jobs:   ${totalDailyBrief}`);
-  console.log(`Total jobs queued:  ${totalPostWorkout + totalWeeklyReview + totalDailyBrief}`);
+  console.log(`Total jobs queued:  ${totalPostWorkout + totalWeeklyReview}`);
   console.log('');
   console.log('Next step: run the worker to process these jobs:');
   console.log('  GOOGLE_APPLICATION_CREDENTIALS=$GCP_SA_KEY \\');
