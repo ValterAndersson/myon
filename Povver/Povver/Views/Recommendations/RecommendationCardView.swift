@@ -3,8 +3,16 @@ import SwiftUI
 struct RecommendationCardView: View {
     let recommendation: AgentRecommendation
     let isProcessing: Bool
+    /// When true and recommendation was auto-applied by agent, shows emerald accent bar
+    /// and muted change preview to visually distinguish auto-pilot notices.
+    var autoPilotEnabled: Bool = false
     var onAccept: (() -> Void)?
     var onReject: (() -> Void)?
+
+    /// Whether this card should show the auto-pilot visual treatment
+    private var isAutoPilotNotice: Bool {
+        autoPilotEnabled && recommendation.state == "applied" && recommendation.appliedBy == "agent"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
@@ -57,6 +65,7 @@ struct RecommendationCardView: View {
                 .padding(.vertical, 4)
                 .background(Color.bg)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+                .opacity(isAutoPilotNotice ? 0.6 : 1.0)
             }
 
             // Actions or status
@@ -118,6 +127,15 @@ struct RecommendationCardView: View {
         }
         .padding(Space.md)
         .background(Color.surface)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+        .overlay(alignment: .leading) {
+            if isAutoPilotNotice {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.accent)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
     }
 

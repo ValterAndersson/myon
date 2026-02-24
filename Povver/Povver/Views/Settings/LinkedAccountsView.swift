@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Full-screen view showing linked sign-in providers and options to link/unlink.
-/// NavigationLink destination from the Security section in ProfileView.
+/// NavigationLink destination from SecurityView.
 struct LinkedAccountsView: View {
     @ObservedObject private var authService = AuthService.shared
     @State private var linkedProviders: [AuthProvider] = []

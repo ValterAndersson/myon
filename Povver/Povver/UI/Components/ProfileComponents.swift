@@ -74,12 +74,30 @@ struct ProfileRowToggle: View {
     }
 }
 
+// MARK: - Badge View
+
+struct BadgeView: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text(count > 9 ? "9+" : "\(count)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Color.accent)
+                .clipShape(Circle())
+        }
+    }
+}
+
 // MARK: - Profile Row Link Content
 
 struct ProfileRowLinkContent: View {
     let icon: String
     let title: String
     let subtitle: String
+    var badgeCount: Int = 0
 
     var body: some View {
         HStack(spacing: Space.md) {
@@ -99,6 +117,8 @@ struct ProfileRowLinkContent: View {
             }
 
             Spacer()
+
+            BadgeView(count: badgeCount)
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .medium))

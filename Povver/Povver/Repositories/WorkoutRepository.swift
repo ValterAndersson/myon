@@ -20,6 +20,13 @@ class WorkoutRepository {
         }
     }
     
+    /// Count workouts without fetching full documents. Uses Firestore count aggregation.
+    func getWorkoutCount(userId: String) async throws -> Int {
+        let query = db.collection("users").document(userId).collection("workouts")
+        let snapshot = try await query.count.getAggregation(source: .server)
+        return Int(truncating: snapshot.count)
+    }
+
     func getWorkout(id: String, userId: String) async throws -> Workout? {
         do {
             let doc = try await db.collection("users").document(userId).collection("workouts").document(id).getDocument()

@@ -87,9 +87,9 @@ RootView observes `AuthService.isAuthenticated` via `.onChange`. When auth state
 | Train | `TrainTabView` | Start workout from routines/templates |
 | Library | `LibraryView` | Browse exercise library |
 | History | `HistoryView` | Completed workout history |
-| Profile | `ProfileView` | Profile, preferences, subscription, security |
+| More | `MoreView` | Settings hub: profile, activity, preferences, security, subscription |
 
-**Global overlay**: `NotificationBell` with pending recommendation count badge, visible across all tabs. Taps open `RecommendationsFeedView` sheet. Only shown for premium users with pending recommendations.
+**Recommendation badge**: `MoreView` shows a badge count on the Activity row when pending recommendations exist (premium only). Navigates to `ActivityView` for recommendation review with contextual auto-pilot toggle.
 
 ### Canvas Navigation
 
@@ -229,7 +229,7 @@ All repositories extend data access with type-safe Firestore operations:
 | Repository | Collection(s) | Purpose |
 |------------|---------------|---------|
 | `UserRepository` | `users`, `users/{id}/attributes` | User profile and preferences |
-| `WorkoutRepository` | `users/{id}/workouts` | Completed workout history |
+| `WorkoutRepository` | `users/{id}/workouts` | Completed workout history. `getWorkoutCount()` uses Firestore server-side aggregation for efficient counting. |
 | `TemplateRepository` | `users/{id}/templates` | Workout templates |
 | `RoutineRepository` | `users/{id}/routines` | Routines (template sequences) |
 | `RecommendationRepository` | `users/{id}/agent_recommendations` | Agent recommendation listener (singleton, Firestore snapshot) |
@@ -296,7 +296,7 @@ func withRetry<T>(
 |-----------|-------|------------------|
 | `CanvasViewModel` | `CanvasScreen`, card views | Canvas state, SSE artifact handling, card lifecycle |
 | `RoutinesViewModel` | `RoutinesListView`, detail views | Routine CRUD, active routine management |
-| `RecommendationsViewModel` | `RecommendationsFeedView`, `MainTabsView` (bell) | Pending/recent recommendations, accept/reject actions, premium-gated listener |
+| `RecommendationsViewModel` | `ActivityView`, `MoreView` (badge) | Pending/recent recommendations, accept/reject actions, premium-gated listener |
 | `ExercisesViewModel` | Exercise search | Exercise catalog fetching |
 
 ### `CanvasViewModel` (Primary)
@@ -338,9 +338,10 @@ func withRetry<T>(
 | `ChatHomeView` | `Views/ChatHomeView.swift` | Chat conversation |
 | `RoutinesListView` | `UI/Routines/RoutinesListView.swift` | Routine management |
 | `TemplatesListView` | `UI/Templates/TemplatesListView.swift` | Template management |
-| `ProfileView` | `Views/Tabs/ProfileView.swift` | Profile, preferences, security settings |
-| `RecommendationsFeedView` | `Views/Recommendations/RecommendationsFeedView.swift` | Sheet listing pending + recent recommendations |
-| `RecommendationCardView` | `Views/Recommendations/RecommendationCardView.swift` | Individual recommendation card with accept/decline |
+| `MoreView` | `Views/Tabs/MoreView.swift` | Settings hub: profile, activity, preferences, security |
+| `ActivityView` | `Views/Settings/ActivityView.swift` | Recommendations feed with auto-pilot toggle |
+| `ProfileEditView` | `Views/Settings/ProfileEditView.swift` | Profile editing (account + body metrics) |
+| `RecommendationCardView` | `Views/Recommendations/RecommendationCardView.swift` | Individual recommendation card with accept/decline + auto-pilot notice mode |
 | `PaywallView` | `Views/PaywallView.swift` | Full-screen subscription purchase sheet |
 | `SubscriptionView` | `Views/Settings/SubscriptionView.swift` | Subscription status and management |
 | `LoginView` | `Views/LoginView.swift` | Email + SSO login |
@@ -479,8 +480,7 @@ Centralized design tokens for consistency:
 | `PovverButton` | Standard button styles (primary, secondary, destructive) |
 | `MyonText` | Typography component |
 | `SurfaceCard` | Card container with elevation |
-| `NotificationBell` | Bell icon with badge count overlay (used by MainTabsView for recommendations) |
-| `ProfileComponents` | ProfileRow, ProfileRowToggle, ProfileRowLinkContent (shared across settings views) |
+| `ProfileComponents` | ProfileRow, ProfileRowToggle, ProfileRowLinkContent, BadgeView (shared across settings views) |
 | `AgentPromptBar` | Chat input with send button |
 | `CardActionBar` | Action buttons for cards |
 | `Banner` / `Toast` | Feedback components |
@@ -691,17 +691,21 @@ Standalone sheet from login screen. Sends Firebase password reset email via `Aut
 | `Services/AppleSignInCoordinator.swift` | ASAuthorizationController async/await wrapper |
 | `Services/SessionManager.swift` | UserDefaults session persistence |
 | `Extensions/UIApplication+RootVC.swift` | Root view controller for Google SDK |
-| `UI/Components/ProfileComponents.swift` | Shared row components (ProfileRow, ProfileRowToggle, ProfileRowLinkContent) |
+| `UI/Components/ProfileComponents.swift` | Shared row components (ProfileRow, ProfileRowToggle, ProfileRowLinkContent, BadgeView) |
 | `Views/RootView.swift` | Reactive auth state → navigation flow |
 | `Views/LoginView.swift` | Email login + SSO buttons + forgot password |
 | `Views/RegisterView.swift` | Email registration + SSO buttons |
+| `Views/Tabs/MoreView.swift` | More tab hub with navigation to settings views |
+| `Views/Settings/ActivityView.swift` | Recommendations feed + auto-pilot toggle |
+| `Views/Settings/ProfileEditView.swift` | Profile editing (account + body metrics) |
+| `Views/Settings/PreferencesView.swift` | Timezone, week start preferences |
+| `Views/Settings/SecurityView.swift` | Security hub (linked accounts, password, delete) |
 | `Views/Settings/ReauthenticationView.swift` | Multi-provider reauthentication sheet |
 | `Views/Settings/EmailChangeView.swift` | Email change with verification |
 | `Views/Settings/PasswordChangeView.swift` | Change or set password |
 | `Views/Settings/ForgotPasswordView.swift` | Password reset email flow |
 | `Views/Settings/LinkedAccountsView.swift` | Link/unlink provider management |
 | `Views/Settings/DeleteAccountView.swift` | Account deletion with reauth + confirmation |
-| `Views/Tabs/ProfileView.swift` | Profile tab with Security section |
 
 ---
 
@@ -829,16 +833,20 @@ Povver/Povver/
 │   ├── ChatHomeView.swift          # Chat conversation
 │   ├── ComponentGallery.swift      # Dev component gallery
 │   ├── LoginView.swift             # Email + SSO login
-│   ├── MainTabsView.swift          # Tab navigation + recommendation bell overlay
+│   ├── MainTabsView.swift          # Tab navigation (5 tabs)
 │   ├── RegisterView.swift          # Email + SSO registration
 │   ├── Recommendations/
-│   │   ├── RecommendationCardView.swift   # Individual recommendation card
-│   │   └── RecommendationsFeedView.swift  # Recommendation list sheet
+│   │   └── RecommendationCardView.swift   # Individual recommendation card (interactive + notice modes)
 │   ├── PaywallView.swift           # Subscription purchase sheet
 │   ├── RootView.swift              # App root (reactive auth nav)
 │   ├── Tabs/
-│   │   └── ProfileView.swift       # Profile & settings
+│   │   └── MoreView.swift          # Settings hub (profile, activity, preferences, security)
 │   └── Settings/
+│       ├── ARCHITECTURE.md              # Module architecture
+│       ├── ActivityView.swift           # Recommendations feed + auto-pilot toggle
+│       ├── ProfileEditView.swift        # Profile editing (account + body metrics)
+│       ├── PreferencesView.swift        # Timezone, week start preferences
+│       ├── SecurityView.swift           # Linked accounts, password, delete
 │       ├── ReauthenticationView.swift   # Multi-provider reauth sheet
 │       ├── EmailChangeView.swift        # Email change + verification
 │       ├── PasswordChangeView.swift     # Change or set password
@@ -884,11 +892,10 @@ Povver/Povver/
     │   ├── FocusModeComponents.swift   # Shared components
     │   └── FocusModeExerciseSearch.swift # Exercise search
     ├── Components/
-    │   ├── NotificationBell.swift      # Bell icon with badge count overlay
     │   ├── PovverButton.swift          # Button styles
     │   ├── MyonText.swift
     │   ├── SurfaceCard.swift
-    │   ├── ProfileComponents.swift     # ProfileRow, ProfileRowToggle, ProfileRowLinkContent
+    │   ├── ProfileComponents.swift     # ProfileRow, ProfileRowToggle, ProfileRowLinkContent, BadgeView
     │   ├── DropdownMenu.swift
     │   └── ... (component library)
     ├── DesignSystem/

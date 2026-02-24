@@ -2,7 +2,7 @@ import SwiftUI
 import FirebaseAuth
 
 /// Full-screen view for account deletion with reauthentication and confirmation.
-/// NavigationLink destination from the Security section in ProfileView.
+/// NavigationLink destination from SecurityView.
 struct DeleteAccountView: View {
     @ObservedObject private var authService = AuthService.shared
     @State private var showingReauth = false

@@ -1,14 +1,14 @@
 import SwiftUI
 
 /// Main navigation tabs for the app
-/// Updated from 2-tab (Home/Workout) to 5-tab (Coach/Train/Library/History/Profile) structure
+/// 5-tab structure: Coach / Train / Library / History / More
 enum MainTab: String, CaseIterable {
     case coach
     case train
     case library
     case history
-    case profile
-    
+    case more
+
     /// SF Symbol icon name (outline style)
     var iconName: String {
         switch self {
@@ -16,10 +16,10 @@ enum MainTab: String, CaseIterable {
         case .train: return "figure.strengthtraining.traditional"
         case .library: return "rectangle.stack"
         case .history: return "clock.arrow.circlepath"
-        case .profile: return "person.crop.circle"
+        case .more: return "ellipsis.circle"
         }
     }
-    
+
     /// Tab label (single word)
     var label: String {
         switch self {
@@ -27,21 +27,21 @@ enum MainTab: String, CaseIterable {
         case .train: return "Train"
         case .library: return "Library"
         case .history: return "History"
-        case .profile: return "Profile"
+        case .more: return "More"
         }
     }
-    
+
     /// Migration from old MainTab enum values
     static func migrate(from rawValue: String) -> MainTab {
         switch rawValue {
-        case "home": return .coach  // Old "home" maps to new "coach"
-        case "workout": return .train  // Old "workout" maps to new "train"
+        case "home": return .coach
+        case "workout": return .train
+        case "profile": return .more
         default:
-            // Try direct match first
             if let tab = MainTab(rawValue: rawValue) {
                 return tab
             }
-            return .coach  // Default fallback
+            return .coach
         }
     }
 }
@@ -60,7 +60,6 @@ struct MainTabsView: View {
 
     @StateObject private var recommendationsVM = RecommendationsViewModel()
     @StateObject private var workoutService = FocusModeWorkoutService.shared
-    @State private var showRecommendations = false
     @State private var bannerElapsedTime: TimeInterval = 0
     @State private var bannerTimer: Timer? = nil
 
@@ -71,58 +70,42 @@ struct MainTabsView: View {
 
     var body: some View {
         TabView(selection: selectedTab) {
-            // Coach Tab (formerly Home)
+            // Coach Tab
             NavigationStack {
                 CoachTabView(switchToTab: switchToTab)
             }
             .tabItem { Label(MainTab.coach.label, systemImage: MainTab.coach.iconName) }
             .tag(MainTab.coach)
 
-            // Train Tab (formerly Start Workout)
+            // Train Tab
             NavigationStack {
                 TrainTabView()
             }
             .tabItem { Label(MainTab.train.label, systemImage: MainTab.train.iconName) }
             .tag(MainTab.train)
 
-            // Library Tab (new)
+            // Library Tab
             NavigationStack {
                 LibraryView()
             }
             .tabItem { Label(MainTab.library.label, systemImage: MainTab.library.iconName) }
             .tag(MainTab.library)
 
-            // History Tab (new)
+            // History Tab
             NavigationStack {
                 HistoryView()
             }
             .tabItem { Label(MainTab.history.label, systemImage: MainTab.history.iconName) }
             .tag(MainTab.history)
 
-            // Profile Tab (new)
+            // More Tab (formerly Profile)
             NavigationStack {
-                ProfileView()
+                MoreView(recommendationsVM: recommendationsVM)
             }
-            .tabItem { Label(MainTab.profile.label, systemImage: MainTab.profile.iconName) }
-            .tag(MainTab.profile)
+            .tabItem { Label(MainTab.more.label, systemImage: MainTab.more.iconName) }
+            .tag(MainTab.more)
         }
         .tint(Color.accent)
-        .overlay {
-            // GeometryReader to position bell below the safe area (status bar / Dynamic Island)
-            if recommendationsVM.pendingCount > 0 {
-                GeometryReader { geometry in
-                    HStack {
-                        Spacer()
-                        NotificationBell(badgeCount: recommendationsVM.pendingCount) {
-                            AnalyticsService.shared.recommendationBellTapped(pendingCount: recommendationsVM.pendingCount)
-                            showRecommendations = true
-                        }
-                        .padding(.trailing, Space.lg)
-                    }
-                    .padding(.top, geometry.safeAreaInsets.top + Space.sm)
-                }
-            }
-        }
         .overlay(alignment: .bottom) {
             if showWorkoutBanner {
                 FloatingWorkoutBanner(
@@ -148,9 +131,6 @@ struct MainTabsView: View {
                 startBannerTimer()
             }
         }
-        .sheet(isPresented: $showRecommendations) {
-            RecommendationsFeedView(viewModel: recommendationsVM)
-        }
         .onChange(of: selectedTabRaw) { _, newTab in
             AnalyticsService.shared.tabViewed(newTab)
             AppLogger.shared.nav("tab:\(newTab)")
@@ -161,7 +141,7 @@ struct MainTabsView: View {
             }
         }
     }
-    
+
     /// Switch to a specific tab programmatically
     /// Used by Coach tab to navigate to Train tab
     private func switchToTab(_ tab: MainTab) {

@@ -348,8 +348,8 @@ final class AnalyticsService {
     // MARK: - Domain 5: Recommendations
     // =========================================================================
 
-    func recommendationBellTapped(pendingCount: Int) {
-        log("recommendation_bell_tapped", params: ["pending_count": pendingCount])
+    func activityViewed(pendingCount: Int) {
+        log("activity_viewed", params: ["pending_count": pendingCount])
     }
 
     func recommendationViewed(type: String, scope: String) {

@@ -4,24 +4,66 @@
 
 ## Purpose
 
-Account management UI for authentication operations that require dedicated screens: reauthentication, email/password changes, provider linking, and account deletion. All views interact with `AuthService.shared` for auth operations and display errors via `AuthService.friendlyAuthError()`.
+Settings and account management UI accessed from the More tab hub (`MoreView`). Covers profile editing, preferences, security operations, activity/recommendations, and subscription management.
 
 ## File Structure
 
 | File | Type | Presentation | Purpose |
 |------|------|-------------|---------|
+| `ActivityView.swift` | Push | NavigationLink from MoreView | Recommendations feed with auto-pilot toggle |
+| `ProfileEditView.swift` | Push | NavigationLink from MoreView profile card | Account info + body metrics editing |
+| `PreferencesView.swift` | Push | NavigationLink from MoreView | Timezone, week start preferences |
+| `SecurityView.swift` | Push | NavigationLink from MoreView | Links to auth management views |
+| `SubscriptionView.swift` | Push | NavigationLink from MoreView | Subscription status & management |
 | `ReauthenticationView.swift` | Sheet (half) | `.presentationDetents([.medium])` | Multi-provider reauthentication before sensitive operations |
 | `EmailChangeView.swift` | Sheet (half) | `.presentationDetents([.medium])` | Email change with verification link |
 | `PasswordChangeView.swift` | Sheet (half) | `.presentationDetents([.medium])` | Change password (email users) or set password (SSO-only users) |
 | `ForgotPasswordView.swift` | Sheet (full) | `.presentationDetents([.large])` | Forgot password flow from login screen |
-| `LinkedAccountsView.swift` | Push | NavigationLink from ProfileView | Link/unlink auth providers |
-| `DeleteAccountView.swift` | Push | NavigationLink from ProfileView | Account deletion with reauth + confirmation |
+| `LinkedAccountsView.swift` | Push | NavigationLink from SecurityView | Link/unlink auth providers |
+| `DeleteAccountView.swift` | Push | NavigationLink from SecurityView | Account deletion with reauth + confirmation |
 
 ## Entry Points
 
-All views are accessed from `ProfileView.swift` (Security section), except:
+All views are accessed from `MoreView.swift` (the More tab hub), except:
 - `ForgotPasswordView` — presented from `LoginView.swift` ("Forgot Password?" link)
 - `ReauthenticationView` — presented by `EmailChangeView` and `DeleteAccountView` when reauthentication is needed
+- `LinkedAccountsView`, `DeleteAccountView` — pushed from `SecurityView`
+- `PasswordChangeView` — presented as sheet from `SecurityView` or `ProfileEditView`
+- `EmailChangeView` — presented as sheet from `ProfileEditView`
+
+## Data Flow
+
+```
+MoreView (Views/Tabs/MoreView.swift)
+    │
+    ├─ Profile card → ProfileEditView
+    │   ├─ Account: Nickname, Email (edit sheets)
+    │   ├─ Body Metrics: Height, Weight, Fitness Level (edit sheets)
+    │   └─ Email/Password change sheets
+    │
+    ├─ Activity → ActivityView
+    │   ├─ Auto-pilot toggle → UserRepository.updateAutoPilot()
+    │   └─ Recommendation cards → RecommendationsViewModel.accept() / reject()
+    │
+    ├─ Preferences → PreferencesView
+    │   └─ Week start toggle → UserRepository.updateUserProfile()
+    │
+    ├─ Security → SecurityView
+    │   ├─ NavigationLink → LinkedAccountsView
+    │   │   └─ authService.linkGoogle() / linkApple() / unlinkProvider()
+    │   │
+    │   ├─ Button → PasswordChangeView (sheet)
+    │   │   └─ authService.changePassword() / setPassword()
+    │   │
+    │   └─ NavigationLink → DeleteAccountView
+    │       └─ ReauthenticationView (sheet) → authService.deleteAccount()
+    │
+    ├─ Subscription → SubscriptionView
+    │
+LoginView
+    └─ Button → ForgotPasswordView (sheet)
+        └─ authService.sendPasswordReset()
+```
 
 ## Patterns
 
@@ -34,6 +76,25 @@ Several views use a state machine pattern with distinct UI states:
 - **PasswordChangeView**: `passwordForm` → `successState`
 - **DeleteAccountView**: warning screen → reauth sheet → confirmation dialog → deletion
 
+### Auto-Pilot Toggle (ActivityView)
+
+ActivityView loads `autoPilotEnabled` from Firestore in `.task` (not passed as a parameter) to avoid stale state. The toggle uses optimistic update with rollback on Firestore failure, guarded by `isTogglingAutoPilot` to prevent rapid-toggle race conditions:
+
+1. Guard: if a write is already in-flight, ignore the toggle
+2. Toggle switches immediately (optimistic), `isTogglingAutoPilot = true`
+3. Firestore write fires in background
+4. On failure: toggle reverts to previous value, error banner shown
+5. On success: analytics event logged
+6. `isTogglingAutoPilot = false` — toggle re-enabled
+
+### Recommendation Card Modes
+
+RecommendationCardView accepts `autoPilotEnabled: Bool` to control visual treatment:
+- `pending_review` → interactive (Accept/Decline buttons), regardless of auto-pilot
+- `applied` by agent + auto-pilot ON → notice with emerald accent bar, muted changes
+- `applied` by user → notice with "Applied" status
+- `acknowledged` → notice with "Noted" status
+
 ### Reauthentication Trigger
 
 `EmailChangeView` and `DeleteAccountView` handle the `requiresRecentLogin` error from Firebase:
@@ -45,29 +106,31 @@ if AuthErrorCode(rawValue: nsError.code) == .requiresRecentLogin {
 }
 ```
 
-`ReauthenticationView` receives the linked providers and shows verification options accordingly. On success, it calls `onSuccess()` and dismisses itself.
-
 ### Provider-Conditional UI
 
 Several views adapt based on linked providers:
 
-- **EmailChangeView**: SSO-only users see a disabled state with lock icon; email users see the change form
-- **PasswordChangeView**: title is "Change Password" vs "Set Password"; current password field only shown for email users
+- **EmailChangeView**: SSO-only users see a disabled state; email users see the change form
+- **PasswordChangeView**: title is "Change Password" vs "Set Password"
 - **LinkedAccountsView**: unlink button hidden when only 1 provider remains
-- **ProfileView**: email row is hidden entirely if `.email` provider is not linked (SSO-only users see only the Nickname row); Apple relay emails (`@privaterelay.appleid.com`) are hidden from the profile header and excluded from display name fallback; password row label adapts
+- **ProfileEditView**: email row hidden for SSO-only users; Apple relay emails hidden
+- **SecurityView**: password row label adapts based on linked providers
 
 ### Error Display
 
-All views follow the same error pattern:
+All views surface errors via `@State private var errorMessage: String?` displayed as inline banners:
+
+- **Auth views** (EmailChangeView, PasswordChangeView, etc.): use `AuthService.friendlyAuthError(error)` for Firebase auth errors
+- **Settings views** (ProfileEditView, PreferencesView, MoreView): use plain error strings for save/load failures
+- **ActivityView**: uses both local `errorMessage` (auto-pilot toggle failures) and `viewModel.errorMessage` (recommendation accept/reject failures)
+
 ```swift
 @State private var errorMessage: String?
 
-// In async action:
 } catch {
-    errorMessage = AuthService.friendlyAuthError(error)
+    errorMessage = "Failed to save. Please try again."
 }
 
-// In view body:
 if let errorMessage = errorMessage {
     Text(errorMessage)
         .textStyle(.caption)
@@ -79,49 +142,12 @@ if let errorMessage = errorMessage {
 
 | Dependency | Used By | Purpose |
 |------------|---------|---------|
-| `AuthService.shared` | All views | Auth operations |
-| `SheetScaffold` | EmailChangeView, PasswordChangeView | Consistent sheet chrome |
+| `AuthService.shared` | SecurityView, ProfileEditView, PreferencesView, auth views | Auth operations |
+| `RecommendationsViewModel` | ActivityView | Recommendation state + accept/reject |
+| `UserRepository.shared` | ProfileEditView, PreferencesView, ActivityView | Firestore user data |
+| `WorkoutRepository` | ProfileEditView | Session count via `getWorkoutCount()` aggregation |
+| `SubscriptionService.shared` | SubscriptionView | Subscription state |
+| `SheetScaffold` | ProfileEditView, EmailChangeView, PasswordChangeView | Consistent sheet chrome |
 | `PovverButton` | All views | Styled buttons |
-| `ProfileRowLinkContent` | ProfileView (entry point) | Navigation row styling |
-| `UserRepository.shared` | DeleteAccountView (via AuthService) | Firestore user data deletion |
-
-## Data Flow
-
-```
-ProfileView
-    │
-    ├─ Security section
-    │   ├─ NavigationLink → LinkedAccountsView
-    │   │   └─ authService.linkGoogle() / linkApple() / unlinkProvider()
-    │   │
-    │   ├─ Button → PasswordChangeView (sheet)
-    │   │   └─ authService.changePassword() / setPassword()
-    │   │
-    │   └─ NavigationLink → DeleteAccountView
-    │       └─ ReauthenticationView (sheet) → authService.deleteAccount()
-    │
-    ├─ Account section
-    │   └─ Button → EmailChangeView (sheet)
-    │       └─ ReauthenticationView (sheet) → authService.changeEmail()
-    │
-LoginView
-    └─ Button → ForgotPasswordView (sheet)
-        └─ authService.sendPasswordReset()
-```
-
-## Troubleshooting
-
-### "For your security, please sign in again to continue"
-Firebase requires recent authentication for sensitive operations. The `requiresRecentLogin` error triggers `ReauthenticationView`. If this happens repeatedly, check that the reauthentication is actually completing (not just dismissing the sheet).
-
-### Provider data not updating after link/unlink
-`LinkedAccountsView` refreshes via `authService.reloadCurrentUser()` in `.task` and reads `authService.linkedProviders` in `.onAppear`. If providers appear stale, verify that `reloadCurrentUser()` calls `user.reload()` and reassigns `Auth.auth().currentUser`.
-
-### "This account is already linked to a different Povver account"
-This `credentialAlreadyInUse` error means the SSO account is linked to another Firebase Auth user. Firebase's "one account per email" may have auto-linked the provider during a previous sign-in. Check Firebase Auth console for the provider state.
-
-### Apple Sign-In shows no email / wrong name
-Apple only provides name and email on the **first** sign-in. Subsequent sign-ins return nil for these fields. The Firestore user document stores the initial values. If the user chose "Hide My Email", a private relay address is used — this won't match an existing email account for auto-linking.
-
-### Account deletion fails silently
-Check the deletion sequence: Apple token revocation (may silently fail with `try?`) → Firestore deletion → Auth deletion. If Firestore deletion fails, the Auth account persists. If Auth deletion fails with `requiresRecentLogin`, the reauth sheet is re-presented.
+| `ProfileRow`, `ProfileRowToggle`, `ProfileRowLinkContent` | All settings views | Navigation row styling |
+| `BadgeView` | MoreView (via ProfileRowLinkContent) | Badge on Activity row |
