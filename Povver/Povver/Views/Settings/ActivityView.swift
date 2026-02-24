@@ -15,16 +15,14 @@ struct ActivityView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.lg) {
                 // Auto-pilot toggle card
                 autoPilotCard
 
-                // Error banner
+                // Error banners
                 if let error = errorMessage {
                     errorBanner(error)
                 }
-
-                // ViewModel-level error banner (from accept/reject actions)
                 if let vmError = viewModel.errorMessage {
                     errorBanner(vmError, onDismiss: { viewModel.errorMessage = nil })
                 }
@@ -67,14 +65,27 @@ struct ActivityView: View {
 
     private var autoPilotCard: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            HStack {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(autoPilotEnabled ? Color.accent : Color.textSecondary)
+            HStack(spacing: Space.sm) {
+                // Icon with accent background
+                ZStack {
+                    RoundedRectangle(cornerRadius: CornerRadiusToken.radiusIcon, style: .continuous)
+                        .fill(autoPilotEnabled ? Color.accentMuted : Color.bg)
+                        .frame(width: 32, height: 32)
 
-                Text("Auto-Pilot")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color.textPrimary)
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(autoPilotEnabled ? Color.accent : Color.textTertiary)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Auto-Pilot")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color.textPrimary)
+
+                    Text(autoPilotEnabled ? "Active" : "Off")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(autoPilotEnabled ? Color.accent : Color.textTertiary)
+                }
 
                 Spacer()
 
@@ -106,15 +117,20 @@ struct ActivityView: View {
             }
 
             Text(autoPilotEnabled
-                 ? "Changes are applied automatically. You'll see a summary of what changed here."
-                 : "Review each recommendation individually before it's applied.")
+                 ? "Changes are applied automatically. You'll see a summary here."
+                 : "Review each recommendation before it's applied.")
                 .font(.system(size: 13))
                 .foregroundColor(Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(Space.md)
+        .padding(Space.lg)
         .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: CornerRadiusToken.radiusCard, style: .continuous)
+                .strokeBorder(autoPilotEnabled ? Color.accent.opacity(0.25) : Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
+        )
+        .shadow(color: .black.opacity(0.03), radius: 4, x: 0, y: 2)
         .padding(.horizontal, Space.lg)
     }
 
@@ -137,27 +153,37 @@ struct ActivityView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: Space.md) {
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 40))
-                .foregroundColor(Color.textTertiary)
-            Text("No activity yet")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(Color.textSecondary)
-            Text("Recommendations will appear here after your workouts are analyzed.")
-                .font(.system(size: 13))
-                .foregroundColor(Color.textTertiary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: Space.lg) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentMuted)
+                    .frame(width: 64, height: 64)
+
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24))
+                    .foregroundColor(Color.accent)
+            }
+
+            VStack(spacing: Space.xs) {
+                Text("No activity yet")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Color.textPrimary)
+                Text("Recommendations will appear here\nafter your workouts are analyzed.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 80)
+        .padding(.top, 60)
     }
 
     // MARK: - Error Banner
 
     private func errorBanner(_ message: String, onDismiss: (() -> Void)? = nil) -> some View {
-        HStack {
+        HStack(spacing: Space.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 14))
                 .foregroundColor(Color.warning)
             Text(message)
                 .font(.system(size: 13))
@@ -166,14 +192,18 @@ struct ActivityView: View {
             if let onDismiss = onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Color.textTertiary)
                 }
             }
         }
-        .padding(Space.sm)
+        .padding(Space.md)
         .background(Color.surface)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.small, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: CornerRadiusToken.small, style: .continuous)
+                .strokeBorder(Color.separatorLine, lineWidth: StrokeWidthToken.hairline)
+        )
         .padding(.horizontal, Space.lg)
     }
 
@@ -210,10 +240,11 @@ struct ActivityView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(Color.textSecondary)
+            .font(.system(size: 12, weight: .bold))
+            .tracking(0.5)
+            .foregroundColor(Color.textTertiary)
             .padding(.horizontal, Space.lg)
-            .padding(.top, Space.sm)
+            .padding(.top, Space.xs)
     }
 
     private func loadAutoPilotState() async {
