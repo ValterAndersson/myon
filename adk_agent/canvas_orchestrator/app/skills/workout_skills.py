@@ -341,7 +341,7 @@ def log_set(
             totals = resp.get("totals", {})
             return WorkoutSkillResult(
                 success=True,
-                message=f"Logged: {reps} \u00d7 {weight_kg}kg",
+                message=f"Logged: {reps} \u00d7 {weight_kg}kg. Refer to the workout brief for the next planned set.",
                 data={"totals": totals, "event_id": resp.get("event_id")},
             )
         else:
@@ -359,6 +359,16 @@ def log_set(
             pass
         error_code = body.get("error", {}).get("code", "UNKNOWN")
         error_msg = body.get("error", {}).get("message", str(e))
+        if error_code == "ALREADY_DONE":
+            error_msg = (
+                "This set is already logged. Call tool_get_workout_state "
+                "to refresh, then check which set to log next."
+            )
+        elif error_code == "TARGET_NOT_FOUND":
+            error_msg = (
+                "Set or exercise not found — the brief may be stale. "
+                "Call tool_get_workout_state to refresh."
+            )
         return WorkoutSkillResult(success=False, message=error_msg, error=error_code)
     except Exception as e:
         logger.error("log_set error: %s", e)
@@ -389,7 +399,7 @@ def swap_exercise(
         if resp.get("event_id"):
             return WorkoutSkillResult(
                 success=True,
-                message="Exercise swapped",
+                message="Exercise swapped. Call tool_get_workout_state to see updated exercises.",
                 data=resp,
             )
         elif resp.get("duplicate"):
@@ -448,7 +458,7 @@ def add_exercise(
         if resp.get("success") or resp.get("event_id"):
             return WorkoutSkillResult(
                 success=True,
-                message=f"Added {name} with {len(sets)} sets",
+                message=f"Added {name} with {len(sets)} sets (instance_id: {instance_id}). Use this instance_id for subsequent set operations.",
                 data={"instance_id": instance_id},
             )
         elif resp.get("duplicate"):

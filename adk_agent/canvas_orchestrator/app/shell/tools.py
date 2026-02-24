@@ -36,6 +36,35 @@ from app.shell.context import (
 )
 
 
+# Tools banned during active workout mode — returning structured error
+# with recovery guidance steers the LLM to the right tool.
+WORKOUT_BANNED_TOOLS = {
+    "tool_get_training_context": "Use tool_get_exercise_progress for single-exercise history instead.",
+    "tool_get_training_analysis": "Use tool_get_exercise_progress for exercise data mid-workout.",
+    "tool_query_training_sets": "Use tool_get_exercise_progress for recent set data mid-workout.",
+    "tool_propose_routine": "Not available mid-workout. Focus on the current session.",
+    "tool_update_routine": "Not available mid-workout. Focus on the current session.",
+    "tool_propose_workout": "Not available mid-workout. Focus on the current session.",
+    "tool_update_template": "Not available mid-workout. Focus on the current session.",
+}
+
+
+def _check_workout_ban(tool_name: str) -> Optional[Dict[str, str]]:
+    """Return error dict if this tool is banned in workout mode, else None."""
+    if tool_name not in WORKOUT_BANNED_TOOLS:
+        return None
+    try:
+        ctx = get_current_context()
+        if ctx.workout_mode:
+            return {
+                "error": "TOOL_NOT_AVAILABLE_WORKOUT",
+                "message": WORKOUT_BANNED_TOOLS[tool_name],
+            }
+    except Exception:
+        pass
+    return None
+
+
 def set_tool_context(ctx: SessionContext, message: str) -> None:
     """
     Set the context for tool execution.
@@ -126,14 +155,18 @@ def timed_tool(func):
 def tool_get_training_context() -> Dict[str, Any]:
     """
     Get the user's training context: active routine, templates, schedule.
-    
+
     Use this to understand the user's current training structure.
     """
+    ban = _check_workout_ban("tool_get_training_context")
+    if ban:
+        return ban
+
     ctx = get_current_context()
-    
+
     if not ctx.user_id:
         return {"error": "No user_id available in context"}
-    
+
     result = get_training_context(ctx.user_id)
     return result.to_dict()
 
@@ -625,6 +658,10 @@ def tool_query_training_sets(
     Error Recovery:
         Returns 400 if zero or multiple filters provided.
     """
+    ban = _check_workout_ban("tool_query_training_sets")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:
@@ -707,6 +744,10 @@ def tool_get_training_analysis(
         tool_get_training_analysis(sections=["insights"])  # insights only
         tool_get_training_analysis(sections=["weekly_review"])  # weekly review only
     """
+    ban = _check_workout_ban("tool_get_training_analysis")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:
@@ -756,6 +797,10 @@ def tool_propose_workout(
         duration_minutes: Estimated duration
         coach_notes: Rationale for the plan
     """
+    ban = _check_workout_ban("tool_propose_workout")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:
@@ -797,6 +842,10 @@ def tool_propose_routine(
               names in catalog format "Name (Equipment)")
         description: Brief routine description
     """
+    ban = _check_workout_ban("tool_propose_routine")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:
@@ -894,6 +943,10 @@ def tool_update_routine(
         5. User sees card with "Updating: Push Pull Legs" indicator
         6. User clicks "Update Routine" → existing routine/templates are updated
     """
+    ban = _check_workout_ban("tool_update_routine")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:
@@ -959,6 +1012,10 @@ def tool_update_template(
     Returns:
         Status of the published update proposal
     """
+    ban = _check_workout_ban("tool_update_template")
+    if ban:
+        return ban
+
     ctx = get_current_context()
 
     if not ctx.user_id:

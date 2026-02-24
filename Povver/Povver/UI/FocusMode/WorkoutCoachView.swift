@@ -29,6 +29,10 @@ struct WorkoutCoachView: View {
                         if viewModel.messages.isEmpty {
                             emptyState
                         }
+
+                        // Gemini-style thinking bubble — same component as shell agent
+                        ThinkingBubble(state: viewModel.thinkingState)
+                            .id("thinking-bubble")
                     }
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.md)
@@ -37,6 +41,13 @@ struct WorkoutCoachView: View {
                     if let last = viewModel.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: viewModel.thinkingState.isActive) { _, isActive in
+                    if isActive {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("thinking-bubble", anchor: .bottom)
                         }
                     }
                 }

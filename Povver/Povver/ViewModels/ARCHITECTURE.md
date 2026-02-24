@@ -8,7 +8,7 @@ ViewModels manage observable state and business logic for SwiftUI views. They co
 |------|---------------|------------------|
 | `CanvasViewModel.swift` | `CanvasScreen`, all card views | Agent streaming, artifact rendering, conversation state, action dispatch |
 | `ExercisesViewModel.swift` | Exercise search views | Exercise catalog fetching and search |
-| `WorkoutCoachViewModel.swift` | `WorkoutCoachView` | Ephemeral in-memory chat during active workout. Streams agent responses via `DirectStreamingService.streamQuery(workoutId:)` with workout context prefix. Chat is not persisted to Firestore. Mirrors `CanvasViewModel` streaming pattern (message buffer, flush on `.done`) |
+| `WorkoutCoachViewModel.swift` | `WorkoutCoachView` | Ephemeral in-memory chat during active workout. Streams agent responses via `DirectStreamingService.streamQuery(workoutId:)` with workout context prefix. Chat is not persisted to Firestore. Mirrors `CanvasViewModel` streaming pattern (message buffer, flush on `.done`). Uses per-workout `conversationId` (`"workout-{workoutId}"`) for Vertex AI session isolation. Reuses `ThinkingProcessState` for Gemini-style thinking UI — all SSE events forwarded via `thinkingState.handleEvent()`. |
 
 ## CanvasViewModel (Primary)
 

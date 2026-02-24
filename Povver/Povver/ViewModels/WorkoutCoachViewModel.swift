@@ -13,14 +13,18 @@ final class WorkoutCoachViewModel: ObservableObject {
     @Published var isStreaming = false
     @Published var inputText = ""
     @Published var showingPaywall = false
+    @Published var errorMessage: String? = nil
+
+    /// Gemini-style thinking process — reuses ThinkingProcessState from shell agent
+    let thinkingState = ThinkingProcessState()
 
     private(set) var workoutId: String
-    let conversationId: String
+    /// Per-workout session isolation — prevents context bleed across workouts
+    var conversationId: String { "workout-\(workoutId)" }
     private var currentSessionId: String?
 
-    init(workoutId: String, conversationId: String = "workout-coach") {
+    init(workoutId: String) {
         self.workoutId = workoutId
-        self.conversationId = conversationId
     }
 
     /// Update workout context. Resets conversation for a different workout.
@@ -60,6 +64,7 @@ final class WorkoutCoachViewModel: ObservableObject {
         }
 
         isStreaming = true
+        thinkingState.start()
 
         // Placeholder for streaming agent response
         let agentMsgId = UUID().uuidString
@@ -84,6 +89,9 @@ final class WorkoutCoachViewModel: ObservableObject {
             )
 
             for try await event in stream {
+                // Forward all events to thinking state (same pattern as CanvasViewModel)
+                thinkingState.handleEvent(event)
+
                 switch event.eventType {
                 case .message:
                     // Text delta — accumulate via displayText
@@ -97,16 +105,6 @@ final class WorkoutCoachViewModel: ObservableObject {
                     if let sid = event.content?["session_id"]?.value as? String {
                         currentSessionId = sid
                     }
-
-                case .toolRunning:
-                    // Show tool label briefly while waiting
-                    let toolLabel = event.displayText
-                    if !toolLabel.isEmpty && messageBuffer.isEmpty {
-                        updateAgentMessage(id: agentMsgId, text: toolLabel, status: .streaming)
-                    }
-
-                case .toolComplete:
-                    break
 
                 case .done:
                     // Flush: use accumulated buffer as final response
@@ -122,8 +120,10 @@ final class WorkoutCoachViewModel: ObservableObject {
                     let errorText = event.displayText
                     updateAgentMessage(id: agentMsgId, text: errorText.isEmpty ? "Error" : errorText, status: .failed)
 
-                case .pipeline, .thinking, .thought, .heartbeat, .card, .artifact,
+                case .pipeline, .thinking, .thought, .toolRunning, .toolComplete,
+                     .heartbeat, .card, .artifact,
                      .agentResponse, .userPrompt, .userResponse, .clarificationRequest:
+                    // Handled by thinkingState.handleEvent() above
                     break
 
                 case .none:
@@ -150,6 +150,7 @@ final class WorkoutCoachViewModel: ObservableObject {
             }
         }
 
+        thinkingState.complete()
         isStreaming = false
     }
 
