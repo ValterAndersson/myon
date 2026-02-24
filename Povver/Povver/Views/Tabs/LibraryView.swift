@@ -191,7 +191,15 @@ struct RoutinesListView: View {
     }
     
     private func loadRoutines() async {
-        // Load from API
+        // Use prefetched cache if available
+        if let cached = FocusModeWorkoutService.shared.cachedRoutines {
+            routines = cached.map { info in
+                RoutineItem(id: info.id, name: info.name, workoutCount: info.workoutCount, isActive: info.isActive)
+            }
+            isLoading = false
+            return
+        }
+        // Fallback to network fetch
         do {
             let fetchedRoutines = try await FocusModeWorkoutService.shared.getUserRoutines()
             routines = fetchedRoutines.map { info in
@@ -291,7 +299,15 @@ struct TemplatesListView: View {
     }
     
     private func loadTemplates() async {
-        // Load from FocusModeWorkoutService
+        // Use prefetched cache if available
+        if let cached = FocusModeWorkoutService.shared.cachedTemplates {
+            templates = cached.map { info in
+                TemplateItem(id: info.id, name: info.name, exerciseCount: info.exerciseCount, setCount: info.setCount)
+            }
+            isLoading = false
+            return
+        }
+        // Fallback to network fetch
         do {
             let fetchedTemplates = try await FocusModeWorkoutService.shared.getUserTemplates()
             templates = fetchedTemplates.map { info in

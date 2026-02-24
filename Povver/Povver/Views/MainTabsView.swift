@@ -138,6 +138,8 @@ struct MainTabsView: View {
         .task {
             if let userId = AuthService.shared.currentUser?.uid {
                 recommendationsVM.startListening(userId: userId)
+                // Prefetch library data for Train/Library tabs
+                await FocusModeWorkoutService.shared.prefetchLibraryData()
             }
         }
     }

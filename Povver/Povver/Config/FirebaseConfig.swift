@@ -12,6 +12,10 @@ class FirebaseConfig {
     func configure() {
         FirebaseApp.configure()
 
+        // Suppress info-level Firebase SDK logs (WatchStream reconnects, etc.)
+        // to reduce console noise. Warnings and errors still surface.
+        FirebaseConfiguration.shared.setLoggerLevel(.warning)
+
         // Crashlytics is auto-initialized by Firebase once the SDK is linked.
         // Set user ID once auth is available so crash reports are attributable.
         Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(true)

@@ -14,6 +14,7 @@ struct CoachTabView: View {
     @State private var selectedCanvasId: String? = nil
     @State private var recentCanvases: [RecentCanvas] = []
     @State private var showAllConversations = false
+    @State private var hasLoadedCanvases = false
 
     var body: some View {
         ScrollView {
@@ -26,13 +27,15 @@ struct CoachTabView: View {
                 // Input bar for free-form questions
                 inputBar
 
-                // Recent chats
-                if !recentCanvases.isEmpty {
-                    recentChatsSection
+                if hasLoadedCanvases {
+                    // Returning user: show conversations, hide quick actions
+                    if !recentCanvases.isEmpty {
+                        recentChatsSection
+                    } else {
+                        // New user: show quick actions
+                        quickActionsGrid
+                    }
                 }
-
-                // Quick actions grid
-                quickActionsGrid
 
                 Spacer(minLength: Space.xxl)
             }
@@ -171,7 +174,7 @@ struct CoachTabView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: Space.sm) {
-                ForEach(recentCanvases.prefix(3)) { canvas in
+                ForEach(recentCanvases.prefix(5)) { canvas in
                     Button {
                         selectedCanvasId = canvas.id
                         entryContext = ""
@@ -260,6 +263,7 @@ struct CoachTabView: View {
                 }
                 DispatchQueue.main.async {
                     self.recentCanvases = canvases
+                    self.hasLoadedCanvases = true
                 }
             }
     }

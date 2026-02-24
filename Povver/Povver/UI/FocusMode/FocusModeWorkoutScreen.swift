@@ -496,18 +496,22 @@ struct FocusModeWorkoutScreen: View {
         guard !isLoadingStartData else { return }
         isLoadingStartData = true
         defer { isLoadingStartData = false }
-        
-        // Load templates and next workout in parallel
+
+        // Use prefetched templates cache if available
+        let cachedTemplates = service.cachedTemplates
+
+        // Load templates (from cache or network) and next workout in parallel
         async let templatesTask: [FocusModeWorkoutService.TemplateInfo] = {
+            if let cached = cachedTemplates { return cached }
             do { return try await service.getUserTemplates() }
             catch { print("[FocusModeWorkoutScreen] getUserTemplates failed: \(error)"); return [] }
         }()
-        
+
         async let nextWorkoutTask: FocusModeWorkoutService.NextWorkoutInfo? = {
             do { return try await service.getNextWorkout() }
             catch { print("[FocusModeWorkoutScreen] getNextWorkout failed: \(error)"); return nil }
         }()
-        
+
         templates = await templatesTask
         nextWorkoutInfo = await nextWorkoutTask
     }

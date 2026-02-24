@@ -30,6 +30,7 @@ landing/
     ├── statusbar.svg         # iOS status bar overlay (unused — real screenshots have it)
     └── screenshots/          # App screenshots (iPhone, 520px wide for 2x Retina)
         ├── coach.png         # Hero: Coach tab home screen
+        ├── recommendations.png # Feature 1: Activity feed with Auto-Pilot
         ├── plan.png          # Feature 2: AI-generated workout plan
         ├── grid.png          # Feature 3: Set logging grid
         ├── train.png         # Feature 4: Train tab
@@ -76,17 +77,63 @@ landing/
 
 ## Deployment
 
+### Quick deploy
+
 ```bash
 cd landing
 ./deploy.sh
 ```
 
-Requires SSH access to the EC2 instance. The PEM key is not in the repo (gitignored).
+No env vars needed — the script auto-finds the PEM key.
+
+### How it works
+
+The deploy script SCPs all site files and assets to the EC2 instance, then copies them into the nginx web root with `sudo`. It also stamps cache-busting `?v=<timestamp>` query strings onto all `.png`, `.css`, and `.js` references in `index.html` (working on a temp copy — source files stay clean).
+
+**PEM key resolution** (first match wins):
+
+| Priority | Location | When to use |
+|----------|----------|-------------|
+| 1 | `$POVVER_PEM` | Env var override for non-standard setups |
+| 2 | `landing/povver-rsa.pem` | Default — co-located with deploy script |
+| 3 | `~/.ssh/povver-rsa.pem` | Alternative if you prefer keys in `~/.ssh/` |
+
+The PEM file is gitignored (`*.pem` in root `.gitignore`). It must have `chmod 400` permissions.
+
+### EC2 instance
+
+| Property | Value |
+|----------|-------|
+| Host | `ec2-34-244-201-109.eu-west-1.compute.amazonaws.com` |
+| Domain | `povver.ai` (Route53 A record) |
+| SSH user | `ec2-user` |
+| Web root | `/usr/share/nginx/html/` |
+| SSL | Let's Encrypt via certbot (auto-renews) |
+| OS | Amazon Linux 2023 |
+| Region | eu-west-1 |
+
+### Caching
+
+Nginx is configured with cache headers in `/etc/nginx/default.d/cache.conf` (inside the server block):
+
+- **HTML**: `no-cache, must-revalidate` — browser always revalidates, so new deploys are picked up immediately.
+- **Assets** (`.png`, `.css`, `.js`, `.svg`, `.woff2`): `public, max-age=31536000, immutable` — cached for 1 year. The deploy script adds `?v=<timestamp>` to all asset references in `index.html`, so updated assets get a new URL and bypass the cache.
+
+This means: deploy the script, and changes are live immediately. No manual cache clearing needed.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `PEM key not found` | Key missing from all 3 locations | Get `povver-rsa.pem` from team and place in `landing/` |
+| `Permission denied (publickey)` | Wrong PEM file or bad permissions | `chmod 400 landing/povver-rsa.pem` |
+| `scp: failed to upload directory` | Remote temp dir missing (newer OpenSSH) | Already handled in deploy script via rsync |
+| Changes not visible after deploy | Browser serving stale cached assets | Already handled — deploy script stamps `?v=<timestamp>` on all asset URLs |
 
 ## Launch Checklist
 
 Before removing `noindex`:
-- [ ] Replace placeholder screenshot for Feature 1 (post-workout analysis)
+- [x] Replace placeholder screenshot for Feature 1 (Activity with Auto-Pilot)
 - [x] Replace `train.png` with a real phone screenshot
 - [ ] Create `og-image.png` (1200x630) for social sharing
 - [x] Set App Store badge `href` to actual App Store link (Apple ID: 6759248585)

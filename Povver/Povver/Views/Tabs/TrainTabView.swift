@@ -42,6 +42,13 @@ struct TrainTabView: View {
     /// Check for active workout on appear
     /// This gates the first paint to prevent flashing the wrong screen
     private func checkForActiveWorkout() async {
+        // Skip network call if service already has workout state (prefetched or resumed)
+        if workoutService.workout != nil {
+            hasActiveWorkout = true
+            isCheckingActiveWorkout = false
+            return
+        }
+
         // Brief check - FocusModeWorkoutScreen will also check,
         // but this prevents the flash
         do {
@@ -51,7 +58,7 @@ struct TrainTabView: View {
             // On error, show start screen (FocusModeWorkoutScreen handles this)
             hasActiveWorkout = false
         }
-        
+
         // Gate complete - show the actual screen
         isCheckingActiveWorkout = false
     }

@@ -199,12 +199,10 @@ extension CanvasScreen {
         firePrompt(trimmed)
     }
     
-    private func firePrompt(_ message: String, resetCards: Bool = true) {
+    private func firePrompt(_ message: String) {
         guard let cid = vm.canvasId ?? canvasId else { return }
-        if resetCards {
-            answeredClarifications.removeAll()
-            vm.clearCards()
-        }
+        answeredClarifications.removeAll()
+        vm.archiveProposedCards()
         let correlationId = UUID().uuidString
         vm.startSSEStream(userId: userId, canvasId: cid, message: message, correlationId: correlationId)
     }
@@ -214,15 +212,15 @@ extension CanvasScreen {
         vm.clearPendingClarification(id: id)
         let message = "Clarification response — \(question): \(answer)"
         vm.logUserResponse(text: message)
-        firePrompt(message, resetCards: false)
+        firePrompt(message)
     }
-    
+
     private func handleClarificationSkip(id: String, question: String) {
         answeredClarifications.insert(id)
         vm.clearPendingClarification(id: id)
         let message = "Clarification skipped — \(question)"
         vm.logUserResponse(text: message)
-        firePrompt(message, resetCards: false)
+        firePrompt(message)
     }
     
     private var handleCardAction: CardActionHandler {
@@ -366,7 +364,7 @@ extension CanvasScreen {
                     
                     Please update the plan accordingly and publish the revised workout.
                     """
-                    firePrompt(prompt, resetCards: false)
+                    firePrompt(prompt)
                 }
             case "swap_exercise":
                 // Swap exercise - works for both SessionPlanCard and RoutineSummaryCard
@@ -383,7 +381,7 @@ extension CanvasScreen {
                         Please swap the exercise and publish the updated plan.
                         """
                     }
-                    firePrompt(prompt, resetCards: false)
+                    firePrompt(prompt)
                 }
                 
             // MARK: - Routine Card Inline Actions
@@ -406,7 +404,7 @@ extension CanvasScreen {
                     
                     Please update the routine accordingly and publish the revised version.
                     """
-                    firePrompt(prompt, resetCards: false)
+                    firePrompt(prompt)
                 }
                 
             // MARK: - Routine Draft Actions

@@ -11,18 +11,21 @@ struct RootView: View {
     @StateObject private var session = SessionManager.shared
     @ObservedObject private var authService = AuthService.shared
     @State private var flow: AppFlow = .login
+    @AppStorage("selectedTab") private var selectedTabRaw: String = MainTab.coach.rawValue
 
     var body: some View {
         NavigationStack {
             switch flow {
             case .login:
                 LoginView(onLogin: { _ in
+                    selectedTabRaw = MainTab.coach.rawValue
                     flow = .main
                 }, onRegister: {
                     flow = .register
                 })
             case .register:
                 RegisterView(onRegister: { _ in
+                    selectedTabRaw = MainTab.coach.rawValue
                     flow = .main
                 }, onBackToLogin: {
                     flow = .login

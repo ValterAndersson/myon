@@ -122,6 +122,17 @@ class FocusModeWorkoutService: ObservableObject {
     /// Track if first set has been logged for this workout session
     private var hasLoggedFirstSet: Bool = false
 
+    // MARK: - Library Cache (prefetched on startup for Train/Library tabs)
+
+    /// Cached templates for Library tab — populated by prefetchLibraryData()
+    @Published private(set) var cachedTemplates: [TemplateInfo]?
+
+    /// Cached routines for Library tab — populated by prefetchLibraryData()
+    @Published private(set) var cachedRoutines: [RoutineInfo]?
+
+    /// Guard against concurrent prefetch requests
+    private var isPrefetching = false
+
     // MARK: - Dependencies
 
     private let apiClient = ApiClient.shared
@@ -722,24 +733,30 @@ class FocusModeWorkoutService: ObservableObject {
             throw FocusModeError.noActiveWorkout
         }
 
-        let removedName = workout.exercises.first { $0.instanceId == exerciseInstanceId }?.name ?? "?"
+        // 1. Capture rollback state BEFORE removal
+        guard let removedIndex = workout.exercises.firstIndex(where: { $0.instanceId == exerciseInstanceId }) else {
+            return
+        }
+        let removedExercise = workout.exercises[removedIndex]
+        let previousTotals = workout.totals
+
         sessionLog.log(.exerciseRemoved, details: [
             "instanceId": exerciseInstanceId,
-            "name": removedName
+            "name": removedExercise.name
         ])
 
-        // 1. Apply optimistically - remove exercise immediately
+        // 2. Apply optimistically - remove exercise immediately
         var updatedWorkout = workout
-        updatedWorkout.exercises.removeAll { $0.instanceId == exerciseInstanceId }
-        
+        updatedWorkout.exercises.remove(at: removedIndex)
+
         // Update positions
         for i in updatedWorkout.exercises.indices {
             updatedWorkout.exercises[i].position = i
         }
-        
+
         // Recalculate totals
         updatedWorkout.totals = recalculateTotals(for: updatedWorkout)
-        
+
         self.workout = updatedWorkout
         updateHasTemplateChanges()
 
@@ -748,19 +765,19 @@ class FocusModeWorkoutService: ObservableObject {
 
         print("[removeExercise] Optimistically removed exercise: \(exerciseInstanceId)")
 
-        // 2. Fire analytics event
+        // 3. Fire analytics event
         AnalyticsService.shared.exerciseRemoved(workoutId: workout.id)
 
-        // 3. Build and send request
+        // 4. Build and send request
         let idempotencyKey = idempotencyHelper.generate(context: "removeExercise", exerciseId: exerciseInstanceId)
-        
+
         let op = PatchOperationDTO(
             op: "remove_exercise",
             target: PatchTargetDTO(exerciseInstanceId: exerciseInstanceId, setId: nil),
             field: nil,
             value: nil
         )
-        
+
         let request = PatchActiveWorkoutRequest(
             workoutId: workout.id,
             ops: [op],
@@ -770,16 +787,23 @@ class FocusModeWorkoutService: ObservableObject {
             clientTimestamp: ISO8601DateFormatter().string(from: Date()),
             aiScope: nil
         )
-        
+
         do {
             let _ = try await syncPatch(request)
             print("[removeExercise] Synced to backend")
         } catch {
-            print("[removeExercise] Sync failed: \(error)")
-            // Rollback: re-fetch from server or restore
-            // For now, we don't rollback since local state is source of truth during session
-            self.error = "Failed to sync exercise removal"
-            throw error
+            print("[removeExercise] Sync failed: \(error) — rolling back")
+            // Rollback: re-insert exercise at original position and restore totals
+            var rollbackWorkout = self.workout ?? updatedWorkout
+            let insertionIndex = min(removedIndex, rollbackWorkout.exercises.count)
+            rollbackWorkout.exercises.insert(removedExercise, at: insertionIndex)
+            for i in rollbackWorkout.exercises.indices {
+                rollbackWorkout.exercises[i].position = i
+            }
+            rollbackWorkout.totals = previousTotals
+            self.workout = rollbackWorkout
+            self.error = "Failed to remove exercise"
+            // Don't re-throw — exercise is restored, user sees error toast and can retry
         }
     }
     
@@ -956,6 +980,7 @@ class FocusModeWorkoutService: ObservableObject {
             self.templateSnapshot = nil
             self.hasTemplateChanges = false
             self.workout = nil  // Clear local state
+            invalidateLibraryCache()
             return archivedId
         } else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to complete workout")
@@ -973,11 +998,13 @@ class FocusModeWorkoutService: ObservableObject {
             let sets: [[String: Any]] = exercise.sets.compactMap { set in
                 guard set.status != .skipped else { return nil }
                 let isDone = set.status == .done
+                let repsValue: Int = isDone ? (set.reps ?? set.targetReps ?? 0) : (set.targetReps ?? 0)
+                let weightValue: Double = isDone ? (set.weight ?? set.targetWeight ?? 0) : (set.targetWeight ?? 0)
                 var setDict: [String: Any] = [
                     "id": set.id,
                     "type": set.setType.rawValue,
-                    "reps": isDone ? (set.reps ?? set.targetReps ?? 0) : (set.targetReps ?? 0),
-                    "weight": isDone ? (set.weight ?? set.targetWeight ?? 0) : (set.targetWeight ?? 0)
+                    "reps": repsValue,
+                    "weight": weightValue
                 ]
                 let rir = isDone ? set.rir : set.targetRir
                 if let rir { setDict["rir"] = rir }
@@ -1621,6 +1648,7 @@ class FocusModeWorkoutService: ObservableObject {
         guard response.success else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to patch template")
         }
+        invalidateLibraryCache()
     }
 
     /// Fetch a single routine by ID with full details
@@ -1643,6 +1671,7 @@ class FocusModeWorkoutService: ObservableObject {
         guard response.success else {
             throw FocusModeError.syncFailed(response.error ?? "Failed to patch routine")
         }
+        invalidateLibraryCache()
     }
 
     /// Upsert a completed workout (create or update)
@@ -1667,6 +1696,34 @@ class FocusModeWorkoutService: ObservableObject {
         }
         
         return response.items.map { RoutineInfo(from: $0) }
+    }
+
+    // MARK: - Library Prefetch
+
+    /// Prefetch templates and routines for Library/Train tabs.
+    /// Called from MainTabsView on startup to eliminate loading spinners.
+    func prefetchLibraryData() async {
+        guard !isPrefetching else { return }
+        isPrefetching = true
+        defer { isPrefetching = false }
+
+        async let templates = getUserTemplates()
+        async let routines = getUserRoutines()
+
+        do {
+            let (t, r) = try await (templates, routines)
+            self.cachedTemplates = t
+            self.cachedRoutines = r
+        } catch {
+            // Prefetch failure is non-fatal — views will fetch on demand
+            print("[FocusModeWorkoutService] Library prefetch failed: \(error)")
+        }
+    }
+
+    /// Invalidate cached library data after mutations that change templates/routines.
+    func invalidateLibraryCache() {
+        cachedTemplates = nil
+        cachedRoutines = nil
     }
 }
 

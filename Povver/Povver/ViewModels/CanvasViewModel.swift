@@ -805,13 +805,8 @@ final class CanvasViewModel: ObservableObject {
             .order(by: "created_at", descending: false)
             .limit(to: 200)
         let decoder = JSONDecoder()
-        var hasReceivedServerSnapshot = false
         workspaceListener = ref.addSnapshotListener { [weak self] snapshot, error in
             guard let self, let snapshot = snapshot else { return }
-            if snapshot.metadata.isFromCache && !hasReceivedServerSnapshot {
-                return
-            }
-            hasReceivedServerSnapshot = true
             let docs = snapshot.documents
             let events: [WorkspaceEvent] = docs.compactMap { doc in
                 guard let entry = doc.data()["entry"] as? [String: Any],
@@ -877,6 +872,29 @@ final class CanvasViewModel: ObservableObject {
     func clearCards() {
         cards = []
         upNext = []
+    }
+
+    /// Transition proposed/active cards to completed status.
+    /// Preserves artifacts in the timeline but strips action buttons
+    /// so users can't re-act on stale proposals.
+    func archiveProposedCards() {
+        cards = cards.map { card in
+            guard card.status == .proposed || card.status == .active else { return card }
+            return CanvasCardModel(
+                id: card.id,
+                type: card.type,
+                status: .completed,
+                lane: card.lane,
+                title: card.title,
+                subtitle: card.subtitle,
+                data: card.data,
+                width: card.width,
+                actions: [],
+                menuItems: [],
+                meta: card.meta,
+                publishedAt: card.publishedAt
+            )
+        }
     }
 
     func logUserResponse(text: String) {
