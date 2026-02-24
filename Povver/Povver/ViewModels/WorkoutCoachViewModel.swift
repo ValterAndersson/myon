@@ -33,6 +33,7 @@ final class WorkoutCoachViewModel: ObservableObject {
         self.workoutId = workoutId
         self.messages = []
         self.currentSessionId = nil
+        self.thinkingState.reset()
     }
 
     func send() async {

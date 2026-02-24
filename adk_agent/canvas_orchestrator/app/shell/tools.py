@@ -60,7 +60,8 @@ def _check_workout_ban(tool_name: str) -> Optional[Dict[str, str]]:
                 "error": "TOOL_NOT_AVAILABLE_WORKOUT",
                 "message": WORKOUT_BANNED_TOOLS[tool_name],
             }
-    except Exception:
+    except RuntimeError:
+        # Not in a request context — not in workout mode
         pass
     return None
 
