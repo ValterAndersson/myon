@@ -647,6 +647,43 @@ When adding a new field (e.g., `routine.goal`):
 
 ---
 
+## Weight Unit Handling
+
+All weight values are stored in **kilograms (kg)** across every layer (Firestore, Firebase Functions, Agent system). The user's display preference is a presentation concern handled at two boundaries:
+
+### Storage
+- Canonical format: `weight_kg` (Number, always kilograms)
+- User preference: `user_attributes/{uid}.weight_format` — `"kilograms"` or `"pounds"`
+- Active workouts use field name `weight`, completed workouts use `weight_kg` — both store kg values
+
+### Conversion Boundaries
+
+| Boundary | Direction | Where | How |
+|----------|-----------|-------|-----|
+| **Display (outbound)** | kg → user unit | iOS Views, Agent text output | `WeightFormatter.display(kg, unit:)` / `_format_weight(kg, unit)` |
+| **Input (inbound)** | user unit → kg | iOS text fields, steppers, sliders | `WeightFormatter.toKg(value, from:)` |
+
+### Key Files
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| iOS | `Povver/Povver/Utilities/WeightFormatter.swift` | `WeightUnit` enum, conversion functions, plate rounding |
+| iOS | `Povver/Povver/Services/ActiveWorkoutManager.swift` | `UserService` singleton publishes `weightUnit` and `activeWorkoutWeightUnit` |
+| iOS | `Povver/Povver/Views/Settings/PreferencesView.swift` | Weight unit picker UI |
+| Firebase | `firebase_functions/functions/agents/get-planning-context.js` | Returns `weight_unit` field for agent consumption |
+| Agent | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Weight unit cache (`set_weight_unit`/`get_weight_unit`), `_format_weight()` helper |
+| Agent | `adk_agent/canvas_orchestrator/app/shell/instruction.py` | Static rule telling agent to use `weight_unit` from planning context |
+
+### Mid-Workout Safety
+`UserService.activeWorkoutWeightUnit` is snapshotted when a workout starts (via `snapshotForWorkout()`). All Focus Mode components use this snapshot, preventing a preference change mid-workout from corrupting in-progress edits.
+
+### Conversion Constants
+- kg → lbs: `× 2.20462`
+- lbs → kg: `÷ 2.20462`
+- Plate rounding: kg = 2.5 increments, lbs = 5.0 increments
+
+---
+
 ## Deprecated / Legacy Code
 
 ### Files to Avoid

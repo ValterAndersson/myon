@@ -591,8 +591,8 @@ Subcollections:
    - Canonical store for user preferences and fitness profile.
    - Fields (observed):
      - `timezone?: string`
-     - `weight_format?: 'kilograms' | 'pounds'`
-     - `height_format?: 'centimeter' | 'feet'`
+     - `weight_format?: 'kilograms' | 'pounds'` — User's preferred display unit for weight values. Default: 'kilograms'. Read by iOS `UserService`, agent via `get-planning-context.js` (`weight_unit` field). All stored weight values remain in kg regardless of this preference.
+     - `height_format?: 'centimeter' | 'feet'` — User's preferred display unit for height. Default: 'centimeter'. (Display conversion deferred.)
      - `week_starts_on_monday?: boolean`
      - `locale?: string`
      - `fitness_goal?: string`

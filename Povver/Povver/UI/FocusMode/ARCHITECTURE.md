@@ -51,6 +51,14 @@ User finishes
     → Screen auto-lock re-enabled
 ```
 
+## Weight Unit Handling
+
+Focus Mode uses `UserService.shared.activeWorkoutWeightUnit` — a snapshot of the user's weight preference taken when the workout starts (via `snapshotForWorkout()` called from `ActiveWorkoutManager.startWorkout()`). This prevents a mid-workout preference change from corrupting in-progress edits.
+
+- **Display**: All `set.displayWeight` values from Firestore are in kg. `WeightFormatter.formatValue(kg, unit:)` converts for display.
+- **Input**: User types/steps in their preferred unit. `WeightFormatter.toKg(value, from:)` converts back to kg before `applyValueChange("weight", kgValue)`.
+- **Stepper increments**: 2.5 kg or 5 lbs (via `WeightFormatter.plateIncrement(unit:)`).
+
 ## Screen Mode State Machine
 
 `FocusModeWorkoutScreen` uses a `screenMode` enum to manage UI state:

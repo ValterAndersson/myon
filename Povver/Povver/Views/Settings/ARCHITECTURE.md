@@ -46,7 +46,8 @@ MoreView (Views/Tabs/MoreView.swift)
     │   └─ Recommendation cards → RecommendationsViewModel.accept() / reject()
     │
     ├─ Preferences → PreferencesView
-    │   └─ Week start toggle → UserRepository.updateUserProfile()
+    │   ├─ Week start toggle → UserRepository.updateUserProfile()
+    │   └─ Weight unit picker → ApiClient.postJSON("updateUserPreferences") → UserService.reloadPreferences()
     │
     ├─ Security → SecurityView
     │   ├─ NavigationLink → LinkedAccountsView
