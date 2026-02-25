@@ -5,46 +5,57 @@ import FirebaseFirestore
 // MARK: - UserService for user preferences
 class UserService: ObservableObject {
     static let shared = UserService()
-    
-    @Published var weightUnit: String = "kg"
+
+    @Published var weightUnit: WeightUnit = .kg
     @Published var heightUnit: String = "cm"
-    
+    @Published var activeWorkoutWeightUnit: WeightUnit = .kg
+
     private let userRepository = UserRepository()
-    
+
     private init() {
         loadUserPreferences()
     }
     
     private func loadUserPreferences() {
         guard let userId = AuthService.shared.currentUser?.uid else { return }
-        
+
         Task {
             do {
                 // Load user attributes to get weight format
                 _ = try await userRepository.getUserAttributes(userId: userId)
-                
+
                 // Also get the format from the document data
                 let db = Firestore.firestore()
                 let attrDoc = try await db.collection("users").document(userId)
                     .collection("user_attributes").document(userId).getDocument()
                 let data = attrDoc.data() ?? [:]
-                
+
                 await MainActor.run {
-                    let weightFormat = data["weight_format"] as? String ?? "kilograms"
+                    let weightFormat = data["weight_format"] as? String
                     let heightFormat = data["height_format"] as? String ?? "centimeter"
-                    
-                    self.weightUnit = weightFormat == "pounds" ? "lbs" : "kg"
+
+                    self.weightUnit = WeightUnit(firestoreFormat: weightFormat)
                     self.heightUnit = heightFormat == "feet" ? "ft" : "cm"
                 }
             } catch {
                 print("Error loading user preferences: \(error)")
                 // Use defaults
                 await MainActor.run {
-                    self.weightUnit = "kg"
+                    self.weightUnit = .kg
                     self.heightUnit = "cm"
                 }
             }
         }
+    }
+
+    /// Reload preferences from Firestore (public API for when preferences are updated)
+    func reloadPreferences() {
+        loadUserPreferences()
+    }
+
+    /// Snapshot weight unit for active workout (called when workout starts)
+    func snapshotForWorkout() {
+        activeWorkoutWeightUnit = weightUnit
     }
 }
 
@@ -75,6 +86,9 @@ class ActiveWorkoutManager: ObservableObject {
     
     // MARK: - Workout Lifecycle
     func startWorkout(from template: WorkoutTemplate? = nil) {
+        // Snapshot weight unit for this workout session
+        UserService.shared.snapshotForWorkout()
+
         Task {
             let workout = await createActiveWorkout(from: template)
             await MainActor.run {
@@ -87,6 +101,9 @@ class ActiveWorkoutManager: ObservableObject {
     }
     
     func resumeWorkout(_ workout: ActiveWorkout) {
+        // Snapshot weight unit for this workout session
+        UserService.shared.snapshotForWorkout()
+
         self.activeWorkout = workout
         self.isWorkoutActive = true
         startWorkoutTimer()
@@ -441,7 +458,7 @@ class ActiveWorkoutManager: ObservableObject {
     
     private func convertToFirestoreFormat(_ activeWorkout: ActiveWorkout) async throws -> Workout {
         let userService = UserService.shared
-        let weightFormat = userService.weightUnit
+        let weightFormat = userService.activeWorkoutWeightUnit.firestoreFormat
         
         var workoutExercises: [WorkoutExercise] = []
         var workoutTotalSets = 0

@@ -9,8 +9,10 @@ struct UserAttributes: Codable {
     var height: Double?
     var weight: Double?
     var workoutFrequency: Int?
+    var weightFormat: String?
+    var heightFormat: String?
     let lastUpdated: Date?
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case fitnessGoal = "fitness_goal"
@@ -19,6 +21,8 @@ struct UserAttributes: Codable {
         case height
         case weight
         case workoutFrequency = "workouts_per_week_goal"
+        case weightFormat = "weight_format"
+        case heightFormat = "height_format"
         case lastUpdated = "last_updated"
     }
     
