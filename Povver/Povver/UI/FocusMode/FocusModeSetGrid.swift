@@ -30,9 +30,12 @@ struct FocusModeSetGrid: View {
     let onAddSet: () -> Void
     let onRemoveSet: (String) -> Void
     var onToggleAllDone: (() -> Void)? = nil
-    
+
     // Row height - larger than typical for gym use (big fingers, sweat)
     private let rowHeight: CGFloat = 52
+
+    // Weight unit (snapshotted at workout start)
+    private var weightUnit: WeightUnit { UserService.shared.activeWorkoutWeightUnit }
     
     // Set type picker state
     @State private var setTypePickerSetId: String? = nil
@@ -421,15 +424,11 @@ struct FocusModeSetGrid: View {
             return SetDisplayInfo(text: "\(displayIndex + 1)", color: Color.textPrimary, isLetter: false)
         }
     }
-    
+
     private func formatWeight(_ weight: Double?) -> String {
-        guard let w = weight else { return "—" }
-        if w.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(w))"
-        }
-        return String(format: "%.1f", w)
+        WeightFormatter.formatValue(weight, unit: weightUnit)
     }
-    
+
     private func cellTextColor(isSelected: Bool, isSecondary: Bool, isDone: Bool, value: String) -> Color {
         if isSelected { return Color.accent }
         if isDone { return Color.success }
@@ -465,20 +464,23 @@ struct FocusModeEditingDock: View {
     let set: FocusModeSet
     let exerciseId: String
     let allSets: [FocusModeSet]
-    
+
     let onValueChange: (String, Any) -> Void
     let onBatchValueChange: (String, Any, FocusModeEditScope) -> Void
     let onLogSet: () -> Void
     let onDismiss: () -> Void
-    
+
     @State private var isEditingText = false
     @State private var textInputValue = ""
     @State private var editScope: FocusModeEditScope = .thisOnly
     @State private var hasComputedDefaultScope = false
     @FocusState private var textFieldFocused: Bool
-    
+
     private var isWarmup: Bool { `set`.isWarmup }
     private var currentSetIndex: Int { allSets.firstIndex { $0.id == `set`.id } ?? 0 }
+
+    // Weight unit (snapshotted at workout start)
+    private var weightUnit: WeightUnit { UserService.shared.activeWorkoutWeightUnit }
     
     /// Compute smart default scope:
     /// - If subsequent sets have same value as current → default to "Remaining"
@@ -631,8 +633,10 @@ struct FocusModeEditingDock: View {
         HStack(spacing: Space.md) {
             stepButton(systemName: "minus", disabled: (set.displayWeight ?? 0) <= 0) {
                 textInputValue = ""  // Discard partial input; placeholder shows new value
-                let newValue = (set.displayWeight ?? 0) - 2.5
-                applyValueChange("weight", max(0, newValue))
+                let currentDisplay = WeightFormatter.display(set.displayWeight ?? 0, unit: weightUnit)
+                let newDisplay = currentDisplay - WeightFormatter.plateIncrement(unit: weightUnit)
+                let newKg = WeightFormatter.toKg(max(0, newDisplay), from: weightUnit)
+                applyValueChange("weight", max(0, newKg))
             }
 
             // Tappable value → TextField for direct keyboard input
@@ -648,7 +652,7 @@ struct FocusModeEditingDock: View {
                         .onChange(of: textFieldFocused) { _, focused in
                             if !focused { commitTextInput() }
                         }
-                    Text("kg")
+                    Text(weightUnit.label)
                         .font(.system(size: 11))
                         .foregroundColor(Color.textSecondary)
                 }
@@ -665,7 +669,7 @@ struct FocusModeEditingDock: View {
                         Text(formatWeight(set.displayWeight))
                             .font(.system(size: 28, weight: .bold).monospacedDigit())
                             .foregroundColor(Color.textPrimary)
-                        Text("kg")
+                        Text(weightUnit.label)
                             .font(.system(size: 12))
                             .foregroundColor(Color.textSecondary)
                     }
@@ -681,8 +685,10 @@ struct FocusModeEditingDock: View {
 
             stepButton(systemName: "plus", disabled: false) {
                 textInputValue = ""  // Discard partial input; placeholder shows new value
-                let newValue = (set.displayWeight ?? 0) + 2.5
-                applyValueChange("weight", newValue)
+                let currentDisplay = WeightFormatter.display(set.displayWeight ?? 0, unit: weightUnit)
+                let newDisplay = currentDisplay + WeightFormatter.plateIncrement(unit: weightUnit)
+                let newKg = WeightFormatter.toKg(newDisplay, from: weightUnit)
+                applyValueChange("weight", newKg)
             }
         }
     }
@@ -765,14 +771,16 @@ struct FocusModeEditingDock: View {
     private func commitTextInput() {
         isEditingText = false
         textFieldFocused = false
-        
+
         let trimmed = textInputValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        
+
         switch selectedCell {
         case .weight:
             if let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")) {
-                let rounded = (value * 4).rounded() / 4  // Round to nearest 0.25kg
+                // User input is in their display unit - convert to kg for storage
+                let kg = WeightFormatter.toKg(value, from: weightUnit)
+                let rounded = (kg * 4).rounded() / 4  // Round to nearest 0.25kg
                 applyValueChange("weight", max(0, rounded))
             }
         case .reps:
@@ -782,7 +790,7 @@ struct FocusModeEditingDock: View {
         default:
             break
         }
-        
+
         textInputValue = ""
     }
     
@@ -825,13 +833,9 @@ struct FocusModeEditingDock: View {
     }
     
     private func formatWeight(_ weight: Double?) -> String {
-        guard let w = weight else { return "—" }
-        if w.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(w))"
-        }
-        return String(format: "%.1f", w)
+        WeightFormatter.formatValue(weight, unit: weightUnit)
     }
-    
+
     private func rirColor(_ rir: Int) -> Color {
         switch rir {
         case 0: return Color.destructive

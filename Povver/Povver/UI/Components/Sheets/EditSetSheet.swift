@@ -5,13 +5,16 @@ public struct EditSetSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var sets: Int
     @State private var reps: Int
-    @State private var weight: Double
+    @State private var weightKg: Double  // Internal state: always kg
     private let onSubmit: (Int, Int, Double) -> Void
+
+    // Weight unit (snapshotted at workout start)
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
 
     public init(initialSets: Int = 3, initialReps: Int = 10, initialWeight: Double = 0, onSubmit: @escaping (Int, Int, Double) -> Void) {
         self._sets = State(initialValue: initialSets)
         self._reps = State(initialValue: initialReps)
-        self._weight = State(initialValue: initialWeight)
+        self._weightKg = State(initialValue: initialWeight)  // initialWeight is in kg
         self.onSubmit = onSubmit
     }
 
@@ -21,7 +24,7 @@ public struct EditSetSheet: View {
             doneTitle: "Apply",
             onCancel: { dismiss() },
             onDone: {
-                onSubmit(sets, reps, weight)
+                onSubmit(sets, reps, weightKg)  // Always submit kg
                 dismiss()
             }
         ) {
@@ -36,11 +39,21 @@ public struct EditSetSheet: View {
                 }
                 HStack {
                     PovverText("Weight", style: .subheadline, color: Color.textSecondary)
-                    Slider(value: $weight, in: 0...300, step: 2.5).tint(Color.accent)
-                    PovverText(String(format: "%.1f kg", weight), style: .headline)
+                    Slider(
+                        value: Binding(
+                            get: { WeightFormatter.display(weightKg, unit: weightUnit) },
+                            set: { newDisplayValue in
+                                weightKg = WeightFormatter.toKg(newDisplayValue, from: weightUnit)
+                            }
+                        ),
+                        in: 0...(weightUnit == .lbs ? 660 : 300),  // 300kg ≈ 660lbs
+                        step: WeightFormatter.plateIncrement(unit: weightUnit)
+                    ).tint(Color.accent)
+                    PovverText(WeightFormatter.format(weightKg, unit: weightUnit), style: .headline)
                         .monospacedDigit()
+                        .frame(width: 80, alignment: .trailing)
                 }
-                
+
                 Spacer()
             }
             .padding(.top, Space.md)

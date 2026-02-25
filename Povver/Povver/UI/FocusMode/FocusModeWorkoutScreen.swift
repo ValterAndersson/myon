@@ -161,10 +161,10 @@ struct FocusModeWorkoutScreen: View {
                         .padding(.horizontal, Space.md)
                         .padding(.top, Space.sm)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                        .onTapGesture { withAnimation { errorBanner = nil } }
+                        .onTapGesture { withAnimation(.easeOut(duration: MotionToken.fast)) { errorBanner = nil } }
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: errorBanner)
+            .animation(.easeInOut(duration: MotionToken.fast), value: errorBanner)
             .onChange(of: service.workout != nil) { _, isActive in
                 UIApplication.shared.isIdleTimerDisabled = isActive
             }
@@ -201,9 +201,7 @@ struct FocusModeWorkoutScreen: View {
                 ZStack {
                     Color.bg.ignoresSafeArea()
 
-                    if service.isLoading {
-                        loadingView
-                    } else if let workout = service.workout {
+                    if let workout = service.workout {
                         workoutContent(workout, safeAreaBottom: geometry.safeAreaInsets.bottom)
                     } else {
                         workoutStartView
@@ -370,24 +368,22 @@ struct FocusModeWorkoutScreen: View {
     private func presentSheet(_ sheet: FocusModeActiveSheet) {
         // Cancel any pending presentation
         pendingSheetTask?.cancel()
-        
+
         if screenMode.isReordering {
-            // Exit reorder mode first
-            withAnimation(.easeOut(duration: 0.2)) {
+            // Exit reorder mode first, then present on next run loop
+            withAnimation(.easeOut(duration: MotionToken.fast)) {
                 screenMode = .normal
             }
-            // Wait for animation to complete, then present on next run loop
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + MotionToken.fast) {
                 guard self.screenMode == .normal, self.activeSheet == nil else { return }
                 self.activeSheet = sheet
             }
         } else if screenMode.isEditing {
-            // Close editor first
-            withAnimation(.easeOut(duration: 0.15)) {
+            // Close editor first, then present
+            withAnimation(.easeOut(duration: MotionToken.fast)) {
                 screenMode = .normal
             }
-            // Wait for animation to complete, then present
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + MotionToken.fast) {
                 guard self.screenMode == .normal, self.activeSheet == nil else { return }
                 self.activeSheet = sheet
             }
@@ -400,24 +396,24 @@ struct FocusModeWorkoutScreen: View {
     
     private func toggleReorderMode() {
         guard !isReorderTransitioning else { return }
-        
+
         isReorderTransitioning = true
-        
+
         // Exit editing mode first if needed
         if screenMode.isEditing {
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(.easeOut(duration: MotionToken.fast)) {
                 screenMode = .normal
             }
         }
-        
-        withAnimation(.spring(response: 0.3)) {
+
+        withAnimation(.spring(response: 0.2)) {
             screenMode = screenMode.isReordering ? .normal : .reordering
         }
-        
+
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        
+
         // Re-enable after transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + MotionToken.fast) {
             isReorderTransitioning = false
         }
     }
@@ -491,14 +487,17 @@ struct FocusModeWorkoutScreen: View {
         }
     }
     
-    /// Load templates and next workout info for start view
+    /// Load templates and next workout info for start view.
+    /// Uses prefetched caches when available (populated by prefetchLibraryData at auth),
+    /// falls back to on-demand network calls.
     private func loadStartViewData() async {
         guard !isLoadingStartData else { return }
         isLoadingStartData = true
         defer { isLoadingStartData = false }
 
-        // Use prefetched templates cache if available
+        // Use prefetched caches if available
         let cachedTemplates = service.cachedTemplates
+        let cachedNext = service.cachedNextWorkout
 
         // Load templates (from cache or network) and next workout in parallel
         async let templatesTask: [FocusModeWorkoutService.TemplateInfo] = {
@@ -508,6 +507,7 @@ struct FocusModeWorkoutScreen: View {
         }()
 
         async let nextWorkoutTask: FocusModeWorkoutService.NextWorkoutInfo? = {
+            if let cached = cachedNext { return cached }
             do { return try await service.getNextWorkout() }
             catch { print("[FocusModeWorkoutScreen] getNextWorkout failed: \(error)"); return nil }
         }()
@@ -817,8 +817,8 @@ struct FocusModeWorkoutScreen: View {
                         case .rir: cell = .rir(exerciseId: exerciseId, setId: setId)
                         }
                         // Delay to let keyboard animation start
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            withAnimation(.easeInOut(duration: MotionToken.medium)) {
                                 scrollProxy.scrollTo(cell, anchor: .bottom)
                             }
                         }
@@ -1258,28 +1258,36 @@ struct FocusModeWorkoutScreen: View {
             startTimer()
             return
         }
-        
+
         // Guard against duplicate concurrent starts
         guard !isStartingWorkout else { return }
-        
-        // Check for existing active workout first (resume gate)
-        do {
-            if let existingWorkout = try await service.getActiveWorkout() {
-                // Found existing - show resume gate
-                existingWorkoutId = existingWorkout.id
-                showingResumeGate = true
-                return
+
+        // Run active workout check and start-view data load in parallel
+        // so the start view populates immediately if no active workout exists
+        async let activeWorkoutCheck: FocusModeWorkout? = {
+            do { return try await service.getActiveWorkout() }
+            catch {
+                print("[FocusModeWorkoutScreen] getActiveWorkout failed: \(error)")
+                return nil
             }
-        } catch {
-            print("[FocusModeWorkoutScreen] getActiveWorkout failed: \(error)")
-            // Continue with normal start if check fails
+        }()
+        async let startDataPreload: Void = loadStartViewData()
+
+        let existingWorkout = await activeWorkoutCheck
+        _ = await startDataPreload
+
+        if let existingWorkout = existingWorkout {
+            // Found existing - show resume gate
+            existingWorkoutId = existingWorkout.id
+            showingResumeGate = true
+            return
         }
-        
+
         // Start from template/routine/plan if specified
         if sourceTemplateId != nil || sourceRoutineId != nil || planBlocks != nil {
             isStartingWorkout = true
             defer { isStartingWorkout = false }
-            
+
             do {
                 _ = try await service.startWorkout(
                     name: workoutName,
@@ -1395,10 +1403,10 @@ struct FocusModeWorkoutScreen: View {
     
     /// Show a transient error banner that auto-dismisses after 4 seconds.
     private func showError(_ message: String) {
-        withAnimation { errorBanner = message }
+        withAnimation(.easeOut(duration: MotionToken.fast)) { errorBanner = message }
         Task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
-            withAnimation { if errorBanner == message { errorBanner = nil } }
+            withAnimation(.easeOut(duration: MotionToken.fast)) { if errorBanner == message { errorBanner = nil } }
         }
     }
 
@@ -1499,7 +1507,7 @@ struct FocusModeExerciseSection: View {
                 aiActionButton(icon: "sparkles", label: "Auto-fill") {
                     onAutofill()
                 }
-                aiActionButton(icon: "arrow.up", label: "+2.5kg") {
+                aiActionButton(icon: "arrow.up", label: WeightFormatter.incrementLabel(unit: UserService.shared.activeWorkoutWeightUnit)) {
                     // Suggest weight increase
                 }
                 aiActionButton(icon: "clock.arrow.circlepath", label: "Last Time") {
@@ -1592,7 +1600,7 @@ struct FocusModeExerciseSectionNew: View {
             ),
             ActionItem(
                 icon: "arrow.up",
-                label: "+2.5kg",
+                label: WeightFormatter.incrementLabel(unit: UserService.shared.activeWorkoutWeightUnit),
                 priority: .utility,
                 isPrimary: false,
                 action: { /* TODO: Suggest weight increase */ }
