@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 # provides proper per-request isolation while being visible across all tool
 # calls in the same request.
 # =============================================================================
-_weight_units: dict = {}  # (user_id, corr_id) -> str ("kg" or "lbs")
+_weight_units: dict = {}  # (user_id, corr_id) -> {"unit": str, "ts": float}
 _weight_units_lock = threading.Lock()
 
 
@@ -61,12 +62,12 @@ def set_weight_unit(user_id: str, corr_id: str, unit: str) -> None:
         unit: Weight unit ("kg" or "lbs")
     """
     with _weight_units_lock:
-        _weight_units[(user_id, corr_id)] = unit
-        # Evict old entries
+        _weight_units[(user_id, corr_id)] = {"unit": unit, "ts": time.monotonic()}
+        # Evict oldest entries if dict grows too large
         if len(_weight_units) > 200:
-            keys = sorted(_weight_units.keys())
-            for k in keys[:len(_weight_units) - 200]:
-                del _weight_units[k]
+            oldest = sorted(_weight_units, key=lambda k: _weight_units[k]["ts"])
+            for old_key in oldest[: len(_weight_units) - 200]:
+                del _weight_units[old_key]
 
 
 def get_weight_unit() -> str:
@@ -83,7 +84,7 @@ def get_weight_unit() -> str:
         ctx = get_current_context()
         key = (ctx.user_id, ctx.correlation_id or ctx.conversation_id)
         with _weight_units_lock:
-            return _weight_units.get(key, "kg")
+            return _weight_units.get(key, {}).get("unit", "kg")
     except Exception:
         return "kg"
 
