@@ -148,6 +148,10 @@ async function getPlanningContextHandler(req, res) {
       attributes: attrsDoc.exists ? attrsDoc.data() : null
     };
 
+    // Derive weight_unit from user attributes for agent consumption
+    const attrs = attrsDoc.exists ? attrsDoc.data() : {};
+    result.weight_unit = attrs.weight_format === 'pounds' ? 'lbs' : 'kg';
+
     // 2. Get active routine if exists
     if (user.activeRoutineId) {
       const routineDoc = await firestore.collection('users').doc(callerUid).collection('routines').doc(user.activeRoutineId).get();
