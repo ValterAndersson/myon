@@ -56,6 +56,8 @@ struct ExercisePerformanceSheet: View {
     @State private var isLoading = true
     @State private var error: String? = nil
 
+    private var weightUnit: WeightUnit { UserService.shared.activeWorkoutWeightUnit }
+
     var body: some View {
         SheetScaffold(
             title: exerciseName,
@@ -207,10 +209,10 @@ struct ExercisePerformanceSheet: View {
     private var summaryRow: some View {
         HStack(spacing: 0) {
             if let e1rm = bestE1RM {
-                summaryItem(value: String(format: "%.1f", e1rm), unit: "kg", label: "Best e1RM")
+                summaryItem(value: WeightFormatter.formatValue(e1rm, unit: weightUnit), unit: weightUnit.label, label: "Best e1RM")
             }
             if let weight = lastWeight {
-                summaryItem(value: String(format: "%.1f", weight), unit: "kg", label: "Last Weight")
+                summaryItem(value: WeightFormatter.formatValue(weight, unit: weightUnit), unit: weightUnit.label, label: "Last Weight")
             }
             if let reps = lastReps {
                 summaryItem(value: "\(reps)", unit: "", label: "Last Reps")
@@ -292,13 +294,13 @@ struct ExercisePerformanceSheet: View {
             Text("\(index)")
                 .frame(width: 36, alignment: .leading)
                 .foregroundColor(Color.textSecondary)
-            Text(fact.weightKg.map { String(format: "%.1f kg", $0) } ?? "—")
+            Text(fact.weightKg.map { WeightFormatter.format($0, unit: weightUnit) } ?? "—")
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .foregroundColor(Color.textPrimary)
             Text(fact.reps.map { "\($0)" } ?? "—")
                 .frame(width: 50, alignment: .trailing)
                 .foregroundColor(Color.textPrimary)
-            Text(fact.e1rm.map { String(format: "%.0f", $0) } ?? "—")
+            Text(fact.e1rm.map { WeightFormatter.formatValue($0, unit: weightUnit) } ?? "—")
                 .frame(width: 60, alignment: .trailing)
                 .foregroundColor(Color.textSecondary)
         }

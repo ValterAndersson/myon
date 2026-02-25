@@ -14,6 +14,8 @@ struct RecommendationCardView: View {
         autoPilotEnabled && recommendation.state == "applied" && recommendation.appliedBy == "agent"
     }
 
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             // Header: trigger pill + timestamp
@@ -269,7 +271,7 @@ struct RecommendationCardView: View {
     /// Returns the unit suffix for a change (e.g., "kg", "reps", "RIR")
     private func changeUnit(_ change: RecommendationChange) -> String {
         let path = change.path
-        if path.contains("weight_kg") { return "kg" }
+        if path.contains("weight_kg") { return weightUnit.label }
         if path.contains("target_reps") || path.hasSuffix(".reps") { return "reps" }
         if path.contains("target_rir") || path.hasSuffix(".rir") { return "RIR" }
         return ""
@@ -303,8 +305,14 @@ struct RecommendationCardView: View {
 
     private func formatWeight(_ value: AnyCodable) -> String {
         switch value.value {
-        case let n as Int: return "\(n)"
-        case let n as Double: return String(format: n.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", n)
+        case let n as Int:
+            let displayed = WeightFormatter.display(Double(n), unit: weightUnit)
+            let rounded = WeightFormatter.roundForDisplay(displayed)
+            return rounded.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(rounded))" : String(format: "%.1f", rounded)
+        case let n as Double:
+            let displayed = WeightFormatter.display(n, unit: weightUnit)
+            let rounded = WeightFormatter.roundForDisplay(displayed)
+            return rounded.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(rounded))" : String(format: "%.1f", rounded)
         default: return "\u{2014}"
         }
     }

@@ -279,9 +279,10 @@ public struct PlanExercise: Identifiable, Equatable, Codable {
         
         // Weight target
         if let w = workingWeight, w > 0 {
-            parts.append("\(Int(w))kg target")
+            let formatted = WeightFormatter.formatValue(w, unit: UserService.shared.weightUnit)
+            parts.append("\(formatted) \(UserService.shared.weightUnit.label) target")
         }
-        
+
         return parts.isEmpty ? "\(sets.count) sets" : parts.joined(separator: " · ")
     }
     

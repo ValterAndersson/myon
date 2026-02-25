@@ -10,6 +10,8 @@ struct WorkoutSummaryContent: View {
     var onEditWorkoutNote: (() -> Void)?
     var onEditExerciseNote: ((Int) -> Void)?
 
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+
     private var durationMinutes: Int {
         Int(workout.endTime.timeIntervalSince(workout.startTime) / 60)
     }
@@ -86,7 +88,7 @@ struct WorkoutSummaryContent: View {
         HStack(spacing: 0) {
             statCell(value: "\(workout.analytics.totalSets)", label: "Sets")
             statCell(value: "\(workout.analytics.totalReps)", label: "Reps")
-            statCell(value: formatVolume(workout.analytics.totalWeight), label: "Volume (kg)")
+            statCell(value: formatVolume(workout.analytics.totalWeight), label: "Volume (\(weightUnit.label))")
             statCell(value: "\(durationMinutes)", label: "Min")
         }
         .padding(.horizontal, Space.lg)
@@ -260,16 +262,18 @@ struct WorkoutSummaryContent: View {
         let sets = exercise.analytics.totalSets
         let volume = exercise.analytics.totalWeight
         if volume > 0 {
-            return "\(sets) sets · \(formatVolume(volume)) kg"
+            return "\(sets) sets · \(formatVolume(volume)) \(weightUnit.label)"
         }
         return "\(sets) sets"
     }
 
     private func formatVolume(_ weight: Double) -> String {
-        if weight == weight.rounded() {
-            return "\(Int(weight))"
+        let displayed = WeightFormatter.display(weight, unit: weightUnit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded))"
         }
-        return String(format: "%.1f", weight)
+        return String(format: "%.1f", rounded)
     }
 
     private struct MuscleGroupEntry {

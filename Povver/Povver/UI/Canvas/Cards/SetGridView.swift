@@ -274,11 +274,15 @@ struct SetGridView: View {
         }
     }
     
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+
     private func formatWeight(_ w: Double) -> String {
-        if w.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(w))kg"
+        let displayed = WeightFormatter.display(w, unit: weightUnit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return "\(Int(rounded))\(weightUnit.label)"
         }
-        return String(format: "%.1fkg", w)
+        return String(format: "%.1f\(weightUnit.label)", rounded)
     }
     
     private func duplicateSet(at index: Int) {
@@ -366,12 +370,14 @@ private struct InlineEditingDock: View {
     @Binding var sets: [PlanSet]
     @Binding var editScope: EditScope
     let onDismiss: () -> Void
-    
+
     // State for direct text input
     @State private var isEditingText = false
     @State private var textInputValue = ""
     @FocusState private var textFieldFocused: Bool
-    
+
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if !isWarmupSet { scopeSelector }
@@ -402,7 +408,9 @@ private struct InlineEditingDock: View {
             // Auto-focus text field for weight/reps when dock opens
             switch selectedCell {
             case .weight:
-                textInputValue = currentValue > 0 ? formatWeight(currentValue) : ""
+                // Show weight in user's preferred unit for editing
+                let displayed = currentValue > 0 ? WeightFormatter.display(currentValue, unit: weightUnit) : 0
+                textInputValue = displayed > 0 ? formatWeightForInput(displayed) : ""
                 isEditingText = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     textFieldFocused = true
@@ -478,9 +486,11 @@ private struct InlineEditingDock: View {
     
     private var weightEditor: some View {
         HStack(spacing: Space.md) {
+            let increment = WeightFormatter.plateIncrement(unit: weightUnit)
             stepButton(systemName: "minus", disabled: currentValue <= 0) {
                 if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
-                applyChange(currentValue - 2.5)
+                let decremented = WeightFormatter.toKg(WeightFormatter.display(currentValue, unit: weightUnit) - increment, from: weightUnit)
+                applyChange(decremented)
             }
 
             // Tappable value display / text field
@@ -496,22 +506,23 @@ private struct InlineEditingDock: View {
                         .onChange(of: textFieldFocused) { _, newFocused in
                             if !newFocused { commitTextInput() }
                         }
-                    Text("kg").font(.system(size: 11)).foregroundColor(Color.textSecondary)
+                    Text(weightUnit.label).font(.system(size: 11)).foregroundColor(Color.textSecondary)
                 }
                 .frame(width: 90)
             } else {
                 Button {
-                    textInputValue = currentValue > 0 ? formatWeight(currentValue) : ""
+                    let displayed = currentValue > 0 ? WeightFormatter.display(currentValue, unit: weightUnit) : 0
+                    textInputValue = displayed > 0 ? formatWeightForInput(displayed) : ""
                     isEditingText = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         textFieldFocused = true
                     }
                 } label: {
                     VStack(spacing: 0) {
-                        Text(currentValue > 0 ? formatWeight(currentValue) : "—")
+                        Text(currentValue > 0 ? formatWeightForDisplay(currentValue) : "—")
                             .font(.system(size: 24, weight: .bold).monospacedDigit())
                             .foregroundColor(Color.textPrimary)
-                        Text("kg").font(.system(size: 11)).foregroundColor(Color.textSecondary)
+                        Text(weightUnit.label).font(.system(size: 11)).foregroundColor(Color.textSecondary)
                     }
                     .frame(width: 80)
                     .padding(.vertical, 4)
@@ -525,7 +536,8 @@ private struct InlineEditingDock: View {
 
             stepButton(systemName: "plus", disabled: false) {
                 if isEditingText { isEditingText = false; textFieldFocused = false; textInputValue = "" }
-                applyChange(currentValue + 2.5)
+                let incremented = WeightFormatter.toKg(WeightFormatter.display(currentValue, unit: weightUnit) + increment, from: weightUnit)
+                applyChange(incremented)
             }
         }
     }
@@ -593,9 +605,10 @@ private struct InlineEditingDock: View {
         
         switch selectedCell {
         case .weight:
-            // Parse weight (allow decimal)
+            // Parse weight (allow decimal) — user input is in their preferred unit
             if let value = Double(trimmed.replacingOccurrences(of: ",", with: ".")) {
-                let rounded = (value * 4).rounded() / 4  // Round to nearest 0.25kg
+                let kg = WeightFormatter.toKg(value, from: weightUnit)
+                let rounded = (kg * 4).rounded() / 4  // Round to nearest 0.25kg
                 applyChange(max(0, rounded))
             }
         case .reps:
@@ -639,10 +652,18 @@ private struct InlineEditingDock: View {
         .disabled(disabled)
     }
     
-    private func formatWeight(_ w: Double) -> String {
-        w.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(w))" : String(format: "%.1f", w)
+    /// Format weight value (in kg) for display in user's unit (no suffix)
+    private func formatWeightForDisplay(_ kg: Double) -> String {
+        let displayed = WeightFormatter.display(kg, unit: weightUnit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        return rounded.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(rounded))" : String(format: "%.1f", rounded)
     }
-    
+
+    /// Format weight value for input text field (no suffix)
+    private func formatWeightForInput(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(value))" : String(format: "%.1f", value)
+    }
+
     private func applyChange(_ newValue: Double) {
         guard let idx = currentSetIndex else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()

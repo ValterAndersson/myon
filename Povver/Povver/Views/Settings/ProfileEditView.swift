@@ -27,6 +27,8 @@ struct ProfileEditView: View {
 
     @State private var errorMessage: String?
 
+    private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
@@ -177,7 +179,9 @@ struct ProfileEditView: View {
                 value: formatWeight(userAttributes?.weight),
                 isEditable: true
             ) {
-                editingWeight = userAttributes?.weight ?? 70
+                // Display weight in user's preferred unit for editing
+                let weightKg = userAttributes?.weight ?? 70
+                editingWeight = WeightFormatter.display(weightKg, unit: weightUnit)
                 showingWeightEditor = true
             }
 
@@ -247,7 +251,11 @@ struct ProfileEditView: View {
     }
 
     private var weightEditorSheet: some View {
-        SheetScaffold(
+        let minWeight = weightUnit == .lbs ? 66.0 : 30.0  // ~66lbs = 30kg
+        let maxWeight = weightUnit == .lbs ? 440.0 : 200.0  // ~440lbs = 200kg
+        let step = weightUnit == .lbs ? 1.0 : 0.5
+
+        return SheetScaffold(
             title: "Edit Weight",
             doneTitle: "Save",
             onCancel: { showingWeightEditor = false },
@@ -257,11 +265,11 @@ struct ProfileEditView: View {
             }
         ) {
             VStack(spacing: Space.lg) {
-                Text(String(format: "%.1f kg", editingWeight))
+                Text(String(format: "%.1f \(weightUnit.label)", editingWeight))
                     .font(.system(size: 36, weight: .bold).monospacedDigit())
                     .foregroundColor(Color.textPrimary)
 
-                Slider(value: $editingWeight, in: 30...200, step: 0.5)
+                Slider(value: $editingWeight, in: minWeight...maxWeight, step: step)
                     .padding()
 
                 Spacer()
@@ -354,7 +362,7 @@ struct ProfileEditView: View {
 
     private func formatWeight(_ weight: Double?) -> String {
         guard let weight = weight else { return "Not set" }
-        return String(format: "%.1f kg", weight)
+        return WeightFormatter.format(weight, unit: weightUnit)
     }
 
     // MARK: - Data Loading
@@ -446,7 +454,9 @@ struct ProfileEditView: View {
             workoutFrequency: nil,
             lastUpdated: nil
         )
-        attrs.weight = (editingWeight * 10).rounded() / 10
+        // Convert user's preferred unit back to kg for storage
+        let weightKg = WeightFormatter.toKg(editingWeight, from: weightUnit)
+        attrs.weight = (weightKg * 10).rounded() / 10
 
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
