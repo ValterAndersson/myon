@@ -27,6 +27,46 @@ from app.shell.context import SessionContext
 
 logger = logging.getLogger(__name__)
 
+
+def _format_weight(kg_value: float, weight_unit: str = "kg") -> str:
+    """
+    Format a weight value in the user's preferred unit.
+
+    Args:
+        kg_value: Weight in kilograms
+        weight_unit: Target unit ("kg" or "lbs")
+
+    Returns:
+        Formatted weight string (e.g., "80kg", "175lbs")
+    """
+    if weight_unit == "lbs":
+        lbs = kg_value * 2.20462
+        # Round to nearest 5 for clean display
+        rounded = round(lbs / 5) * 5
+        if rounded == int(rounded):
+            return f"{int(rounded)}lbs"
+        return f"{rounded:.1f}lbs"
+    else:
+        if kg_value == int(kg_value):
+            return f"{int(kg_value)}kg"
+        return f"{kg_value:.1f}kg"
+
+
+def _get_weight_unit() -> str:
+    """
+    Get cached weight unit for the current request.
+
+    Returns "kg" if not available.
+
+    Returns:
+        Weight unit string ("kg" or "lbs")
+    """
+    try:
+        from app.skills.workout_skills import get_weight_unit
+        return get_weight_unit()
+    except Exception:
+        return "kg"
+
 # Firebase function base URL
 MYON_FUNCTIONS_BASE_URL = os.getenv(
     "MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net"
@@ -195,9 +235,13 @@ def log_set_shorthand(
             error=result.get("message", "Unknown error"),
         )
 
+    # Format confirmation in user's preferred unit
+    user_unit = _get_weight_unit()
+    weight_str = _format_weight(weight_kg, user_unit)
+
     return SkillResult(
         success=True,
-        message=f"Set logged: {reps} reps @ {weight}{unit}",
+        message=f"Set logged: {reps} reps @ {weight_str}",
         data={
             "reps": reps,
             "weight": weight,

@@ -177,20 +177,34 @@ def _build_exercise_blocks(exercises: List[Dict[str, Any]]) -> List[Dict[str, An
 def get_planning_context(user_id: str) -> SkillResult:
     """
     Get complete planning context: user profile, active routine, templates.
-    
+
     Args:
         user_id: User ID (required)
-        
+
     Returns:
         SkillResult with user, activeRoutine, templates, etc.
     """
     if not user_id:
         return SkillResult(success=False, error="user_id is required")
-    
+
     logger.info("get_planning_context uid=%s", user_id)
-    
+
     try:
         data = _get_client().get_planning_context(user_id)
+
+        # Cache weight_unit for other skills to use
+        from app.shell.context import get_current_context
+        from app.skills.workout_skills import set_weight_unit
+
+        try:
+            ctx = get_current_context()
+            wu = data.get("weight_unit", "kg") if isinstance(data, dict) else "kg"
+            corr_id = ctx.correlation_id or ctx.conversation_id
+            set_weight_unit(user_id, corr_id, wu)
+            logger.debug("Cached weight_unit=%s for user=%s", wu, user_id)
+        except Exception as e:
+            logger.debug("Failed to cache weight_unit: %s", e)
+
         return SkillResult(success=True, data=data)
     except Exception as e:
         logger.error("get_planning_context exception: %s", e)

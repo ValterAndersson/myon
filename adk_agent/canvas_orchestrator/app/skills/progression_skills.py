@@ -24,6 +24,46 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _format_weight(kg_value: float, weight_unit: str = "kg") -> str:
+    """
+    Format a weight value in the user's preferred unit.
+
+    Args:
+        kg_value: Weight in kilograms
+        weight_unit: Target unit ("kg" or "lbs")
+
+    Returns:
+        Formatted weight string (e.g., "80kg", "175lbs")
+    """
+    if weight_unit == "lbs":
+        lbs = kg_value * 2.20462
+        # Round to nearest 5 for clean display
+        rounded = round(lbs / 5) * 5
+        if rounded == int(rounded):
+            return f"{int(rounded)}lbs"
+        return f"{rounded:.1f}lbs"
+    else:
+        if kg_value == int(kg_value):
+            return f"{int(kg_value)}kg"
+        return f"{kg_value:.1f}kg"
+
+
+def _get_weight_unit() -> str:
+    """
+    Get cached weight unit for the current request.
+
+    Returns "kg" if not available (headless mode, no context).
+
+    Returns:
+        Weight unit string ("kg" or "lbs")
+    """
+    try:
+        from app.skills.workout_skills import get_weight_unit
+        return get_weight_unit()
+    except Exception:
+        return "kg"
+
+
 @dataclass
 class ProgressionResult:
     """Result from a progression skill."""
@@ -232,7 +272,7 @@ async def suggest_weight_increase(
     """
     # Build changes for all working sets of this exercise
     changes = []
-    
+
     # Typically 3-4 working sets, we'll update all of them
     # In practice, the backend will only update existing sets
     for set_idx in range(4):  # Max 4 sets
@@ -242,8 +282,13 @@ async def suggest_weight_increase(
             "to": new_weight,
             "rationale": rationale,
         })
-    
-    summary = f"Increase weight from {current_weight}kg to {new_weight}kg (+{new_weight - current_weight}kg)"
+
+    weight_unit = _get_weight_unit()
+    current_str = _format_weight(current_weight, weight_unit)
+    new_str = _format_weight(new_weight, weight_unit)
+    delta = new_weight - current_weight
+    delta_str = _format_weight(delta, weight_unit)
+    summary = f"Increase weight from {current_str} to {new_str} (+{delta_str})"
     
     return await apply_progression(
         user_id=user_id,
@@ -289,7 +334,7 @@ async def suggest_deload(
         ProgressionResult
     """
     changes = []
-    
+
     for set_idx in range(4):
         changes.append({
             "path": f"exercises[{exercise_index}].sets[{set_idx}].weight",
@@ -297,9 +342,12 @@ async def suggest_deload(
             "to": deload_weight,
             "rationale": reason,
         })
-    
+
+    weight_unit = _get_weight_unit()
+    current_str = _format_weight(current_weight, weight_unit)
+    deload_str = _format_weight(deload_weight, weight_unit)
     reduction_pct = round((1 - deload_weight / current_weight) * 100)
-    summary = f"Deload: reduce weight from {current_weight}kg to {deload_weight}kg (-{reduction_pct}%)"
+    summary = f"Deload: reduce weight from {current_str} to {deload_str} (-{reduction_pct}%)"
     
     return await apply_progression(
         user_id=user_id,

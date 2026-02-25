@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
@@ -34,6 +35,81 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# WEIGHT UNIT CACHE — module-level dict keyed by (user_id, correlation_id)
+#
+# Same pattern as _search_counts in context.py. ContextVars don't work for
+# this because ADK's _before_tool_callback creates a fresh context for each
+# tool invocation. A module-level dict keyed by (user_id, correlation_id)
+# provides proper per-request isolation while being visible across all tool
+# calls in the same request.
+# =============================================================================
+_weight_units: dict = {}  # (user_id, corr_id) -> str ("kg" or "lbs")
+_weight_units_lock = threading.Lock()
+
+
+def set_weight_unit(user_id: str, corr_id: str, unit: str) -> None:
+    """
+    Cache weight unit for the current request.
+
+    Called by planner_skills.get_planning_context() after fetching user profile.
+
+    Args:
+        user_id: User ID
+        corr_id: Correlation ID or conversation ID
+        unit: Weight unit ("kg" or "lbs")
+    """
+    with _weight_units_lock:
+        _weight_units[(user_id, corr_id)] = unit
+        # Evict old entries
+        if len(_weight_units) > 200:
+            keys = sorted(_weight_units.keys())
+            for k in keys[:len(_weight_units) - 200]:
+                del _weight_units[k]
+
+
+def get_weight_unit() -> str:
+    """
+    Get cached weight unit for the current request.
+
+    Returns "kg" if planning context hasn't been fetched yet (cold start).
+
+    Returns:
+        Weight unit string ("kg" or "lbs")
+    """
+    from app.shell.context import get_current_context
+    try:
+        ctx = get_current_context()
+        key = (ctx.user_id, ctx.correlation_id or ctx.conversation_id)
+        with _weight_units_lock:
+            return _weight_units.get(key, "kg")
+    except Exception:
+        return "kg"
+
+
+def _format_weight(kg_value: float, weight_unit: str = "kg") -> str:
+    """
+    Format a weight value in the user's preferred unit.
+
+    Args:
+        kg_value: Weight in kilograms
+        weight_unit: Target unit ("kg" or "lbs")
+
+    Returns:
+        Formatted weight string (e.g., "80kg", "175lbs")
+    """
+    if weight_unit == "lbs":
+        lbs = kg_value * 2.20462
+        # Round to nearest 5 for clean display
+        rounded = round(lbs / 5) * 5
+        if rounded == int(rounded):
+            return f"{int(rounded)}lbs"
+        return f"{rounded:.1f}lbs"
+    else:
+        if kg_value == int(kg_value):
+            return f"{int(kg_value)}kg"
+        return f"{kg_value:.1f}kg"
 
 MYON_FUNCTIONS_BASE_URL = os.getenv(
     "MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net"
@@ -181,6 +257,9 @@ def _format_workout_brief(
     - totals.sets — done working/dropset count
     - totals.volume — total volume kg
     """
+    # Get user's preferred weight unit
+    weight_unit = get_weight_unit()
+
     lines = ["[WORKOUT BRIEF]"]
 
     # Header line
@@ -253,18 +332,23 @@ def _format_workout_brief(
 
             if status == "done":
                 # logSet writes weight/reps/rir flat on the set object
-                weight = s.get("weight", 0)
+                weight_kg = s.get("weight", 0)
                 reps = s.get("reps", 0)
                 rir = s.get("rir")
                 rir_str = f" @ RIR {rir}" if rir is not None else ""
+                weight_str = _format_weight(weight_kg, weight_unit)
                 lines.append(
-                    f"  \u2713 Set {set_num} [{set_id}]:" f" {weight}kg \u00d7 {reps}{rir_str}"
+                    f"  \u2713 Set {set_num} [{set_id}]:" f" {weight_str} \u00d7 {reps}{rir_str}"
                 )
             elif status == "planned" and not first_planned_shown:
                 # Show first planned set with arrow (next to log)
-                weight = s.get("weight", "?")
+                weight_kg = s.get("weight")
+                if weight_kg is not None:
+                    weight_str = _format_weight(weight_kg, weight_unit)
+                else:
+                    weight_str = "?"
                 lines.append(
-                    f"  \u2192 Set {set_num} [{set_id}]:" f" {weight}kg \u00d7 ? (planned)"
+                    f"  \u2192 Set {set_num} [{set_id}]:" f" {weight_str} \u00d7 ? (planned)"
                 )
                 first_planned_shown = True
             elif status == "planned":
@@ -279,9 +363,10 @@ def _format_workout_brief(
         if last_session:
             history_sets = []
             for s in last_session[-3:]:
-                weight = s.get("weight_kg", 0)
+                weight_kg = s.get("weight_kg", 0)
                 reps = s.get("reps", 0)
-                history_sets.append(f"{weight}kg\u00d7{reps}")
+                weight_str = _format_weight(weight_kg, weight_unit)
+                history_sets.append(f"{weight_str}\u00d7{reps}")
 
             # e1RM trend
             weekly_points = exercise_history.get("weekly_points", [])
@@ -339,9 +424,11 @@ def log_set(
 
         if resp.get("success"):
             totals = resp.get("totals", {})
+            weight_unit = get_weight_unit()
+            weight_str = _format_weight(weight_kg, weight_unit)
             return WorkoutSkillResult(
                 success=True,
-                message=f"Logged: {reps} \u00d7 {weight_kg}kg. Refer to the workout brief for the next planned set.",
+                message=f"Logged: {reps} \u00d7 {weight_str}. Refer to the workout brief for the next planned set.",
                 data={"totals": totals, "event_id": resp.get("event_id")},
             )
         else:
@@ -647,4 +734,6 @@ __all__ = [
     "swap_exercise",
     "complete_workout",
     "WorkoutSkillResult",
+    "set_weight_unit",
+    "get_weight_unit",
 ]
