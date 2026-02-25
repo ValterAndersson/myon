@@ -4,9 +4,11 @@ import SwiftUI
 /// Accessed via NavigationLink from MoreView.
 struct PreferencesView: View {
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var userService = UserService.shared
 
     @State private var user: User?
     @State private var errorMessage: String?
+    @State private var selectedWeightUnit: WeightUnit = .kg
 
     var body: some View {
         ScrollView {
@@ -44,6 +46,38 @@ struct PreferencesView: View {
                         .padding(.horizontal, Space.lg)
                 }
 
+                sectionHeader("Units")
+
+                VStack(spacing: 0) {
+                    HStack(spacing: Space.md) {
+                        Image(systemName: "scalemass")
+                            .font(.system(size: 18))
+                            .foregroundColor(Color.textSecondary)
+                            .frame(width: 24)
+
+                        Text("Weight")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color.textPrimary)
+
+                        Spacer()
+
+                        Picker("", selection: $selectedWeightUnit) {
+                            ForEach(WeightUnit.allCases, id: \.self) { unit in
+                                Text(unit.label).tag(unit)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 100)
+                        .onChange(of: selectedWeightUnit) { newValue in
+                            Task { await updateWeightUnit(newValue) }
+                        }
+                    }
+                    .padding(Space.md)
+                }
+                .background(Color.surface)
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadiusToken.medium))
+                .padding(.horizontal, Space.lg)
+
                 Spacer(minLength: Space.xxl)
             }
         }
@@ -52,6 +86,7 @@ struct PreferencesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadUser()
+            selectedWeightUnit = userService.weightUnit
         }
     }
 
@@ -91,4 +126,30 @@ struct PreferencesView: View {
             errorMessage = "Failed to update preference. Please try again."
         }
     }
+
+    private func updateWeightUnit(_ unit: WeightUnit) async {
+        guard authService.currentUser?.uid != nil else { return }
+        errorMessage = nil
+
+        do {
+            let requestBody = UpdatePreferencesRequest(preferences: ["weight_format": unit.firestoreFormat])
+            let _: UpdatePreferencesResponse = try await ApiClient.shared.postJSON("updateUserPreferences", body: requestBody)
+            UserService.shared.reloadPreferences()
+            AnalyticsService.shared.preferenceChanged(preference: "weight_unit", value: unit.rawValue)
+        } catch {
+            errorMessage = "Failed to update preference. Please try again."
+            // Revert the picker to the previous value
+            selectedWeightUnit = userService.weightUnit
+        }
+    }
+}
+
+// MARK: - Request/Response Types
+
+struct UpdatePreferencesRequest: Encodable {
+    let preferences: [String: String]
+}
+
+struct UpdatePreferencesResponse: Decodable {
+    let success: Bool
 }
