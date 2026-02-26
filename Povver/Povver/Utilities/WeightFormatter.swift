@@ -66,10 +66,54 @@ enum WeightFormatter {
         return "+\(truncateTrailingZeros(inc))\(unit.label)"
     }
 
-    private static func truncateTrailingZeros(_ value: Double) -> String {
+    static func truncateTrailingZeros(_ value: Double) -> String {
         if value.truncatingRemainder(dividingBy: 1) == 0 {
             return String(Int(value))
         }
         return String(format: "%.1f", value)
+    }
+}
+
+// MARK: - Height Unit & Formatter
+
+enum HeightUnit: String, CaseIterable {
+    case cm, ft
+
+    var label: String { rawValue }
+
+    /// Initialize from Firestore height_format value ("centimeter" or "feet")
+    init(firestoreFormat: String?) {
+        self = (firestoreFormat == "feet") ? .ft : .cm
+    }
+
+    /// Firestore height_format value
+    var firestoreFormat: String { self == .ft ? "feet" : "centimeter" }
+}
+
+enum HeightFormatter {
+    private static let cmPerInch: Double = 2.54
+
+    /// Convert feet + inches to cm for storage. Normalizes 12+ inches automatically.
+    static func toCm(feet: Int, inches: Int) -> Double {
+        let totalInches = feet * 12 + inches
+        return Double(totalInches) * cmPerInch
+    }
+
+    /// Convert cm to feet + inches for display
+    static func toFeetInches(_ cm: Double) -> (feet: Int, inches: Int) {
+        let totalInches = Int((max(0, cm) / cmPerInch).rounded())
+        return (feet: totalInches / 12, inches: totalInches % 12)
+    }
+
+    /// Format height for display with unit suffix. Returns "Not set" for nil/zero/negative.
+    static func format(_ cm: Double?, unit: HeightUnit) -> String {
+        guard let cm, cm > 0 else { return "Not set" }
+        switch unit {
+        case .cm:
+            return "\(Int(cm)) cm"
+        case .ft:
+            let (feet, inches) = toFeetInches(cm)
+            return "\(feet) ft \(inches) in"
+        }
     }
 }

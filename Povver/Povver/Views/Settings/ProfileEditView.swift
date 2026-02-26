@@ -21,13 +21,16 @@ struct ProfileEditView: View {
 
     // Edit values
     @State private var editingNickname = ""
-    @State private var editingHeight: Double = 170
-    @State private var editingWeight: Double = 70
+    @State private var editingHeightText = ""
+    @State private var editingFeetText = ""
+    @State private var editingInchesText = ""
+    @State private var editingWeightText = ""
     @State private var editingFitnessLevel = ""
 
     @State private var errorMessage: String?
 
     private var weightUnit: WeightUnit { UserService.shared.weightUnit }
+    private var heightUnit: HeightUnit { UserService.shared.heightUnit }
 
     var body: some View {
         ScrollView {
@@ -167,7 +170,14 @@ struct ProfileEditView: View {
                 value: formatHeight(userAttributes?.height),
                 isEditable: true
             ) {
-                editingHeight = userAttributes?.height ?? 170
+                let cm = userAttributes?.height ?? 170
+                if heightUnit == .cm {
+                    editingHeightText = "\(Int(cm))"
+                } else {
+                    let (feet, inches) = HeightFormatter.toFeetInches(cm)
+                    editingFeetText = "\(feet)"
+                    editingInchesText = "\(inches)"
+                }
                 showingHeightEditor = true
             }
 
@@ -179,9 +189,9 @@ struct ProfileEditView: View {
                 value: formatWeight(userAttributes?.weight),
                 isEditable: true
             ) {
-                // Display weight in user's preferred unit for editing
                 let weightKg = userAttributes?.weight ?? 70
-                editingWeight = WeightFormatter.display(weightKg, unit: weightUnit)
+                let displayed = WeightFormatter.display(weightKg, unit: weightUnit)
+                editingWeightText = WeightFormatter.truncateTrailingZeros(displayed)
                 showingWeightEditor = true
             }
 
@@ -229,54 +239,110 @@ struct ProfileEditView: View {
         SheetScaffold(
             title: "Edit Height",
             doneTitle: "Save",
-            onCancel: { showingHeightEditor = false },
-            onDone: {
-                Task { await saveHeight() }
+            onCancel: {
+                errorMessage = nil
                 showingHeightEditor = false
+            },
+            onDone: {
+                Task {
+                    if await saveHeight() {
+                        showingHeightEditor = false
+                    }
+                }
             }
         ) {
             VStack(spacing: Space.lg) {
-                Text("\(Int(editingHeight)) cm")
-                    .font(.system(size: 36, weight: .bold).monospacedDigit())
-                    .foregroundColor(Color.textPrimary)
+                if heightUnit == .cm {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                        TextField("170", text: $editingHeightText)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 36, weight: .bold).monospacedDigit())
+                            .foregroundColor(Color.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 120)
 
-                Slider(value: $editingHeight, in: 100...250, step: 1)
-                    .padding()
+                        Text("cm")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(Color.textSecondary)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                        TextField("5", text: $editingFeetText)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 36, weight: .bold).monospacedDigit())
+                            .foregroundColor(Color.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 80)
 
-                Spacer()
+                        Text("ft")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(Color.textSecondary)
+
+                        TextField("10", text: $editingInchesText)
+                            .keyboardType(.numberPad)
+                            .font(.system(size: 36, weight: .bold).monospacedDigit())
+                            .foregroundColor(Color.textPrimary)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 80)
+
+                        Text("in")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(Color.textSecondary)
+                    }
+                }
+
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color.destructive)
+                }
             }
             .padding(.top, Space.xl)
+            .padding(.bottom, Space.lg)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.height(200)])
     }
 
     private var weightEditorSheet: some View {
-        let minWeight = weightUnit == .lbs ? 66.0 : 30.0  // ~66lbs = 30kg
-        let maxWeight = weightUnit == .lbs ? 440.0 : 200.0  // ~440lbs = 200kg
-        let step = weightUnit == .lbs ? 1.0 : 0.5
-
-        return SheetScaffold(
+        SheetScaffold(
             title: "Edit Weight",
             doneTitle: "Save",
-            onCancel: { showingWeightEditor = false },
-            onDone: {
-                Task { await saveWeight() }
+            onCancel: {
+                errorMessage = nil
                 showingWeightEditor = false
+            },
+            onDone: {
+                Task {
+                    if await saveWeight() {
+                        showingWeightEditor = false
+                    }
+                }
             }
         ) {
             VStack(spacing: Space.lg) {
-                Text(String(format: "%.1f \(weightUnit.label)", editingWeight))
-                    .font(.system(size: 36, weight: .bold).monospacedDigit())
-                    .foregroundColor(Color.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                    TextField("70", text: $editingWeightText)
+                        .keyboardType(.decimalPad)
+                        .font(.system(size: 36, weight: .bold).monospacedDigit())
+                        .foregroundColor(Color.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 140)
 
-                Slider(value: $editingWeight, in: minWeight...maxWeight, step: step)
-                    .padding()
+                    Text(weightUnit.label)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(Color.textSecondary)
+                }
 
-                Spacer()
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color.destructive)
+                }
             }
             .padding(.top, Space.xl)
+            .padding(.bottom, Space.lg)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.height(200)])
     }
 
     private var fitnessLevelPickerSheet: some View {
@@ -356,8 +422,7 @@ struct ProfileEditView: View {
     }
 
     private func formatHeight(_ height: Double?) -> String {
-        guard let height = height else { return "Not set" }
-        return "\(Int(height)) cm"
+        HeightFormatter.format(height, unit: heightUnit)
     }
 
     private func formatWeight(_ weight: Double?) -> String {
@@ -415,9 +480,31 @@ struct ProfileEditView: View {
         }
     }
 
-    private func saveHeight() async {
-        guard let userId = authService.currentUser?.uid else { return }
+    /// Returns true on success, false on validation/save failure.
+    private func saveHeight() async -> Bool {
+        guard let userId = authService.currentUser?.uid else { return false }
         errorMessage = nil
+
+        let heightCm: Double
+        if heightUnit == .cm {
+            guard let cm = Int(editingHeightText), cm >= 50, cm <= 300 else {
+                errorMessage = "Please enter a valid height (50–300 cm)."
+                return false
+            }
+            heightCm = Double(cm)
+        } else {
+            let feet = Int(editingFeetText) ?? 0
+            let inches = Int(editingInchesText) ?? 0
+            guard feet >= 1, feet <= 8, inches >= 0, inches <= 11 else {
+                errorMessage = "Please enter a valid height (0–11 inches)."
+                return false
+            }
+            heightCm = HeightFormatter.toCm(feet: feet, inches: inches)
+            guard heightCm >= 50, heightCm <= 300 else {
+                errorMessage = "Please enter a valid height."
+                return false
+            }
+        }
 
         var attrs = userAttributes ?? UserAttributes(
             id: userId,
@@ -429,20 +516,33 @@ struct ProfileEditView: View {
             workoutFrequency: nil,
             lastUpdated: nil
         )
-        attrs.height = Double(Int(editingHeight))
+        attrs.height = heightCm
 
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
             userAttributes = attrs
             AnalyticsService.shared.bodyMetricsUpdated(field: "height")
+            return true
         } catch {
             errorMessage = "Failed to save height. Please try again."
+            return false
         }
     }
 
-    private func saveWeight() async {
-        guard let userId = authService.currentUser?.uid else { return }
+    /// Returns true on success, false on validation/save failure.
+    private func saveWeight() async -> Bool {
+        guard let userId = authService.currentUser?.uid else { return false }
         errorMessage = nil
+
+        let minWeight = weightUnit == .lbs ? 66.0 : 30.0
+        let maxWeight = weightUnit == .lbs ? 440.0 : 200.0
+
+        guard let inputValue = Double(editingWeightText),
+              inputValue >= minWeight, inputValue <= maxWeight else {
+            let rangeLabel = weightUnit == .lbs ? "66–440 lbs" : "30–200 kg"
+            errorMessage = "Please enter a valid weight (\(rangeLabel))."
+            return false
+        }
 
         var attrs = userAttributes ?? UserAttributes(
             id: userId,
@@ -454,16 +554,17 @@ struct ProfileEditView: View {
             workoutFrequency: nil,
             lastUpdated: nil
         )
-        // Convert user's preferred unit back to kg for storage
-        let weightKg = WeightFormatter.toKg(editingWeight, from: weightUnit)
+        let weightKg = WeightFormatter.toKg(inputValue, from: weightUnit)
         attrs.weight = (weightKg * 10).rounded() / 10
 
         do {
             try await UserRepository.shared.saveUserAttributes(attrs)
             userAttributes = attrs
             AnalyticsService.shared.bodyMetricsUpdated(field: "weight")
+            return true
         } catch {
             errorMessage = "Failed to save weight. Please try again."
+            return false
         }
     }
 

@@ -18,8 +18,8 @@ struct SetTable: View {
     let sets: [SetCellModel]
     let mode: SetTableMode
     
-    /// Weight unit to display in header (default: "kg")
-    var weightUnit: String = "kg"
+    /// Weight unit label to display in header (reads user's preference)
+    var weightUnit: String = UserService.shared.weightUnit.label
     
     // Optional callbacks (nil = not available in this mode)
     var onToggleDone: ((SetCellModel.ID) -> Void)?

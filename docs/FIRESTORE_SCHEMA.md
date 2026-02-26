@@ -592,7 +592,7 @@ Subcollections:
    - Fields (observed):
      - `timezone?: string`
      - `weight_format?: 'kilograms' | 'pounds'` — User's preferred display unit for weight values. Default: 'kilograms'. Read by iOS `UserService`, agent via `get-planning-context.js` (`weight_unit` field). All stored weight values remain in kg regardless of this preference.
-     - `height_format?: 'centimeter' | 'feet'` — User's preferred display unit for height. Default: 'centimeter'. (Display conversion deferred.)
+     - `height_format?: 'centimeter' | 'feet'` — User's preferred display unit for height. Default: 'centimeter'. Read by iOS `UserService` (`heightUnit` property). ProfileEditView shows cm text field or ft+in text fields based on this value. `HeightFormatter` handles cm↔ft conversion.
      - `week_starts_on_monday?: boolean`
      - `locale?: string`
      - `fitness_goal?: string`

@@ -6,18 +6,34 @@ import FirebaseFirestore
 class UserService: ObservableObject {
     static let shared = UserService()
 
-    @Published var weightUnit: WeightUnit = .kg
-    @Published var heightUnit: String = "cm"
+    @Published var weightUnit: WeightUnit = .kg {
+        didSet { activeWorkoutWeightUnit = weightUnit }
+    }
+    @Published var heightUnit: HeightUnit = .cm
     @Published var activeWorkoutWeightUnit: WeightUnit = .kg
 
     private let userRepository = UserRepository()
+    private var authCancellable: AnyCancellable?
 
     private init() {
         loadUserPreferences()
+
+        // Retry when auth becomes available (covers app restart where
+        // Firebase Auth hasn't initialized yet during init)
+        authCancellable = AuthService.shared.$currentUser
+            .dropFirst()
+            .compactMap { $0 }
+            .first()
+            .sink { [weak self] _ in
+                self?.loadUserPreferences()
+            }
     }
-    
+
     private func loadUserPreferences() {
-        guard let userId = AuthService.shared.currentUser?.uid else { return }
+        guard let userId = AuthService.shared.currentUser?.uid else {
+            print("[UserService] loadUserPreferences — no auth, skipping")
+            return
+        }
 
         Task {
             do {
@@ -25,13 +41,14 @@ class UserService: ObservableObject {
                 let attrDoc = try await db.collection("users").document(userId)
                     .collection("user_attributes").document(userId).getDocument()
                 let data = attrDoc.data() ?? [:]
+                let weightFormat = data["weight_format"] as? String
+                let heightFormat = data["height_format"] as? String
+                print("[UserService] loadUserPreferences — Firestore raw: weight_format=\(weightFormat ?? "nil"), height_format=\(heightFormat ?? "nil")")
 
                 await MainActor.run {
-                    let weightFormat = data["weight_format"] as? String
-                    let heightFormat = data["height_format"] as? String ?? "centimeter"
-
                     self.weightUnit = WeightUnit(firestoreFormat: weightFormat)
-                    self.heightUnit = heightFormat == "feet" ? "ft" : "cm"
+                    self.heightUnit = HeightUnit(firestoreFormat: heightFormat)
+                    print("[UserService] loadUserPreferences — set weightUnit=\(self.weightUnit), heightUnit=\(self.heightUnit)")
                 }
             } catch {
                 // Don't reset to defaults — keep whatever was previously loaded.
@@ -42,9 +59,32 @@ class UserService: ObservableObject {
         }
     }
 
-    /// Reload preferences from Firestore (public API for when preferences are updated)
+    /// Reload preferences from Firestore (fire-and-forget, used after writes)
     func reloadPreferences() {
         loadUserPreferences()
+    }
+
+    /// Await-able preference load — guarantees values are fresh before returning.
+    @MainActor
+    func ensurePreferencesLoaded() async {
+        guard let userId = AuthService.shared.currentUser?.uid else {
+            print("[UserService] ensurePreferencesLoaded — no auth, skipping")
+            return
+        }
+        do {
+            let db = Firestore.firestore()
+            let attrDoc = try await db.collection("users").document(userId)
+                .collection("user_attributes").document(userId).getDocument()
+            let data = attrDoc.data() ?? [:]
+            let weightFormat = data["weight_format"] as? String
+            let heightFormat = data["height_format"] as? String
+            print("[UserService] ensurePreferencesLoaded — Firestore raw: weight_format=\(weightFormat ?? "nil"), height_format=\(heightFormat ?? "nil")")
+            self.weightUnit = WeightUnit(firestoreFormat: weightFormat)
+            self.heightUnit = HeightUnit(firestoreFormat: heightFormat)
+            print("[UserService] ensurePreferencesLoaded — set weightUnit=\(self.weightUnit), heightUnit=\(self.heightUnit)")
+        } catch {
+            AppLogger.shared.error(.store, "Failed to load user preferences: \(error)")
+        }
     }
 
     /// Snapshot weight unit for active workout (called when workout starts)
@@ -80,10 +120,11 @@ class ActiveWorkoutManager: ObservableObject {
     
     // MARK: - Workout Lifecycle
     func startWorkout(from template: WorkoutTemplate? = nil) {
-        // Snapshot weight unit for this workout session
-        UserService.shared.snapshotForWorkout()
-
         Task {
+            // Ensure preferences are loaded before snapshotting weight unit
+            await UserService.shared.ensurePreferencesLoaded()
+            UserService.shared.snapshotForWorkout()
+
             let workout = await createActiveWorkout(from: template)
             await MainActor.run {
                 self.activeWorkout = workout
@@ -95,13 +136,17 @@ class ActiveWorkoutManager: ObservableObject {
     }
     
     func resumeWorkout(_ workout: ActiveWorkout) {
-        // Snapshot weight unit for this workout session
-        UserService.shared.snapshotForWorkout()
+        Task {
+            await UserService.shared.ensurePreferencesLoaded()
+            UserService.shared.snapshotForWorkout()
 
-        self.activeWorkout = workout
-        self.isWorkoutActive = true
-        startWorkoutTimer()
-        checkSensorStatus()
+            await MainActor.run {
+                self.activeWorkout = workout
+                self.isWorkoutActive = true
+                self.startWorkoutTimer()
+                self.checkSensorStatus()
+            }
+        }
     }
     
     func updateStartTime(_ newStartTime: Date) {

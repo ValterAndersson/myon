@@ -8,8 +8,11 @@ struct PreferencesView: View {
 
     @State private var user: User?
     @State private var errorMessage: String?
-    @State private var selectedWeightUnit: WeightUnit = .kg
-    @State private var isUpdatingUnit = false
+    @State private var selectedWeightUnit: WeightUnit = UserService.shared.weightUnit
+    @State private var selectedHeightUnit: HeightUnit = UserService.shared.heightUnit
+    @State private var isUpdatingWeightUnit = false
+    @State private var isUpdatingHeightUnit = false
+    @State private var isInitializing = true
 
     var body: some View {
         ScrollView {
@@ -69,9 +72,39 @@ struct PreferencesView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 100)
-                        .disabled(isUpdatingUnit)
-                        .onChange(of: selectedWeightUnit) { newValue in
+                        .disabled(isUpdatingWeightUnit)
+                        .onChange(of: selectedWeightUnit) { _, newValue in
+                            guard !isInitializing else { return }
                             Task { await updateWeightUnit(newValue) }
+                        }
+                    }
+                    .padding(Space.md)
+
+                    Divider().padding(.leading, 56)
+
+                    HStack(spacing: Space.md) {
+                        Image(systemName: "ruler")
+                            .font(.system(size: 18))
+                            .foregroundColor(Color.textSecondary)
+                            .frame(width: 24)
+
+                        Text("Height")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color.textPrimary)
+
+                        Spacer()
+
+                        Picker("", selection: $selectedHeightUnit) {
+                            ForEach(HeightUnit.allCases, id: \.self) { unit in
+                                Text(unit.label).tag(unit)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 100)
+                        .disabled(isUpdatingHeightUnit)
+                        .onChange(of: selectedHeightUnit) { _, newValue in
+                            guard !isInitializing else { return }
+                            Task { await updateHeightUnit(newValue) }
                         }
                     }
                     .padding(Space.md)
@@ -88,7 +121,12 @@ struct PreferencesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadUser()
+            await userService.ensurePreferencesLoaded()
+            print("[PreferencesView] Loaded prefs — weight: \(userService.weightUnit), height: \(userService.heightUnit)")
             selectedWeightUnit = userService.weightUnit
+            selectedHeightUnit = userService.heightUnit
+            isInitializing = false
+            print("[PreferencesView] Init complete — selectedWeight: \(selectedWeightUnit), selectedHeight: \(selectedHeightUnit)")
         }
     }
 
@@ -130,23 +168,54 @@ struct PreferencesView: View {
     }
 
     private func updateWeightUnit(_ unit: WeightUnit) async {
-        guard authService.currentUser?.uid != nil else { return }
+        guard authService.currentUser?.uid != nil else {
+            print("[PreferencesView] updateWeightUnit — no auth, skipping")
+            return
+        }
+        print("[PreferencesView] updateWeightUnit — saving \(unit) (firestore: \(unit.firestoreFormat))")
         errorMessage = nil
-        isUpdatingUnit = true
+        isUpdatingWeightUnit = true
 
         defer {
-            isUpdatingUnit = false
+            isUpdatingWeightUnit = false
         }
 
         do {
             let requestBody = UpdatePreferencesRequest(preferences: ["weight_format": unit.firestoreFormat])
             let _: UpdatePreferencesResponse = try await ApiClient.shared.postJSON("updateUserPreferences", body: requestBody)
-            UserService.shared.reloadPreferences()
+            print("[PreferencesView] updateWeightUnit — API success, optimistic update to \(unit)")
+            UserService.shared.weightUnit = unit
             AnalyticsService.shared.preferenceChanged(preference: "weight_unit", value: unit.rawValue)
         } catch {
+            print("[PreferencesView] updateWeightUnit — API FAILED: \(error)")
             errorMessage = "Failed to update preference. Please try again."
-            // Revert the picker to the previous value
             selectedWeightUnit = userService.weightUnit
+        }
+    }
+
+    private func updateHeightUnit(_ unit: HeightUnit) async {
+        guard authService.currentUser?.uid != nil else {
+            print("[PreferencesView] updateHeightUnit — no auth, skipping")
+            return
+        }
+        print("[PreferencesView] updateHeightUnit — saving \(unit) (firestore: \(unit.firestoreFormat))")
+        errorMessage = nil
+        isUpdatingHeightUnit = true
+
+        defer {
+            isUpdatingHeightUnit = false
+        }
+
+        do {
+            let requestBody = UpdatePreferencesRequest(preferences: ["height_format": unit.firestoreFormat])
+            let _: UpdatePreferencesResponse = try await ApiClient.shared.postJSON("updateUserPreferences", body: requestBody)
+            print("[PreferencesView] updateHeightUnit — API success, optimistic update to \(unit)")
+            UserService.shared.heightUnit = unit
+            AnalyticsService.shared.preferenceChanged(preference: "height_unit", value: unit.rawValue)
+        } catch {
+            print("[PreferencesView] updateHeightUnit — API FAILED: \(error)")
+            errorMessage = "Failed to update preference. Please try again."
+            selectedHeightUnit = userService.heightUnit
         }
     }
 }

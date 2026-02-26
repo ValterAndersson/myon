@@ -55,13 +55,13 @@ struct SetCellModel: Identifiable, Equatable {
 extension WorkoutExerciseSet {
     /// Maps a history/completed set to SetCellModel for read-only display.
     /// Index label is passed in to avoid requiring the model to know its position.
-    func toSetCellModel(indexLabel: String) -> SetCellModel {
+    func toSetCellModel(indexLabel: String, weightUnit: WeightUnit) -> SetCellModel {
         let indicator = setTypeIndicator(from: type)
-        
+
         return SetCellModel(
             id: id,
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
-            weight: formatWeight(weight),
+            weight: formatWeight(weight, unit: weightUnit),
             reps: "\(reps)",
             rir: indicator == .warmup ? nil : rir.map { "\($0)" },
             setTypeIndicator: indicator,
@@ -82,12 +82,11 @@ extension WorkoutExerciseSet {
         return nil
     }
 
-    private func formatWeight(_ weight: Double) -> String {
-        // Unitless - SetTable will add unit in header
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        }
-        return String(format: "%.1f", weight)
+    /// Convert stored kg value to display unit, then format as string
+    private func formatWeight(_ weightKg: Double, unit: WeightUnit) -> String {
+        let displayed = WeightFormatter.display(weightKg, unit: unit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        return WeightFormatter.truncateTrailingZeros(rounded)
     }
 }
 
@@ -96,14 +95,14 @@ extension WorkoutExerciseSet {
 extension Array where Element == WorkoutExerciseSet {
     /// Convert array of WorkoutExerciseSet to SetCellModels with proper index labels.
     /// Handles warmup vs working set numbering.
-    func toSetCellModels() -> [SetCellModel] {
+    func toSetCellModels(weightUnit: WeightUnit) -> [SetCellModel] {
         var warmupIndex = 0
         var workingIndex = 0
-        
+
         return self.map { set in
             let indexLabel: String
             let lowercased = set.type.lowercased()
-            
+
             if lowercased.contains("warm") {
                 warmupIndex += 1
                 indexLabel = "W\(warmupIndex)"
@@ -111,8 +110,8 @@ extension Array where Element == WorkoutExerciseSet {
                 workingIndex += 1
                 indexLabel = "\(workingIndex)"
             }
-            
-            return set.toSetCellModel(indexLabel: indexLabel)
+
+            return set.toSetCellModel(indexLabel: indexLabel, weightUnit: weightUnit)
         }
     }
 }
@@ -122,13 +121,13 @@ extension Array where Element == WorkoutExerciseSet {
 extension WorkoutTemplateSet {
     /// Maps a template set to SetCellModel for display.
     /// Follows the same pattern as WorkoutExerciseSet mapper.
-    func toSetCellModel(indexLabel: String) -> SetCellModel {
+    func toSetCellModel(indexLabel: String, weightUnit: WeightUnit) -> SetCellModel {
         let indicator = setTypeIndicator(from: type)
 
         return SetCellModel(
             id: id,
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
-            weight: formatWeight(weight),
+            weight: formatWeight(weight, unit: weightUnit),
             reps: "\(reps)",
             rir: indicator == .warmup ? nil : rir.map { "\($0)" },
             setTypeIndicator: indicator,
@@ -149,19 +148,19 @@ extension WorkoutTemplateSet {
         return nil
     }
 
-    private func formatWeight(_ weight: Double) -> String {
-        if weight == 0 { return "BW" }
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        }
-        return String(format: "%.1f", weight)
+    /// Convert stored kg value to display unit, then format as string
+    private func formatWeight(_ weightKg: Double, unit: WeightUnit) -> String {
+        if weightKg == 0 { return "BW" }
+        let displayed = WeightFormatter.display(weightKg, unit: unit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        return WeightFormatter.truncateTrailingZeros(rounded)
     }
 }
 
 extension Array where Element == WorkoutTemplateSet {
     /// Convert array of WorkoutTemplateSet to SetCellModels with proper index labels.
     /// Handles warmup vs working set numbering.
-    func toSetCellModels() -> [SetCellModel] {
+    func toSetCellModels(weightUnit: WeightUnit) -> [SetCellModel] {
         var warmupIndex = 0
         var workingIndex = 0
 
@@ -177,7 +176,7 @@ extension Array where Element == WorkoutTemplateSet {
                 indexLabel = "\(workingIndex)"
             }
 
-            return set.toSetCellModel(indexLabel: indexLabel)
+            return set.toSetCellModel(indexLabel: indexLabel, weightUnit: weightUnit)
         }
     }
 }
@@ -188,13 +187,13 @@ extension PlanSet {
     /// Maps a planning set to SetCellModel for display.
     /// Index label is passed in to avoid requiring the model to know its position.
     /// Used in read-only planning previews and future unified editing.
-    func toSetCellModel(indexLabel: String, isActive: Bool = false) -> SetCellModel {
+    func toSetCellModel(indexLabel: String, isActive: Bool = false, weightUnit: WeightUnit) -> SetCellModel {
         let indicator = setTypeIndicator(from: type)
-        
+
         return SetCellModel(
             id: id,
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
-            weight: weight.map { formatWeight($0) },
+            weight: weight.map { formatWeight($0, unit: weightUnit) },
             reps: "\(reps)",
             rir: isWarmup ? nil : (rir.map { "\($0)" }),
             setTypeIndicator: indicator,
@@ -202,7 +201,7 @@ extension PlanSet {
             isCompleted: isCompleted ?? false
         )
     }
-    
+
     private func setTypeIndicator(from type: SetType?) -> SetCellModel.SetTypeIndicator? {
         switch type {
         case .warmup: return .warmup
@@ -211,13 +210,12 @@ extension PlanSet {
         case .working, .none: return nil
         }
     }
-    
-    private func formatWeight(_ weight: Double) -> String {
-        // Unitless - SetTable will add unit in header
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        }
-        return String(format: "%.1f", weight)
+
+    /// Convert stored kg value to display unit, then format as string
+    private func formatWeight(_ weightKg: Double, unit: WeightUnit) -> String {
+        let displayed = WeightFormatter.display(weightKg, unit: unit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        return WeightFormatter.truncateTrailingZeros(rounded)
     }
 }
 
@@ -225,13 +223,13 @@ extension Array where Element == PlanSet {
     /// Convert array of PlanSet to SetCellModels with proper index labels.
     /// Handles warmup vs working set numbering.
     /// Optional activeSetId parameter to mark which set is active.
-    func toSetCellModels(activeSetId: String? = nil) -> [SetCellModel] {
+    func toSetCellModels(activeSetId: String? = nil, weightUnit: WeightUnit) -> [SetCellModel] {
         var warmupIndex = 0
         var workingIndex = 0
-        
+
         return self.map { set in
             let indexLabel: String
-            
+
             if set.isWarmup {
                 warmupIndex += 1
                 indexLabel = "W\(warmupIndex)"
@@ -239,10 +237,11 @@ extension Array where Element == PlanSet {
                 workingIndex += 1
                 indexLabel = "\(workingIndex)"
             }
-            
+
             return set.toSetCellModel(
                 indexLabel: indexLabel,
-                isActive: set.id == activeSetId
+                isActive: set.id == activeSetId,
+                weightUnit: weightUnit
             )
         }
     }
@@ -255,13 +254,13 @@ extension FocusModeSet {
     /// Index label is passed in to avoid requiring the model to know its position.
     /// Used for read-only views of active workouts; the specialized FocusModeSetGrid
     /// handles the full interactive editing experience.
-    func toSetCellModel(indexLabel: String, isActive: Bool = false) -> SetCellModel {
+    func toSetCellModel(indexLabel: String, isActive: Bool = false, weightUnit: WeightUnit) -> SetCellModel {
         let indicator = setTypeIndicator()
-        
+
         return SetCellModel(
             id: id,
             indexLabel: indicator != nil ? indicator!.label : indexLabel,
-            weight: displayWeight.map { formatWeight($0) },
+            weight: displayWeight.map { formatWeight($0, unit: weightUnit) },
             reps: displayReps.map { "\($0)" },
             rir: isWarmup ? nil : (displayRir.map { "\($0)" }),
             setTypeIndicator: indicator,
@@ -269,7 +268,7 @@ extension FocusModeSet {
             isCompleted: isDone
         )
     }
-    
+
     private func setTypeIndicator() -> SetCellModel.SetTypeIndicator? {
         if isWarmup {
             return .warmup
@@ -282,13 +281,12 @@ extension FocusModeSet {
         }
         return nil
     }
-    
-    private func formatWeight(_ weight: Double) -> String {
-        // Unitless - SetTable will add unit in header
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(weight))"
-        }
-        return String(format: "%.1f", weight)
+
+    /// Convert stored kg value to display unit, then format as string
+    private func formatWeight(_ weightKg: Double, unit: WeightUnit) -> String {
+        let displayed = WeightFormatter.display(weightKg, unit: unit)
+        let rounded = WeightFormatter.roundForDisplay(displayed)
+        return WeightFormatter.truncateTrailingZeros(rounded)
     }
 }
 
@@ -296,13 +294,13 @@ extension Array where Element == FocusModeSet {
     /// Convert array of FocusModeSet to SetCellModels with proper index labels.
     /// Handles warmup vs working set numbering.
     /// Optional activeSetId parameter to mark which set is active.
-    func toSetCellModels(activeSetId: String? = nil) -> [SetCellModel] {
+    func toSetCellModels(activeSetId: String? = nil, weightUnit: WeightUnit) -> [SetCellModel] {
         var warmupIndex = 0
         var workingIndex = 0
-        
+
         return self.map { set in
             let indexLabel: String
-            
+
             if set.isWarmup {
                 warmupIndex += 1
                 indexLabel = "W\(warmupIndex)"
@@ -310,10 +308,11 @@ extension Array where Element == FocusModeSet {
                 workingIndex += 1
                 indexLabel = "\(workingIndex)"
             }
-            
+
             return set.toSetCellModel(
                 indexLabel: indexLabel,
-                isActive: set.id == activeSetId
+                isActive: set.id == activeSetId,
+                weightUnit: weightUnit
             )
         }
     }

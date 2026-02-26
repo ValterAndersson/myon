@@ -190,7 +190,9 @@ class AuthService: ObservableObject {
     /// Refreshes the cached currentUser so providerData is up to date.
     func reloadCurrentUser() async {
         try? await currentUser?.reload()
-        self.currentUser = Auth.auth().currentUser
+        await MainActor.run {
+            self.currentUser = Auth.auth().currentUser
+        }
     }
 
     // MARK: - Apple Sign-In

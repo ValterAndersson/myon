@@ -667,21 +667,32 @@ All weight values are stored in **kilograms (kg)** across every layer (Firestore
 
 | Layer | File | Purpose |
 |-------|------|---------|
-| iOS | `Povver/Povver/Utilities/WeightFormatter.swift` | `WeightUnit` enum, conversion functions, plate rounding |
-| iOS | `Povver/Povver/Services/ActiveWorkoutManager.swift` | `UserService` singleton publishes `weightUnit` and `activeWorkoutWeightUnit` |
-| iOS | `Povver/Povver/Views/Settings/PreferencesView.swift` | Weight unit picker UI (guarded against rapid toggling) |
-| Firebase | `firebase_functions/functions/agents/get-planning-context.js` | Returns `weight_unit` field for agent consumption |
+| iOS | `Povver/Povver/Utilities/WeightFormatter.swift` | `WeightUnit`, `HeightUnit` enums, `WeightFormatter`, `HeightFormatter` — conversion functions, plate rounding |
+| iOS | `Povver/Povver/Services/ActiveWorkoutManager.swift` | `UserService` singleton — publishes `weightUnit`, `heightUnit`, `activeWorkoutWeightUnit`. Retries preference load via auth state listener. |
+| iOS | `Povver/Povver/Views/Settings/PreferencesView.swift` | Weight + height unit picker UI (guarded against rapid toggling via `isInitializing`) |
+| iOS | `Povver/Povver/Views/Settings/ProfileEditView.swift` | Text-field-based height/weight editors — height respects `heightUnit` (cm or ft+in), weight respects `weightUnit` |
+| iOS | `Povver/Povver/UI/Components/Domain/SetCellModel.swift` | Set display mappers — `toSetCellModels(weightUnit:)` converts stored kg to display unit |
+| iOS | `Povver/Povver/UI/Components/Domain/SetTable.swift` | Read-only set table — header shows `UserService.shared.weightUnit.label` |
+| Firebase | `firebase_functions/functions/user/update-preferences.js` | Writes `weight_format`/`height_format` to `user_attributes/{uid}` (v2 onRequest with `requireFlexibleAuth`) |
+| Firebase | `firebase_functions/functions/agents/get-planning-context.js` | Derives `weight_unit` field (`"kg"` or `"lbs"`) from `weight_format` for agent consumption |
 | Agent | `adk_agent/canvas_orchestrator/app/utils/weight_formatting.py` | Shared `format_weight()` and `get_weight_unit()` used by all skill modules |
 | Agent | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Weight unit cache (`set_weight_unit`/`get_weight_unit`) with timestamp-based eviction |
-| Agent | `adk_agent/canvas_orchestrator/app/shell/instruction.py` | Static rule telling agent to use `weight_unit` from planning context |
+| Agent | `adk_agent/canvas_orchestrator/app/shell/instruction.py` | Unit-aware progression rules, defaults, and rounding — agent reasons in user's unit system, converts to kg only for tool parameters |
 
-### Mid-Workout Safety
-`UserService.activeWorkoutWeightUnit` is snapshotted when a workout starts (via `snapshotForWorkout()`). All Focus Mode components use this snapshot, preventing a preference change mid-workout from corrupting in-progress edits.
+### Preference Loading on App Launch
+`UserService.init()` calls `loadUserPreferences()`, but Firebase Auth may not have initialized yet (`currentUser` is nil). To handle this:
+1. An auth state listener (`AuthService.shared.$currentUser`) retries `loadUserPreferences()` when auth becomes available.
+2. `weightUnit.didSet` keeps `activeWorkoutWeightUnit` in sync — if preferences load after the workout starts, the display updates immediately.
+3. `startWorkout()` and `resumeWorkout()` both `await ensurePreferencesLoaded()` before snapshotting, guaranteeing the Firestore read completes first.
+
+### Agent Unit-Aware Reasoning
+The agent does not merely convert kg to lbs for display. It **thinks in the user's unit system**: progression increments (+5lbs vs +2.5kg), default weights, and rounding are all unit-specific. This prevents plate-misaligned values (e.g., prescribing 226lbs instead of 225lbs). The agent converts to kg only when passing `weight_kg` tool parameters (e.g., 225lbs ÷ 2.205 = 102.04kg). The iOS app converts back to 225lbs for display — no rounding drift.
 
 ### Conversion Constants
 - kg → lbs: `× 2.20462`
 - lbs → kg: `÷ 2.20462`
 - Plate rounding: kg = 2.5 increments, lbs = 5.0 increments
+- Height: 1 inch = 2.54 cm
 
 ---
 

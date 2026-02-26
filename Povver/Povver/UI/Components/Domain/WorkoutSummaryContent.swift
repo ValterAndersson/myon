@@ -220,8 +220,9 @@ struct WorkoutSummaryContent: View {
                     ) {
                         if !exercise.sets.isEmpty {
                             SetTable(
-                                sets: exercise.sets.toSetCellModels(),
-                                mode: .readOnly
+                                sets: exercise.sets.toSetCellModels(weightUnit: weightUnit),
+                                mode: .readOnly,
+                                weightUnit: weightUnit.label
                             )
                         }
                         // Exercise note row
