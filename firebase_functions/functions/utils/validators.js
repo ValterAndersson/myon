@@ -1,7 +1,7 @@
 const { z } = require('zod');
 
 // Security upper bounds — prevent data corruption and DoS
-const MAX_WEIGHT_KG = 1000;              // Beyond human capacity (world record deadlift ~501kg)
+const MAX_WEIGHT_KG = 1500;              // Ronnie Coleman leg-pressed 2300lbs (~1043kg). Lightweight baby!
 const MAX_REPS = 500;                    // Reasonable upper bound for bodyweight exercises
 const MAX_EXERCISES_PER_WORKOUT = 50;
 const MAX_SETS_PER_EXERCISE = 100;
