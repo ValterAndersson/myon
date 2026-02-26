@@ -44,6 +44,10 @@ function createRateLimiter({ windowMs, max }) {
      * @returns {boolean} true if allowed, false if rate limited
      */
     check(key) {
+      if (!key) {
+        logger.warn('[rate_limit] check called with empty key — allowing but not tracking');
+        return true;
+      }
       const now = Date.now();
       const cutoff = now - windowMs;
       const timestamps = (hits.get(key) || []).filter((t) => t > cutoff);

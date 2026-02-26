@@ -42,7 +42,6 @@
 
 const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
-const functions = require('firebase-functions');
 const { logger } = require('firebase-functions');
 
 // CORS: No browser clients exist (iOS native + server-to-server only).
@@ -129,7 +128,6 @@ async function verifyApiKey(req, res) {
   try {
     const apiKeysString = process.env.VALID_API_KEYS || process.env.MYON_API_KEY;
     if (!apiKeysString) {
-      const { logger } = require('firebase-functions');
       logger.error('[middleware] FATAL: No API keys configured. Set VALID_API_KEYS env var.');
       res.status(500).json({ success: false, error: 'Server configuration error' });
       return null;
@@ -137,7 +135,6 @@ async function verifyApiKey(req, res) {
     const validApiKeys = apiKeysString.split(',').map(key => key.trim()).filter(Boolean);
 
     if (validApiKeys.length === 0) {
-      const { logger } = require('firebase-functions');
       logger.error('[middleware] FATAL: VALID_API_KEYS is set but contains no valid keys');
       res.status(500).json({ success: false, error: 'Server configuration error' });
       return null;
