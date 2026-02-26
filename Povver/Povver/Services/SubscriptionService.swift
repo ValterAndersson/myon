@@ -336,10 +336,10 @@ class SubscriptionService: ObservableObject {
 
         do {
             let _: SyncResponse = try await ApiClient.shared.postJSON("syncSubscriptionStatus", body: request)
-            AppLogger.shared.info(.subscription, "Synced subscription: tier=\(state.tier.rawValue) status=\(state.status.rawValue)")
+            AppLogger.shared.info(.store, "Synced subscription: tier=\(state.tier.rawValue) status=\(state.status.rawValue)")
         } catch {
             // Non-critical — webhook is authoritative
-            AppLogger.shared.warn(.subscription, "Subscription sync failed: \(error.localizedDescription)")
+            AppLogger.shared.error(.store, "Subscription sync failed", error)
         }
     }
 
