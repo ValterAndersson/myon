@@ -1,12 +1,13 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 const FirestoreHelper = require('../utils/firestore-helper');
 
 const db = new FirestoreHelper();
 
 async function getPreferencesHandler(req, res) {
   try {
-    const userId = req.query.userId || req.body?.userId || req.user?.uid || req.auth?.uid;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(400).json({ success: false, error: 'Missing userId' });
 
     const [user, attrs] = await Promise.all([

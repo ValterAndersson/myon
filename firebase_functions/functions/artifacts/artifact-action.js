@@ -16,6 +16,7 @@ const { logger } = require('firebase-functions');
 const { convertPlanToTemplate } = require('../utils/plan-to-template-converter');
 const { fail } = require('../utils/response');
 const { isPremiumUser } = require('../utils/subscription-gate');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -23,8 +24,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 async function artifactActionHandler(req, res) {
-  // Dual auth: Bearer lane → req.auth.uid, API key lane → body.userId
-  const userId = req.user?.uid || req.auth?.uid || req.body?.userId;
+  // Secure userId derivation — prevents IDOR via auth-helpers
+  const userId = getAuthenticatedUserId(req);
   const conversationId = req.body?.conversationId;
   const artifactId = req.body?.artifactId;
   const action = req.body?.action;
