@@ -14,6 +14,8 @@ const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
 const { logger } = require('firebase-functions');
 const { convertPlanToTemplate } = require('../utils/plan-to-template-converter');
+const { fail } = require('../utils/response');
+const { isPremiumUser } = require('../utils/subscription-gate');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -48,6 +50,15 @@ async function artifactActionHandler(req, res) {
 
     const artifact = artifactSnap.data();
     const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Premium gate — only mutation actions require premium
+    const premiumActions = ['save_routine', 'save_template', 'start_workout', 'save_as_new'];
+    if (premiumActions.includes(action)) {
+      const hasPremium = await isPremiumUser(userId);
+      if (!hasPremium) {
+        return fail(res, 'PREMIUM_REQUIRED', 'Premium subscription required', null, 403);
+      }
+    }
 
     switch (action) {
       case 'accept': {
