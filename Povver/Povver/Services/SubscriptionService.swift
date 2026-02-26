@@ -303,48 +303,43 @@ class SubscriptionService: ObservableObject {
         )
     }
 
-    /// Sync subscription state to Firestore as flat fields on users/{uid}.
+    /// Sync subscription state to Firestore via Cloud Function.
     /// Only called when we have a positive StoreKit entitlement — never for free state.
-    /// Writes the same field names that subscription-gate.js and app-store-webhook.js read.
+    /// Uses syncSubscriptionStatus Cloud Function (Firestore rules block direct client writes).
     private func syncToFirestore() async {
         guard let userId = AuthService.shared.currentUser?.uid else { return }
 
         let state = subscriptionState
-        let db = Firestore.firestore()
-        let userRef = db.collection("users").document(userId)
 
-        var updates: [String: Any] = [
-            "subscription_status": state.status.rawValue,
-            "subscription_tier": state.tier.rawValue,
-            "subscription_auto_renew_enabled": state.autoRenewEnabled,
-            "subscription_in_grace_period": state.inGracePeriod,
-            "subscription_updated_at": FieldValue.serverTimestamp(),
-        ]
+        // Only sync positive entitlements (same guard as before)
+        guard state.tier == .premium else { return }
 
-        if let expiresAt = state.expiresAt {
-            updates["subscription_expires_at"] = Timestamp(date: expiresAt)
-        }
-        if let productId = state.productId {
-            updates["subscription_product_id"] = productId
-        }
-        if let txnId = state.originalTransactionId {
-            updates["subscription_original_transaction_id"] = txnId
-        }
-        if let token = state.appAccountToken {
-            updates["subscription_app_account_token"] = token
+        struct SyncRequest: Encodable {
+            let status: String
+            let tier: String
+            let autoRenewEnabled: Bool
+            let inGracePeriod: Bool
+            let productId: String?
         }
 
-        #if DEBUG
-        updates["subscription_environment"] = "Sandbox"
-        #else
-        updates["subscription_environment"] = "Production"
-        #endif
+        struct SyncResponse: Decodable {
+            let success: Bool
+        }
+
+        let request = SyncRequest(
+            status: state.status.rawValue,
+            tier: state.tier.rawValue,
+            autoRenewEnabled: state.autoRenewEnabled,
+            inGracePeriod: state.inGracePeriod,
+            productId: state.productId
+        )
 
         do {
-            try await userRef.updateData(updates)
-            print("[SubscriptionService] Synced subscription to Firestore: tier=\(state.tier.rawValue) status=\(state.status.rawValue)")
+            let _: SyncResponse = try await ApiClient.shared.postJSON("syncSubscriptionStatus", body: request)
+            AppLogger.shared.info(.subscription, "Synced subscription: tier=\(state.tier.rawValue) status=\(state.status.rawValue)")
         } catch {
-            print("[SubscriptionService] Failed to sync subscription to Firestore: \(error)")
+            // Non-critical — webhook is authoritative
+            AppLogger.shared.warn(.subscription, "Subscription sync failed: \(error.localizedDescription)")
         }
     }
 

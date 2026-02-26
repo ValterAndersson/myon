@@ -123,6 +123,7 @@ const { getAnalysisSummary } = require('./training/get-analysis-summary');
 
 // Subscription Operations
 const { appStoreWebhook } = require('./subscriptions/app-store-webhook');
+const { syncSubscriptionStatus } = require('./subscriptions/sync-subscription-status');
 
 // Recommendation Operations
 const { reviewRecommendation } = require('./recommendations/review-recommendation');
@@ -152,7 +153,8 @@ exports.health = functions.https.onRequest(health);
 exports.getUser = functions.https.onRequest((req, res) => withApiKey(getUser)(req, res));
 exports.updateUser = functions.https.onRequest((req, res) => withApiKey(updateUser)(req, res));
 exports.getUserPreferences = functions.https.onRequest((req, res) => withApiKey(getUserPreferences)(req, res));
-exports.updateUserPreferences = functions.https.onRequest((req, res) => withApiKey(updateUserPreferences)(req, res));
+// updateUserPreferences is a v2 onRequest with requireFlexibleAuth — called by iOS app
+exports.updateUserPreferences = updateUserPreferences;
 exports.upsertUserAttributes = functions.https.onRequest((req, res) => withApiKey(upsertUserAttributes)(req, res));
 
 // Workout Operations
@@ -340,3 +342,6 @@ exports.getAnalysisSummary = getAnalysisSummary;
 
 // App Store webhook (v2 onRequest, NO auth middleware - Apple calls directly)
 exports.appStoreWebhook = appStoreWebhook;
+
+// Client subscription sync (v2 onRequest with requireFlexibleAuth - iOS app only)
+exports.syncSubscriptionStatus = syncSubscriptionStatus;
