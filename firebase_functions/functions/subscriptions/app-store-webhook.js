@@ -6,14 +6,17 @@
  *
  * Security:
  * - NO auth middleware — Apple calls this URL directly with a signed JWS payload
- * - Production MUST verify JWS signature using Apple root certificates
+ * - JWS signature verification using Apple root certificates (production)
+ * - Replay protection via notificationUUID tracking (90-day TTL)
  * - Always returns 200 (Apple retries non-200s indefinitely)
+ * - Fail-secure: rejects webhooks if verifier unavailable in production
+ * - Emulator: falls back to insecure decode for testing
  *
  * Apple Root Certificates:
- * Download from https://www.apple.com/certificateauthority/ and place in subscriptions/certs/:
+ * Located in subscriptions/certs/:
  *   - AppleRootCA-G3.cer
  *   - AppleRootCA-G2.cer
- * Until certs are in place, the handler uses insecure base64 decode (dev only).
+ * Downloaded from https://www.apple.com/certificateauthority/
  *
  * User Lookup Strategy:
  * 1. subscription_app_account_token (deterministic UUID v5 from Firebase UID)
@@ -24,25 +27,138 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
+const { SignedDataVerifier, Environment } = require('@apple/app-store-server-library');
+const fs = require('fs');
+const path = require('path');
 
 const db = admin.firestore();
 
-// Apple bundle ID (used for JWS verification when certs are in place)
+// Apple bundle ID (used for JWS verification)
 const APPLE_BUNDLE_ID = 'com.povver.Povver';
 
+// Eagerly initialize verifier at module load — fail fast if certs are missing
+let verifier = null;
+let verifierError = null;
+try {
+  const certsDir = path.join(__dirname, 'certs');
+  const rootCerts = [
+    fs.readFileSync(path.join(certsDir, 'AppleRootCA-G3.cer')),
+    fs.readFileSync(path.join(certsDir, 'AppleRootCA-G2.cer')),
+  ];
+  const environment = process.env.APP_STORE_ENVIRONMENT === 'Sandbox'
+    ? Environment.SANDBOX
+    : Environment.PRODUCTION;
+  verifier = new SignedDataVerifier(
+    rootCerts,
+    true,  // enableOnlineChecks
+    environment,
+    APPLE_BUNDLE_ID,
+    null   // appAppleId (optional)
+  );
+} catch (err) {
+  verifierError = err;
+  // Logger may not be available at module load; use console as fallback
+  const logFn = typeof logger !== 'undefined' ? logger.error : console.error;
+  logFn('[webhook] verifier_init_failed — webhooks will be rejected in production', {
+    error: String(err?.message || err),
+  });
+}
+
 /**
- * Decode JWS payload (base64 middle section).
- * In production, replace with SignedDataVerifier.verifyAndDecodeNotification()
- * from @apple/app-store-server-library after placing Apple root certs.
+ * Verify and decode JWS notification from Apple.
+ * Production: rejects if verifier unavailable (fail secure).
+ * Emulator: falls back to insecure decode for testing.
  */
-function decodeJWSPayload(signedPayload) {
+async function decodeAndVerifyNotification(signedPayload) {
+  if (verifier) {
+    try {
+      return await verifier.verifyAndDecodeNotification(signedPayload);
+    } catch (err) {
+      logger.error('[webhook] jws_verification_failed', {
+        error: String(err?.message || err),
+      });
+      return null;
+    }
+  }
+
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+  if (isEmulator) {
+    logger.warn('[webhook] jws_insecure_fallback — emulator only');
+    return decodeJWSPayloadInsecure(signedPayload);
+  }
+
+  logger.error('[webhook] verifier unavailable in production — rejecting webhook', {
+    init_error: String(verifierError?.message || 'unknown'),
+  });
+  return null;
+}
+
+/**
+ * Verify and decode JWS transaction info from Apple.
+ * Production: rejects if verifier unavailable (fail secure).
+ * Emulator: falls back to insecure decode for testing.
+ */
+async function decodeAndVerifyTransaction(signedTransactionInfo) {
+  if (verifier) {
+    try {
+      return await verifier.verifyAndDecodeSignedTransaction(signedTransactionInfo);
+    } catch (err) {
+      logger.error('[webhook] jws_transaction_verification_failed', {
+        error: String(err?.message || err),
+      });
+      return null;
+    }
+  }
+
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+  if (isEmulator) {
+    logger.warn('[webhook] jws_transaction_insecure_fallback — emulator only');
+    return decodeJWSPayloadInsecure(signedTransactionInfo);
+  }
+
+  logger.error('[webhook] verifier unavailable in production — rejecting transaction', {
+    init_error: String(verifierError?.message || 'unknown'),
+  });
+  return null;
+}
+
+/**
+ * Verify and decode JWS renewal info from Apple.
+ * Production: rejects if verifier unavailable (fail secure).
+ * Emulator: falls back to insecure decode for testing.
+ */
+async function decodeAndVerifyRenewalInfo(signedRenewalInfo) {
+  if (verifier) {
+    try {
+      return await verifier.verifyAndDecodeRenewalInfo(signedRenewalInfo);
+    } catch (err) {
+      logger.error('[webhook] jws_renewal_verification_failed', {
+        error: String(err?.message || err),
+      });
+      return null;
+    }
+  }
+
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true';
+  if (isEmulator) {
+    logger.warn('[webhook] jws_renewal_insecure_fallback — emulator only');
+    return decodeJWSPayloadInsecure(signedRenewalInfo);
+  }
+
+  logger.error('[webhook] verifier unavailable in production — rejecting renewal info', {
+    init_error: String(verifierError?.message || 'unknown'),
+  });
+  return null;
+}
+
+// Insecure decode — emulator-only fallback
+function decodeJWSPayloadInsecure(signedPayload) {
   try {
     const parts = signedPayload.split('.');
     if (parts.length !== 3) throw new Error('Invalid JWS format');
     return JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
   } catch (error) {
-    logger.error('jws_decode_failed', {
-      event: 'jws_decode_failed',
+    logger.error('[webhook] jws_decode_failed', {
       error: String(error?.message || error),
     });
     return null;
@@ -200,31 +316,42 @@ async function handleAppStoreWebhook(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Decode outer notification
-    // TODO: Replace with SignedDataVerifier.verifyAndDecodeNotification() when certs are in place
-    const notification = decodeJWSPayload(signedPayload);
+    // Verify and decode outer notification
+    const notification = await decodeAndVerifyNotification(signedPayload);
     if (!notification) {
-      console.error('Failed to decode notification');
+      logger.error('[webhook] notification_verification_failed');
       return res.status(200).json({ ok: true });
     }
 
-    const { notificationType, subtype, data } = notification;
+    const { notificationType, subtype, data, notificationUUID } = notification;
+
+    // Replay protection: check if notification was already processed
+    if (notificationUUID) {
+      const processedRef = db.collection('processed_webhook_notifications').doc(notificationUUID);
+      const processedSnap = await processedRef.get();
+      if (processedSnap.exists) {
+        logger.info('[webhook] duplicate_skipped', { notification_uuid: notificationUUID });
+        return res.status(200).json({ ok: true });
+      }
+    }
+
     logger.info('subscription_event_received', {
       event: 'subscription_event_received',
       notification_type: notificationType,
       subtype: subtype || null,
+      notification_uuid: notificationUUID || null,
     });
 
-    // Decode signedTransactionInfo (appAccountToken lives here, not in data)
+    // Verify and decode signedTransactionInfo (appAccountToken lives here, not in data)
     let transactionInfo = null;
     if (data?.signedTransactionInfo) {
-      transactionInfo = decodeJWSPayload(data.signedTransactionInfo);
+      transactionInfo = await decodeAndVerifyTransaction(data.signedTransactionInfo);
     }
 
-    // Decode signedRenewalInfo for auto-renew status
+    // Verify and decode signedRenewalInfo for auto-renew status
     let renewalInfo = null;
     if (data?.signedRenewalInfo) {
-      renewalInfo = decodeJWSPayload(data.signedRenewalInfo);
+      renewalInfo = await decodeAndVerifyRenewalInfo(data.signedRenewalInfo);
     }
 
     // appAccountToken is inside the decoded transaction, not at the data level.
@@ -284,6 +411,17 @@ async function handleAppStoreWebhook(req, res) {
       environment: data?.environment || null,
       created_at: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Record processed notification for replay protection (90-day TTL)
+    if (notificationUUID) {
+      const ttlDate = new Date();
+      ttlDate.setDate(ttlDate.getDate() + 90);
+      await db.collection('processed_webhook_notifications').doc(notificationUUID).set({
+        notification_type: notificationType,
+        processed_at: admin.firestore.FieldValue.serverTimestamp(),
+        expires_at: admin.firestore.Timestamp.fromDate(ttlDate),
+      });
+    }
 
     return res.status(200).json({ ok: true });
   } catch (error) {
