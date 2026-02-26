@@ -11,7 +11,7 @@ Focus Mode is the active workout UI. It provides a distraction-free interface fo
 | `FocusModeComponents.swift` | Shared UI components: `WorkoutHero`, `TimerPill`, `SwipeToDeleteRow`, `WarmupDivider`, `ExerciseCardContainer`, `CoachButton`, `ReorderModeBanner`, `ActionRail`. Also contains `FocusModeActiveSheet` enum (centralized sheet state machine). |
 | `FocusModeExerciseSearch.swift` | Exercise search for adding/swapping exercises mid-workout. Includes `ExerciseSortOption` enum (Recent/Frequent/A–Z) and `ExerciseFilters` model. Sort chips UI wired to `ExercisesViewModel.setSortOption()`. |
 | `ExercisePerformanceSheet.swift` | In-workout exercise performance history. Queries `set_facts` for the given exercise and shows recent sessions grouped by date with summary stats (best e1RM, last weight/reps). Requires Firestore composite index — see FIRESTORE_SCHEMA.md. |
-| `WorkoutCoachView.swift` | AI copilot chat sheet for in-workout coaching. Shows a tool activity pill (spinner + label) while the agent runs tools, auto-scrolls to it. |
+| `WorkoutCoachView.swift` | AI copilot chat sheet for in-workout coaching. Displays `ThinkingBubble` (Gemini-style collapsible thought process) while agent is active, hides empty placeholder messages during streaming, auto-scrolls to thinking bubble and latest message. |
 
 ## Entry Point
 
@@ -21,7 +21,7 @@ Navigation enters Focus Mode via two paths:
 
 ## Key Relationships
 
-- **FocusModeWorkoutService** (`Services/FocusModeWorkoutService.swift`): `@MainActor ObservableObject`. API calls for `startActiveWorkout`, `completeActiveWorkout`, `logSet`, `patchField`, `swapExercise`, `removeExercise`. Drains all pending sync operations before sending completion request (prevents race conditions). Exposes `workout` as published property.
+- **FocusModeWorkoutService** (`Services/FocusModeWorkoutService.swift`): `@MainActor ObservableObject`. API calls for `startActiveWorkout`, `completeActiveWorkout`, `logSet`, `patchField`, `swapExercise`, `removeExercise`. Drains all pending sync operations before sending completion request (prevents race conditions). Exposes `workout` as published property. `refreshFromServer()` fetches server state via `getActiveWorkout` and merges agent-added exercises into local workout, mapping Firestore flat `weight`/`reps` fields to `targetWeight`/`targetReps` for planned set display.
 - **WorkoutSessionLogger** (`Services/WorkoutSessionLogger.swift`): Records every workout event (start, log_set, complete, error) to timestamped JSON files in `Documents/workout_logs/`. Auto-flushes on app background. Writes breadcrumbs to Crashlytics for crash correlation.
 - **FocusModeLogger** (`Services/DebugLogger.swift`): Convenience facade for workout debug logging. Preserves enum-based API (`MutationPhase`, `CoordinatorEvent`) for pattern matching. All output delegates to `AppLogger`.
 - **FocusModeModels** (`Models/FocusModeModels.swift`): `FocusModeWorkout`, `FocusModeExercise`, `FocusModeSet` structs matching the `active_workouts` Firestore schema.

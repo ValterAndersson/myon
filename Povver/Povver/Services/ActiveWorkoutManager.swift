@@ -21,10 +21,6 @@ class UserService: ObservableObject {
 
         Task {
             do {
-                // Load user attributes to get weight format
-                _ = try await userRepository.getUserAttributes(userId: userId)
-
-                // Also get the format from the document data
                 let db = Firestore.firestore()
                 let attrDoc = try await db.collection("users").document(userId)
                     .collection("user_attributes").document(userId).getDocument()
@@ -38,12 +34,10 @@ class UserService: ObservableObject {
                     self.heightUnit = heightFormat == "feet" ? "ft" : "cm"
                 }
             } catch {
-                print("Error loading user preferences: \(error)")
-                // Use defaults
-                await MainActor.run {
-                    self.weightUnit = .kg
-                    self.heightUnit = "cm"
-                }
+                // Don't reset to defaults — keep whatever was previously loaded.
+                // Resetting here would clobber a just-saved preference if the
+                // reload Firestore read hits a transient network error.
+                AppLogger.shared.error(.store, "Failed to load user preferences: \(error)")
             }
         }
     }

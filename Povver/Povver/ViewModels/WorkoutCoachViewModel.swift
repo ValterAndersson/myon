@@ -153,6 +153,10 @@ final class WorkoutCoachViewModel: ObservableObject {
 
         thinkingState.complete()
         isStreaming = false
+
+        // Refresh workout state from server — picks up exercises/sets
+        // added by the agent via Firebase Functions
+        await FocusModeWorkoutService.shared.refreshFromServer()
     }
 
     private func updateAgentMessage(id: String, text: String, status: MessageStatus) {

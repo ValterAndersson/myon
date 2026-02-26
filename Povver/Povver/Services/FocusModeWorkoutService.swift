@@ -130,6 +130,9 @@ class FocusModeWorkoutService: ObservableObject {
     /// Cached routines for Library tab — populated by prefetchLibraryData()
     @Published private(set) var cachedRoutines: [RoutineInfo]?
 
+    /// Cached next workout info — populated by prefetchLibraryData()
+    @Published private(set) var cachedNextWorkout: NextWorkoutInfo?
+
     /// Guard against concurrent prefetch requests
     private var isPrefetching = false
 
@@ -260,9 +263,9 @@ class FocusModeWorkoutService: ObservableObject {
             let request = GetActiveWorkoutRequest(workoutId: currentWorkout.id)
             let response: GetActiveWorkoutResponse = try await apiClient.postJSON("getActiveWorkout", body: request)
             
-            if response.success, let serverData = response.data {
+            if response.success, let serverData = response.data?.workout {
                 // SELECTIVE HYDRATION: Only update positions and totals, not exercise/set state
-                
+
                 // 1. Update totals from server (source of truth)
                 if let serverTotals = serverData.totals {
                     currentWorkout.totals = serverTotals
@@ -307,8 +310,64 @@ class FocusModeWorkoutService: ObservableObject {
         }
     }
     
+    /// Full state refresh from server — merges new exercises added externally
+    /// (e.g., by the workout coach agent) while preserving local set state.
+    func refreshFromServer() async {
+        guard let currentWorkout = workout else { return }
+
+        do {
+            let request = GetActiveWorkoutRequest(workoutId: currentWorkout.id)
+            let response: GetActiveWorkoutResponse = try await apiClient.postJSON("getActiveWorkout", body: request)
+
+            guard response.success, let serverData = response.data?.workout else { return }
+
+            var merged = currentWorkout
+
+            // Build lookup of local exercises by instanceId
+            let localIds = Set(merged.exercises.map { $0.instanceId })
+
+            // Add exercises from server that don't exist locally (agent-added)
+            for exDto in serverData.exercises ?? [] where !localIds.contains(exDto.instanceId) {
+                let sets = (exDto.sets ?? []).map { setDto -> FocusModeSet in
+                    // Firestore stores planned values as flat weight/reps/rir (no target_ prefix),
+                    // but FocusModeSet.displayWeight reads targetWeight for planned sets
+                    FocusModeSet(
+                        id: setDto.id,
+                        setType: FocusModeSetType(rawValue: setDto.setType ?? "working") ?? .working,
+                        status: FocusModeSetStatus(rawValue: setDto.status ?? "planned") ?? .planned,
+                        targetWeight: setDto.targetWeight ?? setDto.weight,
+                        targetReps: setDto.targetReps ?? setDto.reps,
+                        targetRir: setDto.targetRir ?? setDto.rir,
+                        weight: setDto.weight,
+                        reps: setDto.reps,
+                        rir: setDto.rir
+                    )
+                }
+                merged.exercises.append(FocusModeExercise(
+                    instanceId: exDto.instanceId,
+                    exerciseId: exDto.exerciseId,
+                    name: exDto.name,
+                    position: exDto.position,
+                    sets: sets
+                ))
+            }
+
+            // Update totals from server
+            if let serverTotals = serverData.totals {
+                merged.totals = serverTotals
+            }
+
+            // Sort by position
+            merged.exercises.sort { $0.position < $1.position }
+
+            self.workout = merged
+        } catch {
+            AppLogger.shared.error(.work, "refreshFromServer failed", error)
+        }
+    }
+
     // MARK: - Workout Lifecycle
-    
+
     /// Load existing active workout (for resume)
     /// Get current active workout (for resume gate)
     /// Returns nil if no in_progress workout exists
@@ -1700,8 +1759,9 @@ class FocusModeWorkoutService: ObservableObject {
 
     // MARK: - Library Prefetch
 
-    /// Prefetch templates and routines for Library/Train tabs.
-    /// Called from MainTabsView on startup to eliminate loading spinners.
+    /// Prefetch all data needed by Train and Library tabs.
+    /// Called from RootView on auth completion — runs templates, routines,
+    /// next workout, and active workout check all in parallel.
     func prefetchLibraryData() async {
         guard !isPrefetching else { return }
         isPrefetching = true
@@ -1709,6 +1769,17 @@ class FocusModeWorkoutService: ObservableObject {
 
         async let templates = getUserTemplates()
         async let routines = getUserRoutines()
+        async let nextWorkout: NextWorkoutInfo? = {
+            do { return try await self.getNextWorkout() }
+            catch { return nil }
+        }()
+        let hasWorkout = workout != nil
+        async let activeWorkout: FocusModeWorkout? = {
+            // Only check if we don't already have a workout loaded
+            guard !hasWorkout else { return nil }
+            do { return try await self.getActiveWorkout() }
+            catch { return nil }
+        }()
 
         do {
             let (t, r) = try await (templates, routines)
@@ -1718,12 +1789,18 @@ class FocusModeWorkoutService: ObservableObject {
             // Prefetch failure is non-fatal — views will fetch on demand
             print("[FocusModeWorkoutService] Library prefetch failed: \(error)")
         }
+
+        // These are independent — store results even if library fetch failed
+        self.cachedNextWorkout = await nextWorkout
+        // activeWorkout side-effects (setting self.workout) happen inside getActiveWorkout()
+        _ = await activeWorkout
     }
 
     /// Invalidate cached library data after mutations that change templates/routines.
     func invalidateLibraryCache() {
         cachedTemplates = nil
         cachedRoutines = nil
+        cachedNextWorkout = nil
     }
 }
 
@@ -2452,8 +2529,13 @@ private struct GetActiveWorkoutRequest: Encodable {
 
 private struct GetActiveWorkoutResponse: Decodable {
     let success: Bool
-    let data: GetActiveWorkoutData?
+    let data: GetActiveWorkoutResponseData?
     let error: String?
+}
+
+/// Intermediate wrapper — ok() wraps handler output as { success, data: { success, workout } }
+private struct GetActiveWorkoutResponseData: Decodable {
+    let workout: GetActiveWorkoutData?
 }
 
 private struct GetActiveWorkoutData: Decodable {
@@ -2475,6 +2557,19 @@ private struct GetActiveWorkoutData: Decodable {
         case totals
         case version
         case startTime = "start_time"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        exercises = try container.decodeIfPresent([GetActiveWorkoutExerciseDTO].self, forKey: .exercises)
+        totals = try container.decodeIfPresent(WorkoutTotals.self, forKey: .totals)
+        version = try container.decodeIfPresent(Int.self, forKey: .version)
+        // start_time may be a String (ISO8601) or a Firestore Timestamp dict — decode flexibly
+        startTime = try? container.decodeIfPresent(String.self, forKey: .startTime)
     }
 }
 

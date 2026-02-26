@@ -22,17 +22,22 @@ struct WorkoutCoachView: View {
                 ScrollView {
                     LazyVStack(spacing: Space.md) {
                         ForEach(viewModel.messages) { message in
-                            messageBubble(message)
-                                .id(message.id)
+                            // Hide empty placeholder while thinking
+                            if !message.content.displayText.isEmpty || message.status != .streaming {
+                                messageBubble(message)
+                                    .id(message.id)
+                            }
                         }
 
                         if viewModel.messages.isEmpty {
                             emptyState
                         }
 
-                        // Gemini-style thinking bubble — same component as shell agent
-                        ThinkingBubble(state: viewModel.thinkingState)
-                            .id("thinking-bubble")
+                        // Gemini-style thinking bubble — only visible while actively thinking
+                        if viewModel.thinkingState.isActive {
+                            ThinkingBubble(state: viewModel.thinkingState)
+                                .id("thinking-bubble")
+                        }
                     }
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, Space.md)
