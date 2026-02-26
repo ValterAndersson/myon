@@ -307,7 +307,7 @@ class SubscriptionService: ObservableObject {
     /// Only called when we have a positive StoreKit entitlement — never for free state.
     /// Uses syncSubscriptionStatus Cloud Function (Firestore rules block direct client writes).
     private func syncToFirestore() async {
-        guard let userId = AuthService.shared.currentUser?.uid else { return }
+        guard AuthService.shared.currentUser?.uid != nil else { return }
 
         let state = subscriptionState
 
