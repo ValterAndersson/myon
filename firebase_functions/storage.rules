@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default: deny all access
+    // No user-facing file uploads exist yet.
+    // When added, scope rules to authenticated users and specific paths.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -969,6 +969,14 @@ async function streamAgentNormalizedHandler(req, res) {
     }
 
     const message = req.body?.message || '';
+
+    // Guard against cost abuse via oversized messages (10KB ≈ ~3000 tokens)
+    if (message.length > 10000) {
+      sse.write({ type: 'error', error: { code: 'INVALID_ARGUMENT', message: 'Message too long (max 10KB)' } });
+      done(false);
+      return;
+    }
+
     const sessionId = req.body?.sessionId || null;
     // Accept both conversationId (new) and canvasId (legacy) during migration
     const conversationId = req.body?.conversationId || req.body?.canvasId;

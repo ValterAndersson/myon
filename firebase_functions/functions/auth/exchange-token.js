@@ -32,7 +32,8 @@ exports.getServiceToken = functions.https.onRequest(async (req, res) => {
     const userId = decodedToken.uid;
 
     const auth = new GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+      // Least-privilege: only Vertex AI access, not full cloud-platform
+      scopes: ['https://www.googleapis.com/auth/aiplatform']
     });
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
