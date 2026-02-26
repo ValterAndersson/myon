@@ -1,5 +1,13 @@
 const { z } = require('zod');
 
+// Security upper bounds — prevent data corruption and DoS
+const MAX_WEIGHT_KG = 1000;              // Beyond human capacity (world record deadlift ~501kg)
+const MAX_REPS = 500;                    // Reasonable upper bound for bodyweight exercises
+const MAX_EXERCISES_PER_WORKOUT = 50;
+const MAX_SETS_PER_EXERCISE = 100;
+const MAX_NAME_LENGTH = 200;
+const MAX_NOTES_LENGTH = 5000;
+
 // Shared schemas
 const IdSchema = z.string().min(1);
 
@@ -15,10 +23,10 @@ const PlanSchema = z.object({
   blocks: z.array(z.object({
     exercise_id: IdSchema,
     sets: z.array(z.object({
-      target: z.object({ reps: z.number().int().min(1), rir: z.number().int().min(0).max(5), weight: z.number().nullable().optional(), tempo: z.string().optional(), rest_sec: z.number().int().optional() })
-    })),
-    alts: z.array(z.object({ exercise_id: IdSchema, reason: z.string().optional() })).optional()
-  }))
+      target: z.object({ reps: z.number().int().min(1).max(MAX_REPS), rir: z.number().int().min(0).max(5), weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable().optional(), tempo: z.string().optional(), rest_sec: z.number().int().optional() })
+    })).max(MAX_SETS_PER_EXERCISE),
+    alts: z.array(z.object({ exercise_id: IdSchema, reason: z.string().max(MAX_NOTES_LENGTH).optional() })).optional()
+  })).max(MAX_EXERCISES_PER_WORKOUT)
 });
 
 const PrescribeSchema = z.object({
@@ -33,7 +41,7 @@ const LogSetSchema = z.object({
   workout_id: IdSchema,
   exercise_id: IdSchema,
   set_index: z.number().int().min(0),
-  actual: z.object({ reps: z.number().int().min(0), rir: z.number().int().min(0).max(5), weight: z.number().optional(), tempo: z.string().optional(), notes: z.string().optional() })
+  actual: z.object({ reps: z.number().int().min(0).max(MAX_REPS), rir: z.number().int().min(0).max(5), weight: z.number().nonnegative().max(MAX_WEIGHT_KG).optional(), tempo: z.string().optional(), notes: z.string().max(MAX_NOTES_LENGTH).optional() })
 });
 
 /**
@@ -50,7 +58,7 @@ const LogSetSchemaV2 = z.object({
   exercise_instance_id: IdSchema,           // Workout-local stable ID (UUID)
   set_id: IdSchema,                          // Stable set ID (UUID)
   values: z.object({
-    weight: z.number().nonnegative().nullable(), // kg, null for bodyweight
+    weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable(), // kg, null for bodyweight
     reps: z.number().int().min(0).max(30),       // 0-30 (0 requires is_failure)
     rir: z.number().int().min(0).max(5),         // Reps In Reserve
   }),
@@ -68,7 +76,7 @@ const LogSetSchemaV2 = z.object({
   { message: 'reps=0 requires is_failure=true' }
 );
 
-const ScoreSetSchema = z.object({ actual: z.object({ reps: z.number(), rir: z.number(), weight: z.number().optional() }) });
+const ScoreSetSchema = z.object({ actual: z.object({ reps: z.number().int().min(0).max(MAX_REPS), rir: z.number().int().min(0).max(5), weight: z.number().nonnegative().max(MAX_WEIGHT_KG).optional() }) });
 
 /**
  * PatchActiveWorkoutSchema - Per FOCUS_MODE_WORKOUT_EXECUTION.md spec
@@ -97,14 +105,14 @@ const PatchOpSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('set_workout_field'),
     field: z.enum(['name', 'start_time', 'notes']),
-    value: z.string().max(500),
+    value: z.string().max(MAX_NOTES_LENGTH),
   }),
   // Field update on an exercise instance (notes, etc.)
   z.object({
     op: z.literal('set_exercise_field'),
     target: z.object({ exercise_instance_id: IdSchema }),
     field: z.enum(['notes']),
-    value: z.string().max(500),
+    value: z.string().max(MAX_NOTES_LENGTH),
   }),
   // Add set
   z.object({
@@ -117,7 +125,7 @@ const PatchOpSchema = z.discriminatedUnion('op', [
       set_type: z.enum(['warmup', 'working', 'dropset']),
       reps: z.number().int().min(1).max(30),             // 1-30 for planned sets
       rir: z.number().int().min(0).max(5),
-      weight: z.number().nonnegative().nullable().optional(),  // Optional, defaults to null
+      weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable().optional(),  // Optional, defaults to null
       status: z.literal('planned'),                       // Must be 'planned'
       tags: z.object({}).optional(),
     }),
@@ -134,16 +142,16 @@ const PatchOpSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('reorder_exercises'),
     value: z.object({
-      order: z.array(IdSchema).min(1),  // Array of exercise instance IDs in new order
+      order: z.array(IdSchema).min(1).max(MAX_EXERCISES_PER_WORKOUT),  // Array of exercise instance IDs in new order
     }),
   }),
 ]);
 
 const PatchActiveWorkoutSchema = z.object({
   workout_id: IdSchema,
-  ops: z.array(PatchOpSchema).min(1),
+  ops: z.array(PatchOpSchema).min(1).max(100), // Reasonable upper bound for batch operations
   cause: z.enum(['user_edit', 'user_ai_action']),
-  ui_source: z.string(),
+  ui_source: z.string().max(MAX_NAME_LENGTH),
   idempotency_key: IdSchema,
   client_timestamp: z.string().optional(),
   ai_scope: z.object({
@@ -169,17 +177,17 @@ const AutofillExerciseSchema = z.object({
   exercise_instance_id: IdSchema,
   updates: z.array(z.object({
     set_id: IdSchema,
-    weight: z.number().nonnegative().nullable().optional(),
+    weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable().optional(),
     reps: z.number().int().min(1).max(30).optional(),
     rir: z.number().int().min(0).max(5).optional(),
-  })).optional(),
+  })).max(MAX_SETS_PER_EXERCISE).optional(),
   additions: z.array(z.object({
     id: IdSchema,
     set_type: z.enum(['working', 'dropset']),
     reps: z.number().int().min(1).max(30),
     rir: z.number().int().min(0).max(5),
-    weight: z.number().nonnegative().nullable(),
-  })).optional(),
+    weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable(),
+  })).max(MAX_SETS_PER_EXERCISE).optional(),
   idempotency_key: IdSchema,
   client_timestamp: z.string().optional(),
 });
@@ -202,10 +210,10 @@ module.exports = {
 // Analytics treats null weight as non-load-bearing (zero volume contribution)
 const TemplateSetSchema = z.object({
   id: z.string().optional(),
-  reps: z.number().int().min(0),
+  reps: z.number().int().min(0).max(MAX_REPS),
   rir: z.number().int().min(0).max(5),
-  type: z.string().default('Working Set'),
-  weight: z.number().nonnegative().nullable(),
+  type: z.string().max(MAX_NAME_LENGTH).default('Working Set'),
+  weight: z.number().nonnegative().max(MAX_WEIGHT_KG).nullable(),
   duration: z.number().int().optional(),
 });
 
@@ -214,24 +222,24 @@ const TemplateExerciseSchema = z.object({
   exercise_id: IdSchema.optional(), // server uses exerciseId sometimes; keep minimal
   exerciseId: IdSchema.optional(),   // backward compat
   position: z.number().int().nonnegative().optional(),
-  sets: z.array(TemplateSetSchema).min(0),
+  sets: z.array(TemplateSetSchema).min(0).max(MAX_SETS_PER_EXERCISE),
   rest_between_sets: z.number().int().optional(),
 });
 
 const TemplateSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  exercises: z.array(TemplateExerciseSchema).min(1),
+  name: z.string().min(1).max(MAX_NAME_LENGTH),
+  description: z.string().max(MAX_NOTES_LENGTH).optional(),
+  exercises: z.array(TemplateExerciseSchema).min(1).max(MAX_EXERCISES_PER_WORKOUT),
 });
 
 const RoutineSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
+  name: z.string().min(1).max(MAX_NAME_LENGTH),
+  description: z.string().max(MAX_NOTES_LENGTH).optional(),
   // Support both snake_case and camelCase for backward compat
-  template_ids: z.array(z.string().min(1)).optional(),
-  templateIds: z.array(z.string().min(1)).optional(),
+  template_ids: z.array(z.string().min(1)).max(50).optional(), // Reasonable upper bound for templates in a routine
+  templateIds: z.array(z.string().min(1)).max(50).optional(),
   frequency: z.number().int().min(1).max(7).optional(),
-  days: z.array(z.any()).optional(),  // Legacy field
+  days: z.array(z.any()).max(7).optional(),  // Legacy field
 }).refine(
   (data) => {
     // At least one of template_ids or templateIds should have content if provided
@@ -248,36 +256,36 @@ module.exports.RoutineSchema = RoutineSchema;
 // Exercises
 const ExerciseUpsertSchema = z.object({
   id: z.string().optional(),
-  name: z.string().min(1),
-  family_slug: z.string().optional(),
-  variant_key: z.string().optional(),
-  category: z.string().optional(),
-  description: z.string().optional(),
+  name: z.string().min(1).max(MAX_NAME_LENGTH),
+  family_slug: z.string().max(MAX_NAME_LENGTH).optional(),
+  variant_key: z.string().max(MAX_NAME_LENGTH).optional(),
+  category: z.string().max(MAX_NAME_LENGTH).optional(),
+  description: z.string().max(MAX_NOTES_LENGTH).optional(),
   metadata: z.object({
-    level: z.string().optional(),
-    plane_of_motion: z.string().optional(),
+    level: z.string().max(MAX_NAME_LENGTH).optional(),
+    plane_of_motion: z.string().max(MAX_NAME_LENGTH).optional(),
     unilateral: z.boolean().optional(),
   }).optional(),
   movement: z.object({
-    split: z.string().optional(),
-    type: z.string().optional(),
+    split: z.string().max(MAX_NAME_LENGTH).optional(),
+    type: z.string().max(MAX_NAME_LENGTH).optional(),
   }).optional(),
-  equipment: z.array(z.string()).optional(),
+  equipment: z.array(z.string().max(MAX_NAME_LENGTH)).max(20).optional(),
   muscles: z.object({
-    primary: z.array(z.string()).optional(),
-    secondary: z.array(z.string()).optional(),
-    category: z.array(z.string()).optional(),
+    primary: z.array(z.string().max(MAX_NAME_LENGTH)).max(10).optional(),
+    secondary: z.array(z.string().max(MAX_NAME_LENGTH)).max(10).optional(),
+    category: z.array(z.string().max(MAX_NAME_LENGTH)).max(10).optional(),
     contribution: z.record(z.string(), z.number()).optional(),
   }).optional(),
-  execution_notes: z.array(z.string()).optional(),
-  common_mistakes: z.array(z.string()).optional(),
-  programming_use_cases: z.array(z.string()).optional(),
-  stimulus_tags: z.array(z.string()).optional(),
-  suitability_notes: z.array(z.string()).optional(),
-  coaching_cues: z.array(z.string()).optional(),
+  execution_notes: z.array(z.string().max(MAX_NOTES_LENGTH)).max(50).optional(),
+  common_mistakes: z.array(z.string().max(MAX_NOTES_LENGTH)).max(50).optional(),
+  programming_use_cases: z.array(z.string().max(MAX_NOTES_LENGTH)).max(50).optional(),
+  stimulus_tags: z.array(z.string().max(MAX_NAME_LENGTH)).max(50).optional(),
+  suitability_notes: z.array(z.string().max(MAX_NOTES_LENGTH)).max(50).optional(),
+  coaching_cues: z.array(z.string().max(MAX_NOTES_LENGTH)).max(50).optional(),
   status: z.enum(['draft','approved']).optional(),
   version: z.number().int().optional(),
-  aliases: z.array(z.string()).optional(),
+  aliases: z.array(z.string().max(MAX_NAME_LENGTH)).max(20).optional(),
 });
 
 module.exports.ExerciseUpsertSchema = ExerciseUpsertSchema;
