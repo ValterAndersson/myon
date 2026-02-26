@@ -1185,17 +1185,19 @@ The gate checks the denormalized `subscription_tier` field, not `status + expire
 **When working on this codebase**:
 
 1. **Check this doc first** for data flow understanding
-2. **Look at related files** listed in flow diagrams
-3. **Follow schema contracts** for field names/types
-4. **Use common patterns** for auth, errors, idempotency
-5. **Avoid deprecated files** listed above
-6. **Respect agent boundaries** for tool permissions
+2. **Read `docs/SECURITY.md`** for security invariants and constraints
+3. **Look at related files** listed in flow diagrams
+4. **Follow schema contracts** for field names/types
+5. **Use common patterns** for auth, errors, idempotency
+6. **Avoid deprecated files** listed above
+7. **Respect agent boundaries** for tool permissions
 
 **When adding features**:
 1. Trace the full data flow (all layers)
 2. Update schemas if needed
 3. Add to FIRESTORE_SCHEMA.md if new collection/field
 4. Consider which agent(s) need tool access
+5. **Follow the security checklist** in `docs/SECURITY.md` for new endpoints
 
 ---
 

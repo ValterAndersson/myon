@@ -12,7 +12,7 @@ When spawning sub-agents via the Task tool, always pass `model: "sonnet"` (Sonne
 
 Before writing any code, execute these steps in order:
 
-1. **Read central docs.** Start with `docs/SYSTEM_ARCHITECTURE.md` (cross-layer data flows, schema contracts, auth patterns). Then read the module-specific doc for whichever layer you are working in:
+1. **Read central docs.** Start with `docs/SYSTEM_ARCHITECTURE.md` (cross-layer data flows, schema contracts, auth patterns) and `docs/SECURITY.md` (security invariants, auth model, input validation, rate limiting). Then read the module-specific doc for whichever layer you are working in:
    - iOS: `docs/IOS_ARCHITECTURE.md`
    - Firebase Functions: `docs/FIREBASE_FUNCTIONS_ARCHITECTURE.md`
    - Agent system: `docs/SHELL_AGENT_ARCHITECTURE.md`
@@ -72,6 +72,19 @@ These conventions address recurring inconsistencies found across the codebase. F
 - **Design tokens**: Always use `Space.*` for spacing, `Color.*` tokens for colors, and `TypographyToken.*` for fonts. No hardcoded numeric spacing, color literals, or `.system(size:)` font calls.
 - **Listener cleanup**: Store `ListenerRegistration` references from Firestore snapshot listeners and call `.remove()` in a cleanup method or `deinit`.
 - **Naming**: `*Screen` for full-screen navigation destinations, `*View` for reusable components, `*Service` for external API/Firebase interactions, `*Manager` for internal state management, `*Repository` for data access.
+
+### Security Rules
+
+These are non-negotiable. See `docs/SECURITY.md` for full details.
+
+- **IDOR prevention**: Every endpoint must use `getAuthenticatedUserId(req)` from `utils/auth-helpers.js`. Never derive userId from `req.body.userId` in bearer-lane endpoints.
+- **Subscription fields**: Only Admin SDK (webhook, Cloud Functions) writes `subscription_*` fields. Firestore rules block client writes. Never add client-write paths for subscription data.
+- **Premium gates**: Premium features must call `isPremiumUser(userId)` from `utils/subscription-gate.js` server-side. Never trust client claims of premium status.
+- **Input validation**: All write endpoints must validate input with upper bounds (see `utils/validators.js`). Agent streaming enforces a 10KB message limit.
+- **New endpoints**: Follow the security checklist in `docs/SECURITY.md` — auth middleware, userId derivation, input validation, rate limiting, Firestore rules.
+- **New Firestore collections**: Must be added to `firestore.rules` with appropriate access controls. The deny-all fallback blocks any collection not explicitly listed.
+- **Token exchange scope**: `exchange-token.js` must use `cloud-platform` scope. Vertex AI Agent Engine does not accept narrower scopes.
+- **Webhook verification**: App Store webhooks are JWS-verified in production. Never disable or bypass verification outside the emulator.
 
 ### Documentation Updates (Three Tiers)
 

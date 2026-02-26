@@ -7,7 +7,10 @@ Handles Apple App Store subscription verification, premium access gates, and sub
 | File | Path | Purpose |
 |------|------|---------|
 | `subscription-gate.js` | `utils/subscription-gate.js` | `isPremiumUser(userId)` — shared premium check |
-| `app-store-webhook.js` | `subscriptions/app-store-webhook.js` | App Store Server Notifications V2 handler |
+| `app-store-webhook.js` | `subscriptions/app-store-webhook.js` | App Store Server Notifications V2 handler (JWS-verified) |
+| `sync-subscription-status.js` | `subscriptions/sync-subscription-status.js` | iOS → server positive entitlement sync (Bearer-only, premium-up only) |
+| `certs/AppleRootCA-G2.cer` | `subscriptions/certs/` | Apple root certificate for JWS verification |
+| `certs/AppleRootCA-G3.cer` | `subscriptions/certs/` | Apple root certificate for JWS verification |
 
 ---
 
@@ -42,7 +45,10 @@ if (!hasPremium) {
 
 **Why no auth:** Apple calls this URL directly with a signed JWS payload. The webhook URL itself serves as the access control. JWS signature verification (via Apple root certs) provides payload authenticity.
 
-**Current state:** JWS payloads are base64-decoded without signature verification (dev mode). Production requires placing Apple root certificates in `subscriptions/certs/` and switching to `SignedDataVerifier.verifyAndDecodeNotification()` from `@apple/app-store-server-library`.
+**Security model:**
+- **Production**: JWS payloads verified using Apple root certificates via `SignedDataVerifier` from `@apple/app-store-server-library`. Rejects webhooks if verifier is unavailable (fail-secure).
+- **Emulator**: Falls back to insecure base64 decode (only when `FUNCTIONS_EMULATOR=true`).
+- **Replay protection**: `notificationUUID` tracked in `processed_webhook_notifications` collection (90-day TTL). Duplicate notifications are silently acknowledged.
 
 ### Apple Root Certificates
 
@@ -86,10 +92,20 @@ Download from https://www.apple.com/certificateauthority/ and place in `subscrip
 
 | Endpoint | Gate Point | Error Format |
 |---|---|---|
-| `streamAgentNormalized` | `stream-agent-normalized.js:896` | SSE `{ type: 'error', error: { code: 'PREMIUM_REQUIRED' } }` |
-| Training analysis jobs | `triggers/weekly-analytics.js:506,676` | Job not enqueued (silent) |
+| `streamAgentNormalized` | `stream-agent-normalized.js` | SSE `{ type: 'error', error: { code: 'PREMIUM_REQUIRED' } }` |
+| `artifactAction` (save_routine, save_template, start_workout, save_as_new) | `artifact-action.js` | HTTP `fail(res, 'PREMIUM_REQUIRED', ...)` |
+| Training analysis jobs | `triggers/weekly-analytics.js` | Job not enqueued (silent) |
 
 **Streaming gate:** After auth resolves userId, calls `isPremiumUser(userId)`. Emits SSE error event (not HTTP error) because the endpoint uses SSE format. Free analytics (weekly_stats, set_facts, rollups) still run — only LLM analysis jobs are gated.
+
+## Subscription Sync (iOS → Server)
+
+`sync-subscription-status.js` allows the iOS app to sync positive entitlements to Firestore:
+
+- **Bearer-lane only** — rejects API key authentication
+- **Positive entitlements only** — tier must be `premium`, status must be `active`/`trial`/`grace_period`
+- **Cannot downgrade** — webhook is authoritative for downgrades (expired, refund, revoke)
+- **Why this exists** — Firestore rules block direct client writes to `subscription_*` fields. This Cloud Function validates the sync before writing.
 
 ---
 
