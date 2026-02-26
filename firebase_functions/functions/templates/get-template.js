@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -13,9 +14,9 @@ const db = new FirestoreHelper();
  */
 async function getTemplateHandler(req, res) {
   // Use authenticated user's ID from Bearer token, or fall back to explicit userId param (for API key auth)
-  const userId = req.auth?.uid || req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   const templateId = req.query.templateId || req.body?.templateId || req.body?.template_id;
-  
+
   if (!userId) return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   if (!templateId) return fail(res, 'INVALID_ARGUMENT', 'Missing templateId parameter', null, 400);
 

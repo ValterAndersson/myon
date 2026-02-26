@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const firestore = admin.firestore();
 
@@ -25,9 +26,9 @@ const firestore = admin.firestore();
  */
 async function patchRoutineHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
-  const callerUid = req.auth?.uid || req.body.userId;
+  const callerUid = getAuthenticatedUserId(req);
   if (!callerUid) {
-    return fail(res, 'UNAUTHENTICATED', 'No user identified', null, 401);
+    return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   }
 
   const { routineId, patch } = req.body;

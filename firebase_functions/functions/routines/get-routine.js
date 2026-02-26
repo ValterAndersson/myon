@@ -3,6 +3,7 @@ const { logger } = require('firebase-functions');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 const admin = require('firebase-admin');
 
 const db = new FirestoreHelper();
@@ -15,9 +16,10 @@ const db = new FirestoreHelper();
  */
 async function getRoutineHandler(req, res) {
   // Bearer-lane: derive userId from verified token; API-key-lane: from params
-  const userId = req.auth?.uid || req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
+  if (!userId) return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   const routineId = req.query.routineId || req.body?.routineId;
-  if (!userId || !routineId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','routineId'], 400);
+  if (!routineId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['routineId'], 400);
 
   try {
     const [routine, userSnap] = await Promise.all([

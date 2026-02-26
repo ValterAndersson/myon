@@ -63,6 +63,7 @@
 const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const firestore = admin.firestore();
 
@@ -115,9 +116,9 @@ function buildStrengthSummary(workouts) {
 
 async function getPlanningContextHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
-  const callerUid = req.auth?.uid || req.body?.userId || req.query?.userId;
+  const callerUid = getAuthenticatedUserId(req);
   if (!callerUid) {
-    return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
+    return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   }
 
   // Parse flags from body or query

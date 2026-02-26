@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 const { convertPlanBlocksToTemplateExercises, validatePlanContent } = require('../utils/plan-to-template-converter');
 
 const db = new FirestoreHelper();
@@ -23,9 +24,9 @@ const firestore = admin.firestore();
  */
 async function createTemplateFromPlanHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
-  const callerUid = req.auth?.uid || req.body.userId;
+  const callerUid = getAuthenticatedUserId(req);
   if (!callerUid) {
-    return fail(res, 'UNAUTHENTICATED', 'No user identified', null, 401);
+    return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   }
 
   const { canvasId, cardId, name, mode, existingTemplateId } = req.body;

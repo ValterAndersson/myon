@@ -60,13 +60,14 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 async function getNextWorkoutHandler(req, res) {
   // Dual auth: prefer req.auth.uid, fallback to body.userId for API key
-  const userId = req.auth?.uid || req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   if (!userId) {
-    return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
+    return fail(res, 'UNAUTHENTICATED', 'Authentication required', null, 401);
   }
 
   try {
