@@ -32,8 +32,9 @@ exports.getServiceToken = functions.https.onRequest(async (req, res) => {
     const userId = decodedToken.uid;
 
     const auth = new GoogleAuth({
-      // Least-privilege: only Vertex AI access, not full cloud-platform
-      scopes: ['https://www.googleapis.com/auth/aiplatform']
+      // cloud-platform scope required — Vertex AI Agent Engine (v1beta1 reasoningEngines)
+      // does not accept narrower scopes. iOS calls this API directly via DirectStreamingService.
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
     });
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
