@@ -434,4 +434,4 @@ async function handleAppStoreWebhook(req, res) {
   }
 }
 
-exports.appStoreWebhook = onRequest(handleAppStoreWebhook);
+exports.appStoreWebhook = onRequest({ maxInstances: 10 }, handleAppStoreWebhook);

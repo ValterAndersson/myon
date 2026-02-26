@@ -366,4 +366,5 @@ async function artifactActionHandler(req, res) {
 exports.artifactAction = onRequest({
   timeoutSeconds: 60,
   memory: '256MiB',
+  maxInstances: 30,
 }, requireFlexibleAuth(artifactActionHandler));

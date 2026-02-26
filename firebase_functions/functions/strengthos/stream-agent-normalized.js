@@ -93,6 +93,7 @@ const admin = require('firebase-admin');
 const { VERTEX_AI_CONFIG } = require('./config');
 const { isPremiumUser } = require('../utils/subscription-gate');
 const { getAuthenticatedUserId } = require('../utils/auth-helpers');
+const { agentLimiter } = require('../utils/rate-limiter');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -934,6 +935,19 @@ async function streamAgentNormalizedHandler(req, res) {
         error: {
           code: 'UNAUTHORIZED',
           message: 'Authentication required'
+        }
+      });
+      done(false);
+      return;
+    }
+
+    // Rate limit: 120 requests/hour per user (Vertex AI costs real money)
+    if (!agentLimiter.check(userId)) {
+      sse.write({
+        type: 'error',
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many requests. Please wait before sending another message.'
         }
       });
       done(false);

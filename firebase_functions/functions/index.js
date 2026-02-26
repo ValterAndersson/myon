@@ -228,7 +228,7 @@ exports.completeCurrentSet = completeCurrentSet;
 
 // StrengthOS Operations
 exports.streamAgentNormalized = onRequestV2(
-  { timeoutSeconds: 300, memory: '512MiB' /* minInstances: 1 */ },
+  { timeoutSeconds: 300, memory: '512MiB', maxInstances: 20, concurrency: 1 },
   requireFlexibleAuth(streamAgentNormalizedHandler)
 );
 exports.upsertProgressReport = functions.https.onRequest((req, res) => withApiKey(upsertProgressReport)(req, res));

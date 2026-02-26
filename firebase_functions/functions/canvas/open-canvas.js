@@ -296,8 +296,8 @@ async function openCanvasHandler(req, res) {
 
 exports.openCanvas = onRequest({
   timeoutSeconds: 60,
-  memory: '512MiB'
-  // minInstances: 1
+  memory: '512MiB',
+  maxInstances: 30,
 }, requireFlexibleAuth(openCanvasHandler));
 
 // Also export a pre-warm endpoint that can be called on app launch
@@ -327,6 +327,6 @@ async function preWarmSessionHandler(req, res) {
 
 exports.preWarmSession = onRequest({
   timeoutSeconds: 30,
-  memory: '256MiB'
-  // minInstances: 1
+  memory: '256MiB',
+  maxInstances: 30,
 }, requireFlexibleAuth(preWarmSessionHandler));
