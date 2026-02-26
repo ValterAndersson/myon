@@ -10,6 +10,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -133,7 +134,7 @@ function detectOverreach(points) {
 exports.getMuscleGroupSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
@@ -264,7 +265,7 @@ exports.getMuscleGroupSummary = onRequest(requireFlexibleAuth(async (req, res) =
 exports.getMuscleSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
@@ -372,7 +373,7 @@ exports.getMuscleSummary = onRequest(requireFlexibleAuth(async (req, res) => {
 exports.getExerciseSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }

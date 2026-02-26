@@ -115,7 +115,8 @@ async function proposeCards(req, res) {
       return fail(res, 'UNAUTHORIZED', 'Service-only endpoint', null, 401);
     }
 
-    const uid = req.headers['x-user-id'] || req.get('X-User-Id') || req.query.userId || auth.uid;
+    const { getAuthenticatedUserId } = require('../utils/auth-helpers');
+    const uid = getAuthenticatedUserId(req);
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing X-User-Id', null, 400);
 
     const v = validateProposeCardsRequest(req.body || {});

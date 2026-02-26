@@ -17,6 +17,7 @@ const { GoogleAuth } = require('google-auth-library');
 const axios = require('axios');
 const { logger } = require('firebase-functions');
 const { VERTEX_AI_CONFIG } = require('../strengthos/config');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -242,10 +243,10 @@ async function getResumeState(userId, canvasId) {
  */
 async function openCanvasHandler(req, res) {
   const startTime = Date.now();
-  const userId = req.body?.userId || req.query?.userId;
+  const userId = getAuthenticatedUserId(req);
   const purpose = req.body?.purpose || req.query?.purpose || 'chat';
   const requestedCanvasId = req.body?.canvasId || req.query?.canvasId;
-  
+
   if (!userId) {
     return res.status(400).json({
       success: false,
@@ -301,9 +302,9 @@ exports.openCanvas = onRequest({
 
 // Also export a pre-warm endpoint that can be called on app launch
 async function preWarmSessionHandler(req, res) {
-  const userId = req.body?.userId || req.query?.userId;
+  const userId = getAuthenticatedUserId(req);
   const purpose = req.body?.purpose || req.query?.purpose || 'chat';
-  
+
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId required' });
   }

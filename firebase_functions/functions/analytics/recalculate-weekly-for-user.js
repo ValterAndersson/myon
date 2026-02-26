@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -121,7 +122,7 @@ async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    const userId = req.body?.userId || req.auth?.uid || req.user?.uid;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
     const { startDate, endDate } = req.body || {};
     const result = await recalcAllWeeksForUser(userId, startDate, endDate);

@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const { processUserAnalytics } = require('./worker');
 const { ok, fail } = require('../utils/response');
 const { requireFlexibleAuth } = require('../auth/middleware');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -15,7 +16,7 @@ async function controllerHandler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    const userId = req.body?.userId || req.auth?.uid || req.user?.uid;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
 
     const result = await processUserAnalytics(userId, { backfillDays: 90 });

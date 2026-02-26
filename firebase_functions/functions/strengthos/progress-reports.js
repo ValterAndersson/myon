@@ -1,12 +1,13 @@
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 async function upsertProgressReport(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     const auth = req.auth;
     if (!auth || auth.type !== 'api_key') return fail(res, 'UNAUTHORIZED', 'Service-only endpoint', null, 401);
-    const uid = req.headers['x-user-id'] || req.get('X-User-Id') || req.query.userId || auth.uid;
+    const uid = getAuthenticatedUserId(req);
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing X-User-Id', null, 400);
 
     const { reportId, period, metrics, proposals } = req.body || {};
@@ -24,7 +25,7 @@ async function getProgressReports(req, res) {
   try {
     if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     const auth = req.user || req.auth;
-    const uid = req.query.userId || auth?.uid;
+    const uid = getAuthenticatedUserId(req);
     if (!uid) return fail(res, 'UNAUTHORIZED', 'Missing user', null, 401);
     const snap = await admin.firestore().collection(`users/${uid}/progress_reports`).orderBy('period.start', 'desc').limit(20).get();
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));

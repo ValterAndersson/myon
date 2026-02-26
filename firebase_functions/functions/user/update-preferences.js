@@ -1,6 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -9,7 +10,7 @@ async function updatePreferencesHandler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    const userId = req.body?.userId || req.user?.uid || req.auth?.uid;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(400).json({ success: false, error: 'Missing userId' });
 
     const prefs = req.body?.preferences || {};

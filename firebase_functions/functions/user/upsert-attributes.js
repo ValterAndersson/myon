@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -14,7 +15,7 @@ async function upsertUserAttributesHandler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    const userId = req.body?.userId || req.user?.uid || req.auth?.uid;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
 
     const attrs = req.body?.attributes || {};

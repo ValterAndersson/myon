@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const admin = require('firebase-admin');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -87,9 +88,9 @@ exports.invalidateProfileCache = invalidateProfileCache;
  * recent activity context, and statistics for AI analysis
  */
 async function getUserHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   const skipCache = req.query.skipCache || req.body?.skipCache;
-  
+
   if (!userId) {
     return res.status(400).json({
       success: false,

@@ -10,6 +10,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -47,7 +48,7 @@ function getRecentWeekStarts(weeks) {
 exports.getCoachingPack = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }
@@ -256,7 +257,7 @@ exports.getCoachingPack = onRequest(requireFlexibleAuth(async (req, res) => {
 exports.getActiveSnapshotLite = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(400).json({ success: false, error: 'userId is required' });
     }

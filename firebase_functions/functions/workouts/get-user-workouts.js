@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -12,11 +13,11 @@ const db = new FirestoreHelper();
  * for AI progress analysis and workout recommendations
  */
 async function getUserWorkoutsHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   const limit = parseInt(req.query?.limit) || 50;
   const startDate = req.query?.startDate;
   const endDate = req.query?.endDate;
-  
+
   if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
 
   try {

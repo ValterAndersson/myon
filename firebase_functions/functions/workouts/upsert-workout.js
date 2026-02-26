@@ -45,6 +45,7 @@ const admin = require('firebase-admin');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const { ok, fail } = require('../utils/response');
 const AnalyticsCalc = require('../utils/analytics-calculator');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 const {
   generateSetFactsForWorkout,
   writeSetFactsInChunks,
@@ -147,10 +148,7 @@ async function upsertWorkoutHandler(req, res) {
 
     const auth = req.user || req.auth || {};
     // Determine target user
-    let uid = auth.uid;
-    if (!uid) {
-      uid = req.get('X-User-Id') || req.headers['x-user-id'] || req.body?.userId;
-    }
+    const uid = getAuthenticatedUserId(req);
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing userId (header X-User-Id or body.userId)', null, 400);
 
     const body = req.body || {};

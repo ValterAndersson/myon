@@ -92,6 +92,7 @@ const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
 const { VERTEX_AI_CONFIG } = require('./config');
 const { isPremiumUser } = require('../utils/subscription-gate');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -926,7 +927,18 @@ async function streamAgentNormalizedHandler(req, res) {
 
   try {
     // Dual auth: Bearer lane → req.auth.uid, API key lane → X-User-Id header or body
-    const userId = req.user?.uid || req.auth?.uid || req.body?.userId || 'anonymous';
+    const userId = getAuthenticatedUserId(req);
+    if (!userId) {
+      sse.write({
+        type: 'error',
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
+        }
+      });
+      done(false);
+      return;
+    }
 
     // Premium gate: Check if user has premium access
     const hasPremium = await isPremiumUser(userId);

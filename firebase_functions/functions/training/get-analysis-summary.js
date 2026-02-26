@@ -10,6 +10,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -32,7 +33,7 @@ function getTodayDateKey() {
 exports.getAnalysisSummary = onRequest(requireFlexibleAuth(async (req, res) => {
   try {
     // Get userId from auth or body (dual-auth: Bearer lane or API key + userId in body)
-    const userId = req.auth?.uid || req.body?.userId;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return fail(res, 'MISSING_USER_ID', 'userId is required', null, 400);
     }

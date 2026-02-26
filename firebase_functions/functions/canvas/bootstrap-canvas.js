@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 /**
  * Bootstrap Canvas - ALWAYS creates a new canvas for each conversation
@@ -15,10 +16,9 @@ async function bootstrapCanvas(req, res) {
     }
 
     const auth = req.user || req.auth;
-    const callerUid = auth?.uid || auth?.uid;
     if (!auth) return fail(res, 'UNAUTHORIZED', 'Authentication required', null, 401);
 
-    const userId = (req.body && req.body.userId) || req.query.userId || callerUid;
+    const userId = getAuthenticatedUserId(req);
     const purpose = (req.body && req.body.purpose) || req.query.purpose;
     // Allow optional title for the canvas
     const title = (req.body && req.body.title) || null;

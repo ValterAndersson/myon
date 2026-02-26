@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
 const { requireFlexibleAuth } = require('../auth/middleware');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -159,7 +160,7 @@ async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
-    const uid = req.body?.userId || req.auth?.uid || req.user?.uid;
+    const uid = getAuthenticatedUserId(req);
     if (!uid) return fail(res, 'INVALID_ARGUMENT', 'Missing userId', null, 400);
 
     const mode = String(req.body?.mode || 'weekly').toLowerCase();

@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -11,7 +12,7 @@ const db = new FirestoreHelper();
  * Description: Gets full workout details with sets, reps, weights for a specific workout
  */
 async function getWorkoutHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   const workoutId = req.query.workoutId || req.body?.workoutId;
   if (!userId || !workoutId) return fail(res, 'INVALID_ARGUMENT', 'Missing required parameters', ['userId','workoutId'], 400);
 

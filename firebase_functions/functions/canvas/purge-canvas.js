@@ -2,6 +2,7 @@
 
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 async function purgeCollection(ref, batchSize = 250) {
   const db = admin.firestore();
@@ -27,7 +28,7 @@ async function purgeCanvas(req, res) {
     const auth = req.user || req.auth;
     if (!auth) return fail(res, 'UNAUTHORIZED', 'Authentication required', null, 401);
 
-    const uid = req.body?.userId || auth.uid;
+    const uid = getAuthenticatedUserId(req);
     const canvasId = req.body?.canvasId;
     const dropEvents = Boolean(req.body?.dropEvents || false);
     const dropState = Boolean(req.body?.dropState || false);

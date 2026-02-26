@@ -2,6 +2,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { requireFlexibleAuth } = require('../auth/middleware');
 const FirestoreHelper = require('../utils/firestore-helper');
 const { ok, fail } = require('../utils/response');
+const { getAuthenticatedUserId } = require('../utils/auth-helpers');
 
 const db = new FirestoreHelper();
 
@@ -9,7 +10,7 @@ const db = new FirestoreHelper();
  * Firebase Function: Get Active Routine
  */
 async function getActiveRoutineHandler(req, res) {
-  const userId = req.query.userId || req.body?.userId;
+  const userId = getAuthenticatedUserId(req);
   if (!userId) return fail(res, 'INVALID_ARGUMENT', 'Missing userId parameter', null, 400);
 
   try {
