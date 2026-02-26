@@ -9,6 +9,7 @@ struct PreferencesView: View {
     @State private var user: User?
     @State private var errorMessage: String?
     @State private var selectedWeightUnit: WeightUnit = .kg
+    @State private var isUpdatingUnit = false
 
     var body: some View {
         ScrollView {
@@ -68,6 +69,7 @@ struct PreferencesView: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 100)
+                        .disabled(isUpdatingUnit)
                         .onChange(of: selectedWeightUnit) { newValue in
                             Task { await updateWeightUnit(newValue) }
                         }
@@ -130,6 +132,11 @@ struct PreferencesView: View {
     private func updateWeightUnit(_ unit: WeightUnit) async {
         guard authService.currentUser?.uid != nil else { return }
         errorMessage = nil
+        isUpdatingUnit = true
+
+        defer {
+            isUpdatingUnit = false
+        }
 
         do {
             let requestBody = UpdatePreferencesRequest(preferences: ["weight_format": unit.firestoreFormat])

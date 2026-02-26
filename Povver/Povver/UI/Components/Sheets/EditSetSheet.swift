@@ -8,7 +8,7 @@ public struct EditSetSheet: View {
     @State private var weightKg: Double  // Internal state: always kg
     private let onSubmit: (Int, Int, Double) -> Void
 
-    // Weight unit (snapshotted at workout start)
+    // Weight unit (live preference — this sheet is used from Canvas, not Focus Mode)
     private var weightUnit: WeightUnit { UserService.shared.weightUnit }
 
     public init(initialSets: Int = 3, initialReps: Int = 10, initialWeight: Double = 0, onSubmit: @escaping (Int, Int, Double) -> Void) {

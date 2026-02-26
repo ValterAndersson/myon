@@ -244,11 +244,13 @@ def get_next_set(ctx: SessionContext) -> SkillResult:
     for ex in exercises:
         for s in ex.get("sets") or []:
             if s.get("status") == "planned":
+                weight_val = s.get("weight")
+                weight_str = format_weight(weight_val, get_weight_unit()) if weight_val else "?"
                 return SkillResult(
                     success=True,
                     message=(
                         f"Next: {ex.get('name','?')} — "
-                        f"{s.get('reps','?')} reps @ {s.get('weight','?')}kg"
+                        f"{s.get('reps','?')} reps @ {weight_str}"
                     ),
                     data={
                         "exercise": ex.get("name", "Unknown"),

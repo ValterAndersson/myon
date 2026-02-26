@@ -620,7 +620,7 @@ def prescribe_set(
         if resp.get("success"):
             parts = []
             if weight_kg is not None:
-                parts.append(f"{weight_kg}kg")
+                parts.append(format_weight(weight_kg, get_weight_unit()))
             if reps is not None:
                 parts.append(f"{reps} reps")
             if rir is not None:

@@ -660,7 +660,7 @@ All weight values are stored in **kilograms (kg)** across every layer (Firestore
 
 | Boundary | Direction | Where | How |
 |----------|-----------|-------|-----|
-| **Display (outbound)** | kg → user unit | iOS Views, Agent text output | `WeightFormatter.display(kg, unit:)` / `_format_weight(kg, unit)` |
+| **Display (outbound)** | kg → user unit | iOS Views, Agent text output | `WeightFormatter.display(kg, unit:)` / `format_weight(kg, unit)` |
 | **Input (inbound)** | user unit → kg | iOS text fields, steppers, sliders | `WeightFormatter.toKg(value, from:)` |
 
 ### Key Files
@@ -669,9 +669,10 @@ All weight values are stored in **kilograms (kg)** across every layer (Firestore
 |-------|------|---------|
 | iOS | `Povver/Povver/Utilities/WeightFormatter.swift` | `WeightUnit` enum, conversion functions, plate rounding |
 | iOS | `Povver/Povver/Services/ActiveWorkoutManager.swift` | `UserService` singleton publishes `weightUnit` and `activeWorkoutWeightUnit` |
-| iOS | `Povver/Povver/Views/Settings/PreferencesView.swift` | Weight unit picker UI |
+| iOS | `Povver/Povver/Views/Settings/PreferencesView.swift` | Weight unit picker UI (guarded against rapid toggling) |
 | Firebase | `firebase_functions/functions/agents/get-planning-context.js` | Returns `weight_unit` field for agent consumption |
-| Agent | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Weight unit cache (`set_weight_unit`/`get_weight_unit`), `_format_weight()` helper |
+| Agent | `adk_agent/canvas_orchestrator/app/utils/weight_formatting.py` | Shared `format_weight()` and `get_weight_unit()` used by all skill modules |
+| Agent | `adk_agent/canvas_orchestrator/app/skills/workout_skills.py` | Weight unit cache (`set_weight_unit`/`get_weight_unit`) with timestamp-based eviction |
 | Agent | `adk_agent/canvas_orchestrator/app/shell/instruction.py` | Static rule telling agent to use `weight_unit` from planning context |
 
 ### Mid-Workout Safety
