@@ -119,8 +119,8 @@ public enum IconSizeToken {
 public enum MotionToken {
     /// Recommended durations (seconds)
     public static let fast: Double = 0.12
-    public static let medium: Double = 0.20
-    public static let slow: Double = 0.35
+    public static let medium: Double = 0.18
+    public static let slow: Double = 0.25
 }
 
 public struct ShadowStyle: Equatable {

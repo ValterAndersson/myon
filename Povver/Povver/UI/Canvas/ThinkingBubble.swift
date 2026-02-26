@@ -39,8 +39,8 @@ struct ThinkingBubble: View {
                 }
             }
             .padding(.vertical, Space.sm)
-            .animation(.easeInOut(duration: 0.25), value: state.isExpanded)
-            .animation(.easeInOut(duration: 0.2), value: state.steps.count)
+            .animation(.easeInOut(duration: MotionToken.medium), value: state.isExpanded)
+            .animation(.easeInOut(duration: MotionToken.medium), value: state.steps.count)
         }
     }
 
@@ -48,7 +48,7 @@ struct ThinkingBubble: View {
 
     private var headerButton: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(.easeInOut(duration: MotionToken.medium)) {
                 state.isExpanded.toggle()
             }
         } label: {
@@ -269,7 +269,7 @@ private struct SparkleIcon: View {
     }
 
     private func stopAnimation() {
-        withAnimation(.easeOut(duration: 0.3)) {
+        withAnimation(.easeOut(duration: MotionToken.medium)) {
             scale = 1.0
         }
     }

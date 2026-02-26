@@ -257,7 +257,7 @@ extension CanvasScreen {
             case "unpin":
                 pinned.removeAll { $0.id == card.id }
             case "explain":
-                withAnimation {
+                withAnimation(.easeOut(duration: MotionToken.medium)) {
                     vm.cards.insert(
                         CanvasCardModel(
                             type: .summary,

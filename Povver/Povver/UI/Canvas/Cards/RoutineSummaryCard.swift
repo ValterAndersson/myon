@@ -200,7 +200,7 @@ public struct RoutineSummaryCard: View {
     
     private func workoutDayRow(workout: RoutineWorkoutSummary, index: Int) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(.easeInOut(duration: MotionToken.medium)) {
                 if expandedDayIndex == index {
                     expandedDayIndex = nil
                 } else {

@@ -244,7 +244,10 @@ struct CoachTabView: View {
                 if let error = error {
                     AppLogger.shared.error(.store, "loadRecentCanvases failed", error)
                 }
-                guard let docs = snapshot?.documents, error == nil else { return }
+                guard let docs = snapshot?.documents, error == nil else {
+                    DispatchQueue.main.async { self.hasLoadedCanvases = true }
+                    return
+                }
                 let canvases: [RecentCanvas] = docs.compactMap { doc in
                     let data = doc.data()
                     let title = data["title"] as? String

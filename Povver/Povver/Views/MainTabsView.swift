@@ -118,7 +118,7 @@ struct MainTabsView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: showWorkoutBanner)
+        .animation(.easeInOut(duration: MotionToken.medium), value: showWorkoutBanner)
         .onChange(of: showWorkoutBanner) { _, visible in
             if visible {
                 startBannerTimer()
@@ -138,7 +138,8 @@ struct MainTabsView: View {
         .task {
             if let userId = AuthService.shared.currentUser?.uid {
                 recommendationsVM.startListening(userId: userId)
-                // Prefetch library data for Train/Library tabs
+                // Fallback prefetch — primary trigger is in RootView.onChange(of: flow).
+                // No-op if already running/completed (guarded by isPrefetching).
                 await FocusModeWorkoutService.shared.prefetchLibraryData()
             }
         }
