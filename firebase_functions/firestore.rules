@@ -1,14 +1,78 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ================================================================
+    // USER-SCOPED COLLECTIONS
+    // ================================================================
     match /users/{uid} {
-      // Exercise usage stats: owner read, admin SDK writes only (triggers/backfill)
+
+      // Subscription fields that ONLY Admin SDK / webhook may write.
+      // Used by both create and update rules below.
+      function isSubscriptionField(key) {
+        return key in [
+          'subscription_tier',
+          'subscription_override',
+          'subscription_status',
+          'subscription_product_id',
+          'subscription_original_transaction_id',
+          'subscription_app_account_token',
+          'subscription_auto_renew_enabled',
+          'subscription_in_grace_period',
+          'subscription_updated_at',
+          'subscription_environment',
+          'subscription_expires_at'
+        ];
+      }
+
+      // User profile document — owner can read.
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Create: allow owner, but block subscription fields in initial data.
+      // resource.data is null on create, so we check keys() not diff().
+      allow create: if request.auth != null && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny([
+              'subscription_tier',
+              'subscription_override',
+              'subscription_status',
+              'subscription_product_id',
+              'subscription_original_transaction_id',
+              'subscription_app_account_token',
+              'subscription_auto_renew_enabled',
+              'subscription_in_grace_period',
+              'subscription_updated_at',
+              'subscription_environment',
+              'subscription_expires_at'
+            ]);
+
+      // Update: allow owner, but block changes to subscription fields.
+      // diff().affectedKeys() only contains keys that actually changed.
+      allow update: if request.auth != null && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny([
+              'subscription_tier',
+              'subscription_override',
+              'subscription_status',
+              'subscription_product_id',
+              'subscription_original_transaction_id',
+              'subscription_app_account_token',
+              'subscription_auto_renew_enabled',
+              'subscription_in_grace_period',
+              'subscription_updated_at',
+              'subscription_environment',
+              'subscription_expires_at'
+            ]);
+
+      // Delete: only via Admin SDK (account deletion flow)
+      allow delete: if false;
+
+      // Exercise usage stats: owner read, Admin SDK writes only
       match /exercise_usage_stats/{statId} {
         allow read: if request.auth != null && request.auth.uid == uid;
         allow write: if false;
       }
 
-      // Canvas: single-writer via Functions only
+      // Canvas: read-only for owner, Functions-only writes
       match /canvases/{canvasId} {
         allow read: if request.auth != null && request.auth.uid == uid;
         allow write: if false;
@@ -18,19 +82,91 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Other user subcollections: allow normal read/write for the user,
-      // excluding canvases (Functions-only) and exercise_usage_stats (admin SDK only)
+      // Conversations: owner read; root doc + artifacts are function-only
+      match /conversations/{conversationId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+
+        match /messages/{messageId} {
+          allow read: if request.auth != null && request.auth.uid == uid;
+          allow write: if request.auth != null && request.auth.uid == uid;
+        }
+        match /artifacts/{artifactId} {
+          allow read: if request.auth != null && request.auth.uid == uid;
+          allow write: if false;
+        }
+      }
+
+      // Agent sessions & recommendations: read-only, function-managed
+      match /agent_sessions/{sessionId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+      match /agent_recommendations/{docId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // Subscription events: read-only audit log
+      match /subscription_events/{eventId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // All other user subcollections: owner read/write
+      // (workouts, templates, routines, set_facts, weekly_stats, etc.)
       match /{collection}/{document=**} {
         allow read: if request.auth != null && request.auth.uid == uid;
         allow write: if request.auth != null && request.auth.uid == uid
           && collection != "canvases"
-          && collection != "exercise_usage_stats";
+          && collection != "exercise_usage_stats"
+          && collection != "conversations"
+          && collection != "agent_sessions"
+          && collection != "agent_recommendations"
+          && collection != "subscription_events";
       }
     }
 
-    // Canvas public contract (if ever needed): none. Everything under users subtree.
+    // ================================================================
+    // ROOT COLLECTIONS (shared/global data)
+    // ================================================================
 
-    // Admin/agents: optional service account keys or custom claims could be enforced via rules if required.
-    // For now, rely on HTTPS function auth wrappers; direct writes are not allowed without user auth above.
+    // Exercise catalog — anyone can read, only Admin SDK writes
+    match /exercises/{exerciseId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Exercise aliases — anyone can read, only Admin SDK writes
+    match /exercise_aliases/{aliasSlug} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Internal collections — Admin SDK only
+    match /catalog_jobs/{jobId} {
+      allow read, write: if false;
+    }
+    match /training_analysis_jobs/{jobId} {
+      allow read, write: if false;
+    }
+    match /cache/{cacheKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /idempotency/{key} {
+      allow read, write: if false;
+    }
+    match /exercises_backup/{exerciseId} {
+      allow read, write: if false;
+    }
+    match /processed_webhook_notifications/{notificationId} {
+      allow read, write: if false;
+    }
+
+    // Deny-all fallback for unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
