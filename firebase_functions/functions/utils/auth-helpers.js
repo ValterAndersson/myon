@@ -1,3 +1,5 @@
+const { logger } = require('firebase-functions');
+
 /**
  * Safely extract userId from request based on auth lane.
  *
@@ -15,7 +17,19 @@
  */
 function getAuthenticatedUserId(req) {
   // 1. Check for decoded Firebase token (set by requireAuth or requireFlexibleAuth Bearer path)
-  if (req.user?.uid) return req.user.uid;
+  if (req.user?.uid) {
+    // Log IDOR attempts — client passed a different userId than their token
+    const clientUserId = req.body?.userId || req.query?.userId;
+    if (clientUserId && clientUserId !== req.user.uid) {
+      logger.warn('[auth] idor_attempt_blocked', {
+        token_uid: req.user.uid,
+        requested_uid: clientUserId,
+        path: req.path,
+        ip: req.ip,
+      });
+    }
+    return req.user.uid;
+  }
 
   // 2. Check req.auth (set by requireFlexibleAuth or withApiKey)
   if (req.auth) {
@@ -29,7 +43,18 @@ function getAuthenticatedUserId(req) {
       return null;
     }
     // Bearer lane: uid from verified token ONLY
-    if (req.auth.uid) return req.auth.uid;
+    if (req.auth.uid) {
+      const clientUserId = req.body?.userId || req.query?.userId;
+      if (clientUserId && clientUserId !== req.auth.uid) {
+        logger.warn('[auth] idor_attempt_blocked', {
+          token_uid: req.auth.uid,
+          requested_uid: clientUserId,
+          path: req.path,
+          ip: req.ip,
+        });
+      }
+      return req.auth.uid;
+    }
   }
 
   return null;

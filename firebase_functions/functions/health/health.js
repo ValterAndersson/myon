@@ -4,14 +4,10 @@ const { ok } = require('../utils/response');
 
 // Simple health check endpoint for AI agents
 async function healthHandler(req, res) {
-  // Add CORS headers
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-  
-  // Handle preflight requests
+  res.set('X-Content-Type-Options', 'nosniff');
+
   if (req.method === 'OPTIONS') {
-    return res.status(200).send();
+    return res.status(204).send();
   }
 
   return ok(res, {

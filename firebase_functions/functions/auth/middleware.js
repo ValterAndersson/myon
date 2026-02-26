@@ -43,6 +43,34 @@
 const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
 const functions = require('firebase-functions');
+const { logger } = require('firebase-functions');
+
+// CORS: No browser clients exist (iOS native + server-to-server only).
+// Restrict to localhost for local dev; deny all others.
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+]);
+
+function setCorsHeaders(req, res) {
+  const origin = req.get('Origin');
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+  }
+  // No wildcard — unauthenticated browser requests from unknown origins are blocked
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-User-Id');
+}
+
+// Security headers — defense-in-depth
+function setSecurityHeaders(res) {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+}
 
 /**
  * Middleware to verify Firebase ID token
@@ -66,10 +94,16 @@ async function verifyAuth(req, res) {
     const decoded = await getAuth().verifyIdToken(idToken);
     return decoded;
   } catch (error) {
-    console.error('Auth verification error:', error);
-    res.status(403).json({ 
-      success: false, 
-      error: 'Invalid or expired token' 
+    logger.warn('[auth] token_verification_failed', {
+      error_code: error.code || 'unknown',
+      error_message: error.message,
+      ip: req.ip,
+      path: req.path,
+      user_agent: req.get('user-agent'),
+    });
+    res.status(403).json({
+      success: false,
+      error: 'Invalid or expired token'
     });
     return null;
   }
@@ -109,14 +143,24 @@ async function verifyApiKey(req, res) {
       return null;
     }
     if (!validApiKeys.includes(apiKey)) {
+      logger.warn('[auth] invalid_api_key', {
+        key_prefix: apiKey.substring(0, 4) + '***',
+        ip: req.ip,
+        path: req.path,
+        user_agent: req.get('user-agent'),
+      });
       res.status(403).json({ success: false, error: 'Invalid API key' });
       return null;
     }
     const uidHeader = req.get('X-User-Id') || req.query.userId;
     return { type: 'api_key', key: apiKey, uid: uidHeader || undefined, source: 'third_party_agent' };
   } catch (error) {
-    console.error('API key verification error:', error);
-    res.status(500).json({ success: false, error: 'API key verification failed: ' + error.message });
+    logger.error('[auth] api_key_verification_error', {
+      error_message: error.message,
+      ip: req.ip,
+      path: req.path,
+    });
+    res.status(500).json({ success: false, error: 'API key verification failed' });
     return null;
   }
 }
@@ -172,14 +216,12 @@ function requireAuth(handler) {
  */
 function requireFlexibleAuth(handler) {
   return async (req, res) => {
-    // Add CORS headers for 3rd party access
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-User-Id');
-    
+    setCorsHeaders(req, res);
+    setSecurityHeaders(res);
+
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
-      return res.status(200).send();
+      return res.status(204).send();
     }
     
     const authInfo = await verifyFlexibleAuth(req, res);
@@ -195,10 +237,8 @@ function requireFlexibleAuth(handler) {
 
 const withApiKey = (handler) => {
   return async (req, res) => {
-    // Set CORS headers
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, X-User-Id');
+    setCorsHeaders(req, res);
+    setSecurityHeaders(res);
 
     if (req.method === 'OPTIONS') {
       return res.status(204).send('');
