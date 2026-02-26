@@ -93,17 +93,19 @@ async function verifyApiKey(req, res) {
   }
 
   try {
-    // Prefer environment-driven rotation; allow emulator fallback
-    const envApiKeys = process.env.VALID_API_KEYS;
-    const emulator = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.FIREBASE_EMULATOR_HUB;
-    // Allow a safe default in environments where secrets aren't attached yet (e.g., fresh staging) — must be rotated regularly.
-    const fallbackKeys = emulator ? 'myon-agent-key-2024' : 'myon-agent-key-2024';
-    const apiKeysString = envApiKeys || process.env.MYON_API_KEY || fallbackKeys;
-    const validApiKeys = apiKeysString ? apiKeysString.split(',').map(key => key.trim()).filter(Boolean) : [];
+    const apiKeysString = process.env.VALID_API_KEYS || process.env.MYON_API_KEY;
+    if (!apiKeysString) {
+      const { logger } = require('firebase-functions');
+      logger.error('[middleware] FATAL: No API keys configured. Set VALID_API_KEYS env var.');
+      res.status(500).json({ success: false, error: 'Server configuration error' });
+      return null;
+    }
+    const validApiKeys = apiKeysString.split(',').map(key => key.trim()).filter(Boolean);
 
     if (validApiKeys.length === 0) {
-      console.error('No VALID_API_KEYS configured');
-      res.status(500).json({ success: false, error: 'Server configuration error: No VALID_API_KEYS set' });
+      const { logger } = require('firebase-functions');
+      logger.error('[middleware] FATAL: VALID_API_KEYS is set but contains no valid keys');
+      res.status(500).json({ success: false, error: 'Server configuration error' });
       return null;
     }
     if (!validApiKeys.includes(apiKey)) {
