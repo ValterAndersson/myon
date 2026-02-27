@@ -1201,6 +1201,15 @@ async function streamAgentNormalizedHandler(req, res) {
               }
               
               sse.write({ type: 'tool_started', name, args });
+
+              // === TOOL TRACING: Log tool invocation for debugging ===
+              logger.info('[toolCall]', {
+                correlation_id: correlationId || null,
+                user_id: userId,
+                tool: name,
+                args_preview: JSON.stringify(args).slice(0, 1000),
+                session_id: sessionToUse,
+              });
             }
             if (p.function_response) {
               const name = p.function_response.name || 'tool';
@@ -1242,6 +1251,19 @@ async function streamAgentNormalizedHandler(req, res) {
               
               // Pass displayText and phase to tool_result so transformToIOSEvent can use them
               sse.write({ type: 'tool_result', name, summary, displayText, phase });
+
+              // === TOOL TRACING: Log tool result for debugging ===
+              logger.info('[toolResult]', {
+                correlation_id: correlationId || null,
+                user_id: userId,
+                tool: name,
+                summary: summary || null,
+                result_preview: parsedResponse
+                  ? JSON.stringify(parsedResponse).slice(0, 1000)
+                  : null,
+                display_text: displayText || null,
+                phase: phase || null,
+              });
 
               // === ARTIFACT DETECTION ===
               // If tool response contains artifact_type, emit as artifact SSE event
