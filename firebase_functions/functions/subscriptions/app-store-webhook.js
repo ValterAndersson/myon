@@ -400,7 +400,9 @@ async function handleAppStoreWebhook(req, res) {
     // Invalidate profile cache
     await invalidateProfileCacheSafe(userId);
 
-    // Log event for debugging/compliance
+    // Log event for debugging/compliance (180-day TTL — configure Firestore TTL policy on expires_at)
+    const eventTtlDate = new Date();
+    eventTtlDate.setDate(eventTtlDate.getDate() + 180);
     await db.collection(`users/${userId}/subscription_events`).add({
       notification_type: notificationType,
       subtype: subtype || null,
@@ -410,6 +412,7 @@ async function handleAppStoreWebhook(req, res) {
       original_transaction_id: originalTransactionId,
       environment: data?.environment || null,
       created_at: admin.firestore.FieldValue.serverTimestamp(),
+      expires_at: admin.firestore.Timestamp.fromDate(eventTtlDate),
     });
 
     // Record processed notification for replay protection (90-day TTL)

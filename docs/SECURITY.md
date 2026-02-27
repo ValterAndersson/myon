@@ -275,12 +275,39 @@ logger.warn('[rate_limit] exceeded', { key, limit, window_ms });
 
 ---
 
+## Data Retention & TTL
+
+Collections with TTL fields require a **Firestore TTL policy** configured in GCP Console. The `expires_at` field marks documents for automatic deletion, but Firestore only honors it if a TTL policy is set on that collection.
+
+| Collection | TTL Field | Retention | Status |
+|------------|-----------|-----------|--------|
+| `processed_webhook_notifications` | `expires_at` | 90 days | Needs TTL policy |
+| `users/{uid}/subscription_events` | `expires_at` | 180 days | Needs TTL policy |
+
+**To configure TTL policies:**
+```bash
+gcloud firestore fields ttls update expires_at \
+  --collection-group=processed_webhook_notifications \
+  --project=myon-53d85
+
+gcloud firestore fields ttls update expires_at \
+  --collection-group=subscription_events \
+  --project=myon-53d85
+```
+
+### Default Query Limits
+
+`getDocumentsFromSubcollection()` in `utils/firestore-helper.js` enforces a default limit of 500 documents when no explicit limit is provided. This prevents accidental unbounded reads.
+
+---
+
 ## Operational Security (Console/CLI)
 
 These items require GCP Console or gcloud CLI access and are NOT enforced by code:
 
 | Item | Current State | Target State | Priority |
 |------|---------------|-------------|----------|
+| Firestore TTL policies | Not configured | Enable on `processed_webhook_notifications` and `subscription_events` | HIGH |
 | Default SAs have `roles/editor` | Overly broad | Dedicated SAs per workload with minimal roles | HIGH |
 | API keys in Functions config | Visible to project members | Migrate to Secret Manager | HIGH |
 | Langfuse secret key in config | Exposed | Rotate + move to Secret Manager | HIGH |

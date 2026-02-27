@@ -151,6 +151,11 @@ class FirestoreHelper {
         }
       }
 
+      // Default safety limit to prevent unbounded reads
+      if (!queryParams?.limit) {
+        query = query.limit(500);
+      }
+
       const snapshot = await query.get();
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (error) {
