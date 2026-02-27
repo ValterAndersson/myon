@@ -87,54 +87,60 @@ const firestore = admin.firestore();
  * The analyst handles deloads explicitly via recommendations.
  */
 async function syncTemplateWeightsFromWorkout(db, userId, templateId, exercises) {
+  if (!Array.isArray(exercises) || exercises.length === 0) return;
+
   const templateRef = db.collection('users').doc(userId)
     .collection('templates').doc(templateId);
-  const templateSnap = await templateRef.get();
-  if (!templateSnap.exists) return;
 
-  const templateData = templateSnap.data();
-  const templateExercises = templateData.exercises || [];
-  let changed = false;
+  await db.runTransaction(async (tx) => {
+    const templateSnap = await tx.get(templateRef);
+    if (!templateSnap.exists) return;
 
-  for (const workoutEx of exercises) {
-    const exId = workoutEx.exercise_id;
-    if (!exId) continue;
+    const templateData = templateSnap.data();
+    const templateExercises = templateData.exercises || [];
+    let changed = false;
 
-    // Find matching template exercise by exercise_id
-    const templateIdx = templateExercises.findIndex(
-      te => te.exercise_id === exId
-    );
-    if (templateIdx === -1) continue;
+    for (const workoutEx of exercises) {
+      const exId = workoutEx.exercise_id;
+      if (!exId) continue;
 
-    // Get max completed working set weight from workout
-    const workingSets = (workoutEx.sets || []).filter(
-      s => (s.type || 'working') !== 'warmup' && s.is_completed
-    );
-    if (workingSets.length === 0) continue;
-    const maxWeight = Math.max(...workingSets.map(s => s.weight_kg || 0));
-    if (maxWeight <= 0) continue;
+      // Find matching template exercise by exercise_id
+      const templateIdx = templateExercises.findIndex(
+        te => te.exercise_id === exId
+      );
+      if (templateIdx === -1) continue;
 
-    // Update template working sets — only sync UPWARD
-    const templateSets = templateExercises[templateIdx].sets || [];
-    for (const tSet of templateSets) {
-      if ((tSet.type || 'working') === 'warmup') continue;
-      const currentWeight = tSet.weight || 0;
-      if (currentWeight < maxWeight) {
-        tSet.weight = maxWeight;
-        changed = true;
+      // Get max completed working set weight from workout
+      const workingSets = (workoutEx.sets || []).filter(
+        s => (s.type || 'working') !== 'warmup' && s.is_completed
+      );
+      if (workingSets.length === 0) continue;
+      const maxWeight = Math.max(...workingSets.map(s => s.weight_kg || 0));
+      // Upper bound: no single exercise exceeds 1000kg in any real training
+      if (maxWeight <= 0 || maxWeight > 1000) continue;
+
+      // Update template working sets — only sync UPWARD
+      const templateSets = templateExercises[templateIdx].sets || [];
+      for (const tSet of templateSets) {
+        if ((tSet.type || 'working') === 'warmup') continue;
+        const currentWeight = tSet.weight || 0;
+        if (currentWeight < maxWeight) {
+          tSet.weight = maxWeight;
+          changed = true;
+        }
       }
     }
-  }
 
-  if (changed) {
-    await templateRef.update({
-      exercises: templateExercises,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    logger.info('[completeActiveWorkout] Template weights synced from workout', {
-      userId, templateId,
-    });
-  }
+    if (changed) {
+      tx.update(templateRef, {
+        exercises: templateExercises,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      logger.info('[completeActiveWorkout] Template weights synced from workout', {
+        userId, templateId,
+      });
+    }
+  });
 }
 
 async function completeActiveWorkoutHandler(req, res) {
@@ -322,7 +328,7 @@ async function completeActiveWorkoutHandler(req, res) {
       } catch (syncErr) {
         // Non-fatal — don't block workout completion
         logger.warn('[completeActiveWorkout] Template sync failed', {
-          userId, templateId: active.source_template_id, error: syncErr.message,
+          userId, templateId: active.source_template_id, error: syncErr?.message || String(syncErr),
         });
       }
     }
