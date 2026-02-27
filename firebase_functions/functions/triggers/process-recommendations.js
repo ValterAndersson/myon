@@ -62,7 +62,7 @@ const onAnalysisInsightCreated = onDocumentCreated(
       const actionable = recommendations
         .filter(rec => {
           if (rec.confidence < 0.7) return false;
-          if (!['progression', 'deload', 'volume_adjust', 'rep_progression'].includes(rec.type)) return false;
+          if (!['progression', 'deload', 'volume_adjust', 'rep_progression', 'swap'].includes(rec.type)) return false;
           // Input validation: clamp LLM-provided fields to valid ranges
           if (rec.target_reps != null && (rec.target_reps < 1 || rec.target_reps > 30)) return false;
           if (rec.target_rir != null && (rec.target_rir < 0 || rec.target_rir > 5)) return false;
@@ -420,6 +420,54 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
     const pendingKey = `${exerciseData.templateId}:${exerciseData.exerciseIndex}`;
     if (pendingExercises.has(pendingKey)) {
       logger.info(`[processRecommendations] Skipping duplicate`, { exerciseName, templateId: exerciseData.templateId });
+      continue;
+    }
+
+    // Swap recommendations: always pending_review (no auto-apply)
+    if (rec.type === 'swap') {
+      const recRef = db.collection(`users/${userId}/agent_recommendations`).doc();
+      const now = FieldValue.serverTimestamp();
+
+      const swapData = {
+        id: recRef.id,
+        created_at: now,
+        trigger: triggerType,
+        trigger_context: triggerContext,
+        scope: 'template',
+        target: {
+          template_id: exerciseData.templateId,
+          template_name: templateName || null,
+          routine_id: activeRoutineId,
+          exercise_index: exerciseData.exerciseIndex,
+          current_exercise: exerciseName,
+        },
+        recommendation: {
+          type: 'swap',
+          changes: [],
+          summary: `Consider swapping ${exerciseName} for a different exercise`,
+          rationale: rec.reasoning || rec.rationale || '',
+          confidence: rec.confidence,
+          signals: rec.signals || [],
+        },
+        state: 'pending_review',
+        state_history: [{
+          from: null,
+          to: 'pending_review',
+          at: new Date().toISOString(),
+          by: 'agent',
+          note: 'Swap recommendation — requires user review',
+        }],
+        applied_by: null,
+      };
+
+      await recRef.set(swapData);
+      pendingExercises.add(pendingKey);
+      processedCount++;
+      logger.info('[processRecommendations] Created swap recommendation', {
+        recommendationId: recRef.id,
+        exerciseName,
+        templateId: exerciseData.templateId,
+      });
       continue;
     }
 
@@ -929,6 +977,84 @@ function roundToNearest(value, step) {
   return Math.round(value / step) * step;
 }
 
+/**
+ * Detect if a recommendation target is a muscle group or routine-level name.
+ */
+const MUSCLE_GROUP_NAMES = new Set([
+  'chest', 'back', 'shoulders', 'legs', 'arms', 'core', 'glutes',
+  'biceps', 'triceps', 'quads', 'hamstrings', 'calves', 'abs',
+  'forearms', 'traps', 'lats', 'rear delts', 'front delts', 'side delts',
+]);
+
+function isMuscleOrRoutineTarget(target) {
+  if (!target) return false;
+  const lower = target.trim().toLowerCase();
+  if (MUSCLE_GROUP_NAMES.has(lower)) return true;
+  if (lower.includes('weekly') || lower.includes('routine') || lower.includes('training')) return true;
+  return false;
+}
+
+/**
+ * Write muscle-group or routine-level recommendations directly.
+ * These bypass exercise-template matching (no specific exercise to match).
+ * Always pending_review — informational only.
+ */
+async function writeNonExerciseRecommendations(userId, triggerType, triggerContext, recommendations) {
+  const db = admin.firestore();
+  const { FieldValue } = admin.firestore;
+
+  const userDoc = await db.collection('users').doc(userId).get();
+  if (!userDoc.exists) return;
+  const userData = userDoc.data();
+  const isPremium = userData.subscription_override === 'premium' || userData.subscription_tier === 'premium';
+  if (!isPremium) return;
+
+  const activeRoutineId = userData.activeRoutineId || null;
+
+  for (const rec of recommendations) {
+    const recRef = db.collection(`users/${userId}/agent_recommendations`).doc();
+    const now = FieldValue.serverTimestamp();
+    const isMuscle = MUSCLE_GROUP_NAMES.has((rec.target || '').trim().toLowerCase());
+
+    const recData = {
+      id: recRef.id,
+      created_at: now,
+      trigger: triggerType,
+      trigger_context: triggerContext,
+      scope: isMuscle ? 'muscle_group' : 'routine',
+      target: {
+        routine_id: activeRoutineId,
+        ...(isMuscle ? { muscle_group: rec.target } : { description: rec.target }),
+      },
+      recommendation: {
+        type: rec.type,
+        changes: [],
+        summary: rec.rationale || `${rec.type} for ${rec.target}`,
+        rationale: rec.reasoning || '',
+        confidence: rec.confidence,
+        signals: rec.signals || [],
+      },
+      state: 'pending_review',
+      state_history: [{
+        from: null,
+        to: 'pending_review',
+        at: new Date().toISOString(),
+        by: 'agent',
+        note: `${isMuscle ? 'Muscle-group' : 'Routine-level'} recommendation from ${triggerType}`,
+      }],
+      applied_by: null,
+    };
+
+    await recRef.set(recData);
+    logger.info('[processRecommendations] Created non-exercise recommendation', {
+      userId,
+      target: rec.target,
+      scope: recData.scope,
+      recommendationId: recRef.id,
+    });
+  }
+}
+
 module.exports = {
   onAnalysisInsightCreated,
   onWeeklyReviewCreated,
@@ -939,4 +1065,6 @@ module.exports = {
   computeProgressionChanges,
   computeProgressionWeight,
   roundToNearest,
+  isMuscleOrRoutineTarget,
+  writeNonExerciseRecommendations,
 };
