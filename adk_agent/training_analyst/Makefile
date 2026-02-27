@@ -3,7 +3,7 @@
 
 .PHONY: help install test worker-local watchdog-local scheduler-local \
         docker-push deploy-worker deploy-watchdog deploy-scheduler \
-        trigger-worker trigger-watchdog trigger-scheduler deploy \
+        trigger-worker trigger-watchdog trigger-scheduler deploy deploy-schedulers \
         eval eval-category eval-single eval-analyze eval-compare
 
 # Configuration
@@ -39,6 +39,7 @@ help:
 	@echo "  make deploy-worker   - Deploy worker job"
 	@echo "  make deploy-watchdog - Deploy watchdog job"
 	@echo "  make deploy-scheduler - Deploy scheduler job"
+	@echo "  make deploy-schedulers - Create Cloud Scheduler triggers (run after deploy)"
 	@echo "  make trigger-worker  - Trigger worker execution"
 	@echo "  make trigger-watchdog - Trigger watchdog execution"
 	@echo "  make trigger-scheduler - Trigger scheduler execution"
@@ -116,3 +117,8 @@ trigger-scheduler:
 # Deploy all jobs
 deploy: docker-push deploy-worker deploy-watchdog deploy-scheduler
 	@echo "All Cloud Run Jobs deployed"
+
+# Deploy Cloud Scheduler triggers (run AFTER deploy)
+deploy-schedulers:
+	@echo "Creating Cloud Scheduler triggers..."
+	bash deploy-schedulers.sh
