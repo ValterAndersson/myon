@@ -323,7 +323,11 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
     def _read_routine_summary(
         self, db, user_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Read routine summary (template IDs → template names via batch read)."""
+        """Read routine summary with full exercise lists per template.
+
+        For swap recommendations, the LLM needs to know which exercises
+        exist across the entire routine to avoid suggesting duplicates.
+        """
         user_doc = db.collection("users").document(user_id).get()
         if not user_doc.exists:
             return None
@@ -354,18 +358,30 @@ class PostWorkoutAnalyzer(BaseAnalyzer):
         template_docs = db.get_all(template_refs)
 
         templates = []
+        all_exercise_ids = set()
         for tdoc in template_docs:
             if tdoc.exists:
                 tdata = tdoc.to_dict()
+                exercises = []
+                for ex in tdata.get("exercises", []):
+                    ex_id = ex.get("exercise_id")
+                    if ex_id:
+                        all_exercise_ids.add(ex_id)
+                    exercises.append({
+                        "exercise_id": ex_id,
+                        "name": ex.get("name"),
+                    })
                 templates.append({
                     "template_id": tdoc.id,
                     "name": tdata.get("name", tdoc.id),
+                    "exercises": exercises,
                 })
 
         return {
             "routine_name": routine.get("name"),
             "frequency": routine.get("frequency"),
             "templates": templates,
+            "all_exercise_ids": list(all_exercise_ids),
         }
 
     def _read_exercise_catalog(
@@ -486,6 +502,13 @@ If routine_context is in the input, you know the user's program structure. Use t
 - Identify if this workout is part of a planned progression (e.g., "Week 3 of Push day")
 - Assess if the session aligns with routine frequency (e.g., 4x/week program but user trained 2x this week)
 - Flag missing muscles from the routine split (e.g., "Pull day missed legs this week")
+
+When generating SWAP recommendations:
+- Check routine_context.templates to verify the suggested replacement is NOT already
+  in another template. If it is, pick a different alternative.
+- Include the template name in your recommendation target for clarity.
+- Set suggested_weight using the estimation formulas:
+  BB→DB = 37% per hand, compound→isolation = 30%, incline = 82% of flat.
 
 **EXERCISE CATALOG (if present):**
 If exercise_catalog is in the input, you have muscle target data for exercises. Use this to:
