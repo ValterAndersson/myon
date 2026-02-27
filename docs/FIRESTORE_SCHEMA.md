@@ -900,22 +900,25 @@ Subcollections:
        - `"plateau_detected"` - Auto-detected plateau
        - `"user_request"` - User asked for adjustment
      - `trigger_context: object` - Additional trigger context (e.g., workout_id, completed_at)
-     - `scope: "template" | "exercise" | "routine"` - Target type
+     - `scope: "template" | "exercise" | "routine" | "muscle_group"` - Target type
      - `target: object`:
        - `template_id?: string` - If scope is "template"
        - `template_name?: string` - Human-readable template name (template scope)
        - `routine_id?: string` - If scope is "template" or "routine"
        - `exercise_name?: string` - If scope is "exercise" (no routine/template)
        - `exercise_id?: string` - If scope is "exercise"
-       - `muscle_group?: string` - If scope is "routine" (muscle_balance recommendations)
+       - `muscle_group?: string` - If scope is "routine" or "muscle_group" (muscle_balance recommendations)
+       - `current_exercise?: string` - If type is "swap" — exercise being replaced
+       - `exercise_index?: number` - If type is "swap" — index in template exercises array
+       - `description?: string` - If scope is "routine" — free-text target description
      - `recommendation: object`:
        - `type: string` - Recommendation type:
          - `"progression"` - Weight increase (user hit target reps with low RIR)
          - `"rep_progression"` - Rep increase (double progression: build reps before adding weight)
          - `"intensity_adjust"` - RIR tuning (adjust target RIR)
          - `"deload"` - Weight reduction
-         - `"volume_adjustment"` - Sets/reps change
-         - `"exercise_swap"` - Replace exercise
+         - `"volume_adjust"` - Sets/reps change
+         - `"swap"` - Replace exercise (swap suggestion)
          - `"muscle_balance"` - Muscle group volume imbalance (informational, scope: routine)
        - `suggested_weight?: number` - Explicit weight suggestion from analyzer (for progression/deload)
        - `target_reps?: number` - Target rep count from analyzer (for rep_progression, 1-30)
@@ -938,6 +941,8 @@ Subcollections:
      - `applied_by?: "agent" | "user"` - Who applied the change
      - `applied_at?: Timestamp` - When applied
      - `result?: object` - Result of application (e.g., { template_id, changes_applied })
+     - `user_notification?: string` - Human-readable notification for user (auto-pilot applied changes). Format: `"Auto-applied: <summary>"`. Null when not auto-applied.
+     - `notification_read?: boolean` - Whether user has seen this notification. `false` when notification exists, `null` when no notification. iOS queries `where('notification_read', '==', false)` for unread banners.
 
    - Query patterns:
      - Pending reviews: `where('state', '==', 'pending_review')` ordered by `created_at`
