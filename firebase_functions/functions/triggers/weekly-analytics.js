@@ -463,7 +463,18 @@ exports.onWorkoutCompleted = onDocumentUpdated(
           low_rir_sets_per_muscle: analytics.intensity?.low_rir_sets_per_muscle || {},
           load_per_muscle: analytics.intensity?.load_per_muscle || {},
         }, 1);
+      } catch (e) {
+        // Upgrade rollup failures to error — they break ACWR calculations
+        console.error('[onWorkoutCompleted] CRITICAL: Rollup write failed', {
+          userId: event.params.userId,
+          workoutId: event.params.workoutId,
+          weekId,
+          error: e?.message || String(e),
+        });
+      }
 
+      // Per-muscle weekly series (non-fatal)
+      try {
         const setsByGroup = analytics.sets_per_muscle_group || {};
         const volByGroup = analytics.weight_per_muscle_group || {};
         const hardSetsByMuscle = analytics.intensity?.hard_sets_per_muscle || {};
@@ -496,7 +507,7 @@ exports.onWorkoutCompleted = onDocumentUpdated(
         }
         if (writes.length) await Promise.allSettled(writes);
       } catch (e) {
-        console.warn('Non-fatal: failed to write analytics series/rollups for workout update', e?.message || e);
+        console.warn('[onWorkoutCompleted] Non-fatal: failed to write per-muscle series', e?.message || e);
       }
 
       // Update watermark
@@ -640,7 +651,18 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
           low_rir_sets_per_muscle: workout.analytics.intensity?.low_rir_sets_per_muscle || {},
           load_per_muscle: workout.analytics.intensity?.load_per_muscle || {},
         }, 1);
+      } catch (e) {
+        // Upgrade rollup failures to error — they break ACWR calculations
+        console.error('[onWorkoutCreatedWithEnd] CRITICAL: Rollup write failed', {
+          userId: event.params.userId,
+          workoutId: event.params.workoutId,
+          weekId,
+          error: e?.message || String(e),
+        });
+      }
 
+      // Per-muscle weekly series (non-fatal)
+      try {
         const setsByGroup = workout.analytics.sets_per_muscle_group || {};
         const volByGroup = workout.analytics.weight_per_muscle_group || {};
         const hardSetsByMuscle = workout.analytics.intensity?.hard_sets_per_muscle || {};
@@ -673,7 +695,7 @@ exports.onWorkoutCreatedWithEnd = onDocumentCreated(
         }
         if (writes.length) await Promise.allSettled(writes);
       } catch (e) {
-        console.warn('Non-fatal: failed to write analytics series/rollups for workout create', e?.message || e);
+        console.warn('[onWorkoutCreatedWithEnd] Non-fatal: failed to write per-muscle series', e?.message || e);
       }
 
       // Update watermark
@@ -817,7 +839,18 @@ exports.onWorkoutDeleted = onDocumentDeleted(
           low_rir_sets_per_muscle: workout.analytics.intensity?.low_rir_sets_per_muscle || {},
           load_per_muscle: workout.analytics.intensity?.load_per_muscle || {},
         }, -1);
+      } catch (e) {
+        // Upgrade rollup failures to error — they break ACWR calculations
+        console.error('[onWorkoutDeleted] CRITICAL: Rollup revert failed', {
+          userId: event.params.userId,
+          workoutId: event.params.workoutId,
+          weekId,
+          error: e?.message || String(e),
+        });
+      }
 
+      // Per-muscle weekly series (non-fatal)
+      try {
         const setsByGroup = workout.analytics.sets_per_muscle_group || {};
         const volByGroup = workout.analytics.weight_per_muscle_group || {};
         const hardSetsByMuscle = workout.analytics.intensity?.hard_sets_per_muscle || {};
@@ -850,7 +883,7 @@ exports.onWorkoutDeleted = onDocumentDeleted(
         }
         if (writes.length) await Promise.allSettled(writes);
       } catch (e) {
-        console.warn('Non-fatal: failed to revert analytics series/rollups for workout delete', e?.message || e);
+        console.warn('[onWorkoutDeleted] Non-fatal: failed to revert per-muscle series', e?.message || e);
       }
 
       // Move watermark backwards only if needed is non-trivial; skip here to avoid regressions.
