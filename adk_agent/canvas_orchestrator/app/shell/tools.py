@@ -126,13 +126,22 @@ def timed_tool(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         start = time.time()
+        corr_id = None
+        try:
+            ctx = get_current_context()
+            corr_id = ctx.correlation_id if ctx else None
+        except Exception:
+            pass
         try:
             result = func(*args, **kwargs)
+            latency = int((time.time() - start) * 1000)
             logger.info(json.dumps({
                 "event": "tool_called",
                 "tool": func.__name__,
                 "success": True,
-                "latency_ms": int((time.time() - start) * 1000),
+                "latency_ms": latency,
+                "correlation_id": corr_id,
+                "result_keys": list(result.keys()) if isinstance(result, dict) else None,
             }))
             return result
         except Exception as e:
@@ -141,6 +150,7 @@ def timed_tool(func):
                 "tool": func.__name__,
                 "success": False,
                 "latency_ms": int((time.time() - start) * 1000),
+                "correlation_id": corr_id,
                 "error": str(e),
             }))
             raise
