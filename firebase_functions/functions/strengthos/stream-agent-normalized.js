@@ -1268,9 +1268,22 @@ async function streamAgentNormalizedHandler(req, res) {
                 });
 
                 // Persist artifact to Firestore async (don't block SSE stream)
+                const artifactContent = parsedResponse.content || {};
+                const MAX_ARTIFACT_SIZE = 50 * 1024; // 50KB
+                const contentStr = JSON.stringify(artifactContent);
+                if (contentStr.length > MAX_ARTIFACT_SIZE) {
+                  logger.warn('[streamAgentNormalized] artifact_content_too_large', {
+                    artifact_type: parsedResponse.artifact_type,
+                    size: contentStr.length,
+                    userId,
+                  });
+                  // Skip persistence — artifact was already sent to client via SSE
+                  return;
+                }
+
                 const artifactData = {
                   type: parsedResponse.artifact_type,
-                  content: parsedResponse.content || {},
+                  content: artifactContent,
                   actions: parsedResponse.actions || [],
                   status: 'proposed',
                   correlation_id: correlationId,

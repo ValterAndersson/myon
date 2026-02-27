@@ -150,9 +150,9 @@ service cloud.firestore {
     match /training_analysis_jobs/{jobId} {
       allow read, write: if false;
     }
+    // Cache — Admin SDK only (contains user profile data with predictable keys)
     match /cache/{cacheKey} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
     match /idempotency/{key} {
       allow read, write: if false;

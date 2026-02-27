@@ -31,6 +31,7 @@ const admin = require('firebase-admin');
 const { onRequest } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const { validateRequired } = require('../utils/validators');
+const { withApiKey } = require('../auth/middleware');
 
 /**
  * Apply progression changes with full audit logging.
@@ -290,11 +291,11 @@ function setNestedValue(obj, path, value) {
   current[lastPart] = value;
 }
 
-// Export handler
-const applyProgression = onRequest({ 
+// Export handler — API key required (called by agent system only)
+const applyProgression = onRequest({
   cors: true,
   region: 'us-central1',
-}, applyProgressionHandler);
+}, withApiKey(applyProgressionHandler));
 
 module.exports = {
   applyProgression,

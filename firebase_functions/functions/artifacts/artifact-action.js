@@ -22,6 +22,7 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
+const MAX_WORKOUTS_PER_ROUTINE = 14; // 2-week program max
 
 async function artifactActionHandler(req, res) {
   // Secure userId derivation — prevents IDOR via auth-helpers
@@ -84,6 +85,9 @@ async function artifactActionHandler(req, res) {
 
         if (workouts.length === 0) {
           return res.status(400).json({ success: false, error: 'Routine has no workouts' });
+        }
+        if (workouts.length > MAX_WORKOUTS_PER_ROUTINE) {
+          return res.status(400).json({ success: false, error: `Routine has too many workouts (max ${MAX_WORKOUTS_PER_ROUTINE})` });
         }
 
         // Create templates for each workout day
@@ -284,6 +288,9 @@ async function artifactActionHandler(req, res) {
           // Same as save_routine but without source IDs
           const content = artifact.content || {};
           const workouts = content.workouts || [];
+          if (workouts.length > MAX_WORKOUTS_PER_ROUTINE) {
+            return res.status(400).json({ success: false, error: `Routine has too many workouts (max ${MAX_WORKOUTS_PER_ROUTINE})` });
+          }
           const templateIds = [];
           const templatesPath = `users/${userId}/templates`;
 

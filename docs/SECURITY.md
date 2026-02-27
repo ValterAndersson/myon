@@ -209,8 +209,12 @@ Zod schemas with security bounds in `utils/validators.js`:
 | `MAX_SETS_PER_EXERCISE` | 100 | Prevents payload abuse |
 | `MAX_NAME_LENGTH` | 200 | Prevents storage abuse |
 | `MAX_NOTES_LENGTH` | 5000 | Prevents storage abuse |
+| `MAX_WORKOUTS_PER_ROUTINE` | 14 | Prevents cost amplification via unbounded template creation |
+| `MAX_ARTIFACT_SIZE` | 50KB | Prevents storage abuse from oversized agent output |
 
 **Message length limit**: Agent streaming endpoint (`streamAgentNormalized`) enforces a 10KB message limit to prevent cost abuse via oversized LLM payloads.
+
+**Artifact size limit**: Agent artifacts are validated before Firestore persistence — content exceeding 50KB is logged and skipped. The SSE stream is not blocked (client still receives the artifact), but it won't be persisted.
 
 **When adding new write endpoints:** Use Zod schemas for input validation. Validate before business logic. Apply sensible upper bounds to numeric fields and string lengths.
 
