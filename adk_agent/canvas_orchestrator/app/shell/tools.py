@@ -1082,6 +1082,60 @@ def tool_log_set(
     return result.to_dict()
 
 
+def _calculate_warmup_ramp(
+    working_weight_kg: float,
+    count: int = 3,
+    progression: str = "standard",
+) -> list:
+    """Calculate warmup set ramp based on working weight.
+
+    Args:
+        working_weight_kg: Target working set weight in kg.
+        count: Number of warmup sets (0-4).
+        progression: "standard" (50/65/80%), "conservative" (60/80%),
+                     or "aggressive" (40/55/70/85%).
+
+    Returns:
+        List of warmup set dicts with id, weight, reps, rir, set_type.
+        Empty list if working_weight_kg < 30 or count <= 0.
+    """
+    import uuid
+
+    if count <= 0 or working_weight_kg < 30:
+        return []
+
+    ramps = {
+        "standard": [0.50, 0.65, 0.80],
+        "conservative": [0.60, 0.80],
+        "aggressive": [0.40, 0.55, 0.70, 0.85],
+    }
+
+    percentages = ramps.get(progression, ramps["standard"])
+    if count < len(percentages):
+        step = len(percentages) / count
+        percentages = [percentages[int(i * step)] for i in range(count)]
+    elif count > len(percentages):
+        percentages = percentages[:count]
+
+    rep_scheme = [10, 8, 5, 3]
+
+    def _round_2_5(w):
+        return round(w / 2.5) * 2.5
+
+    sets = []
+    for i, pct in enumerate(percentages):
+        reps = rep_scheme[i] if i < len(rep_scheme) else 3
+        sets.append({
+            "id": f"set-{uuid.uuid4().hex[:8]}",
+            "weight": _round_2_5(working_weight_kg * pct),
+            "reps": reps,
+            "rir": 5,
+            "set_type": "warmup",
+        })
+
+    return sets
+
+
 @timed_tool
 def tool_add_exercise(
     *,
@@ -1091,6 +1145,7 @@ def tool_add_exercise(
     reps: int = 10,
     weight_kg: Optional[float] = None,
     rir: Optional[int] = 2,
+    warmup_sets: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Add a new exercise to the active workout with planned sets.
@@ -1102,10 +1157,13 @@ def tool_add_exercise(
     Args:
         exercise_id: Catalog exercise ID (from tool_search_exercises)
         name: Exercise name in catalog format "Name (Equipment)"
-        sets: Number of planned sets (default 3)
-        reps: Target reps per set (default 10)
+        sets: Number of working sets (default 3)
+        reps: Target reps per working set (default 10)
         weight_kg: Target weight in kg (optional — omit if unknown)
-        rir: Target RIR for each set (default 2)
+        rir: Target RIR for each working set (default 2)
+        warmup_sets: Number of warm-up sets before working sets (default None).
+            Uses standard ramp: 50/65/80% of weight_kg with decreasing reps.
+            Only useful for compounds with weight_kg >= 30.
 
     Returns:
         Success with the new exercise instance_id, or error
@@ -1117,7 +1175,11 @@ def tool_add_exercise(
 
     import uuid
 
-    planned_sets = [
+    all_sets = []
+    if warmup_sets and warmup_sets > 0 and weight_kg:
+        all_sets.extend(_calculate_warmup_ramp(weight_kg, count=warmup_sets))
+
+    working = [
         {
             "id": f"set-{uuid.uuid4().hex[:8]}",
             "reps": reps,
@@ -1126,13 +1188,14 @@ def tool_add_exercise(
         }
         for _ in range(sets)
     ]
+    all_sets.extend(working)
 
     result = workout_add_exercise(
         user_id=ctx.user_id,
         workout_id=ctx.active_workout_id,
         exercise_id=exercise_id,
         name=name,
-        sets=planned_sets,
+        sets=all_sets,
     )
     return result.to_dict()
 
