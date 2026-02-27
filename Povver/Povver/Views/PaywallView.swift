@@ -29,6 +29,9 @@ struct PaywallView: View {
 
                         // Restore
                         restoreButton
+
+                        // Subscription disclosure (App Store Guideline 3.1.2)
+                        subscriptionDisclosure
                     }
                     .padding(.horizontal, Space.lg)
                     .padding(.top, Space.lg)
@@ -212,6 +215,29 @@ struct PaywallView: View {
                 .foregroundColor(Color.textSecondary)
         }
         .padding(.top, Space.lg)
+    }
+
+    // MARK: - Subscription Disclosure
+
+    private var subscriptionDisclosure: some View {
+        VStack(spacing: Space.sm) {
+            Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. You can manage or cancel your subscription in your device's Settings > Subscriptions.")
+                .font(.system(size: 11))
+                .foregroundColor(Color.textTertiary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Manage Subscriptions")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color.textSecondary)
+                    .underline()
+            }
+        }
+        .padding(.top, Space.sm)
     }
 
     // MARK: - Close Button
