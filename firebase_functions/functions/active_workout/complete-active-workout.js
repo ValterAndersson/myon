@@ -74,6 +74,69 @@ const { logger } = require('firebase-functions');
 
 const firestore = admin.firestore();
 
+/**
+ * Sync template set weights from completed workout actuals.
+ * For each exercise in the workout that matches a template exercise (by exercise_id),
+ * update the template's working set weights to the max weight used.
+ *
+ * This prevents template weight regression when analyst auto-deloads
+ * after the user has already self-progressed.
+ *
+ * IMPORTANT: Only syncs UPWARD. If the user used a lower weight than the template
+ * prescribes (deload day, warmup, etc.), the template is NOT downgraded.
+ * The analyst handles deloads explicitly via recommendations.
+ */
+async function syncTemplateWeightsFromWorkout(db, userId, templateId, exercises) {
+  const templateRef = db.collection('users').doc(userId)
+    .collection('templates').doc(templateId);
+  const templateSnap = await templateRef.get();
+  if (!templateSnap.exists) return;
+
+  const templateData = templateSnap.data();
+  const templateExercises = templateData.exercises || [];
+  let changed = false;
+
+  for (const workoutEx of exercises) {
+    const exId = workoutEx.exercise_id;
+    if (!exId) continue;
+
+    // Find matching template exercise by exercise_id
+    const templateIdx = templateExercises.findIndex(
+      te => te.exercise_id === exId
+    );
+    if (templateIdx === -1) continue;
+
+    // Get max completed working set weight from workout
+    const workingSets = (workoutEx.sets || []).filter(
+      s => (s.type || 'working') !== 'warmup' && s.is_completed
+    );
+    if (workingSets.length === 0) continue;
+    const maxWeight = Math.max(...workingSets.map(s => s.weight_kg || 0));
+    if (maxWeight <= 0) continue;
+
+    // Update template working sets — only sync UPWARD
+    const templateSets = templateExercises[templateIdx].sets || [];
+    for (const tSet of templateSets) {
+      if ((tSet.type || 'working') === 'warmup') continue;
+      const currentWeight = tSet.weight || 0;
+      if (currentWeight < maxWeight) {
+        tSet.weight = maxWeight;
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    await templateRef.update({
+      exercises: templateExercises,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    logger.info('[completeActiveWorkout] Template weights synced from workout', {
+      userId, templateId,
+    });
+  }
+}
+
 async function completeActiveWorkoutHandler(req, res) {
   try {
     if (req.method !== 'POST') {
@@ -244,6 +307,23 @@ async function completeActiveWorkoutHandler(req, res) {
       } catch (changelogErr) {
         logger.warn('[completeActiveWorkout] Failed to write changelog', { error: changelogErr?.message });
         // Non-fatal: workout already archived successfully
+      }
+    }
+
+    // Sync template weights from workout actuals.
+    // When the user completes a workout, update the template to reflect
+    // their actual working weights — prevents the "ghost regression" problem
+    // where templates stay stale and analyst deloads overwrite user progress.
+    if (active.source_template_id && result.workout_id) {
+      try {
+        await syncTemplateWeightsFromWorkout(
+          firestore, userId, active.source_template_id, normalizedExercises
+        );
+      } catch (syncErr) {
+        // Non-fatal — don't block workout completion
+        logger.warn('[completeActiveWorkout] Template sync failed', {
+          userId, templateId: active.source_template_id, error: syncErr.message,
+        });
       }
     }
 

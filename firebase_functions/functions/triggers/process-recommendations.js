@@ -500,6 +500,11 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
     const state = autoPilotEnabled ? 'applied' : 'pending_review';
     const now = FieldValue.serverTimestamp();
 
+    // When auto-pilot applies, include a user-facing notification
+    const notificationText = autoPilotEnabled
+      ? `Auto-applied: ${buildSummary(rec, 'template', 'applied', changes, templateName)}`
+      : null;
+
     const recommendationData = {
       id: recRef.id,
       created_at: now,
@@ -528,6 +533,8 @@ async function processTemplateScopedRecommendations(db, userId, triggerType, tri
         note: autoPilotEnabled ? 'Auto-applied' : 'Queued for review',
       }],
       applied_by: autoPilotEnabled ? 'agent' : null,
+      user_notification: notificationText,
+      notification_read: notificationText ? false : null,
     };
 
     // If auto-pilot, apply changes to template
