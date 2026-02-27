@@ -9,12 +9,12 @@ The Shell Agent is the single agent architecture that routes all user messages t
 | `agent.py` | ShellAgent class: ADK agent definition (gemini-2.5-flash, temp 0.3), before_model/before_tool callbacks for context injection |
 | `router.py` | Lane router: classifies messages into FAST/FUNCTIONAL/SLOW lanes, dispatches to handlers |
 | `context.py` | Per-request context via `ContextVar`. Thread-safe session context (`user_id`, `canvas_id`, `correlation_id`, `workout_mode`, `active_workout_id`, `today`). Required because Vertex AI Agent Engine is concurrent serverless — module globals leak across requests |
-| `tools.py` | ADK `FunctionTool` definitions wrapping skill modules. Tool registry (`all_tools`) consumed by `agent.py`. 20 tools: 10 read + 4 canvas write + 6 workout |
+| `tools.py` | ADK `FunctionTool` definitions wrapping skill modules. Tool registry (`all_tools`) consumed by `agent.py`. 20 tools: 10 read + 4 canvas write + 6 workout. `timed_tool` decorator logs `correlation_id` and `result_keys` for end-to-end tracing. `tool_add_exercise` supports `warmup_sets` parameter for ramp-up set generation via `_calculate_warmup_ramp()`. |
 | `functional_handler.py` | FUNCTIONAL lane: handles structured intent JSON (`SWAP_EXERCISE`, `ADJUST_LOAD`, etc.) |
 | `planner.py` | SLOW lane planning logic |
 | `critic.py` | Output quality validation |
 | `safety_gate.py` | Safety checks for write operations |
-| `instruction.py` | System instruction. Principles-over-rules design: teaches thinking patterns via examples with Think/Tool/Response chains. Includes DATE AWARENESS section (today from context prefix) and ACTIVE WORKOUT MODE section activated by workout_id in context. |
+| `instruction.py` | System instruction. Principles-over-rules design: teaches thinking patterns via examples with Think/Tool/Response chains. Includes DATE AWARENESS section (today from context prefix), ACTIVE WORKOUT MODE section activated by workout_id in context, BRIEF-FIRST REASONING rule (answer from workout brief before calling tools — reduces latency 50-70%), and WARM-UP PROTOCOL (standard ramp at 50/65/80% of working weight). |
 | `__init__.py` | Module exports |
 
 ## Routing Flow

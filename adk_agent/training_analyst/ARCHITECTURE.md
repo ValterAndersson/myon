@@ -41,7 +41,7 @@ Two specialized analyzers with distinct data budgets and LLM models.
 **Post-Workout Analyzer** (`post_workout.py`):
 - Model: `gemini-2.5-pro` (temperature=0.2)
 - Budget: ~18KB total
-- Reads: trimmed workout (~1.5KB) + 8 weeks rollups (~4KB) + 8 weeks exercise series (~10KB) + routine summary (~3KB) + exercise catalog (~1KB) + fatigue metrics (deterministic ACWR)
+- Reads: trimmed workout (~1.5KB) + 8 weeks rollups (~4KB) + 8 weeks exercise series (~10KB) + routine summary with full exercise lists (~4KB) + exercise catalog (~1KB) + fatigue metrics (deterministic ACWR)
 - Writes: `users/{uid}/analysis_insights/{autoId}` (TTL 7 days)
 - Output: summary, typed highlights, severity-flagged issues, confidence-scored recommendations
 - Recommendation types: `progression`, `deload`, `swap`, `volume_adjust`, `rep_progression`
@@ -116,6 +116,9 @@ make docker-push
 
 # Deploy all jobs
 make deploy
+
+# Deploy Cloud Scheduler triggers (run AFTER deploy)
+make deploy-schedulers
 
 # Trigger manually
 make trigger-worker

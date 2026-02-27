@@ -9,7 +9,7 @@ Firestore triggers that react to document lifecycle events. All triggers are v2 
 | `workout-routine-cursor.js` | `onDocumentCreated('users/{userId}/workouts/{workoutId}')` | Updates routine cursor (`last_completed_template_id`, `last_completed_at`) when a workout with `source_routine_id` is archived. Enables O(1) next-workout selection. |
 | `weekly-analytics.js` | Multiple triggers on `users/{userId}/workouts/{workoutId}` | Maintains `weekly_stats`, `analytics_series_exercise`, `analytics_series_muscle` collections. Handles workout created, completed, deleted events. Also exports scheduled `weeklyStatsRecalculation`. |
 | `muscle-volume-calculations.js` | `onTemplateCreated`, `onTemplateUpdated`, `onWorkoutCreated` | Computes template analytics (estimated duration, total sets, muscles) and workout analytics on document creation/update. |
-| `process-recommendations.js` | `onDocumentCreated('users/{userId}/analysis_insights/{insightId}')`, `onDocumentCreated('users/{userId}/weekly_reviews/{reviewId}')` | Translates training analysis outputs into actionable recommendations. Two paths: **template-scoped** (user has active routine — matches exercises to template sets, supports auto-pilot) and **exercise-scoped** (no routine — derives baseline weight from workout data, always pending_review). Also exports `expireStaleRecommendations` daily scheduled sweep. |
+| `process-recommendations.js` | `onDocumentCreated('users/{userId}/analysis_insights/{insightId}')`, `onDocumentCreated('users/{userId}/weekly_reviews/{reviewId}')` | Translates training analysis outputs into actionable recommendations. Three paths: **template-scoped** (user has active routine — matches exercises to template sets, supports auto-pilot), **exercise-scoped** (no routine — derives baseline weight from workout data, always pending_review), and **non-exercise-scoped** (muscle-group/routine-level recommendations — written directly, always pending_review). Swap recommendations are always pending_review (never auto-applied). Auto-applied recommendations include `user_notification` + `notification_read` for iOS banners. Also exports `expireStaleRecommendations` daily scheduled sweep. |
 
 ## Trigger → Collection Mapping
 
@@ -28,6 +28,7 @@ Firestore triggers that react to document lifecycle events. All triggers are v2 
 
 - **Best-effort**: `workout-routine-cursor.js` catches errors and logs rather than failing the trigger
 - **Idempotent**: `weekly-analytics.js` uses deterministic set IDs for upserts
+- **Separated error handling**: `weekly-analytics.js` splits rollup writes (CRITICAL — breaks ACWR) from per-muscle series writes (non-fatal) into separate try/catch blocks
 - **No auth**: Triggers don't need authentication middleware — they fire from trusted Firestore events
 
 ## Cross-References

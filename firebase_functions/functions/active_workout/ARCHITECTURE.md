@@ -97,6 +97,7 @@ Shared logic extracted to `../utils/active-workout-helpers.js`:
 - Request: `{ workout_id }`
 - Response: `{ success, data: { workout_id, archived } }`
 - Uses transaction with status guard (`status !== 'in_progress'` returns `{ already_completed: true }`) to prevent double-completion.
+- **Template weight sync**: After archiving, calls `syncTemplateWeightsFromWorkout()` to update the source template's working set weights to match the user's actual working weights. Transaction-wrapped, upward-only (never downgrades), non-fatal. Prevents the "ghost regression" problem where stale template weights cause incorrect analyst deloads.
 
 ### cancelActiveWorkout (HTTPS, v2)
 - Auth: flexible
