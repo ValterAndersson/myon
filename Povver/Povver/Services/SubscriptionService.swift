@@ -306,6 +306,7 @@ class SubscriptionService: ObservableObject {
     /// Sync subscription state to Firestore via Cloud Function.
     /// Only called when we have a positive StoreKit entitlement — never for free state.
     /// Uses syncSubscriptionStatus Cloud Function (Firestore rules block direct client writes).
+    /// Sends the Apple-signed JWS transaction for server-side verification.
     private func syncToFirestore() async {
         guard AuthService.shared.currentUser?.uid != nil else { return }
 
@@ -314,12 +315,28 @@ class SubscriptionService: ObservableObject {
         // Only sync positive entitlements (same guard as before)
         guard state.tier == .premium else { return }
 
+        // Get the latest verified transaction's JWS for server-side verification
+        var signedTransactionJWS: String?
+        for await result in StoreKit.Transaction.currentEntitlements {
+            if case .verified(let transaction) = result,
+               productIds.contains(transaction.productID) {
+                signedTransactionJWS = result.jwsRepresentation
+                break
+            }
+        }
+
+        guard let jwsString = signedTransactionJWS else {
+            AppLogger.shared.error(.store, "No signed transaction available for sync")
+            return
+        }
+
         struct SyncRequest: Encodable {
             let status: String
             let tier: String
             let autoRenewEnabled: Bool
             let inGracePeriod: Bool
             let productId: String?
+            let signedTransactionInfo: String
         }
 
         struct SyncResponse: Decodable {
@@ -331,7 +348,8 @@ class SubscriptionService: ObservableObject {
             tier: state.tier.rawValue,
             autoRenewEnabled: state.autoRenewEnabled,
             inGracePeriod: state.inGracePeriod,
-            productId: state.productId
+            productId: state.productId,
+            signedTransactionInfo: jwsString
         )
 
         do {

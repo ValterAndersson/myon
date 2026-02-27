@@ -390,7 +390,9 @@ class AuthService: ObservableObject {
 
     // MARK: - Account Deletion
 
-    /// Full deletion sequence: revoke Apple token if needed → delete Firestore data → delete auth account → end session.
+    /// Full deletion sequence: revoke Apple token → server-side data purge → end session.
+    /// Server-side deleteAccount Cloud Function handles all Firestore data deletion
+    /// (including admin-only collections) and Firebase Auth account deletion.
     func deleteAccount() async throws {
         guard let user = currentUser else { throw AuthServiceError.notSignedIn }
         let userId = user.uid
@@ -403,15 +405,24 @@ class AuthService: ObservableObject {
             }
         }
 
-        // Delete all Firestore data
-        try await UserRepository.shared.deleteUser(userId: userId)
+        // Server-side deletion — purges all Firestore data + deletes Firebase Auth account
+        struct DeleteResponse: Decodable {
+            let success: Bool
+            let data: DeleteData?
+            struct DeleteData: Decodable {
+                let deleted: Bool
+                let totalDeleted: Int
+            }
+        }
 
-        // Delete the Firebase Auth account
-        try await user.delete()
+        let _: DeleteResponse = try await ApiClient.shared.postJSON("deleteAccount", body: EmptyBody())
 
         // End the local session
         SessionManager.shared.endSession()
     }
+
+    /// Empty request body for endpoints that don't need parameters
+    private struct EmptyBody: Encodable {}
 
     // MARK: - Sign Out
 

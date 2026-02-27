@@ -1,13 +1,13 @@
 /**
  * sync-subscription-status.js - Route iOS subscription sync through Cloud Function
  *
- * Why: Task 1's Firestore rules block client writes to subscription fields.
- * iOS SubscriptionService.syncToFirestore() previously wrote directly to Firestore.
- * This function provides a secure write path for positive entitlements only.
+ * Why: Firestore rules block client writes to subscription fields.
+ * iOS SubscriptionService.syncToFirestore() calls this after StoreKit entitlement check.
  *
  * Security:
  * - Bearer lane only (userId from verified Firebase token)
  * - Rejects API key auth (only iOS app should call this)
+ * - REQUIRES signedTransactionInfo (Apple JWS) — verifies against Apple root certs
  * - Only accepts positive entitlements (tier=premium, status in active/trial/grace_period)
  * - Webhook remains authoritative for downgrades (client never writes tier=free)
  *
@@ -18,6 +18,7 @@ const { requireFlexibleAuth } = require('../auth/middleware');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
 const { ok, fail } = require('../utils/response');
+const { verifySignedTransaction } = require('./apple-verifier');
 
 const db = admin.firestore();
 
@@ -32,7 +33,33 @@ async function syncSubscriptionStatusHandler(req, res) {
     return fail(res, 'UNAUTHENTICATED', 'Bearer token required', null, 401);
   }
 
-  const { status, tier, autoRenewEnabled, inGracePeriod, productId } = req.body;
+  const { status, tier, autoRenewEnabled, inGracePeriod, productId, signedTransactionInfo } = req.body;
+
+  // CRITICAL: Require signed transaction proof from Apple
+  if (!signedTransactionInfo) {
+    logger.warn('[syncSubscriptionStatus] missing_signed_transaction', { userId });
+    return fail(res, 'INVALID_ARGUMENT',
+      'signedTransactionInfo is required', null, 400);
+  }
+
+  // Verify the transaction JWS against Apple root certificates
+  const decodedTransaction = await verifySignedTransaction(signedTransactionInfo);
+  if (!decodedTransaction) {
+    logger.warn('[syncSubscriptionStatus] transaction_verification_failed', { userId });
+    return fail(res, 'PERMISSION_DENIED',
+      'Transaction verification failed', null, 403);
+  }
+
+  // Verify the transaction belongs to our app's bundle ID
+  if (decodedTransaction.bundleId !== 'com.povver.Povver') {
+    logger.warn('[syncSubscriptionStatus] bundle_id_mismatch', {
+      userId,
+      expected: 'com.povver.Povver',
+      got: decodedTransaction.bundleId,
+    });
+    return fail(res, 'PERMISSION_DENIED',
+      'Transaction bundle ID mismatch', null, 403);
+  }
 
   // Only allow syncing POSITIVE entitlements from client
   // (webhook is authoritative for downgrades; client sync is a courtesy for faster UI)
@@ -58,7 +85,12 @@ async function syncSubscriptionStatusHandler(req, res) {
       subscription_updated_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    logger.info('[syncSubscriptionStatus] synced', { userId, tier, status });
+    logger.info('[syncSubscriptionStatus] synced', {
+      userId,
+      tier,
+      status,
+      transactionId: decodedTransaction.originalTransactionId,
+    });
     return ok(res, { synced: true });
   } catch (error) {
     logger.error('[syncSubscriptionStatus] error', { userId, error: error.message });

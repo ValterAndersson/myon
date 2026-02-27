@@ -28,6 +28,7 @@ const { updateUser } = require('./user/update-user');
 const { getUserPreferences } = require('./user/get-preferences');
 const { updateUserPreferences } = require('./user/update-preferences');
 const { upsertUserAttributes } = require('./user/upsert-attributes');
+const { deleteAccount } = require('./user/delete-account');
 
 // Workout Operations  
 const { getUserWorkouts } = require('./workouts/get-user-workouts');
@@ -156,6 +157,8 @@ exports.getUserPreferences = functions.https.onRequest((req, res) => withApiKey(
 // updateUserPreferences is a v2 onRequest with requireFlexibleAuth — called by iOS app
 exports.updateUserPreferences = updateUserPreferences;
 exports.upsertUserAttributes = functions.https.onRequest((req, res) => withApiKey(upsertUserAttributes)(req, res));
+// Account deletion — v2 onRequest with requireFlexibleAuth (bearer only, iOS app)
+exports.deleteAccount = deleteAccount;
 
 // Workout Operations
 exports.getUserWorkouts = functions.https.onRequest((req, res) => withApiKey(getUserWorkouts)(req, res));
