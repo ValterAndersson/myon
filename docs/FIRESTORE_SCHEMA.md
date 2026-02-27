@@ -1128,7 +1128,7 @@ Notes:
 
 ## Security Rules (firestore.rules)
 
-- `users/{uid}/conversations/**`: read allowed to the authenticated owner; writes to `messages` allowed by owner; writes to `artifacts` disallowed directly (managed by agent via Functions).
+- `users/{uid}/conversations/**`: read allowed to the authenticated owner; writes to `messages` and `artifacts` disallowed directly (Admin SDK only — agent writes via Functions).
 - `users/{uid}/canvases/**` (DEPRECATED): read allowed to the authenticated owner; writes are disallowed directly (single-writer via Functions only). All canvas mutations flow through HTTPS endpoints (e.g., `applyAction`, `proposeCards`, `bootstrapCanvas`).
 - `users/{uid}/exercise_usage_stats/**`: read allowed to the authenticated owner; writes disallowed directly (admin SDK only via triggers and backfill scripts).
 - Other user subcollections under `users/{uid}`: read/write allowed to the authenticated owner (excluding `canvases`, `artifacts`, and `exercise_usage_stats`). This includes `workouts`, `weekly_stats`, `templates`, `routines`, `user_attributes`, `linked_devices`, `progress_reports`, `active_workouts`, `agent_sessions`, and analytics collections under `analytics_*` prefixes.
@@ -1136,9 +1136,9 @@ Notes:
 - Analytics: lives under `users/{uid}/analytics_*` and inherits owner read/write. Backend Functions (triggers/HTTPS) write these docs on behalf of the user.
 
 Implications:
-- Client apps can write user messages to `users/{uid}/conversations/{conversationId}/messages` directly.
-- Client apps should not attempt to write artifacts or canvas data directly.
-- Direct client reads of conversations, artifacts, and canvases are supported (for UI live updates).
+- Client apps should not attempt to write messages, artifacts, or canvas data directly (Admin SDK only).
+- Direct client reads of conversations, messages, artifacts, and canvases are supported (for UI live updates).
+- Account deletion uses the `deleteAccount` Cloud Function (Admin SDK) which purges all subcollections including admin-only ones.
 
 ---
 

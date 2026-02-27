@@ -45,13 +45,13 @@ async function syncSubscriptionStatusHandler(req, res) {
   // Verify the transaction JWS against Apple root certificates
   const decodedTransaction = await verifySignedTransaction(signedTransactionInfo);
   if (!decodedTransaction) {
-    logger.warn('[syncSubscriptionStatus] transaction_verification_failed', { userId });
+    logger.error('[syncSubscriptionStatus] transaction_verification_failed', { userId });
     return fail(res, 'PERMISSION_DENIED',
       'Transaction verification failed', null, 403);
   }
 
   // Verify the transaction belongs to our app's bundle ID
-  if (decodedTransaction.bundleId !== 'com.povver.Povver') {
+  if (!decodedTransaction.bundleId || decodedTransaction.bundleId !== 'com.povver.Povver') {
     logger.warn('[syncSubscriptionStatus] bundle_id_mismatch', {
       userId,
       expected: 'com.povver.Povver',

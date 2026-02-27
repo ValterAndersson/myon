@@ -61,8 +61,9 @@ const NESTED_SUBCOLLECTIONS = {
 async function deleteCollection(collectionRef) {
   let deleted = 0;
   const batchSize = 500;
+  const maxBatches = 200; // Safety limit: 200 × 500 = 100,000 docs max
 
-  while (true) {
+  for (let i = 0; i < maxBatches; i++) {
     const snapshot = await collectionRef.limit(batchSize).get();
     if (snapshot.empty) break;
 
@@ -159,7 +160,7 @@ async function deleteAccountHandler(req, res) {
 }
 
 const fn = onRequest(
-  { timeoutSeconds: 60, memory: '512MiB' },
+  { timeoutSeconds: 120, memory: '512MiB' },
   requireFlexibleAuth(deleteAccountHandler)
 );
 
