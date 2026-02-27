@@ -143,9 +143,12 @@ async function getPlanningContextHandler(req, res) {
 
     // Get user attributes
     const attrsDoc = await firestore.collection('users').doc(callerUid).collection('user_attributes').doc(callerUid).get();
+    // Strip sensitive internal fields before including in agent context
+    const { subscription_original_transaction_id, subscription_app_account_token,
+      apple_authorization_code, subscription_environment, ...safeUser } = user;
     result.user = {
       id: callerUid,
-      ...user,
+      ...safeUser,
       attributes: attrsDoc.exists ? attrsDoc.data() : null
     };
 

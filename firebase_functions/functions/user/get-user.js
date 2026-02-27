@@ -122,7 +122,6 @@ async function getUserHandler(req, res) {
       return res.status(404).json({
         success: false,
         error: 'User not found',
-        userId: userId
       });
     }
 
@@ -170,9 +169,21 @@ async function getUserHandler(req, res) {
       locale: user.locale || userAttributes?.locale || null
     };
 
+    // Strip sensitive internal fields before returning to client
+    const SENSITIVE_FIELDS = [
+      'subscription_original_transaction_id',
+      'subscription_app_account_token',
+      'apple_authorization_code',
+      'subscription_environment',
+    ];
+    const sanitizedUser = { ...user };
+    for (const field of SENSITIVE_FIELDS) {
+      delete sanitizedUser[field];
+    }
+
     const response = {
       success: true,
-      data: user,
+      data: sanitizedUser,
       context: {
         recentWorkoutsCount: recentWorkouts.length,
         lastWorkoutDate: recentWorkouts[0]?.end_time || null,
@@ -200,10 +211,7 @@ async function getUserHandler(req, res) {
       }
     };
 
-    // Add requestedBy only for Firebase Auth (has email)
-    if (req.auth?.email) {
-      response.metadata.requestedBy = req.auth.email;
-    }
+    // Never expose email in API responses — available in server logs if needed
 
     // Cache the results for future requests (async, don't wait)
     response.metadata.source = 'fresh';
@@ -217,9 +225,6 @@ async function getUserHandler(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to get user profile',
-      details: error.message,
-      function: 'get-user',
-      timestamp: new Date().toISOString()
     });
   }
 }

@@ -916,15 +916,27 @@ async function streamAgentNormalizedHandler(req, res) {
   }, 2500);
 
   const finalizeWorkspaceWrites = () => Promise.allSettled(workspaceWrites).catch(() => {});
+  let clientDisconnected = false;
 
   const done = (ok = true, err) => {
     clearInterval(hb);
-    if (err) {
-      sse.write({ type: 'error', error: String(err.message || err) });
+    if (!clientDisconnected) {
+      if (err) {
+        sse.write({ type: 'error', error: String(err.message || err) });
+      }
+      sse.write({ type: 'done' });
     }
-    sse.write({ type: 'done' });
     finalizeWorkspaceWrites().finally(() => sse.close());
   };
+
+  // Clean up on client disconnect — prevents zombie connections from exhausting maxInstances
+  req.on('close', () => {
+    if (!clientDisconnected) {
+      clientDisconnected = true;
+      clearInterval(hb);
+      logger.info('[streamAgentNormalized] client_disconnected', { userId: 'pending' });
+    }
+  });
 
   try {
     // Dual auth: Bearer lane → req.auth.uid, API key lane → X-User-Id header or body

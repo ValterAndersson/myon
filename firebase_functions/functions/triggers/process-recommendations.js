@@ -85,11 +85,28 @@ const onAnalysisInsightCreated = onDocumentCreated(
         return;
       }
 
-      await processActionableRecommendations(userId, 'post_workout', {
-        insight_id: insightId,
-        workout_id: insight.workout_id,
-        workout_date: insight.workout_date,
-      }, actionable);
+      const exerciseScoped = actionable.filter(rec =>
+        !isMuscleOrRoutineTarget(rec.target)
+      );
+      const nonExerciseScoped = actionable.filter(rec =>
+        isMuscleOrRoutineTarget(rec.target)
+      );
+
+      if (exerciseScoped.length > 0) {
+        await processActionableRecommendations(userId, 'post_workout', {
+          insight_id: insightId,
+          workout_id: insight.workout_id,
+          workout_date: insight.workout_date,
+        }, exerciseScoped);
+      }
+
+      if (nonExerciseScoped.length > 0) {
+        await writeNonExerciseRecommendations(userId, 'post_workout', {
+          insight_id: insightId,
+          workout_id: insight.workout_id,
+          workout_date: insight.workout_date,
+        }, nonExerciseScoped);
+      }
     } catch (error) {
       logger.error('[onAnalysisInsightCreated] Error processing insight', {
         userId,
