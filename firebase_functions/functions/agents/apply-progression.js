@@ -177,7 +177,7 @@ async function applyProgressionHandler(req, res) {
     
   } catch (error) {
     logger.error('[applyProgression] Unexpected error', { error: error.message, stack: error.stack });
-    return res.status(500).json({ error: 'INTERNAL', message: error.message });
+    return res.status(500).json({ error: 'INTERNAL', message: 'Internal error' });
   }
 }
 

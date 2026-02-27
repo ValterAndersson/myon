@@ -4,7 +4,7 @@
     node functions/scripts/seed_canvas.js <USER_ID> <CANVAS_ID> [BASE_URL]
 
   Notes:
-  - Requires API key header 'X-API-Key'. Set env MYON_API_KEY (defaults to 'myon-agent-key-2024').
+  - Requires API key header 'X-API-Key'. Set env MYON_API_KEY before running.
   - Do NOT run from the iOS app. This is a developer-only seeding tool.
 */
 const axios = require('axios');
@@ -16,7 +16,8 @@ async function main() {
     process.exit(1);
   }
   const base = baseUrlArg || 'https://us-central1-myon-53d85.cloudfunctions.net';
-  const apiKey = process.env.MYON_API_KEY || 'myon-agent-key-2024';
+  const apiKey = process.env.MYON_API_KEY;
+  if (!apiKey) { console.error('Set MYON_API_KEY env var'); process.exit(1); }
 
   const url = `${base}/proposeCards`;
   const headers = {

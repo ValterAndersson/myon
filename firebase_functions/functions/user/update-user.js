@@ -89,9 +89,6 @@ async function updateUserHandler(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to update user',
-      details: error.message,
-      function: 'update-user',
-      timestamp: new Date().toISOString()
     });
   }
 }

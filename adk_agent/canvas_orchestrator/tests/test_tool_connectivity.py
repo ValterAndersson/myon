@@ -19,7 +19,7 @@ Usage:
 Environment:
     TEST_USER_ID: Firebase UID to test with (default: Y4SJuNPOasaltF7TuKm1QCT7JIA3)
     MYON_FUNCTIONS_BASE_URL: Firebase Functions base URL (default: production)
-    MYON_API_KEY: API key (default: myon-agent-key-2024)
+    MYON_API_KEY: API key (required — set in env)
 """
 
 import os
@@ -41,7 +41,7 @@ BASE_URL = os.getenv(
     "MYON_FUNCTIONS_BASE_URL",
     "https://us-central1-myon-53d85.cloudfunctions.net",
 )
-API_KEY = os.getenv("MYON_API_KEY", "myon-agent-key-2024")
+API_KEY = os.environ["MYON_API_KEY"]  # Required — set in env, never hardcode
 
 
 def safe_call(fn, *args, **kwargs):

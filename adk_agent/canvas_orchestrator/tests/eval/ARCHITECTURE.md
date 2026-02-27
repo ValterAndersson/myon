@@ -177,7 +177,7 @@ Aggregated scores: overall avg/min/max/pass_rate, per-category breakdown, per-di
 |----------|---------|---------|
 | `TEST_USER_ID` | `Y4SJuNPOasaltF7TuKm1QCT7JIA3` | Firebase UID for eval requests |
 | `MYON_FUNCTIONS_BASE_URL` | `https://us-central1-myon-53d85.cloudfunctions.net` | Firebase Functions endpoint |
-| `MYON_API_KEY` | `myon-agent-key-2024` | API key for `X-API-Key` header |
+| `MYON_API_KEY` | *(required — set in env)* | API key for `X-API-Key` header |
 | `TEST_CANVAS_ID` | `eval-suite` | Canvas/conversation ID |
 
 The judge uses `gcloud auth print-access-token` for Vertex AI API calls (gemini-2.5-flash). Ensure `gcloud auth login` has been run.

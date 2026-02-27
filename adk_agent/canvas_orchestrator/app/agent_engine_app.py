@@ -468,7 +468,9 @@ def deploy_canvas_orchestrator(
     env_vars = {k: v for k, v in env_vars.items() if str(v).strip() != ""}
     env_vars.setdefault("NUM_WORKERS", "1")
     env_vars.setdefault("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
-    env_vars.setdefault("FIREBASE_API_KEY", "myon-agent-key-2024")
+    if "FIREBASE_API_KEY" not in env_vars and not os.getenv("FIREBASE_API_KEY"):
+        raise RuntimeError("FIREBASE_API_KEY env var is required for deployment")
+    env_vars.setdefault("FIREBASE_API_KEY", os.getenv("FIREBASE_API_KEY", ""))
 
     existing = list(agent_engines.list(filter=f"display_name={agent_name}"))
     if existing:

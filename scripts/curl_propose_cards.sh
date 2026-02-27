@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE="https://us-central1-myon-53d85.cloudfunctions.net"
-API_KEY="${MYON_API_KEY:-myon-agent-key-2024}"
+API_KEY="${MYON_API_KEY:?Set MYON_API_KEY env var}"
 USER_ID="${1:?usage: $0 <userId> <canvasId> [text]}"; shift || true
 CANVAS_ID="${1:?usage: $0 <userId> <canvasId> [text]}"; shift || true
 TEXT="${1:-ping from script}"

@@ -321,7 +321,7 @@ async function preWarmSessionHandler(req, res) {
     });
   } catch (error) {
     logger.error('[preWarmSession] Error', { error: error.message });
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }
 

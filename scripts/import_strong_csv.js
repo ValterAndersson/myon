@@ -58,7 +58,8 @@ function getFirestore() {
 }
 
 const API_BASE_URL = 'https://us-central1-myon-53d85.cloudfunctions.net';
-const API_KEY = 'myon-agent-key-2024';
+const API_KEY = process.env.MYON_API_KEY;
+if (!API_KEY) { console.error('Set MYON_API_KEY env var'); process.exit(1); }
 
 // Manual overrides for Strong exercise names that the auto-matcher gets wrong.
 // Key: exact Strong CSV exercise name, Value: correct catalog exercise ID.

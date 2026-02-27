@@ -247,7 +247,7 @@ exports.getExerciseSeries = onCall(async (request) => {
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     console.error('Error in getExerciseSeries:', error);
-    throw new HttpsError('internal', error.message);
+    throw new HttpsError('internal', 'Internal error');
   }
 });
 
@@ -289,7 +289,7 @@ exports.getMuscleGroupSeries = onCall(async (request) => {
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     console.error('Error in getMuscleGroupSeries:', error);
-    throw new HttpsError('internal', error.message);
+    throw new HttpsError('internal', 'Internal error');
   }
 });
 
@@ -331,6 +331,6 @@ exports.getMuscleSeries = onCall(async (request) => {
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     console.error('Error in getMuscleSeries:', error);
-    throw new HttpsError('internal', error.message);
+    throw new HttpsError('internal', 'Internal error');
   }
 });

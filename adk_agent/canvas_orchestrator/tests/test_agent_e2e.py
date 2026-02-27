@@ -28,7 +28,7 @@ from app.shell.instruction import SHELL_INSTRUCTION
 USER_ID = "xLRyVOI0XKSFsTXSFbGSvui8FJf2"
 MODEL = "gemini-2.5-flash"
 BASE_URL = "https://us-central1-myon-53d85.cloudfunctions.net"
-API_KEY = "myon-agent-key-2024"
+API_KEY = os.environ["MYON_API_KEY"]  # Required — set in env, never hardcode
 
 # Baseline queries — the bread-and-butter that must never regress
 QUERIES_BASELINE = [

@@ -227,7 +227,7 @@ See [CLAUDE.md — Service Account Keys](../../CLAUDE.md#service-account-keys) f
 ### Emulator
 Run Functions + Firestore emulators and the test suite:
 ```
-VALID_API_KEYS=myon-agent-key-2024 FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
+VALID_API_KEYS=$MYON_API_KEY FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 \
   firebase emulators:exec --project demo-myon --only functions,firestore \
   'npm --prefix functions test | cat'
 ```

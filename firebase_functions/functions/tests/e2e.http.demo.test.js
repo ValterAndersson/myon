@@ -4,7 +4,7 @@ const axios = require('axios');
 
 const PROJECT = process.env.FB_EMU_PROJECT || 'demo-myon';
 const BASE = `http://127.0.0.1:5001/${PROJECT}/us-central1`;
-const API_KEY = 'myon-agent-key-2024';
+const API_KEY = process.env.VALID_API_KEYS?.split(',')[0] || 'test-key';
 const USER_ID = 'u1';
 const headers = { 'X-API-Key': API_KEY, 'X-User-Id': USER_ID };
 

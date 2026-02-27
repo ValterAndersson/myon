@@ -49,7 +49,10 @@ def _get_base_url() -> str:
 
 def _get_api_key() -> str:
     """Get the API key for Firebase functions."""
-    return os.getenv("MYON_API_KEY", "myon-agent-key-2024")
+    key = os.getenv("MYON_API_KEY")
+    if not key:
+        raise RuntimeError("MYON_API_KEY env var is required")
+    return key
 
 
 async def apply_progression(

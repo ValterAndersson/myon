@@ -57,7 +57,7 @@ BASE_URL = os.getenv(
     "MYON_FUNCTIONS_BASE_URL",
     "https://us-central1-myon-53d85.cloudfunctions.net",
 )
-API_KEY = os.getenv("MYON_API_KEY", "myon-agent-key-2024")
+API_KEY = os.environ["MYON_API_KEY"]  # Required — set in env, never hardcode
 CANVAS_ID = os.getenv("TEST_CANVAS_ID", "eval-suite")
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"

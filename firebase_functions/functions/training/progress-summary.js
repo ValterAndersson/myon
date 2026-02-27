@@ -254,7 +254,7 @@ exports.getMuscleGroupSummary = onRequest(requireFlexibleAuth(async (req, res) =
     
   } catch (error) {
     console.error('Error in getMuscleGroupSummary:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }));
 
@@ -362,7 +362,7 @@ exports.getMuscleSummary = onRequest(requireFlexibleAuth(async (req, res) => {
     
   } catch (error) {
     console.error('Error in getMuscleSummary:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }));
 
@@ -509,6 +509,6 @@ exports.getExerciseSummary = onRequest(requireFlexibleAuth(async (req, res) => {
     
   } catch (error) {
     console.error('Error in getExerciseSummary:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }));

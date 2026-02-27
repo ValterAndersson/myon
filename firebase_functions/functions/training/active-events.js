@@ -212,6 +212,6 @@ exports.getActiveEvents = onCall(async (request) => {
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     console.error('Error in getActiveEvents:', error);
-    throw new HttpsError('internal', `Failed to get events: ${error.message}`);
+    throw new HttpsError('internal', 'Failed to get events');
   }
 });

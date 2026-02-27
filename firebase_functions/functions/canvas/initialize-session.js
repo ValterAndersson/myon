@@ -147,10 +147,9 @@ async function initializeSessionHandler(req, res) {
     });
 
   } catch (error) {
-    logger.error('[initializeSession] Error', { error: error.message, stack: error.stack });
+    logger.error('[initializeSession] Error', { error: error.message });
     return res.status(500).json({
       error: 'Failed to initialize session',
-      details: error.message
     });
   }
 }

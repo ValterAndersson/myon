@@ -17,13 +17,13 @@ deploy:
 		--project myon-53d85 \
 		--location us-central1 \
 		--agent-name canvas-orchestrator \
-		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024},MYON_API_KEY=$${MYON_API_KEY:-myon-agent-key-2024},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine},ENABLE_USAGE_TRACKING=true
+		--set-env-vars FIREBASE_API_KEY=$${FIREBASE_API_KEY:?Set FIREBASE_API_KEY env var},MYON_API_KEY=$${MYON_API_KEY:?Set MYON_API_KEY env var},MYON_FUNCTIONS_BASE_URL=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net},PIPELINE_USER_ID=$${PIPELINE_USER_ID:-canvas_orchestrator_engine},ENABLE_USAGE_TRACKING=true
 
 bootstrap:
 	@USER_ID=$${USER_ID:-canvas_orchestrator_engine}; \
 	PURPOSE=$${PURPOSE:-workout}; \
 	BASE=$${MYON_FUNCTIONS_BASE_URL:-https://us-central1-myon-53d85.cloudfunctions.net}; \
-	KEY=$${FIREBASE_API_KEY:-myon-agent-key-2024}; \
+	KEY=$${FIREBASE_API_KEY:?Set FIREBASE_API_KEY env var}; \
 	CANVAS_ID=$$(curl -s -X POST "$$BASE/bootstrapCanvas" -H "X-API-Key: $$KEY" -H "Content-Type: application/json" -d '{"userId":"'"$$USER_ID"'","purpose":"'"$$PURPOSE"'"}' | jq -r '.data.canvasId'); \
 	echo "Bootstrapped canvas: $$CANVAS_ID"; \
 	export TEST_CANVAS_ID=$$CANVAS_ID; \

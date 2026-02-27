@@ -9,7 +9,8 @@
 // - Run analytics controller
 
 const API_BASE_URL = 'https://us-central1-myon-53d85.cloudfunctions.net';
-const API_KEY = 'myon-agent-key-2024';
+const API_KEY = process.env.MYON_API_KEY;
+if (!API_KEY) { console.error('Set MYON_API_KEY env var'); process.exit(1); }
 
 function randomId(len = 6) {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';

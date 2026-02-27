@@ -35,7 +35,9 @@ def _get_client() -> CanvasFunctionsClient:
     global _client
     if _client is None:
         base_url = os.getenv("MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net")
-        api_key = os.getenv("MYON_API_KEY", "myon-agent-key-2024")
+        api_key = os.getenv("MYON_API_KEY")
+        if not api_key:
+            raise RuntimeError("MYON_API_KEY env var is required")
         _client = CanvasFunctionsClient(base_url=base_url, api_key=api_key)
     return _client
 

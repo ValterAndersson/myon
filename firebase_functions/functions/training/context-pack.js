@@ -246,7 +246,7 @@ exports.getCoachingPack = onRequest(requireFlexibleAuth(async (req, res) => {
     
   } catch (error) {
     console.error('Error in getCoachingPack:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }));
 
@@ -316,6 +316,6 @@ exports.getActiveSnapshotLite = onRequest(requireFlexibleAuth(async (req, res) =
     
   } catch (error) {
     console.error('Error in getActiveSnapshotLite:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: 'Internal error' });
   }
 }));

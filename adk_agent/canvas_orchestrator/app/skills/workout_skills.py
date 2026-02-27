@@ -94,7 +94,9 @@ def get_weight_unit() -> str:
 MYON_FUNCTIONS_BASE_URL = os.getenv(
     "MYON_FUNCTIONS_BASE_URL", "https://us-central1-myon-53d85.cloudfunctions.net"
 )
-FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "myon-agent-key-2024")
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
+if not FIREBASE_API_KEY:
+    raise RuntimeError("FIREBASE_API_KEY env var is required")
 
 
 _client = None
