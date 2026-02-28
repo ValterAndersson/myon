@@ -11,7 +11,7 @@ import UIKit
 ///   WorkoutSessionLogger.shared.end(outcome: .completed)
 ///
 /// Files are stored at:
-///   <Documents>/workout_logs/<workoutId>_<date>.json
+///   <Caches>/workout_logs/<workoutId>_<date>.json
 final class WorkoutSessionLogger {
     static let shared = WorkoutSessionLogger()
 
@@ -241,8 +241,10 @@ final class WorkoutSessionLogger {
     // MARK: - Private Helpers
 
     private func logDirectory() -> URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let dir = docs.appendingPathComponent("workout_logs", isDirectory: true)
+        // Use Caches — not included in iCloud/iTunes backups, appropriate for
+        // diagnostic workout logs containing health-adjacent data (weights, reps).
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("workout_logs", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
