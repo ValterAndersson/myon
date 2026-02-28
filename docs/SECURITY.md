@@ -6,7 +6,7 @@
 > when modifying any layer of the Povver system. Violations of these invariants can expose
 > user data, enable privilege escalation, or create financial liability.
 >
-> **Last Updated**: 2026-02-26
+> **Last Updated**: 2026-02-28
 
 ---
 
@@ -22,7 +22,9 @@ These are non-negotiable. If a change would require violating one, stop and disc
 | S4 | **LLM output does not control auth, subscription, or cross-user data access** | Auth enforced at Firebase Functions layer, not in agent |
 | S5 | **API keys are loaded from environment variables, never hardcoded** | `process.env.VALID_API_KEYS` in middleware |
 | S6 | **Firestore read-then-write must be inside `runTransaction`** | Convention enforced by code review |
-| S7 | **App Store webhook payloads are JWS-verified in production** | `SignedDataVerifier` in `app-store-webhook.js` |
+| S7 | **App Store webhook payloads are JWS-verified in production** | `SignedDataVerifier` via shared `apple-verifier.js` module |
+| S8 | **Subscription sync requires Apple-signed proof** | `syncSubscriptionStatus` verifies JWS before writing |
+| S9 | **Conversation messages are Admin SDK only** | Firestore rules: `allow write: if false` on messages subcollection |
 
 ---
 
@@ -96,6 +98,11 @@ Rules are in `firebase_functions/firestore.rules`. Key protections:
 - **Create**: Owner only, subscription fields blocked (can't self-grant premium)
 - **Update**: Owner only, subscription fields blocked via `diff().affectedKeys()` check
 
+### Conversation Messages (`users/{uid}/conversations/{cid}/messages`)
+
+- **Read**: Owner only
+- **Write**: `allow write: if false` — Admin SDK only. Messages are written by `streamAgentNormalized` Cloud Function. This prevents clients from injecting fake AI responses into the conversation history.
+
 Blocked fields on create/update:
 ```
 subscription_tier, subscription_override, subscription_status,
@@ -167,10 +174,29 @@ iOS SubscriptionService      ← Mirrors StoreKit state, syncs POSITIVE entitlem
 ### Webhook Security
 
 - **JWS verification**: All webhook payloads are verified using Apple root certificates (`AppleRootCA-G2.cer`, `AppleRootCA-G3.cer`) via `@apple/app-store-server-library`
+- **Shared verifier module**: `subscriptions/apple-verifier.js` exports `verifySignedTransaction()` and `verifySignedNotification()`, used by both the webhook and `syncSubscriptionStatus`
 - **Fail-secure**: If the verifier is unavailable in production, webhooks are rejected (not silently accepted)
 - **Emulator fallback**: Insecure base64 decode only when `FUNCTIONS_EMULATOR=true`
 - **Replay protection**: `notificationUUID` tracked in `processed_webhook_notifications` collection (90-day TTL)
 - **Always returns 200**: Apple retries non-200s indefinitely
+
+### Subscription Sync Security
+
+`syncSubscriptionStatus` (iOS → server positive entitlement sync) enforces:
+
+- **Bearer-lane only** — rejects API key authentication
+- **Apple JWS required** — client must send `signedTransactionInfo` (Apple-signed JWS from StoreKit 2). Server verifies against Apple root certificates before writing
+- **Bundle ID validation** — decoded transaction must have `bundleId === 'com.povver.Povver'`
+- **Positive-only** — only accepts `tier=premium` with `status` in `active/trial/grace_period`. Client cannot downgrade; webhook is authoritative for downgrades
+
+### Account Deletion
+
+`deleteAccount` Cloud Function (App Store Guideline 5.1.1(v)):
+
+- **Bearer-lane only** — user can only delete their own account
+- **Admin SDK** — uses Admin SDK to delete subcollections blocked by Firestore rules (conversations, canvases, agent_sessions, subscription_events, etc.)
+- **Complete purge** — deletes 20+ subcollections, nested sub-subcollections (messages, artifacts, cards), cache entries, the user document, and Firebase Auth account
+- **Safety bounds** — batch delete loop capped at 200 iterations (100,000 docs), function timeout 120s
 
 ---
 
@@ -250,6 +276,18 @@ The LLM (Gemini via Vertex AI Agent Engine) operates within constrained boundari
 - Rate limiting (120 req/hour per user)
 - Premium gate (free users can't access agent)
 - Input validation on all tool parameters
+
+---
+
+## Health Data Protection
+
+Workout data (exercise names, weights, reps) is technically health-adjacent data. Protections in place:
+
+- **Firestore**: All workout data under `users/{uid}/` with owner-only access rules
+- **Agent isolation**: userId from `ContextVar`, never passed as tool parameter — prevents cross-user leakage
+- **On-device logs**: `WorkoutSessionLogger` writes to `Caches/workout_logs/` (not included in iCloud/iTunes backups). Contains exercise names, weights, reps for diagnostic purposes only
+- **Crash reporting**: No workout data sent to Crashlytics — only breadcrumb event types (e.g., "set_logged") without health payloads
+- **Privacy manifest**: `PrivacyInfo.xcprivacy` declares collected data types including fitness data, with `NSPrivacyCollectedDataTypePurposes` set to app functionality (not tracking)
 
 ---
 

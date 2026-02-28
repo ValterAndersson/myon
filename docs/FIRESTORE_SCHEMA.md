@@ -1151,7 +1151,7 @@ Implications:
 - Conversations:
   - Read messages: `users/{uid}/conversations/{conversationId}/messages` ordered by `created_at`.
   - Read artifacts: `users/{uid}/conversations/{conversationId}/artifacts` filtered by `status='proposed'` for pending items.
-  - Write user messages: client writes directly to `messages` subcollection.
+  - Write messages: Admin SDK only (via `streamAgentNormalized` Cloud Function). Firestore rules block direct client writes to prevent message injection.
   - Agent artifacts: written by agent tools via Functions, client reads for UI updates.
 - Canvas (DEPRECATED):
   - Reducer transaction updates `users/{uid}/canvases/{canvasId}` and subcollections (`cards`, `up_next`, `events`, `idempotency`).

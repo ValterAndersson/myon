@@ -42,7 +42,7 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 
 | Domain | Functions | Auth Type |
 |--------|-----------|-----------|
-| **User** | `getUser`, `updateUser`, `getUserPreferences`, `updateUserPreferences`, `upsertUserAttributes` | API Key |
+| **User** | `getUser`, `updateUser`, `getUserPreferences`, `updateUserPreferences`, `upsertUserAttributes`, `deleteAccount` | API Key / Flexible |
 | **Workouts** | `getUserWorkouts`, `getWorkout`, `upsertWorkout`, `deleteWorkout` | API Key / Flexible |
 | **Templates** | `getUserTemplates`, `getTemplate`, `createTemplate`, `updateTemplate`, `deleteTemplate`, `createTemplateFromPlan`, `patchTemplate` | API Key / Flexible |
 | **Routines** | `getUserRoutines`, `getRoutine`, `createRoutine`, `updateRoutine`, `deleteRoutine`, `getActiveRoutine`, `setActiveRoutine`, `getNextWorkout`, `patchRoutine` | API Key / Flexible |
@@ -51,7 +51,7 @@ Firebase Functions serve as the backend API layer for the Povver fitness platfor
 | **Sessions** | `initializeSession`, `preWarmSession`, `cleanupSessions` | Flexible Auth / Scheduled |
 | **Active Workout** | `startActiveWorkout`, `getActiveWorkout`, `logSet`, `completeCurrentSet`, `addExercise`, `swapExercise`, `completeActiveWorkout`, `cancelActiveWorkout`, `proposeSession`, `patchActiveWorkout`, `autofillExercise` | Flexible Auth |
 | **Agents** | `invokeAgent`, `getPlanningContext`, `streamAgentNormalized` | Flexible Auth |
-| **Subscriptions** | `appStoreWebhook` | None (Apple calls directly) |
+| **Subscriptions** | `appStoreWebhook`, `syncSubscriptionStatus` | None (webhook) / Flexible (sync) |
 | **Analytics** | `runAnalyticsForUser`, `compactAnalyticsForUser`, `recalculateWeeklyForUser` | Flexible Auth |
 | **Training Analysis** | `getAnalysisSummary`, `getMuscleGroupSummary`, `getMuscleSummary`, `getExerciseSummary`, `querySets`, `aggregateSets`, `getActiveSnapshotLite`, `getActiveEvents` | Flexible Auth |
 
@@ -445,7 +445,7 @@ Completed workout history management. Auth: `requireFlexibleAuth` (Bearer lane).
 **Input**: `{ signedPayload: string }` (JWS-signed notification from Apple)
 
 **Processing**:
-1. Decodes outer JWS notification (currently base64 decode; production should use `SignedDataVerifier` with Apple root certs)
+1. Verifies outer JWS notification using Apple root certificates via shared `apple-verifier.js` module
 2. Decodes `signedTransactionInfo` and `signedRenewalInfo` from inner JWS payloads
 3. Looks up user by `subscription_app_account_token` (lowercased UUID v5), fallback by `subscription_original_transaction_id`
 4. Maps notification type to subscription field updates (see notification mapping in `SYSTEM_ARCHITECTURE.md`)
@@ -555,7 +555,9 @@ firebase_functions/functions/
 │   └── stream-agent-normalized.js  # SSE proxy with artifact detection + premium gate
 ├── subscriptions/              # Subscription management
 │   ├── ARCHITECTURE.md         # Tier 2 module docs
-│   └── app-store-webhook.js    # App Store Server Notifications V2 handler
+│   ├── apple-verifier.js       # Shared Apple JWS verification (SignedDataVerifier)
+│   ├── app-store-webhook.js    # App Store Server Notifications V2 handler
+│   └── sync-subscription-status.js  # iOS → server positive entitlement sync (JWS-verified)
 ├── templates/                  # Template operations
 │   ├── create-template-from-plan.js
 │   ├── create-template.js
@@ -571,6 +573,7 @@ firebase_functions/functions/
 │   ├── weekly-analytics.js
 │   └── workout-routine-cursor.js
 ├── user/                       # User operations
+│   ├── delete-account.js       # Server-side account deletion (Admin SDK, App Store 5.1.1(v))
 │   ├── get-preferences.js
 │   ├── get-user.js
 │   ├── update-preferences.js

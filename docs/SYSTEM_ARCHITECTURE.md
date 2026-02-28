@@ -5,7 +5,7 @@
 > This document is optimized for LLM/AI consumption. It provides explicit file paths, 
 > complete data schemas, and decision tables to enable accurate code generation without ambiguity.
 >
-> **Last Updated**: 2026-02-16
+> **Last Updated**: 2026-02-28
 > **Branch**: main
 > **Repository Root**: /Users/valterandersson/Documents/Povver
 
@@ -42,6 +42,10 @@
 | **iOS Recommendation VM** | `Povver/Povver/ViewModels/RecommendationsViewModel.swift` | Recommendation state + actions |
 | **Subscription Gate** | `firebase_functions/functions/utils/subscription-gate.js` | `isPremiumUser()` check |
 | **App Store Webhook** | `firebase_functions/functions/subscriptions/app-store-webhook.js` | V2 server notifications |
+| **Apple JWS Verifier** | `firebase_functions/functions/subscriptions/apple-verifier.js` | Shared Apple JWS verification module |
+| **Subscription Sync** | `firebase_functions/functions/subscriptions/sync-subscription-status.js` | iOS → server entitlement sync (JWS-verified) |
+| **Account Deletion** | `firebase_functions/functions/user/delete-account.js` | Server-side full account purge (Admin SDK) |
+| **Privacy Manifest** | `Povver/Povver/PrivacyInfo.xcprivacy` | App Store privacy declarations |
 | **Firebase Index** | `firebase_functions/functions/index.js` | All Cloud Functions |
 | **Conversation APIs** | `firebase_functions/functions/conversations/` | Artifact actions |
 | **Active Workout APIs** | `firebase_functions/functions/active_workout/` | Workout endpoints |

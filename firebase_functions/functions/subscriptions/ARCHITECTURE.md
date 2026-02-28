@@ -7,8 +7,9 @@ Handles Apple App Store subscription verification, premium access gates, and sub
 | File | Path | Purpose |
 |------|------|---------|
 | `subscription-gate.js` | `utils/subscription-gate.js` | `isPremiumUser(userId)` — shared premium check |
+| `apple-verifier.js` | `subscriptions/apple-verifier.js` | Shared Apple JWS verification (`verifySignedTransaction`, `verifySignedNotification`) |
 | `app-store-webhook.js` | `subscriptions/app-store-webhook.js` | App Store Server Notifications V2 handler (JWS-verified) |
-| `sync-subscription-status.js` | `subscriptions/sync-subscription-status.js` | iOS → server positive entitlement sync (Bearer-only, premium-up only) |
+| `sync-subscription-status.js` | `subscriptions/sync-subscription-status.js` | iOS → server positive entitlement sync (Bearer-only, JWS-verified, premium-up only) |
 | `certs/AppleRootCA-G2.cer` | `subscriptions/certs/` | Apple root certificate for JWS verification |
 | `certs/AppleRootCA-G3.cer` | `subscriptions/certs/` | Apple root certificate for JWS verification |
 
@@ -98,11 +99,26 @@ Download from https://www.apple.com/certificateauthority/ and place in `subscrip
 
 **Streaming gate:** After auth resolves userId, calls `isPremiumUser(userId)`. Emits SSE error event (not HTTP error) because the endpoint uses SSE format. Free analytics (weekly_stats, set_facts, rollups) still run — only LLM analysis jobs are gated.
 
+## Apple JWS Verifier (`apple-verifier.js`)
+
+Shared module for verifying Apple-signed JWS payloads. Used by both the webhook and `syncSubscriptionStatus`.
+
+**Exports:**
+- `verifySignedTransaction(jwsString)` → decoded transaction payload or `null`
+- `verifySignedNotification(jwsString)` → decoded notification payload or `null`
+
+**Production**: Creates `SignedDataVerifier` with Apple root certs (`AppleRootCA-G2.cer`, `AppleRootCA-G3.cer`) at module load.
+**Emulator**: Falls back to insecure base64 decode when `FUNCTIONS_EMULATOR=true`.
+
+---
+
 ## Subscription Sync (iOS → Server)
 
 `sync-subscription-status.js` allows the iOS app to sync positive entitlements to Firestore:
 
 - **Bearer-lane only** — rejects API key authentication
+- **Apple JWS required** — client must send `signedTransactionInfo` (Apple-signed JWS from StoreKit 2's `VerificationResult.jwsRepresentation`). Server verifies via `apple-verifier.js` before writing
+- **Bundle ID validation** — decoded transaction must have `bundleId === 'com.povver.Povver'`
 - **Positive entitlements only** — tier must be `premium`, status must be `active`/`trial`/`grace_period`
 - **Cannot downgrade** — webhook is authoritative for downgrades (expired, refund, revoke)
 - **Why this exists** — Firestore rules block direct client writes to `subscription_*` fields. This Cloud Function validates the sync before writing.
